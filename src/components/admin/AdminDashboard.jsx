@@ -52,6 +52,7 @@ export default function AdminDashboard() {
     // ── Inventory Form Mode ──
     const [formMode, setFormMode] = useState('inventory'); // 'inventory' | 'purchase'
     const [showInventoryForm, setShowInventoryForm] = useState(false);
+    const [showCategoryManager, setShowCategoryManager] = useState(false);
 
     // ── Calculator State ──
     const [showCalc, setShowCalc] = useState(false);
