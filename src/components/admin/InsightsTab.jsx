@@ -9,20 +9,52 @@ import {
 } from 'recharts';
 import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, Package, RefreshCw, BarChart3, Scale, Users, Wrench } from 'lucide-react';
 import DateRangeFilter from './DateRangeFilter';
-import { getEventForDate } from '../../data/berlinEvents';
+
+function toLocalDateKey(value) {
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+function toInputDateString(value) {
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) {
+        const fallback = new Date();
+        return toLocalDateKey(fallback);
+    }
+    return toLocalDateKey(d);
+}
+
+function safeDate(value) {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function safeText(value) {
+    return typeof value === 'string' ? value.trim() : '';
+}
 
 export default function InsightsTab() {
     const { transactions, products } = useInventory();
     const { role, slowMovingDays, salesmen, attendanceLogs } = useAuth();
     const { repairJobs } = useRepairs();
+    const defaultStartDate = new Date(new Date().setDate(new Date().getDate() - 30));
+    const defaultEndDate = new Date();
     // ── Date Range State (shared calendar component) ──
     const [dateSelection, setDateSelection] = useState([
         {
-            startDate: new Date(new Date().setDate(new Date().getDate() - 30)),
-            endDate: new Date(),
+            startDate: defaultStartDate,
+            endDate: defaultEndDate,
             key: 'selection'
         }
     ]);
+    const [repairDateFilter, setRepairDateFilter] = useState({
+        startDate: toInputDateString(defaultStartDate),
+        endDate: toInputDateString(defaultEndDate),
+    });
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
 
     // ── Helper: Calculate Business Metrics ──
@@ -32,9 +64,9 @@ export default function InsightsTab() {
         const twoWeeksAgoCutoff = new Date();
 
         // 1. Time Range Logic — driven by dateSelection from calendar
-        const rangeStart = new Date(dateSelection[0].startDate);
+        const rangeStart = safeDate(dateSelection[0].startDate) || new Date();
         rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
+        const rangeEnd = safeDate(dateSelection[0].endDate) || new Date();
         rangeEnd.setHours(23, 59, 59, 999);
 
         // Sales Growth Logic (Last 7 Days vs Previous 7 Days)
@@ -44,14 +76,66 @@ export default function InsightsTab() {
         let currentWeekSales = 0;
         let lastWeekSales = 0;
 
+        const productById = products.reduce((acc, p) => {
+            if (p?.id !== undefined && p?.id !== null) {
+                acc[String(p.id)] = p;
+            }
+            return acc;
+        }, {});
+
+        const extractCategoryLevel1 = (rawCategory) => {
+            if (!rawCategory) return '';
+            if (typeof rawCategory === 'string') return safeText(rawCategory);
+            if (typeof rawCategory === 'object') {
+                return safeText(rawCategory.level1 || rawCategory.name || '');
+            }
+            return '';
+        };
+
+        const resolveCategoryName = (txn) => {
+            const directCategory =
+                extractCategoryLevel1(txn?.category)
+                || extractCategoryLevel1(txn?.categorySnapshot)
+                || extractCategoryLevel1(txn?.productSnapshot?.category);
+            if (directCategory) return directCategory;
+
+            if (Array.isArray(txn?.categoryPath) && txn.categoryPath[0]) return safeText(txn.categoryPath[0]);
+            if (Array.isArray(txn?.productSnapshot?.categoryPath) && txn.productSnapshot.categoryPath[0]) return safeText(txn.productSnapshot.categoryPath[0]);
+
+            if (txn?.productId !== undefined && txn?.productId !== null) {
+                const linkedProduct = productById[String(txn.productId)];
+                const linkedCategory = extractCategoryLevel1(linkedProduct?.category);
+                if (linkedCategory) return linkedCategory;
+            }
+
+            return 'General Sales';
+        };
+
+        const resolveSalesmanName = (txn) => {
+            const workerId = safeText(txn?.workerId || txn?.userId || '');
+            if (workerId) {
+                const matched = (salesmen || []).find(s => String(s?.id) === workerId);
+                const matchedName = safeText(matched?.name);
+                if (matchedName) return matchedName;
+            }
+
+            const byFields =
+                safeText(txn?.salesmanName)
+                || safeText(txn?.userName)
+                || safeText(txn?.soldBy)
+                || safeText(txn?.staffName);
+            return byFields || 'Unknown';
+        };
+
         const filteredTxns = transactions.filter(t => {
-            if (!t.timestamp) return false;
-            const tDate = new Date(t.timestamp);
+            const tDate = safeDate(t.timestamp);
+            if (!tDate) return false;
+            const amount = parseFloat(t.amount) || 0;
 
             // For Growth calc
             if (t.type === 'income') {
-                if (tDate >= lastWeekCutoff) currentWeekSales += parseFloat(t.amount);
-                else if (tDate >= twoWeeksAgoCutoff && tDate < lastWeekCutoff) lastWeekSales += parseFloat(t.amount);
+                if (tDate >= lastWeekCutoff) currentWeekSales += amount;
+                else if (tDate >= twoWeeksAgoCutoff && tDate < lastWeekCutoff) lastWeekSales += amount;
             }
 
             // Main Filter — only income transactions (no fixed expenses in sales data)
@@ -73,7 +157,8 @@ export default function InsightsTab() {
         const totalFixedExpenses = transactions
             .filter(t => {
                 if (!t.timestamp || !t.isFixedExpense) return false;
-                const tDate = new Date(t.timestamp);
+                const tDate = safeDate(t.timestamp);
+                if (!tDate) return false;
                 return tDate >= rangeStart && tDate <= rangeEnd;
             })
             .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
@@ -84,7 +169,19 @@ export default function InsightsTab() {
         const productStats = {}; // { id, name, qty }
         const salesmanStats = {}; // { name, sales, marginSum, count, totalDiscount }
 
+        // Pre-fill every date in selected range so the chart is always accurate and continuous.
+        for (let cursor = new Date(rangeStart); cursor <= rangeEnd; cursor.setDate(cursor.getDate() + 1)) {
+            const key = toLocalDateKey(cursor);
+            if (key) dailyData[key] = { date: key, sales: 0, profit: 0 };
+        }
+
         filteredTxns.forEach(t => {
+            const txnDate = safeDate(t.timestamp);
+            if (!txnDate) return;
+            const product = t.productId !== undefined && t.productId !== null
+                ? productById[String(t.productId)]
+                : null;
+            const categoryName = resolveCategoryName(t);
 
             const saleAmount = parseFloat(t.amount) || 0;
             const buyAmount = (parseFloat(t.purchasePriceAtTime) || 0) * (parseInt(t.quantity) || 1);
@@ -95,7 +192,7 @@ export default function InsightsTab() {
             // If it's a repair service, we'll calculate service profit separately later, 
             // but keep it in total sales and total profit if we want a combined view.
             // Let's identify if it's a product or service.
-            if (t.source === 'repair' || t.category === 'Repair Service') {
+            if (t.source === 'repair' || categoryName === 'Repair Service') {
                 // The transaction notes might contain 'Parts Cost: €X'
                 let partsCost = 0;
                 if (t.notes && t.notes.includes('Parts Cost: €')) {
@@ -117,37 +214,36 @@ export default function InsightsTab() {
 
             // ── Product Aggregation (Best Sellers) ──
             if (t.productId) {
-                if (!productStats[t.productId]) productStats[t.productId] = { name: t.name || 'Unknown', qty: 0, profit: 0 };
-                productStats[t.productId].qty += (parseInt(t.quantity) || 1);
-                productStats[t.productId].profit += grossProfit;
+                const productKey = String(t.productId);
+                if (!productStats[productKey]) productStats[productKey] = { name: t.name || t.desc || product?.name || 'Unknown', qty: 0, profit: 0 };
+                productStats[productKey].qty += (parseInt(t.quantity) || 1);
+                productStats[productKey].profit += grossProfit;
             }
 
             // ── Category Aggregation ──
-            // Need to find product category
-            const product = products.find(p => p.id === t.productId);
-            const catName = product?.category?.level1 || product?.category || 'Uncategorized';
-
-            if (!categoryStats[catName]) categoryStats[catName] = { name: catName, value: 0 };
-            categoryStats[catName].value += grossProfit;
+            if (!categoryStats[categoryName]) categoryStats[categoryName] = { name: categoryName, value: 0 };
+            categoryStats[categoryName].value += grossProfit;
 
             // ── Daily Aggregation ──
-            const dateKey = new Date(t.timestamp).toLocaleDateString('en-CA');
+            const dateKey = toLocalDateKey(txnDate);
             if (!dailyData[dateKey]) dailyData[dateKey] = { date: dateKey, sales: 0, profit: 0 };
             dailyData[dateKey].sales += saleAmount;
             dailyData[dateKey].profit += grossProfit;
 
             // ── Supplier Aggregation ──
-            let supplierName = 'Local/Unspecified';
-            if (product) {
-                if (product.productUrl) {
-                    if (product.productUrl.startsWith('http')) {
-                        try {
-                            supplierName = new URL(product.productUrl).hostname.replace('www.', '');
-                        } catch (e) { supplierName = product.productUrl; }
-                    } else {
+            let supplierName = safeText(t.purchaseFrom) || safeText(product?.purchaseFrom) || 'Local/Unspecified';
+            if (product && safeText(product.productUrl)) {
+                if (product.productUrl.startsWith('http')) {
+                    try {
+                        supplierName = new URL(product.productUrl).hostname.replace('www.', '');
+                    } catch {
                         supplierName = product.productUrl;
                     }
+                } else {
+                    supplierName = product.productUrl;
                 }
+            } else if (!supplierName) {
+                supplierName = 'Local/Unspecified';
             }
 
             if (!supplierStats[supplierName]) supplierStats[supplierName] = { name: supplierName, volume: 0, profit: 0, marginSum: 0, count: 0 };
@@ -160,92 +256,30 @@ export default function InsightsTab() {
                 supplierStats[supplierName].count += 1;
             }
 
-            // ── Salesman Aggregation ──
-            const salesman = t.userName || 'Admin';
-            if (!salesmanStats[salesman]) salesmanStats[salesman] = { name: salesman, sales: 0, marginSum: 0, count: 0, totalDiscount: 0, profit: 0 };
+            // ── Salesman Aggregation (shop sales only) ──
+            if (String(t.source || 'shop').toLowerCase() !== 'repair') {
+                const salesman = resolveSalesmanName(t);
+                if (!salesmanStats[salesman]) salesmanStats[salesman] = { name: salesman, sales: 0, marginSum: 0, count: 0, totalDiscount: 0, profit: 0 };
 
-            salesmanStats[salesman].sales += saleAmount;
-            salesmanStats[salesman].profit += grossProfit;
-            if (saleAmount > 0) {
-                const margin = ((saleAmount - buyAmount) / saleAmount) * 100;
-                salesmanStats[salesman].marginSum += margin;
-                salesmanStats[salesman].count += 1;
+                salesmanStats[salesman].sales += saleAmount;
+                salesmanStats[salesman].profit += grossProfit;
+                if (saleAmount > 0) {
+                    const margin = ((saleAmount - buyAmount) / saleAmount) * 100;
+                    salesmanStats[salesman].marginSum += margin;
+                    salesmanStats[salesman].count += 1;
+                }
+                salesmanStats[salesman].totalDiscount += parseFloat(t.discount || 0);
             }
-            salesmanStats[salesman].totalDiscount += parseFloat(t.discount || 0);
-
         });
 
-        // 3. Process Chart Data & Add Forecasting
+        // 3. Process Chart Data (actuals only, no future points mixed into selected range)
         const chartData = Object.values(dailyData).sort((a, b) => new Date(a.date) - new Date(b.date));
         const processedChartData = chartData.map((day, index, array) => {
             const start = Math.max(0, index - 6);
             const subset = array.slice(start, index + 1);
             const sum = subset.reduce((acc, curr) => acc + curr.sales, 0);
-            return { ...day, ma7: sum / subset.length };
+            return { ...day, ma7: subset.length ? (sum / subset.length) : 0 };
         });
-
-        let upcomingEvent = null;
-
-        // Only generate forecast if there's enough recent data and the date range is roughly "recent"
-        if (processedChartData.length > 0) {
-            // Find recent trend (Avg sales of last 30 days in the current filtered data)
-            const recent30 = processedChartData.slice(-30);
-            const currentTrend = recent30.length > 0
-                ? recent30.reduce((acc, curr) => acc + curr.sales, 0) / recent30.length
-                : 0;
-
-            const lastDateString = processedChartData[processedChartData.length - 1].date;
-            const lastDate = new Date(lastDateString);
-
-            // Generate next 30 days
-            for (let i = 1; i <= 30; i++) {
-                const futureDate = new Date(lastDate);
-                futureDate.setDate(lastDate.getDate() + i);
-
-                const yyyy = futureDate.getFullYear();
-                const mm = String(futureDate.getMonth() + 1).padStart(2, '0');
-                const dd = String(futureDate.getDate()).padStart(2, '0');
-                const futureDateStr = `${yyyy}-${mm}-${dd}`;
-
-                // Get YoY data (Exact same day last year)
-                const lastYearDateStr = `${yyyy - 1}-${mm}-${dd}`;
-                let yoySales = currentTrend; // Fallback to current trend if no history
-
-                // Check all history transactions for YoY value
-                const yoyTxns = transactions.filter(t => {
-                    if (!t.timestamp || t.type !== 'income') return false;
-                    return t.timestamp.startsWith(lastYearDateStr);
-                });
-                if (yoyTxns.length > 0) {
-                    yoySales = yoyTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-                }
-
-                // 60/40 Blend Formula
-                let baseForecast = (currentTrend * 0.4) + (yoySales * 0.6);
-
-                // Check for Berlin Events
-                const eventInfo = getEventForDate(futureDateStr);
-                let multiplier = 1.0;
-
-                if (eventInfo) {
-                    multiplier = eventInfo.weight;
-                    if (!upcomingEvent && multiplier > 1) {
-                        upcomingEvent = { name: eventInfo.name, date: futureDateStr, multiplier };
-                    }
-                }
-
-                // Apply Multiplier + 10% Safety Stock Buffer
-                const safetyBuffer = 1.10;
-                let finalForecast = baseForecast * multiplier * safetyBuffer;
-
-                processedChartData.push({
-                    date: futureDateStr,
-                    sales: null, // No actual sales yet
-                    ma7: null,
-                    forecast: parseFloat(finalForecast.toFixed(2))
-                });
-            }
-        }
 
         // 4. Process Supplier Data
         const supplierData = Object.values(supplierStats)
@@ -253,8 +287,10 @@ export default function InsightsTab() {
             .sort((a, b) => b.profit - a.profit)
             .slice(0, 10);
 
-        // 5. Category Data (Top 5 by Profit)
+        // 5. Category Data (Top 5 profitable categories only)
         const categoryData = Object.values(categoryStats)
+            .map(c => ({ ...c, value: parseFloat((c.value || 0).toFixed(2)) }))
+            .filter(c => c.value > 0)
             .sort((a, b) => b.value - a.value)
             .slice(0, 5);
 
@@ -313,14 +349,13 @@ export default function InsightsTab() {
             categoryData,
             bestSellers,
             salesmanData,
-            upcomingEvent,
             inventoryHealth: [
                 { name: `Fast Moving (<${slowMovingDays}d)`, value: fastMovingCount },
                 { name: `Slow Moving (>${slowMovingDays}d)`, value: slowMovingCount }
             ],
             slowMovingValue
         };
-    }, [transactions, products, dateSelection]);
+    }, [transactions, products, dateSelection, salesmen, slowMovingDays]);
 
     // ── Peak Hours Analysis ──
     const peakData = useMemo(() => {
@@ -448,14 +483,20 @@ export default function InsightsTab() {
 
     // ── Repairs Analytics ──
     const repairsData = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
+        let rangeStart = safeDate(`${repairDateFilter.startDate}T00:00:00`) || new Date();
         rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
+        let rangeEnd = safeDate(`${repairDateFilter.endDate}T23:59:59.999`) || new Date();
         rangeEnd.setHours(23, 59, 59, 999);
+        if (rangeStart > rangeEnd) {
+            const tmp = rangeStart;
+            rangeStart = rangeEnd;
+            rangeEnd = tmp;
+        }
 
         const filtered = repairJobs.filter(j => {
             if (!j.createdAt) return false;
-            const d = new Date(j.createdAt);
+            const d = safeDate(j.createdAt);
+            if (!d) return false;
             return d >= rangeStart && d <= rangeEnd;
         });
 
@@ -477,7 +518,7 @@ export default function InsightsTab() {
         }
 
         return { total: filtered.length, pending, inProgress, completed: completed.length, completedRevenue, estimatedTotal, avgTurnaround };
-    }, [repairJobs, dateSelection]);
+    }, [repairJobs, repairDateFilter]);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-10">
@@ -602,23 +643,13 @@ export default function InsightsTab() {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                                 <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => { const d = new Date(val); return `${d.getDate()}/${d.getMonth() + 1}`; }} />
                                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
-                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value, name) => [name === 'ma7' ? `€${value.toFixed(2)}` : priceTag(value), name === 'ma7' ? '7-Day Trend' : 'Daily Sales']} labelFormatter={(label) => new Date(label).toLocaleDateString()} />
+                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value, name) => [name === 'ma7' ? `€${(Number(value) || 0).toFixed(2)}` : priceTag(Number(value) || 0), name === 'ma7' ? '7-Day Trend' : 'Daily Sales']} labelFormatter={(label) => new Date(label).toLocaleDateString()} />
                                 <Legend iconType="circle" />
                                 <Area type="monotone" dataKey="sales" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSales)" name="Sales" />
                                 <Line type="monotone" dataKey="ma7" stroke="#fbbf24" strokeWidth={3} dot={false} name="7-Day Trend" />
-                                <Line type="monotone" dataKey="forecast" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Forecast (+10% Buffer)" />
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>
-                    {/* Dashboard Note for Events */}
-                    {analytics.upcomingEvent && (
-                        <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-xl flex items-start gap-2 text-xs font-medium text-amber-800">
-                            <span className="text-amber-500">🗓️</span>
-                            <p>
-                                <strong>Note:</strong> Next month's forecast is automatically adjusted for <strong>{analytics.upcomingEvent.name}</strong> based on YoY traffic patterns and seasonal trends.
-                            </p>
-                        </div>
-                    )}
                 </div>
 
                 {/* Peak Hours Analysis */}
@@ -669,17 +700,23 @@ export default function InsightsTab() {
                     <h3 className="text-lg font-bold text-slate-800 mb-2">Category Profitability</h3>
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-6">Which categories are Cash Cows?</p>
                     <div className="flex-1 w-full min-h-[250px]">
-                        <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
-                            <PieChart>
-                                <Pie data={analytics.categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                                    {analytics.categoryData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip formatter={(value) => priceTag(value)} contentStyle={{ borderRadius: '12px' }} />
-                                <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                            </PieChart>
-                        </ResponsiveContainer>
+                        {analytics.categoryData.length > 0 ? (
+                            <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
+                                <PieChart>
+                                    <Pie data={analytics.categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                        {analytics.categoryData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip formatter={(value) => priceTag(Number(value) || 0)} contentStyle={{ borderRadius: '12px' }} />
+                                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="h-full w-full flex items-center justify-center text-center">
+                                <p className="text-sm text-slate-400 font-medium">No profitable category data in this range.</p>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -886,11 +923,49 @@ export default function InsightsTab() {
 
                     {/* Repairs Analytics */}
                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="p-3 bg-purple-50 rounded-xl text-purple-500"><Wrench size={20} /></div>
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-800">Repairs Report</h3>
-                                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Service Performance</p>
+                        <div className="flex flex-col gap-3 mb-6">
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 bg-purple-50 rounded-xl text-purple-500"><Wrench size={20} /></div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-800">Repairs Report</h3>
+                                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Service Performance</p>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                    <Calendar size={14} className="text-slate-400" />
+                                    <input
+                                        type="date"
+                                        value={repairDateFilter.startDate}
+                                        onChange={(e) => setRepairDateFilter(prev => ({ ...prev, startDate: e.target.value }))}
+                                        className="text-xs font-semibold text-slate-700 bg-transparent outline-none"
+                                    />
+                                </div>
+                                <span className="text-xs font-bold text-slate-400">to</span>
+                                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                    <Calendar size={14} className="text-slate-400" />
+                                    <input
+                                        type="date"
+                                        value={repairDateFilter.endDate}
+                                        onChange={(e) => setRepairDateFilter(prev => ({ ...prev, endDate: e.target.value }))}
+                                        className="text-xs font-semibold text-slate-700 bg-transparent outline-none"
+                                    />
+                                </div>
+                                <button
+                                    onClick={() => setRepairDateFilter({ startDate: toInputDateString(defaultStartDate), endDate: toInputDateString(defaultEndDate) })}
+                                    className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600 transition-colors"
+                                >
+                                    Last 30d
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const today = toInputDateString(new Date());
+                                        setRepairDateFilter({ startDate: today, endDate: today });
+                                    }}
+                                    className="px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-xs font-bold text-blue-600 transition-colors"
+                                >
+                                    Today
+                                </button>
                             </div>
                         </div>
                         {/* KPI Grid */}
