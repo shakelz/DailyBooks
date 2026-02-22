@@ -75,11 +75,22 @@ export default function RepairModal({ isOpen, onClose }) {
     };
 
     const generatePrintHTML = (job) => {
-        const deliveryFormatted = new Date(job.deliveryDate).toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' });
+        const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+        ));
+        const parsedDelivery = job?.deliveryDate ? new Date(job.deliveryDate) : null;
+        const deliveryFormatted = parsedDelivery && !Number.isNaN(parsedDelivery.getTime())
+            ? parsedDelivery.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
+            : 'N/A';
+        const problemNote = esc(job?.problem || job?.notes || 'N/A');
+        const estimatedCost = Number.isFinite(parseFloat(job?.estimatedCost))
+            ? parseFloat(job.estimatedCost)
+            : 0;
+
         return `<!DOCTYPE html>
 <html>
 <head>
-    <title>Repair Labels - ${job.refId}</title>
+    <title>Repair Labels - ${esc(job.refId)}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Courier New', monospace; width: 80mm; }
@@ -103,15 +114,15 @@ export default function RepairModal({ isOpen, onClose }) {
         <div class="shop-name">DailyBooks</div>
         <div class="shop-addr">Kurt-Schumacher-Damm 1</div>
         <div class="divider"></div>
-        <div class="ref-id">${job.refId}</div>
+        <div class="ref-id">${esc(job.refId)}</div>
         <div class="divider"></div>
-        <div class="row"><span class="label-text">Name:</span><span>${job.customerName}</span></div>
-        <div class="row"><span class="label-text">Phone:</span><span>${job.phone}</span></div>
-        <div class="row"><span class="label-text">Device:</span><span>${job.deviceModel}</span></div>
-        ${job.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${job.imei}</span></div>` : ''}
+        <div class="row"><span class="label-text">Name:</span><span>${esc(job.customerName)}</span></div>
+        <div class="row"><span class="label-text">Phone:</span><span>${esc(job.phone)}</span></div>
+        <div class="row"><span class="label-text">Device:</span><span>${esc(job.deviceModel)}</span></div>
+        ${job.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(job.imei)}</span></div>` : ''}
         <div class="divider"></div>
-        <div class="problem"><strong>Problem:</strong> ${job.problem}</div>
-        <div class="row"><span class="label-text">Est. Cost:</span><span>€${job.estimatedCost.toFixed(2)}</span></div>
+        <div class="problem"><strong>Problem:</strong> ${problemNote}</div>
+        <div class="row"><span class="label-text">Est. Cost:</span><span>€${estimatedCost.toFixed(2)}</span></div>
         <div class="row"><span class="label-text">Delivery:</span><span>${deliveryFormatted}</span></div>
         <div class="divider"></div>
         <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Thank you for choosing DailyBooks!</div>
@@ -120,11 +131,11 @@ export default function RepairModal({ isOpen, onClose }) {
     <!-- SHOP LABEL (stick on phone) -->
     <div class="label">
         <div class="title">— Shop Label —</div>
-        <div class="ref-id" style="font-size:22px;">${job.refId}</div>
+        <div class="ref-id" style="font-size:22px;">${esc(job.refId)}</div>
         <div class="divider"></div>
-        <div class="problem"><strong>Issue:</strong> ${job.problem}</div>
-        <div class="row"><span class="label-text">Device:</span><span>${job.deviceModel}</span></div>
-        <div class="row"><span class="label-text">Due:</span><span>${deliveryFormatted}</span></div>
+        <div class="problem"><strong>Problem Note:</strong> ${problemNote}</div>
+        <div class="row"><span class="label-text">Device:</span><span>${esc(job.deviceModel)}</span></div>
+        <div class="row"><span class="label-text">Delivery Date:</span><span>${deliveryFormatted}</span></div>
     </div>
 </body>
 </html>`;
