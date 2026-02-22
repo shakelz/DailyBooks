@@ -135,6 +135,14 @@ export default function SalesmanDashboard() {
     const scanTimeoutRef = useRef(null);
     const SCAN_SPEED_THRESHOLD = 80;
 
+    // ═══════════════════ AUTO-LOCK (INACTIVITY TIMER) STATES ═══════════════════
+
+    const [isLocked, setIsLocked] = useState(false);
+    const [unlockPin, setUnlockPin] = useState('');
+    const [unlockError, setUnlockError] = useState(false);
+    const lockTimerRef = useRef(null);
+    const debounceRef = useRef(null);
+
     // ═══════════════════ COMPUTED ═══════════════════
 
     const todayDate = new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -362,12 +370,6 @@ export default function SalesmanDashboard() {
     });
 
     // ═══════════════════ AUTO-LOCK (INACTIVITY TIMER) ═══════════════════
-
-    const [isLocked, setIsLocked] = useState(false);
-    const [unlockPin, setUnlockPin] = useState('');
-    const [unlockError, setUnlockError] = useState(false);
-    const lockTimerRef = useRef(null);
-    const debounceRef = useRef(null);
 
     useEffect(() => {
         if (!autoLockEnabled) return;

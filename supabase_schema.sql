@@ -3,7 +3,7 @@
 -- ==============================================================================
 
 -- 1. Create INVENTORY (Products) Table
-CREATE TABLE public.inventory (
+CREATE TABLE IF NOT EXISTS public.inventory (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     "purchasePrice" NUMERIC DEFAULT 0,
@@ -18,6 +18,7 @@ CREATE TABLE public.inventory (
 
 -- Enable RLS for Inventory
 ALTER TABLE public.inventory ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable Read/Write for Authenticated Users on Inventory" ON public.inventory;
 CREATE POLICY "Enable Read/Write for Authenticated Users on Inventory" 
     ON public.inventory FOR ALL 
     USING (auth.role() = 'anon' OR auth.role() = 'authenticated') 
@@ -25,7 +26,7 @@ CREATE POLICY "Enable Read/Write for Authenticated Users on Inventory"
 
 
 -- 2. Create REPAIRS Table
-CREATE TABLE public.repairs (
+CREATE TABLE IF NOT EXISTS public.repairs (
     id TEXT PRIMARY KEY,
     "refId" TEXT NOT NULL,
     "customerName" TEXT NOT NULL,
@@ -45,6 +46,7 @@ CREATE TABLE public.repairs (
 
 -- Enable RLS for Repairs
 ALTER TABLE public.repairs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable Read/Write for Authenticated Users on Repairs" ON public.repairs;
 CREATE POLICY "Enable Read/Write for Authenticated Users on Repairs" 
     ON public.repairs FOR ALL 
     USING (auth.role() = 'anon' OR auth.role() = 'authenticated') 
@@ -53,7 +55,7 @@ CREATE POLICY "Enable Read/Write for Authenticated Users on Repairs"
 
 -- 3. Create TRANSACTIONS Table
 -- Kept flat to maintain compatibility with InsightsTab, but added order_id for grouping cart items.
-CREATE TABLE public.transactions (
+CREATE TABLE IF NOT EXISTS public.transactions (
     id TEXT PRIMARY KEY,
     "order_id" TEXT, -- Used to group multiple items bought in a single checkout
     "desc" TEXT,
@@ -76,6 +78,7 @@ CREATE TABLE public.transactions (
 
 -- Enable RLS for Transactions
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable Read/Write for Authenticated Users on Transactions" ON public.transactions;
 CREATE POLICY "Enable Read/Write for Authenticated Users on Transactions" 
     ON public.transactions FOR ALL 
     USING (auth.role() = 'anon' OR auth.role() = 'authenticated') 
@@ -83,7 +86,7 @@ CREATE POLICY "Enable Read/Write for Authenticated Users on Transactions"
 
 
 -- 4. Create ATTENDANCE Table
-CREATE TABLE public.attendance (
+CREATE TABLE IF NOT EXISTS public.attendance (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "workerId" TEXT NOT NULL,
     "workerName" TEXT NOT NULL,
@@ -94,6 +97,7 @@ CREATE TABLE public.attendance (
 
 -- Enable RLS for Attendance
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable Read/Write for Authenticated Users on Attendance" ON public.attendance;
 CREATE POLICY "Enable Read/Write for Authenticated Users on Attendance" 
     ON public.attendance FOR ALL 
     USING (auth.role() = 'anon' OR auth.role() = 'authenticated') 
@@ -102,7 +106,7 @@ CREATE POLICY "Enable Read/Write for Authenticated Users on Attendance"
 -- ==============================================================================
 
 -- 5. Create CATEGORIES Table
-CREATE TABLE public.categories (
+CREATE TABLE IF NOT EXISTS public.categories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     parent TEXT, -- Null if L1, populated with L1 name if L2
@@ -113,6 +117,7 @@ CREATE TABLE public.categories (
 
 -- Enable RLS for Categories
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable Read/Write for Authenticated Users on Categories" ON public.categories;
 CREATE POLICY "Enable Read/Write for Authenticated Users on Categories" 
     ON public.categories FOR ALL 
     USING (auth.role() = 'anon' OR auth.role() = 'authenticated') 
