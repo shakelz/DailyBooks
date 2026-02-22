@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock } from 'lucide-react';
+import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus } from 'lucide-react';
 import DummyDataGenerator from './DummyDataGenerator';
 
 export default function AdminSettings() {
     const {
-        adminPassword, updateAdminPassword,
+        isAdminLike, activeShopId, shops, refreshShops, createShop, updateShop, deleteShop,
+        updateAdminPassword,
         salesmen, addSalesman, deleteSalesman, updateSalesman,
         slowMovingDays, setSlowMovingDays,
         autoLockEnabled, setAutoLockEnabled,
@@ -32,6 +33,27 @@ export default function AdminSettings() {
     const [editPhoto, setEditPhoto] = useState('');
     const [editRate, setEditRate] = useState('');
 
+    // ── Shops State ──
+    const [shopName, setShopName] = useState('');
+    const [shopLocation, setShopLocation] = useState('');
+    const [shopOwnerEmail, setShopOwnerEmail] = useState('');
+    const [shopError, setShopError] = useState('');
+    const [shopMessage, setShopMessage] = useState('');
+    const [createdManager, setCreatedManager] = useState(null);
+    const [isCreatingShop, setIsCreatingShop] = useState(false);
+    const [editingShopId, setEditingShopId] = useState('');
+    const [editingShopName, setEditingShopName] = useState('');
+    const [editingShopLocation, setEditingShopLocation] = useState('');
+    const [editingShopOwnerEmail, setEditingShopOwnerEmail] = useState('');
+    const [isSavingShop, setIsSavingShop] = useState(false);
+    const [deletingShopId, setDeletingShopId] = useState('');
+
+    useEffect(() => {
+        if (isAdminLike) {
+            refreshShops();
+        }
+    }, [isAdminLike, refreshShops]);
+
     // ── Handlers ──
     const handlePasswordUpdate = (e) => {
         e.preventDefault();
@@ -49,7 +71,7 @@ export default function AdminSettings() {
         setTimeout(() => setPassMsg(''), 2000);
     };
 
-    const handleAddSalesman = (e) => {
+    const handleAddSalesman = async (e) => {
         e.preventDefault();
         if (!salesmanName.trim() || salesmanPin.length !== 4) {
             setSalesmanError('Name and 4-digit PIN required.');
@@ -61,14 +83,10 @@ export default function AdminSettings() {
             return;
         }
 
-        addSalesman(salesmanName, salesmanPin);
-        // Update hourly rate for the newly added salesman
-        // addSalesman creates with default 12.50, but we want to use the user-specified rate
-        setTimeout(() => {
-            const latest = JSON.parse(localStorage.getItem('salesmen') || '[]');
-            const newest = latest[latest.length - 1];
-            if (newest) updateSalesman(newest.id, { hourlyRate: parseFloat(salesmanRate) || 12.50 });
-        }, 100);
+        const created = await addSalesman(salesmanName, salesmanPin);
+        if (created?.id) {
+            await updateSalesman(created.id, { hourlyRate: parseFloat(salesmanRate) || 12.50 });
+        }
         setSalesmanName(''); setSalesmanPin(''); setSalesmanRate('12.50');
         setShowAddSalesman(false);
         setSalesmanError('');
@@ -104,12 +122,283 @@ export default function AdminSettings() {
         setEditingId(null);
     };
 
+    const handleCreateShop = async (e) => {
+        e.preventDefault();
+        setShopError('');
+        setShopMessage('');
+        setCreatedManager(null);
+
+        if (!shopName.trim()) {
+            setShopError('Shop name is required.');
+            return;
+        }
+        if (!shopOwnerEmail.trim()) {
+            setShopError('Owner email is required.');
+            return;
+        }
+
+        setIsCreatingShop(true);
+        try {
+            const result = await createShop({
+                shopName,
+                location: shopLocation,
+                ownerEmail: shopOwnerEmail
+            });
+            setShopName('');
+            setShopLocation('');
+            setShopOwnerEmail('');
+            setCreatedManager(result?.credentials || null);
+            setEditingShopId('');
+            setShopMessage(`Shop "${result?.shop?.name || shopName}" created successfully.`);
+            await refreshShops(result?.shop?.id || activeShopId);
+        } catch (error) {
+            setShopError(error?.message || 'Failed to create shop.');
+        } finally {
+            setIsCreatingShop(false);
+        }
+    };
+
+    const startShopEdit = (shop) => {
+        setShopError('');
+        setShopMessage('');
+        setCreatedManager(null);
+        setEditingShopId(shop.id);
+        setEditingShopName(shop.name || '');
+        setEditingShopLocation(shop.location || '');
+        setEditingShopOwnerEmail(shop.owner_email || '');
+    };
+
+    const cancelShopEdit = () => {
+        setEditingShopId('');
+        setEditingShopName('');
+        setEditingShopLocation('');
+        setEditingShopOwnerEmail('');
+    };
+
+    const handleSaveShop = async () => {
+        if (!editingShopId) return;
+        if (!editingShopName.trim()) {
+            setShopError('Shop name is required.');
+            return;
+        }
+
+        setShopError('');
+        setShopMessage('');
+        setIsSavingShop(true);
+        try {
+            const updated = await updateShop(editingShopId, {
+                name: editingShopName,
+                location: editingShopLocation,
+                ownerEmail: editingShopOwnerEmail
+            });
+            setShopMessage(`Shop "${updated?.name || editingShopName}" updated successfully.`);
+            cancelShopEdit();
+            await refreshShops(updated?.id || activeShopId);
+        } catch (error) {
+            setShopError(error?.message || 'Failed to update shop.');
+        } finally {
+            setIsSavingShop(false);
+        }
+    };
+
+    const handleDeleteShop = async (shop) => {
+        if (!shop?.id) return;
+
+        const confirmDelete = window.confirm(
+            `Delete shop "${shop.name}"?\n\nThis will remove shop users, inventory, repairs, attendance and transactions for this shop.`
+        );
+        if (!confirmDelete) return;
+
+        setShopError('');
+        setShopMessage('');
+        setDeletingShopId(shop.id);
+        try {
+            await deleteShop(shop.id);
+            if (editingShopId === shop.id) {
+                cancelShopEdit();
+            }
+            setShopMessage(`Shop "${shop.name}" deleted successfully.`);
+            await refreshShops();
+        } catch (error) {
+            setShopError(error?.message || 'Failed to delete shop.');
+        } finally {
+            setDeletingShopId('');
+        }
+    };
+
     return (
         <div className="space-y-6 max-w-4xl">
             <div>
                 <h1 className="text-2xl font-bold text-slate-800">System Settings</h1>
-                <p className="text-slate-500 text-sm">Manage security and user access.</p>
+                <p className="text-slate-500 text-sm">Manage security, users, and shop-level access.</p>
             </div>
+
+            {/* ── Admin: Manage Shops ── */}
+            {isAdminLike && (
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-5">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-violet-50 text-violet-600 rounded-lg">
+                            <Store size={20} />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-800">Manage Shops</h2>
+                            <p className="text-xs text-slate-400">Create and manage tenant shops.</p>
+                        </div>
+                    </div>
+
+                    <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                        <div className="md:col-span-1">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Shop Name</label>
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                <Store size={14} className="text-slate-400" />
+                                <input
+                                    value={shopName}
+                                    onChange={(e) => setShopName(e.target.value)}
+                                    className="w-full bg-transparent outline-none text-sm font-medium"
+                                    placeholder="e.g. DailyBooks Berlin"
+                                />
+                            </div>
+                        </div>
+                        <div className="md:col-span-1">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Location</label>
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                <MapPin size={14} className="text-slate-400" />
+                                <input
+                                    value={shopLocation}
+                                    onChange={(e) => setShopLocation(e.target.value)}
+                                    className="w-full bg-transparent outline-none text-sm font-medium"
+                                    placeholder="City / Address"
+                                />
+                            </div>
+                        </div>
+                        <div className="md:col-span-1">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Owner Email</label>
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                <Mail size={14} className="text-slate-400" />
+                                <input
+                                    type="email"
+                                    value={shopOwnerEmail}
+                                    onChange={(e) => setShopOwnerEmail(e.target.value)}
+                                    className="w-full bg-transparent outline-none text-sm font-medium"
+                                    placeholder="owner@shop.com"
+                                />
+                            </div>
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={isCreatingShop}
+                            className="md:col-span-1 px-4 py-2.5 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700 active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                        >
+                            <UserPlus size={16} />
+                            {isCreatingShop ? 'Creating...' : 'Create Shop'}
+                        </button>
+                    </form>
+
+                    {shopError && <p className="text-sm font-medium text-red-500">{shopError}</p>}
+                    {shopMessage && <p className="text-sm font-medium text-emerald-600">{shopMessage}</p>}
+
+                    {createdManager && (
+                        <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50">
+                            <p className="text-xs font-black text-emerald-700 uppercase tracking-wider mb-2">Admin Credentials</p>
+                            <div className={`grid grid-cols-1 gap-3 text-sm ${createdManager.pin ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+                                <div><span className="text-slate-500">Email:</span> <span className="font-bold text-slate-800">{createdManager.email}</span></div>
+                                {createdManager.pin && <div><span className="text-slate-500">PIN:</span> <span className="font-bold text-slate-800">{createdManager.pin}</span></div>}
+                                <div><span className="text-slate-500">Password:</span> <span className="font-bold text-slate-800">{createdManager.password}</span></div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="pt-2">
+                        <h3 className="text-sm font-bold text-slate-700 mb-3">Registered Shops ({shops.length})</h3>
+                        <div className="space-y-2">
+                            {shops.length === 0 ? (
+                                <p className="text-sm text-slate-400">No shops found.</p>
+                            ) : (
+                                shops.map((shop) => (
+                                    <div key={shop.id} className="px-3 py-2 rounded-xl border border-slate-100 bg-slate-50 space-y-3">
+                                        {editingShopId === shop.id ? (
+                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Shop Name</label>
+                                                    <input
+                                                        value={editingShopName}
+                                                        onChange={(e) => setEditingShopName(e.target.value)}
+                                                        className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Location</label>
+                                                    <input
+                                                        value={editingShopLocation}
+                                                        onChange={(e) => setEditingShopLocation(e.target.value)}
+                                                        className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Owner Email</label>
+                                                    <input
+                                                        type="email"
+                                                        value={editingShopOwnerEmail}
+                                                        onChange={(e) => setEditingShopOwnerEmail(e.target.value)}
+                                                        className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
+                                                        placeholder="owner@shop.com"
+                                                    />
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleSaveShop}
+                                                        disabled={isSavingShop}
+                                                        className="flex-1 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-1"
+                                                    >
+                                                        <Save size={14} />
+                                                        {isSavingShop ? 'Saving...' : 'Update'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={cancelShopEdit}
+                                                        className="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-100 flex items-center gap-1"
+                                                    >
+                                                        <X size={14} />
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="text-sm font-bold text-slate-800">{shop.name}</p>
+                                                    <p className="text-xs text-slate-500">{shop.location || 'Location not set'}</p>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="text-xs text-slate-500 font-mono">{shop.owner_email || 'No owner email'}</div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => startShopEdit(shop)}
+                                                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        title="Edit Shop"
+                                                    >
+                                                        <Edit2 size={16} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDeleteShop(shop)}
+                                                        disabled={deletingShopId === shop.id}
+                                                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-60"
+                                                        title="Delete Shop"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ── Admin Security Section ── */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import { useAuth } from './AuthContext';
 import { buildProductJSON, generateId, getStockSeverity, getLevel1Categories, getLevel2Categories } from '../data/inventoryStore';
 
 const InventoryContext = createContext(null);
@@ -10,6 +11,12 @@ const PAYMENT_MODE_KEY = '__paymentMode';
 
 function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
+}
+
+function withShopId(payload, shopId) {
+    const sid = cleanText(shopId);
+    if (!sid) return payload;
+    return { ...payload, shop_id: sid };
 }
 
 function isCategoryHierarchyObject(value) {
@@ -118,7 +125,7 @@ function normalizeInventoryRecord(product) {
     };
 }
 
-function buildInventoryPayload(product, includeId = false) {
+function buildInventoryPayload(product, includeId = false, shopId = '') {
     const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
     const purchaseFrom = cleanText(product?.purchaseFrom);
     const paymentMode = cleanText(product?.paymentMode);
@@ -147,7 +154,7 @@ function buildInventoryPayload(product, includeId = false) {
         delete payloadAttributes[PAYMENT_MODE_KEY];
     }
 
-    const payload = {
+    const payload = withShopId({
         name: product?.name || product?.desc || product?.model || '',
         purchasePrice: parseFloat(product?.purchasePrice ?? product?.costPrice ?? 0) || 0,
         sellingPrice: parseFloat(product?.sellingPrice ?? product?.price ?? product?.unitPrice ?? product?.amount ?? 0) || 0,
@@ -157,7 +164,7 @@ function buildInventoryPayload(product, includeId = false) {
         productUrl: product?.productUrl || '',
         timestamp: product?.timestamp || new Date().toISOString(),
         attributes: payloadAttributes,
-    };
+    }, shopId);
 
     if (includeId) payload.id = String(product?.id);
 
@@ -248,8 +255,8 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
     };
 }
 
-function buildTransactionDBPayload(txn, includeId = false) {
-    const payload = {
+function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
+    const payload = withShopId({
         desc: txn?.desc || txn?.name || '',
         amount: parseFloat(txn?.amount || 0) || 0,
         type: txn?.type || '',
@@ -264,7 +271,7 @@ function buildTransactionDBPayload(txn, includeId = false) {
         productId: txn?.productId ? String(txn.productId) : null,
         workerId: txn?.workerId || null,
         salesmanName: txn?.userName || txn?.salesmanName || txn?.soldBy || ''
-    };
+    }, shopId);
 
     if (includeId) payload.id = String(txn?.id || Date.now());
 
@@ -325,6 +332,8 @@ function buildTransactionSnapshot(txn) {
 }
 
 export function InventoryProvider({ children }) {
+    const { activeShopId } = useAuth();
+
     // ── Live Products (Local State mirroring Supabase) ──
     const [products, setProducts] = useState([]);
     const [transactions, setTransactions] = useState([]);
@@ -335,22 +344,43 @@ export function InventoryProvider({ children }) {
 
     // ── Preload Data from Supabase ──
     useEffect(() => {
-        const fetchInitialData = async () => {
-            const { data: invData, error: invErr } = await supabase.from('inventory').select('*');
-            if (!invErr && invData) setProducts(invData.map(normalizeInventoryRecord));
+        const sid = cleanText(activeShopId);
+        if (!sid) {
+            setProducts([]);
+            setTransactions([]);
+            setL1Categories([]);
+            setL2Map({});
+            return undefined;
+        }
 
-            const { data: txnData, error: txnErr } = await supabase.from('transactions').select('*').order('timestamp', { ascending: false });
-            if (!txnErr && txnData) {
-                const snapshotMap = readTransactionSnapshots();
-                const hydratedTransactions = txnData.map(t => mergeTransactionWithSnapshot(t, snapshotMap));
-                setTransactions(hydratedTransactions);
+        let cancelled = false;
+
+        const fetchInitialData = async () => {
+            const [invResult, txnResult, catResult] = await Promise.all([
+                supabase.from('inventory').select('*').eq('shop_id', sid),
+                supabase.from('transactions').select('*').eq('shop_id', sid).order('timestamp', { ascending: false }),
+                supabase.from('categories').select('*').eq('shop_id', sid),
+            ]);
+
+            if (cancelled) return;
+
+            if (!invResult.error && Array.isArray(invResult.data)) {
+                setProducts(invResult.data.map(normalizeInventoryRecord));
+            } else {
+                setProducts([]);
             }
 
-            // Fetch Categories
-            const { data: catData, error: catErr } = await supabase.from('categories').select('*');
-            if (!catErr && catData) {
-                const l1 = catData.filter(c => c.level === 1) || [];
-                const l2 = catData.filter(c => c.level === 2) || [];
+            if (!txnResult.error && Array.isArray(txnResult.data)) {
+                const snapshotMap = readTransactionSnapshots();
+                const hydratedTransactions = txnResult.data.map(t => mergeTransactionWithSnapshot(t, snapshotMap));
+                setTransactions(hydratedTransactions);
+            } else {
+                setTransactions([]);
+            }
+
+            if (!catResult.error && Array.isArray(catResult.data)) {
+                const l1 = catResult.data.filter(c => c.level === 1) || [];
+                const l2 = catResult.data.filter(c => c.level === 2) || [];
 
                 setL1Categories(l1);
 
@@ -360,11 +390,14 @@ export function InventoryProvider({ children }) {
                     map2[c.parent].push(c);
                 });
                 setL2Map(map2);
+            } else {
+                setL1Categories([]);
+                setL2Map({});
             }
         };
         fetchInitialData();
 
-        // Listen for custom stock deductions (e.g., from Repair parts used)
+        // Listen for custom stock deductions (e.g., from repair parts used)
         const handleStockUpdate = (e) => {
             if (e.detail && Array.isArray(e.detail.partsUsed)) {
                 e.detail.partsUsed.forEach(part => {
@@ -374,43 +407,45 @@ export function InventoryProvider({ children }) {
         };
         window.addEventListener('update-inventory-stock', handleStockUpdate);
 
+        const shopFilter = `shop_id=eq.${sid}`;
+
         // Listen for live updates via Supabase Realtime (Transactions, Inventory, Categories)
-        const syncSubscription = supabase.channel('public:unified_sync')
+        const syncSubscription = supabase.channel(`public:unified_sync:${sid}`)
             // TRANSACTIONS
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, (payload) => {
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
                 const mergedTxn = mergeTransactionWithSnapshot(payload.new);
                 setTransactions(prev => {
                     if (prev.some(t => String(t.id) === String(payload.new.id))) return prev;
                     return [mergedTxn, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 });
             })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions' }, (payload) => {
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
                 const mergedTxn = mergeTransactionWithSnapshot(payload.new);
                 setTransactions(prev => prev.map(t => String(t.id) === String(payload.new.id) ? { ...t, ...mergedTxn } : t));
             })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions' }, (payload) => {
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
                 setTransactions(prev => prev.filter(t => String(t.id) !== String(payload.old.id)));
             })
             // INVENTORY (Products)
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory' }, (payload) => {
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
                 const incoming = normalizeInventoryRecord(payload.new);
                 setProducts(prev => {
                     if (prev.some(p => String(p.id) === String(payload.new.id))) return prev;
                     return [incoming, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 });
             })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'inventory' }, (payload) => {
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
                 setProducts(prev => prev.map(p =>
                     String(p.id) === String(payload.new.id)
                         ? normalizeInventoryRecord({ ...p, ...payload.new })
                         : p
                 ));
             })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'inventory' }, (payload) => {
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
                 setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
             })
             // CATEGORIES
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'categories' }, (payload) => {
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
                 const newCat = payload.new;
                 if (newCat.level === 1) {
                     setL1Categories(prev => {
@@ -425,13 +460,11 @@ export function InventoryProvider({ children }) {
                     });
                 }
             })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'categories' }, (payload) => {
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
                 const updated = payload.new;
                 if (updated.level === 1) {
                     setL1Categories(prev => prev.map(c => {
                         const cName = typeof c === 'object' ? c.name : c;
-                        // For updates, we match by name since UI often treats name as primary key, or use id if we switched to id
-                        // Since DB uses ID, let's match by ID securely
                         return (typeof c === 'object' && c.id === updated.id) ? updated : (cName === updated.name ? updated : c);
                     }));
                 } else if (updated.level === 2) {
@@ -446,9 +479,8 @@ export function InventoryProvider({ children }) {
                     });
                 }
             })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'categories' }, (payload) => {
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
                 const deletedId = payload.old.id;
-                // Deleting from both L1 and L2 since payload only has ID, no level info easily accessible without old row full replica
                 setL1Categories(prev => prev.filter(c => typeof c !== 'object' || c.id !== deletedId));
                 setL2Map(prev => {
                     const next = { ...prev };
@@ -460,7 +492,9 @@ export function InventoryProvider({ children }) {
             })
             // Fallback Broadcasts
             .on('broadcast', { event: 'inventory_sync' }, (payload) => {
-                const { action, data } = payload.payload;
+                const { action, data } = payload.payload || {};
+                if (!data || cleanText(data.shop_id) !== sid) return;
+
                 if (action === 'UPDATE') {
                     setProducts(prev => prev.map(p =>
                         String(p.id) === String(data.id)
@@ -478,7 +512,9 @@ export function InventoryProvider({ children }) {
                 }
             })
             .on('broadcast', { event: 'transaction_sync' }, (payload) => {
-                const { action, data } = payload.payload;
+                const { action, data } = payload.payload || {};
+                if (!data || cleanText(data.shop_id) !== sid) return;
+
                 if (action === 'INSERT') {
                     const mergedTxn = mergeTransactionWithSnapshot(data);
                     setTransactions(prev => {
@@ -495,16 +531,21 @@ export function InventoryProvider({ children }) {
             .subscribe();
 
         return () => {
+            cancelled = true;
             window.removeEventListener('update-inventory-stock', handleStockUpdate);
             supabase.removeChannel(syncSubscription);
         };
-    }, []);
+    }, [activeShopId]);
 
     // ── Optimistic CRUD Async Helpers ──
 
     const addProduct = useCallback(async (product) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) throw new Error('No active shop selected.');
+
         const entry = buildProductJSON(product);
         entry.id = String(entry.id); // Supabase ID is TEXT
+        entry.shop_id = sid;
         entry.purchaseFrom = cleanText(product?.purchaseFrom);
         entry.paymentMode = cleanText(product?.paymentMode) || cleanText(product?.paymentMethod);
 
@@ -526,7 +567,7 @@ export function InventoryProvider({ children }) {
             return [entry, ...prev];
         });
 
-        const payload = buildInventoryPayload(entry, true);
+        const payload = buildInventoryPayload(entry, true, sid);
         const { data, error } = await supabase.from('inventory').insert([payload]).select().single();
 
         if (error) {
@@ -538,38 +579,44 @@ export function InventoryProvider({ children }) {
         const savedEntry = normalizeInventoryRecord(data ? { ...entry, ...data, id: String(data.id || entry.id) } : entry);
         setProducts(prev => prev.map(p => String(p.id) === entry.id ? savedEntry : p));
 
-        supabase.channel('public:unified_sync').send({
+        supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',
             event: 'inventory_sync',
-            payload: { action: 'INSERT', data: savedEntry }
+            payload: { action: 'INSERT', data: { ...savedEntry, shop_id: sid } }
         }).catch(e => console.error(e));
 
         return savedEntry;
-    }, []);
+    }, [activeShopId]);
 
     const deleteProduct = useCallback(async (id) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return;
+
         const strId = String(id);
         setProducts(prev => prev.filter(p => String(p.id) !== strId));
 
-        supabase.channel('public:unified_sync').send({
+        supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',
             event: 'inventory_sync',
-            payload: { action: 'DELETE', data: { id: strId } }
+            payload: { action: 'DELETE', data: { id: strId, shop_id: sid } }
         }).catch(e => console.error(e));
 
-        await supabase.from('inventory').delete().eq('id', strId);
-    }, []);
+        await supabase.from('inventory').delete().eq('id', strId).eq('shop_id', sid);
+    }, [activeShopId]);
 
     const updateProduct = useCallback(async (id, updatedData) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) throw new Error('No active shop selected.');
+
         const strId = String(id);
         const previousProduct = products.find(p => String(p.id) === strId);
         if (!previousProduct) return null;
 
-        const mergedProduct = { ...previousProduct, ...updatedData, id: strId };
+        const mergedProduct = { ...previousProduct, ...updatedData, id: strId, shop_id: sid };
         setProducts(prev => prev.map(p => String(p.id) === strId ? mergedProduct : p));
 
-        const payload = buildInventoryPayload(mergedProduct);
-        const { data, error } = await supabase.from('inventory').update(payload).eq('id', strId).select().single();
+        const payload = buildInventoryPayload(mergedProduct, false, sid);
+        const { data, error } = await supabase.from('inventory').update(payload).eq('id', strId).eq('shop_id', sid).select().single();
 
         if (error) {
             // Rollback optimistic update when cloud save fails
@@ -580,67 +627,78 @@ export function InventoryProvider({ children }) {
         const savedProduct = normalizeInventoryRecord(data ? { ...mergedProduct, ...data, id: strId } : mergedProduct);
         setProducts(prev => prev.map(p => String(p.id) === strId ? savedProduct : p));
 
-        supabase.channel('public:unified_sync').send({
+        supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',
             event: 'inventory_sync',
-            payload: { action: 'UPDATE', data: savedProduct }
+            payload: { action: 'UPDATE', data: { ...savedProduct, shop_id: sid } }
         }).catch(e => console.error(e));
 
         return savedProduct;
-    }, [products]);
+    }, [products, activeShopId]);
 
     const updateStock = useCallback(async (productRef, newStock) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return null;
+
         const searchRef = String(productRef);
         const parsedStock = parseInt(newStock, 10);
         const nextStock = Number.isNaN(parsedStock) ? 0 : Math.max(0, parsedStock);
-        const matchedProduct = products.find(p => String(p.id) === searchRef || String(p.barcode || '') === searchRef);
+        const matchedProduct = products.find(
+            p => cleanText(p.shop_id || sid) === sid && (String(p.id) === searchRef || String(p.barcode || '') === searchRef)
+        );
         if (!matchedProduct) return null;
 
         const strId = String(matchedProduct.id);
         const previousStock = parseInt(matchedProduct.stock, 10) || 0;
         setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: nextStock } : p));
-        const { error } = await supabase.from('inventory').update({ stock: nextStock }).eq('id', strId);
+        const { error } = await supabase.from('inventory').update({ stock: nextStock }).eq('id', strId).eq('shop_id', sid);
 
         if (error) {
             setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: previousStock } : p));
             throw new Error(error.message || 'Failed to update stock.');
         }
 
-        supabase.channel('public:unified_sync').send({
+        supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',
             event: 'inventory_sync',
-            payload: { action: 'UPDATE', data: { id: strId, stock: nextStock } }
+            payload: { action: 'UPDATE', data: { id: strId, stock: nextStock, shop_id: sid } }
         }).catch(e => console.error(e));
 
         return { ...matchedProduct, stock: nextStock };
-    }, [products]);
+    }, [products, activeShopId]);
 
     const adjustStock = useCallback(async (productId, delta) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return;
+
         const strId = String(productId);
 
         setProducts(prev => {
-            const product = prev.find(p => String(p.id) === strId);
+            const product = prev.find(p => cleanText(p.shop_id || sid) === sid && String(p.id) === strId);
             if (!product) return prev;
 
             const updatedStockVal = Math.max(0, (parseInt(product.stock) || 0) + parseInt(delta));
 
             // Fire off Supabase and Broadcast asynchronously
-            supabase.from('inventory').update({ stock: updatedStockVal }).eq('id', strId).then();
+            supabase.from('inventory').update({ stock: updatedStockVal }).eq('id', strId).eq('shop_id', sid).then();
 
-            supabase.channel('public:unified_sync').send({
+            supabase.channel(`public:unified_sync:${sid}`).send({
                 type: 'broadcast',
                 event: 'inventory_sync',
-                payload: { action: 'UPDATE', data: { id: strId, stock: updatedStockVal } }
+                payload: { action: 'UPDATE', data: { id: strId, stock: updatedStockVal, shop_id: sid } }
             }).catch(e => console.error(e));
 
             return prev.map(p => String(p.id) === strId ? { ...p, stock: updatedStockVal } : p);
         });
-    }, []);
+    }, [activeShopId]);
 
     // ── Transactions ──
 
     const addTransaction = useCallback(async (txn) => {
-        const formattedTxn = buildTransactionDBPayload(txn, true);
+        const sid = cleanText(activeShopId);
+        if (!sid) throw new Error('No active shop selected.');
+
+        const formattedTxn = buildTransactionDBPayload(txn, true, sid);
         const snapshot = buildTransactionSnapshot({ ...txn, ...formattedTxn });
         saveTransactionSnapshot(formattedTxn.id, snapshot);
         const hydratedTxn = mergeTransactionWithSnapshot(formattedTxn, { [formattedTxn.id]: snapshot });
@@ -650,10 +708,10 @@ export function InventoryProvider({ children }) {
             return [hydratedTxn, ...prev];
         });
 
-        supabase.channel('public:unified_sync').send({
+        supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',
             event: 'transaction_sync',
-            payload: { action: 'INSERT', data: hydratedTxn }
+            payload: { action: 'INSERT', data: { ...hydratedTxn, shop_id: sid } }
         }).catch(e => console.error(e));
 
         const { error } = await supabase.from('transactions').insert([formattedTxn]);
@@ -664,14 +722,17 @@ export function InventoryProvider({ children }) {
         }
 
         return hydratedTxn;
-    }, []);
+    }, [activeShopId]);
 
     const updateTransaction = useCallback(async (id, updates) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) throw new Error('No active shop selected.');
+
         const strId = String(id);
         const existingTxn = transactions.find(t => String(t.id) === strId);
         if (!existingTxn) return null;
 
-        const nextTxn = { ...existingTxn, ...updates, id: strId };
+        const nextTxn = { ...existingTxn, ...updates, id: strId, shop_id: sid };
         const previousSnapshotMap = readTransactionSnapshots();
         const previousSnapshot = previousSnapshotMap[strId];
         const nextSnapshot = buildTransactionSnapshot(nextTxn);
@@ -680,14 +741,14 @@ export function InventoryProvider({ children }) {
         const hydratedTxn = mergeTransactionWithSnapshot(nextTxn, { [strId]: nextSnapshot });
         setTransactions(prev => prev.map(t => String(t.id) === strId ? hydratedTxn : t));
 
-        supabase.channel('public:unified_sync').send({
+        supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',
             event: 'transaction_sync',
-            payload: { action: 'UPDATE', data: hydratedTxn }
+            payload: { action: 'UPDATE', data: { ...hydratedTxn, shop_id: sid } }
         }).catch(e => console.error(e));
 
-        const dbUpdate = buildTransactionDBPayload(nextTxn, false);
-        const { error } = await supabase.from('transactions').update(dbUpdate).eq('id', strId);
+        const dbUpdate = buildTransactionDBPayload(nextTxn, false, sid);
+        const { error } = await supabase.from('transactions').update(dbUpdate).eq('id', strId).eq('shop_id', sid);
         if (error) {
             if (previousSnapshot) {
                 saveTransactionSnapshot(strId, previousSnapshot);
@@ -699,9 +760,12 @@ export function InventoryProvider({ children }) {
         }
 
         return hydratedTxn;
-    }, [transactions]);
+    }, [transactions, activeShopId]);
 
     const deleteTransaction = useCallback(async (id) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return;
+
         const strId = String(id);
         const txnToDelete = transactions.find(t => String(t.id) === strId);
 
@@ -714,8 +778,8 @@ export function InventoryProvider({ children }) {
 
         setTransactions(prev => prev.filter(t => String(t.id) !== strId));
         removeTransactionSnapshot(strId);
-        await supabase.from('transactions').delete().eq('id', strId);
-    }, [transactions, adjustStock]);
+        await supabase.from('transactions').delete().eq('id', strId).eq('shop_id', sid);
+    }, [transactions, adjustStock, activeShopId]);
 
     const clearTransactions = useCallback(async () => {
         setTransactions([]);
@@ -725,6 +789,9 @@ export function InventoryProvider({ children }) {
     }, []);
 
     const bulkUpdateCategoryPricing = useCallback(async (categoryName, percentage) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return;
+
         let itemsToUpdate = [];
         setProducts(prev => prev.map(p => {
             const pCat = p.category?.level1 || (typeof p.category === 'string' ? p.category : '');
@@ -741,9 +808,9 @@ export function InventoryProvider({ children }) {
 
         // Fire parallel updates to cloud
         itemsToUpdate.forEach(async (item) => {
-            await supabase.from('inventory').update({ sellingPrice: item.sellingPrice }).eq('id', item.id);
+            await supabase.from('inventory').update({ sellingPrice: item.sellingPrice }).eq('id', item.id).eq('shop_id', sid);
         });
-    }, []);
+    }, [activeShopId]);
 
     // ── Standard Synced Helpers ──
 
@@ -768,11 +835,14 @@ export function InventoryProvider({ children }) {
     }, [products]);
 
     const getProductDetails = useCallback(async (id, refresh = false) => {
+        const sid = cleanText(activeShopId);
         const strId = String(id);
         const localProduct = products.find(p => String(p.id) === strId) || null;
         if (!refresh) return localProduct;
 
-        const { data, error } = await supabase.from('inventory').select('*').eq('id', strId).single();
+        if (!sid) return localProduct;
+
+        const { data, error } = await supabase.from('inventory').select('*').eq('id', strId).eq('shop_id', sid).single();
         if (error) {
             if (localProduct) return localProduct;
             throw new Error(error.message || 'Failed to fetch product details.');
@@ -787,7 +857,7 @@ export function InventoryProvider({ children }) {
         });
 
         return normalized;
-    }, [products]);
+    }, [products, activeShopId]);
 
     // Stateful Category Helpers
     const getL1Categories = useCallback(() => l1Categories, [l1Categories]);
@@ -798,6 +868,9 @@ export function InventoryProvider({ children }) {
     }, [l2Map]);
 
     const addL1Category = useCallback(async (name, image = null) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return;
+
         const trimmed = name.trim();
         if (!trimmed) return;
         setL1Categories(prev => {
@@ -810,15 +883,24 @@ export function InventoryProvider({ children }) {
         });
 
         // Sync to cloud
-        const { data: existing } = await supabase.from('categories').select('id').eq('name', trimmed).eq('level', 1).single();
+        const { data: existing } = await supabase
+            .from('categories')
+            .select('id')
+            .eq('shop_id', sid)
+            .eq('name', trimmed)
+            .eq('level', 1)
+            .single();
         if (existing) {
-            if (image) await supabase.from('categories').update({ image }).eq('id', existing.id);
+            if (image) await supabase.from('categories').update({ image }).eq('id', existing.id).eq('shop_id', sid);
         } else {
-            await supabase.from('categories').insert([{ name: trimmed, image: image || '', level: 1, parent: null }]);
+            await supabase.from('categories').insert([{ name: trimmed, image: image || '', level: 1, parent: null, shop_id: sid }]);
         }
-    }, []);
+    }, [activeShopId]);
 
     const addL2Category = useCallback(async (l1Name, name, image = null) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return;
+
         const trimmed = name.trim();
         if (!trimmed || !l1Name) return;
         setL2Map(prev => {
@@ -835,13 +917,20 @@ export function InventoryProvider({ children }) {
         });
 
         // Sync to cloud
-        const { data: existing } = await supabase.from('categories').select('id').eq('name', trimmed).eq('parent', l1Name).eq('level', 2).single();
+        const { data: existing } = await supabase
+            .from('categories')
+            .select('id')
+            .eq('shop_id', sid)
+            .eq('name', trimmed)
+            .eq('parent', l1Name)
+            .eq('level', 2)
+            .single();
         if (existing) {
-            if (image) await supabase.from('categories').update({ image }).eq('id', existing.id);
+            if (image) await supabase.from('categories').update({ image }).eq('id', existing.id).eq('shop_id', sid);
         } else {
-            await supabase.from('categories').insert([{ name: trimmed, parent: l1Name, image: image || '', level: 2 }]);
+            await supabase.from('categories').insert([{ name: trimmed, parent: l1Name, image: image || '', level: 2, shop_id: sid }]);
         }
-    }, []);
+    }, [activeShopId]);
 
     const getCatImage = useCallback((l1, l2) => {
         if (l2 && l2Map[l1]) {
@@ -854,6 +943,9 @@ export function InventoryProvider({ children }) {
     }, [l1Categories, l2Map]);
 
     const deleteCategory = useCallback(async (level, name, parentName = null) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return;
+
         const trimmed = name.trim();
         if (!trimmed) return;
 
@@ -864,17 +956,17 @@ export function InventoryProvider({ children }) {
                 delete next[trimmed];
                 return next;
             });
-            await supabase.from('categories').delete().eq('name', trimmed).eq('level', 1);
+            await supabase.from('categories').delete().eq('shop_id', sid).eq('name', trimmed).eq('level', 1);
             // Delete associated L2 categories in DB
-            await supabase.from('categories').delete().eq('parent', trimmed).eq('level', 2);
+            await supabase.from('categories').delete().eq('shop_id', sid).eq('parent', trimmed).eq('level', 2);
         } else if (level === 2 && parentName) {
             setL2Map(prev => {
                 const currentList = prev[parentName] || [];
                 return { ...prev, [parentName]: currentList.filter(c => (typeof c === 'object' ? c?.name : c) !== trimmed) };
             });
-            await supabase.from('categories').delete().eq('name', trimmed).eq('parent', parentName).eq('level', 2);
+            await supabase.from('categories').delete().eq('shop_id', sid).eq('name', trimmed).eq('parent', parentName).eq('level', 2);
         }
-    }, []);
+    }, [activeShopId]);
 
     const getLowStockProducts = useCallback(() => {
         return products.filter(p => {

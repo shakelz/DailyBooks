@@ -39,7 +39,7 @@ function safeText(value) {
 
 export default function InsightsTab() {
     const { transactions, products } = useInventory();
-    const { role, slowMovingDays, salesmen, attendanceLogs } = useAuth();
+    const { isAdminLike, slowMovingDays, salesmen, attendanceLogs } = useAuth();
     const { repairJobs } = useRepairs();
     const defaultStartDate = new Date(new Date().setDate(new Date().getDate() - 30));
     const defaultEndDate = new Date();
@@ -534,7 +534,7 @@ export default function InsightsTab() {
 
             {/* ── 1. Financial KPIs (The Big Picture) ── */}
             <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4">
-                {role === 'admin' && (
+                {isAdminLike && (
                     <div className="min-w-0">
                         <MetricCard
                             title="Final Profit (Net-Net)"
@@ -545,7 +545,7 @@ export default function InsightsTab() {
                         />
                     </div>
                 )}
-                {role === 'admin' && (
+                {isAdminLike && (
                     <div className="min-w-0">
                         <MetricCard
                             title="Total Fixed Expenses"
@@ -840,7 +840,7 @@ export default function InsightsTab() {
             </div>
 
             {/* ── 5. Salary, Expenses & Repairs Analytics (Admin Only) ── */}
-            {role === 'admin' && (
+            {isAdminLike && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
 
                     {/* Salary Analytics */}

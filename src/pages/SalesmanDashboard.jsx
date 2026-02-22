@@ -578,17 +578,9 @@ export default function SalesmanDashboard() {
                                     <p className="text-[10px] text-red-500">{expenseTransactions.length} transactions today</p>
                                 </div>
                             </div>
-                            <button onClick={() => {
-                                if (checkAccess()) {
-                                    setFormMode('purchase'); setShowInventoryForm(true);
-                                }
-                            }}
-                                className="w-8 h-8 rounded-xl bg-red-500 text-white flex items-center justify-center hover:bg-red-600 active:scale-90 transition-all shadow-sm shadow-red-500/20 cursor-pointer"
-                                title="Add Purchase (In-Stock)">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                                </svg>
-                            </button>
+                            <div className="px-2 py-1 rounded-lg bg-red-100 text-red-500 text-[10px] font-black uppercase tracking-wider">
+                                Sales Only
+                            </div>
                         </div>
                         <div className="p-3">
                             {expenseByCategory.length === 0 ? (
@@ -818,18 +810,6 @@ export default function SalesmanDashboard() {
                     </svg>
                 </button>
 
-                {/* Category Manager FAB */}
-                <button onClick={() => {
-                    if (checkAccess()) {
-                        setShowCategoryManager(true);
-                    }
-                }}
-                    className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/30 flex items-center justify-center hover:shadow-emerald-500/40 active:scale-90 transition-all cursor-pointer"
-                    title="Category Manager">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                </button>
             </div>
 
             {/* ═══ PENDING REPAIRS DRAWER ═══ */}

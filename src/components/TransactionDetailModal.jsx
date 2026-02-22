@@ -8,7 +8,7 @@ import { useInventory } from '../context/InventoryContext';
 // ══════════════════════════════════════════════════════════
 
 export default function TransactionDetailModal({ isOpen, onClose, txn, initialEditMode = false }) {
-    const { role: currentRole } = useAuth();
+    const { isAdminLike } = useAuth();
     const { updateTransaction, deleteTransaction, products } = useInventory();
 
     const [isEditing, setIsEditing] = useState(initialEditMode);
@@ -23,7 +23,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
 
     if (!isOpen || !txn || !editData) return null;
 
-    const isAdmin = currentRole === 'admin';
+    const isAdmin = isAdminLike;
 
     const isIncome = txn.type === 'income';
 

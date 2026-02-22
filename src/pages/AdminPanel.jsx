@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useState, useMemo } from 'react';
+import { Outlet, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
     LayoutDashboard, Package, TrendingUp, Settings,
@@ -9,8 +9,17 @@ import {
 export default function AdminPanel() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { logout, role } = useAuth();
+    const { logout, role, isAdminLike, activeShopId, setActiveShopId, shops } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(true);
+
+    const currentShop = useMemo(
+        () => shops.find((s) => String(s.id) === String(activeShopId)) || null,
+        [shops, activeShopId]
+    );
+
+    if (!isAdminLike) {
+        return <Navigate to={role === 'salesman' ? '/salesman' : '/'} replace />;
+    }
 
     const menuItems = [
         { label: 'Dashboard', route: '/admin/dashboard', icon: <LayoutDashboard size={20} /> },
@@ -18,7 +27,7 @@ export default function AdminPanel() {
         { label: 'Insights', route: '/admin/insights', icon: <TrendingUp size={20} /> },
         { label: 'Repairs', route: '/admin/repairs', icon: <Wrench size={20} /> },
         { label: 'Expenses', route: '/admin/expenses', icon: <FileText size={20} /> },
-        { label: 'Settings', route: '/admin/settings', icon: <Settings size={20} /> },
+        (role !== 'salesman') ? { label: 'Settings', route: '/admin/settings', icon: <Settings size={20} /> } : null,
     ].filter(Boolean);
 
     const handleLogout = () => {
@@ -86,7 +95,12 @@ export default function AdminPanel() {
 
                 {/* Top Mobile Bar (only visible on small screens) */}
                 <div className="md:hidden h-16 bg-white border-b border-slate-200 flex items-center px-4 justify-between shrink-0">
-                    <div className="font-bold text-slate-800">DailyBooks</div>
+                    <div>
+                        <div className="font-bold text-slate-800">DailyBooks</div>
+                        {currentShop && (
+                            <div className="text-[10px] text-slate-400 font-semibold">{currentShop.name}</div>
+                        )}
+                    </div>
                     <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 text-slate-600">
                         <Menu size={24} />
                     </button>
@@ -104,6 +118,28 @@ export default function AdminPanel() {
                 {/* Scrollable Content Area */}
                 <main className="flex-1 overflow-auto p-4 md:p-8 relative">
                     <div className="max-w-7xl mx-auto">
+                        <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
+                            {isAdminLike ? (
+                                <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Switch Shop</span>
+                                    <select
+                                        value={activeShopId || ''}
+                                        onChange={(e) => setActiveShopId(e.target.value)}
+                                        className="text-sm font-semibold text-slate-700 bg-transparent outline-none"
+                                    >
+                                        {shops.length === 0 ? (
+                                            <option value="">No Shops</option>
+                                        ) : (
+                                            shops.map((shop) => (
+                                                <option key={shop.id} value={shop.id}>
+                                                    {shop.name}
+                                                </option>
+                                            ))
+                                        )}
+                                    </select>
+                                </div>
+                            ) : null}
+                        </div>
                         <Outlet />
                     </div>
                 </main>

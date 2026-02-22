@@ -10,13 +10,13 @@ import TransactionDetailModal from './TransactionDetailModal';
 // ══════════════════════════════════════════════
 
 export default function TransactionList({ transactions = [], searchTerm = '', isAdminOverride = false }) {
-    const { role } = useAuth();
+    const { isAdminLike } = useAuth();
     const { deleteTransaction } = useInventory();
     const [selectedTxn, setSelectedTxn] = useState(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
     const [isEditRequested, setIsEditRequested] = useState(false);
 
-    const isAdmin = isAdminOverride || role === 'admin';
+    const isAdmin = isAdminOverride || isAdminLike;
 
     // ── Filtering Logic ──
     const filteredTransactions = useMemo(() => {

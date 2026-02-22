@@ -1,8 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-
-const SALESMAN_PIN = '1234'; // Fallback / legacy reference if needed, but Context handles it now.
 
 export default function LoginPage() {
     const navigate = useNavigate();
@@ -14,6 +12,7 @@ export default function LoginPage() {
     // Salesman PIN state
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
+    const [pinLoading, setPinLoading] = useState(false);
 
     // Admin credentials state
     const [adminUser, setAdminUser] = useState('');
@@ -23,7 +22,9 @@ export default function LoginPage() {
     const [isLoading, setIsLoading] = useState(false);
 
     // ── Salesman PIN Handlers ──
-    const handlePinInput = (digit) => {
+    const handlePinInput = useCallback(async (digit) => {
+        if (pinLoading) return;
+
         if (pin.length < 4) {
             const newPin = pin + digit;
             setPin(newPin);
@@ -31,20 +32,25 @@ export default function LoginPage() {
 
             if (newPin.length === 4) {
                 // Attempt Login via Context
-                const result = login({ role: 'salesman', pin: newPin });
+                setPinLoading(true);
+                try {
+                    const result = await login({ role: 'salesman', pin: newPin });
 
-                if (result.success) {
-                    navigate('/salesman');
-                } else {
-                    setError('❌ Galat PIN! Dobara try karo.');
-                    setTimeout(() => {
-                        setPin('');
-                        setError('');
-                    }, 1200);
+                    if (result?.success) {
+                        navigate('/salesman');
+                    } else {
+                        setError(result?.message ? `❌ ${result.message}` : '❌ Galat PIN! Dobara try karo.');
+                        setTimeout(() => {
+                            setPin('');
+                            setError('');
+                        }, 1200);
+                    }
+                } finally {
+                    setPinLoading(false);
                 }
             }
         }
-    };
+    }, [pin, pinLoading, login, navigate]);
 
     const handleBackspace = () => {
         setPin(pin.slice(0, -1));
@@ -65,10 +71,10 @@ export default function LoginPage() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    });
+    }, [role, handlePinInput, pin]);
 
     // ── Admin Login Handler ──
-    const handleAdminLogin = (e) => {
+    const handleAdminLogin = async (e) => {
         e.preventDefault();
         setAdminError('');
 
@@ -82,18 +88,16 @@ export default function LoginPage() {
         }
 
         setIsLoading(true);
-
-        // Simulate network delay for premium feel
-        setTimeout(() => {
-            const result = login({ role: 'admin', password: adminPass });
-
-            if (result.success) {
+        try {
+            const result = await login({ role: 'admin', username: adminUser, password: adminPass });
+            if (result?.success) {
                 navigate('/dashboard'); // redirects to /admin/dashboard
             } else {
-                setAdminError('❌ Galat username ya password!');
-                setIsLoading(false);
+                setAdminError(result?.message ? `❌ ${result.message}` : '❌ Galat username ya password!');
             }
-        }, 800);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     // ── Role Selection Screen ──

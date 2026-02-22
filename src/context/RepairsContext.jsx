@@ -1,37 +1,55 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import { useAuth } from './AuthContext';
 
 const RepairsContext = createContext(null);
 
 export function RepairsProvider({ children }) {
+    const { activeShopId } = useAuth();
     const [repairJobs, setRepairJobs] = useState([]);
 
     // ── Preload Data from Supabase ──
     useEffect(() => {
+        const sid = String(activeShopId || '').trim();
+        if (!sid) {
+            setRepairJobs([]);
+            return undefined;
+        }
+
+        let cancelled = false;
+
         const fetchRepairs = async () => {
-            const { data, error } = await supabase.from('repairs').select('*').order('createdAt', { ascending: false });
-            if (!error && data) {
+            const { data, error } = await supabase
+                .from('repairs')
+                .select('*')
+                .eq('shop_id', sid)
+                .order('createdAt', { ascending: false });
+            if (!cancelled && !error && data) {
                 setRepairJobs(data);
+            } else if (!cancelled && error) {
+                setRepairJobs([]);
             }
         };
         fetchRepairs();
 
-        const repairsSub = supabase.channel('public:repairs')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'repairs' }, (payload) => {
+        const shopFilter = `shop_id=eq.${sid}`;
+        const repairsSub = supabase.channel(`public:repairs:${sid}`)
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
                 setRepairJobs(prev => {
                     if (prev.some(j => String(j.id) === String(payload.new.id))) return prev;
                     return [payload.new, ...prev].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
                 });
             })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'repairs' }, (payload) => {
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
                 setRepairJobs(prev => prev.map(j => String(j.id) === String(payload.new.id) ? { ...j, ...payload.new } : j));
             })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'repairs' }, (payload) => {
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
                 setRepairJobs(prev => prev.filter(j => String(j.id) !== String(payload.old.id)));
             })
             // Fallback Broadcast
             .on('broadcast', { event: 'repair_sync' }, (payload) => {
                 const { action, data } = payload.payload;
+                if (!data || String(data.shop_id || '').trim() !== sid) return;
                 if (action === 'INSERT') {
                     setRepairJobs(prev => {
                         if (prev.some(j => String(j.id) === String(data.id))) return prev;
@@ -45,8 +63,11 @@ export function RepairsProvider({ children }) {
             })
             .subscribe();
 
-        return () => supabase.removeChannel(repairsSub);
-    }, []);
+        return () => {
+            cancelled = true;
+            supabase.removeChannel(repairsSub);
+        };
+    }, [activeShopId]);
 
     // Generate sequential Ref ID: REP-2026-001 based on current array length
     // In a real multi-user env, we should query max ID from DB, but this works for now
@@ -58,6 +79,9 @@ export function RepairsProvider({ children }) {
     }, [repairJobs]);
 
     const addRepair = useCallback(async (repairData) => {
+        const sid = String(activeShopId || '').trim();
+        if (!sid) throw new Error('No active shop selected.');
+
         const refId = generateRefId();
         const newJob = {
             id: String(Date.now()), // Text ID for Supabase
@@ -69,7 +93,8 @@ export function RepairsProvider({ children }) {
             finalAmount: null,
             partsCost: 0,
             estimatedCost: repairData.estimatedCost || 0,
-            partsUsed: []
+            partsUsed: [],
+            shop_id: sid
         };
 
         // Optimistic UI Update
@@ -79,16 +104,19 @@ export function RepairsProvider({ children }) {
         await supabase.from('repairs').insert([newJob]);
 
         // Broadcast Fallback
-        supabase.channel('public:repairs').send({
+        supabase.channel(`public:repairs:${sid}`).send({
             type: 'broadcast',
             event: 'repair_sync',
             payload: { action: 'INSERT', data: newJob }
         }).catch(e => console.error(e));
 
         return newJob;
-    }, [generateRefId]);
+    }, [generateRefId, activeShopId]);
 
     const updateRepairStatus = useCallback(async (id, status, extras = {}) => {
+        const sid = String(activeShopId || '').trim();
+        if (!sid) return;
+
         const strId = String(id);
         const payload = {
             status,
@@ -105,32 +133,35 @@ export function RepairsProvider({ children }) {
         }));
 
         // Supabase DB Update
-        await supabase.from('repairs').update(payload).eq('id', strId);
+        await supabase.from('repairs').update(payload).eq('id', strId).eq('shop_id', sid);
 
         // Broadcast Fallback
-        supabase.channel('public:repairs').send({
+        supabase.channel(`public:repairs:${sid}`).send({
             type: 'broadcast',
             event: 'repair_sync',
-            payload: { action: 'UPDATE', data: { id: strId, ...payload } }
+            payload: { action: 'UPDATE', data: { id: strId, shop_id: sid, ...payload } }
         }).catch(e => console.error(e));
-    }, []);
+    }, [activeShopId]);
 
     const deleteRepair = useCallback(async (id) => {
+        const sid = String(activeShopId || '').trim();
+        if (!sid) return;
+
         const strId = String(id);
 
         // Optimistic UI
         setRepairJobs(prev => prev.filter(j => String(j.id) !== strId));
 
         // Supabase DB Update
-        await supabase.from('repairs').delete().eq('id', strId);
+        await supabase.from('repairs').delete().eq('id', strId).eq('shop_id', sid);
 
         // Broadcast Fallback
-        supabase.channel('public:repairs').send({
+        supabase.channel(`public:repairs:${sid}`).send({
             type: 'broadcast',
             event: 'repair_sync',
-            payload: { action: 'DELETE', data: { id: strId } }
+            payload: { action: 'DELETE', data: { id: strId, shop_id: sid } }
         }).catch(e => console.error(e));
-    }, []);
+    }, [activeShopId]);
 
     const value = {
         repairJobs,
