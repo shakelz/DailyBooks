@@ -25,6 +25,20 @@ function getRangeOverlapMs(startMs, endMs, rangeStartMs, rangeEndMs) {
     return Math.max(0, to - from);
 }
 
+function getDayKey(value) {
+    const ms = getTimestampMs(value);
+    if (Number.isNaN(ms)) return '';
+    const d = new Date(ms);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function getStaffTxnId(txn) {
+    return String(txn?.salesmanId || txn?.workerId || '');
+}
+
 // ══════════════════════════════════════════════════════════
 // DailyBooks — Admin Dashboard (Unified UI)
 // Matches Salesman UI + Admin Features (Production/Logs)
@@ -214,6 +228,26 @@ export default function AdminDashboard() {
 
         return { byStaff: logsByStaff, outSessionEarnings, totalProductionMs, totalEarning };
     }, [allAttendanceLogs, salesmen, targetStartMs, targetEndMs, nowMs]);
+
+    const findPayrollTxnForStaffDay = useCallback((staffId, dayKey) => {
+        const targetStaffId = String(staffId || '');
+        if (!targetStaffId || !dayKey) return null;
+
+        const dayObj = new Date(`${dayKey}T00:00:00`);
+        const dayLabelShort = dayObj.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
+        const dayLabelNumeric = dayObj.toLocaleDateString('en-PK');
+
+        return transactions.find(t => {
+            if (!(t.category === 'Salary' && t.type === 'expense' && t.source === 'payroll-auto')) return false;
+            if (getStaffTxnId(t) !== targetStaffId) return false;
+
+            const txnDayKey = getDayKey(t.timestamp || t.date);
+            if (txnDayKey && txnDayKey === dayKey) return true;
+
+            const txnDate = String(t.date || '').trim();
+            return txnDate === dayLabelShort || txnDate === dayLabelNumeric;
+        }) || null;
+    }, [transactions]);
 
     const todayTransactions = transactions.filter(t => {
         if (!t.timestamp && !t.date) return false;
@@ -845,10 +879,7 @@ export default function AdminDashboard() {
                                         if (window.confirm('Delete this punch record?')) {
                                             // If deleting an OUT log, also remove its salary transaction
                                             if (editingLog.type === 'OUT') {
-                                                const salaryTxn = transactions.find(t =>
-                                                    t.category === 'Salary' && t.source === 'payroll-auto' &&
-                                                    t.salesmanId === editingLog.userId && t.date === editingLog.date
-                                                );
+                                                const salaryTxn = findPayrollTxnForStaffDay(editingLog.userId, getDayKey(editingLog.timestamp));
                                                 if (salaryTxn) deleteTransaction(salaryTxn.id);
                                             }
                                             deleteAttendanceLog(editingLog.id);
@@ -860,78 +891,113 @@ export default function AdminDashboard() {
                                     Delete
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        // 1. Update the attendance log
-                                        updateAttendanceLog(editingLog.id, { type: editingLog.type, time: editingLog.time });
-
-                                        // 2. Recalculate salary for this salesman on this date
-                                        // Get updated logs after this edit
-                                        const updatedLogs = attendanceLogs.map(l =>
-                                            l.id === editingLog.id ? { ...l, type: editingLog.type, time: editingLog.time } : l
-                                        );
-                                        const userLogs = updatedLogs
-                                            .filter(l => l.userId === editingLog.userId && l.date === editingLog.date)
-                                            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-                                        // Reconstruct the edited timestamp
-                                        let editedTimestamp = editingLog.timestamp;
+                                    onClick={async () => {
                                         try {
-                                            const timeMatch = editingLog.time.match(/(\d+):(\d+)(?:\s*(AM|PM))?/i);
-                                            if (timeMatch) {
-                                                let [, hours, minutes, ampm] = timeMatch;
-                                                hours = parseInt(hours);
-                                                minutes = parseInt(minutes);
-                                                if (ampm) {
-                                                    if (ampm.toUpperCase() === 'PM' && hours < 12) hours += 12;
-                                                    if (ampm.toUpperCase() === 'AM' && hours === 12) hours = 0;
+                                            // 1) Update the edited attendance row.
+                                            updateAttendanceLog(editingLog.id, { type: editingLog.type, time: editingLog.time });
+
+                                            // 2) Rebuild timestamp from edited time.
+                                            let editedTimestamp = editingLog.timestamp;
+                                            try {
+                                                const timeMatch = editingLog.time.match(/(\d+):(\d+)(?:\s*(AM|PM))?/i);
+                                                if (timeMatch) {
+                                                    let [, hours, minutes, ampm] = timeMatch;
+                                                    hours = parseInt(hours, 10);
+                                                    minutes = parseInt(minutes, 10);
+                                                    if (ampm) {
+                                                        if (ampm.toUpperCase() === 'PM' && hours < 12) hours += 12;
+                                                        if (ampm.toUpperCase() === 'AM' && hours === 12) hours = 0;
+                                                    }
+                                                    const dateObj = new Date(editingLog.timestamp);
+                                                    dateObj.setHours(hours, minutes, 0, 0);
+                                                    editedTimestamp = dateObj.toISOString();
                                                 }
-                                                const dateObj = new Date(editingLog.timestamp);
-                                                dateObj.setHours(hours, minutes, 0, 0);
-                                                editedTimestamp = dateObj.toISOString();
+                                            } catch {
+                                                // Keep original timestamp if parsing fails.
                                             }
-                                        } catch (e) { /* ignore */ }
 
-                                        // Find salary transaction for this salesman on this date
-                                        const salaryTxn = transactions.find(t =>
-                                            t.category === 'Salary' && t.source === 'payroll-auto' &&
-                                            t.salesmanId === editingLog.userId && t.date ===
-                                            new Date(editingLog.timestamp).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })
-                                        );
+                                            const editedDayKey = getDayKey(editedTimestamp);
+                                            const resolvedLogs = attendanceLogs
+                                                .map(l => l.id === editingLog.id
+                                                    ? { ...l, type: editingLog.type, time: editingLog.time, timestamp: editedTimestamp }
+                                                    : l
+                                                )
+                                                .filter(l => String(l.userId) === String(editingLog.userId) && getDayKey(l.timestamp) === editedDayKey)
+                                                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-                                        if (salaryTxn) {
-                                            // Recalculate: find IN/OUT pair
-                                            // Use the reconstructed timestamp for the edited log
-                                            const resolvedLogs = userLogs.map(l => {
-                                                if (l.id === editingLog.id) {
-                                                    return { ...l, timestamp: editedTimestamp, type: editingLog.type };
-                                                }
-                                                return l;
-                                            }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-                                            // Calculate total hours from IN/OUT pairs
+                                            // 3) Recalculate total salary from IN/OUT pairs for that day.
                                             let totalMs = 0;
-                                            let startTime = null;
+                                            let openInMs = null;
+                                            let lastOutMs = null;
+
                                             resolvedLogs.forEach(log => {
+                                                const ts = getTimestampMs(log.timestamp);
+                                                if (Number.isNaN(ts)) return;
+
                                                 if (log.type === 'IN') {
-                                                    startTime = new Date(log.timestamp);
-                                                } else if (log.type === 'OUT' && startTime) {
-                                                    totalMs += (new Date(log.timestamp) - startTime);
-                                                    startTime = null;
+                                                    openInMs = ts;
+                                                    return;
+                                                }
+
+                                                if (log.type === 'OUT' && openInMs !== null) {
+                                                    totalMs += Math.max(0, ts - openInMs);
+                                                    lastOutMs = ts;
+                                                    openInMs = null;
                                                 }
                                             });
 
                                             const hoursWorked = totalMs / 3600000;
-                                            const staff = salesmen.find(s => s.id === editingLog.userId);
-                                            const hourlyRate = staff?.hourlyRate || 12.50;
-                                            const newSalary = hoursWorked * hourlyRate;
+                                            const staff = salesmen.find(s => String(s.id) === String(editingLog.userId));
+                                            const hourlyRate = parseFloat(staff?.hourlyRate) || 12.50;
+                                            const newSalary = parseFloat((hoursWorked * hourlyRate).toFixed(2));
+                                            const salaryDesc = `Salary: ${editingLog.userName} (${hoursWorked.toFixed(1)}h @ €${hourlyRate}/hr)`;
 
-                                            updateTransaction(salaryTxn.id, {
-                                                amount: parseFloat(newSalary.toFixed(2)),
-                                                desc: `Salary: ${editingLog.userName} (${hoursWorked.toFixed(1)}h @ €${hourlyRate}/hr)`
-                                            });
+                                            const payrollMs = lastOutMs || getTimestampMs(editedTimestamp) || Date.now();
+                                            const payrollDateObj = new Date(payrollMs);
+                                            const payrollDate = payrollDateObj.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
+                                            const payrollTime = payrollDateObj.toLocaleTimeString('en-US', { hour12: false });
+                                            const payrollTimestamp = payrollDateObj.toISOString();
+
+                                            const salaryTxn = findPayrollTxnForStaffDay(editingLog.userId, editedDayKey);
+
+                                            if (salaryTxn && newSalary > 0.001) {
+                                                await updateTransaction(salaryTxn.id, {
+                                                    amount: newSalary,
+                                                    desc: salaryDesc,
+                                                    date: payrollDate,
+                                                    time: payrollTime,
+                                                    timestamp: payrollTimestamp,
+                                                    workerId: String(editingLog.userId),
+                                                    salesmanName: editingLog.userName,
+                                                    category: 'Salary',
+                                                    source: 'payroll-auto',
+                                                    type: 'expense',
+                                                    isFixedExpense: true
+                                                });
+                                            } else if (salaryTxn && newSalary <= 0.001) {
+                                                await deleteTransaction(salaryTxn.id);
+                                            } else if (!salaryTxn && newSalary > 0.001) {
+                                                await addTransaction({
+                                                    id: generateId('SAL'),
+                                                    desc: salaryDesc,
+                                                    amount: newSalary,
+                                                    type: 'expense',
+                                                    category: 'Salary',
+                                                    isFixedExpense: true,
+                                                    date: payrollDate,
+                                                    time: payrollTime,
+                                                    timestamp: payrollTimestamp,
+                                                    source: 'payroll-auto',
+                                                    workerId: String(editingLog.userId),
+                                                    salesmanName: editingLog.userName
+                                                });
+                                            }
+                                        } catch (error) {
+                                            console.error('Failed to sync salary expense after attendance edit:', error);
+                                            alert(error?.message || 'Failed to sync salary expense entry.');
+                                        } finally {
+                                            setEditingLog(null);
                                         }
-
-                                        setEditingLog(null);
                                     }}
                                     className="flex-[2] py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
                                 >
