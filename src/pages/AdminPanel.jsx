@@ -87,7 +87,7 @@ export default function AdminPanel() {
                     type="button"
                     aria-label="Close menu"
                     onClick={() => setSidebarOpen(false)}
-                    className="fixed inset-0 bg-slate-900/50 backdrop-blur-[1px] z-30 md:hidden"
+                    className="fixed inset-0 bg-slate-900/50 backdrop-blur-[1px] z-[80] md:hidden"
                 />
             )}
 
@@ -95,7 +95,7 @@ export default function AdminPanel() {
                 className={`${isMobile
                     ? `fixed inset-y-0 left-0 w-72 transform transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
                     : `${sidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300`
-                    } bg-slate-900 text-white flex flex-col shadow-xl z-40`}
+                    } bg-slate-900 text-white flex flex-col shadow-xl z-[90]`}
             >
 
                 <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
