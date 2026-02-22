@@ -118,16 +118,18 @@ export function AuthProvider({ children }) {
                     date: dObj.toLocaleDateString('en-PK'),
                     time: dObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
                 };
+                console.log("Realtime Attendance INSERT received:", newLog);
                 setAttendanceLogs(prev => {
-                    if (prev.some(l => l.id === newLog.id)) return prev; // Avoid duplicates from optimistic UI
+                    if (prev.some(l => String(l.id) === String(newLog.id))) return prev; // Avoid duplicates from optimistic UI
                     return [newLog, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'attendance' }, (payload) => {
                 const dbLog = payload.new;
                 const dObj = new Date(dbLog.timestamp);
+                console.log("Realtime Attendance UPDATE received:", dbLog);
                 setAttendanceLogs(prev => prev.map(l => {
-                    if (l.id === dbLog.id) {
+                    if (String(l.id) === String(dbLog.id)) {
                         return {
                             ...l,
                             ...dbLog,
@@ -139,7 +141,7 @@ export function AuthProvider({ children }) {
                 }));
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'attendance' }, (payload) => {
-                setAttendanceLogs(prev => prev.filter(l => l.id !== payload.old.id));
+                setAttendanceLogs(prev => prev.filter(l => String(l.id) !== String(payload.old.id)));
             })
             .subscribe();
 
