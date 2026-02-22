@@ -61,6 +61,12 @@ export default function AdminPanel() {
         { label: 'Expenses', route: '/admin/expenses', icon: <FileText size={20} /> },
         (role !== 'salesman') ? { label: 'Settings', route: '/admin/settings', icon: <Settings size={20} /> } : null,
     ].filter(Boolean);
+    const mobileBottomItems = [
+        { label: 'Home', route: '/admin/dashboard', icon: <LayoutDashboard size={18} /> },
+        { label: 'Sales', route: '/admin/insights', icon: <TrendingUp size={18} /> },
+        { label: 'Inventory', route: '/admin/inventory', icon: <Package size={18} /> },
+        { label: 'Repairs', route: '/admin/repairs', icon: <Wrench size={18} /> },
+    ];
 
     const handleLogout = () => {
         logout();
@@ -161,7 +167,7 @@ export default function AdminPanel() {
                     {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
                 </button>
 
-                <main className="flex-1 overflow-auto p-4 md:p-8 relative">
+                <main className="flex-1 overflow-auto p-4 pb-24 md:p-8 md:pb-8 relative">
                     <div className="max-w-7xl mx-auto">
                         <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
                             {isSuperAdmin ? (
@@ -188,6 +194,24 @@ export default function AdminPanel() {
                         <Outlet />
                     </div>
                 </main>
+
+                <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur-sm shadow-[0_-4px_14px_rgba(15,23,42,0.08)]">
+                    <div className="grid grid-cols-4 gap-1 px-2 py-2">
+                        {mobileBottomItems.map((item) => {
+                            const isActive = location.pathname.startsWith(item.route);
+                            return (
+                                <button
+                                    key={`mobile-nav-${item.route}`}
+                                    onClick={() => navigateTo(item.route)}
+                                    className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 transition-all ${isActive ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+                                >
+                                    {item.icon}
+                                    <span className="text-[10px] font-bold tracking-wide">{item.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </nav>
             </div>
         </div>
     );

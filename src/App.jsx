@@ -15,6 +15,7 @@ import InsightsTab from './components/admin/InsightsTab'
 import ExpensesTab from './components/admin/ExpensesTab'
 import AdminSettings from './components/admin/AdminSettings'
 import RepairsTab from './components/admin/RepairsTab'
+import PWAInstallButton from './components/PWAInstallButton'
 
 function App() {
   return (
@@ -47,6 +48,7 @@ function App() {
                 {/* Catch-all 404 */}
                 <Route path="*" element={<ComingSoonPage title="Page Not Found" icon="🔍" />} />
               </Routes>
+              <PWAInstallButton />
             </BrowserRouter>
           </CartProvider>
         </RepairsProvider>
@@ -56,4 +58,3 @@ function App() {
 }
 
 export default App
-
