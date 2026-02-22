@@ -7,35 +7,53 @@ import {
     Search, DollarSign, Smartphone, User, Phone, Hash
 } from 'lucide-react';
 import CompleteRepairModal from './CompleteRepairModal';
+import DateRangeFilter from './DateRangeFilter';
 
 export default function RepairsTab() {
     const { repairJobs, updateRepairStatus, deleteRepair } = useRepairs();
-    const { addTransaction, updateProductStock, products } = useInventory();
+    const { addTransaction, products } = useInventory();
 
     const [statusFilter, setStatusFilter] = useState('all'); // all | pending | completed
     const [searchTerm, setSearchTerm] = useState('');
+    const [dateSelection, setDateSelection] = useState([
+        {
+            startDate: new Date(new Date().setDate(new Date().getDate() - 30)),
+            endDate: new Date(),
+            key: 'selection'
+        }
+    ]);
 
     // Modal State
     const [completingJob, setCompletingJob] = useState(null);
 
+    const dateFilteredJobs = useMemo(() => {
+        const rangeStart = new Date(dateSelection[0].startDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(dateSelection[0].endDate);
+        rangeEnd.setHours(23, 59, 59, 999);
+
+        return repairJobs.filter(j => {
+            if (!j.createdAt) return false;
+            const createdAt = new Date(j.createdAt);
+            if (Number.isNaN(createdAt.getTime())) return false;
+            return createdAt >= rangeStart && createdAt <= rangeEnd;
+        });
+    }, [repairJobs, dateSelection]);
+
     // ── KPIs ──
     const kpis = useMemo(() => {
-        const todayStr = new Date().toLocaleDateString('en-PK');
-        const pendingCount = repairJobs.filter(j => j.status === 'pending').length;
-        const totalJobs = repairJobs.length;
-        const completedToday = repairJobs.filter(j => {
-            if (j.status !== 'completed' || !j.completedAt) return false;
-            return new Date(j.completedAt).toLocaleDateString('en-PK') === todayStr;
-        }).length;
-        const totalRevenue = repairJobs
+        const pendingCount = dateFilteredJobs.filter(j => j.status === 'pending').length;
+        const totalJobs = dateFilteredJobs.length;
+        const completedCount = dateFilteredJobs.filter(j => j.status === 'completed').length;
+        const totalRevenue = dateFilteredJobs
             .filter(j => j.status === 'completed' && j.finalAmount)
             .reduce((sum, j) => sum + j.finalAmount, 0);
-        return { pendingCount, totalJobs, completedToday, totalRevenue };
-    }, [repairJobs]);
+        return { pendingCount, totalJobs, completedCount, totalRevenue };
+    }, [dateFilteredJobs]);
 
     // ── Filter Jobs ──
     const filteredJobs = useMemo(() => {
-        return repairJobs.filter(j => {
+        return dateFilteredJobs.filter(j => {
             if (statusFilter !== 'all' && j.status !== statusFilter) return false;
             if (searchTerm.trim()) {
                 const q = searchTerm.toLowerCase();
@@ -49,7 +67,7 @@ export default function RepairsTab() {
             }
             return true;
         });
-    }, [repairJobs, statusFilter, searchTerm]);
+    }, [dateFilteredJobs, statusFilter, searchTerm]);
 
     // ── Mark Complete (opens Modal) ──
     const handleInitiateComplete = (job) => {
@@ -118,11 +136,14 @@ export default function RepairsTab() {
     return (
         <div className="space-y-6 max-w-6xl relative">
             {/* Header */}
-            <div>
-                <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                    <Wrench size={24} className="text-blue-600" /> Repair Analytics
-                </h1>
-                <p className="text-slate-500 text-sm">Track, manage, and complete repair jobs.</p>
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                        <Wrench size={24} className="text-blue-600" /> Repair Analytics
+                    </h1>
+                    <p className="text-slate-500 text-sm">Track, manage, and complete repair jobs.</p>
+                </div>
+                <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
             </div>
 
             {/* KPI Cards */}
@@ -144,9 +165,9 @@ export default function RepairsTab() {
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-emerald-100">
                     <div className="flex items-center gap-2 mb-2">
                         <div className="p-2 bg-emerald-50 rounded-lg text-emerald-500"><CheckCircle2 size={18} /></div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Done Today</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Completed</span>
                     </div>
-                    <p className="text-3xl font-black text-emerald-600">{kpis.completedToday}</p>
+                    <p className="text-3xl font-black text-emerald-600">{kpis.completedCount}</p>
                 </div>
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-violet-100">
                     <div className="flex items-center gap-2 mb-2">
