@@ -10,6 +10,7 @@ import TransactionModal from '../components/TransactionModal';
 import CartSidebar from '../components/CartSidebar';
 import SalesmanProfile from '../components/SalesmanProfile';
 import SmartCategoryForm from '../components/SmartCategoryForm';
+import CategoryManagerModal from '../components/CategoryManagerModal';
 import { generateId } from '../data/inventoryStore';
 import { priceTag } from '../utils/currency';
 import RepairModal from '../components/RepairModal';
@@ -119,12 +120,14 @@ export default function SalesmanDashboard() {
 
     // ── Inventory Form & Calc ──
     const [showInventoryForm, setShowInventoryForm] = useState(false);
+    const [showCategoryManager, setShowCategoryManager] = useState(false);
     const [showCalc, setShowCalc] = useState(false);
     const [calcDisplay, setCalcDisplay] = useState('0');
     const [showSuccess, setShowSuccess] = useState(false);
     const [calcPrev, setCalcPrev] = useState(null);
     const [calcOp, setCalcOp] = useState(null);
     const calcNodeRef = useRef(null);
+    const searchInputRef = useRef(null); // ADDED FOR AUTO-FOCUS
 
     // ── Scanner Buffer ──
     const scanBufferRef = useRef('');
@@ -290,9 +293,29 @@ export default function SalesmanDashboard() {
         setCalcDisplay(d => d === '0' && key !== '.' ? key : d + key);
     }, [calcDisplay, calcPrev, calcOp]);
 
-    // ═══════════════════ KEYBOARD SCANNER ═══════════════════
+    // ═══════════════════ KEYBOARD SCANNER & AUTO-FOCUS ═══════════════════
 
-    useState(() => {
+    // Auto-Focus Logic
+    useEffect(() => {
+        const focusInput = () => {
+            if (!showInventoryForm && !showCalc && !showTransactionModal && !showRepairModal && !showPendingDrawer && !showProfileModal && !showCategoryManager && !completingJob && !isLocked) {
+                if (searchInputRef.current) {
+                    // Don't steal focus if user is intentionally inside another input/textarea
+                    const activeTag = document.activeElement?.tagName;
+                    if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA' && activeTag !== 'SELECT') {
+                        searchInputRef.current.focus();
+                    }
+                }
+            }
+        };
+
+        focusInput();
+        const handleWindowClick = () => setTimeout(focusInput, 50);
+        window.addEventListener('click', handleWindowClick);
+        return () => window.removeEventListener('click', handleWindowClick);
+    }, [showInventoryForm, showCalc, showTransactionModal, showRepairModal, showPendingDrawer, showProfileModal, showCategoryManager, completingJob, isLocked]);
+
+    useEffect(() => {
         const handleKeyDown = (e) => {
             if (showInventoryForm || showCalc || showTransactionModal) return;
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
@@ -444,6 +467,7 @@ export default function SalesmanDashboard() {
                             </svg>
                         </div>
                         <input
+                            ref={searchInputRef}
                             value={searchQuery}
                             onChange={(e) => handleSearchChange(e.target.value)}
                             placeholder="🔍 Scan barcode or search product..."
@@ -653,10 +677,17 @@ export default function SalesmanDashboard() {
                             quantity: parseInt(entry.stock) || 1,
                             date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                            salesmanName: user?.name,
+                            workerId: String(user?.id)
                         });
                     }
                     setShowInventoryForm(false);
                 }}
+            />
+
+            <CategoryManagerModal
+                isOpen={showCategoryManager}
+                onClose={() => setShowCategoryManager(false)}
             />
 
             <TransactionModal
@@ -762,13 +793,14 @@ export default function SalesmanDashboard() {
                     </svg>
                 </button>
 
-                {/* Add Product FAB */}
+                {/* Category Manager FAB */}
                 <button onClick={() => {
                     if (checkAccess()) {
-                        setFormMode('inventory'); setShowInventoryForm(true);
+                        setShowCategoryManager(true);
                     }
                 }}
-                    className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30 flex items-center justify-center hover:shadow-blue-500/40 active:scale-90 transition-all cursor-pointer">
+                    className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/30 flex items-center justify-center hover:shadow-emerald-500/40 active:scale-90 transition-all cursor-pointer"
+                    title="Category Manager">
                     <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                     </svg>

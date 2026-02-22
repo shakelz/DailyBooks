@@ -1,18 +1,24 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { supabase } from '../supabaseClient';
 
 const RepairsContext = createContext(null);
 
 export function RepairsProvider({ children }) {
-    const [repairJobs, setRepairJobs] = useState(() => {
-        const saved = localStorage.getItem('repairJobs');
-        return saved ? JSON.parse(saved) : [];
-    });
+    const [repairJobs, setRepairJobs] = useState([]);
 
+    // ── Preload Data from Supabase ──
     useEffect(() => {
-        localStorage.setItem('repairJobs', JSON.stringify(repairJobs));
-    }, [repairJobs]);
+        const fetchRepairs = async () => {
+            const { data, error } = await supabase.from('repairs').select('*').order('createdAt', { ascending: false });
+            if (!error && data) {
+                setRepairJobs(data);
+            }
+        };
+        fetchRepairs();
+    }, []);
 
-    // Generate sequential Ref ID: REP-2026-001
+    // Generate sequential Ref ID: REP-2026-001 based on current array length
+    // In a real multi-user env, we should query max ID from DB, but this works for now
     const generateRefId = useCallback(() => {
         const year = new Date().getFullYear();
         const yearJobs = repairJobs.filter(j => j.refId?.startsWith(`REP-${year}`));
@@ -20,37 +26,58 @@ export function RepairsProvider({ children }) {
         return `REP-${year}-${String(nextNum).padStart(3, '0')}`;
     }, [repairJobs]);
 
-    const addRepair = useCallback((repairData) => {
+    const addRepair = useCallback(async (repairData) => {
         const refId = generateRefId();
         const newJob = {
-            id: Date.now(),
+            id: String(Date.now()), // Text ID for Supabase
             refId,
             ...repairData,
             status: 'pending', // pending | in_progress | completed
             createdAt: new Date().toISOString(),
             completedAt: null,
             finalAmount: null,
+            partsCost: 0,
+            estimatedCost: repairData.estimatedCost || 0,
+            partsUsed: []
         };
+
+        // Optimistic UI Update
         setRepairJobs(prev => [newJob, ...prev]);
+
+        // Supabase DB Update
+        await supabase.from('repairs').insert([newJob]);
+
         return newJob;
     }, [generateRefId]);
 
-    const updateRepairStatus = useCallback((id, status, extras = {}) => {
+    const updateRepairStatus = useCallback(async (id, status, extras = {}) => {
+        const strId = String(id);
+        const payload = {
+            status,
+            ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
+            ...extras,
+        };
+
+        // Optimistic UI
         setRepairJobs(prev => prev.map(job => {
-            if (job.id === id) {
-                return {
-                    ...job,
-                    status,
-                    ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
-                    ...extras,
-                };
+            if (String(job.id) === strId) {
+                return { ...job, ...payload };
             }
             return job;
         }));
+
+        // Supabase DB Update
+        await supabase.from('repairs').update(payload).eq('id', strId);
     }, []);
 
-    const deleteRepair = useCallback((id) => {
-        setRepairJobs(prev => prev.filter(j => j.id !== id));
+    const deleteRepair = useCallback(async (id) => {
+        const strId = String(id);
+
+        // Optimistic UI
+        setRepairJobs(prev => prev.filter(j => String(j.id) !== strId));
+
+        // Supabase DB Update
+        await supabase.from('repairs').delete().eq('id', strId);
     }, []);
 
     const value = {

@@ -61,7 +61,7 @@ export default function TransactionList({ transactions = [], searchTerm = '', is
             <div className="hidden sm:grid grid-cols-12 gap-3 px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100">
                 <div className="col-span-2">Time / ID</div>
                 <div className="col-span-4">Product Name</div>
-                <div className="col-span-2">Sold By</div>
+                <div className="col-span-2">Sold/Purchased By</div>
                 <div className="col-span-2 text-right">Amount</div>
                 <div className="col-span-2"></div>
             </div>
@@ -113,9 +113,9 @@ export default function TransactionList({ transactions = [], searchTerm = '', is
                                 <p className="text-[10px] text-slate-400 sm:hidden">{txn.date}</p>
                             </div>
 
-                            {/* 3. Sold By */}
+                            {/* 3. Sold/Purchased By */}
                             <div className="sm:col-span-2 hidden sm:block">
-                                <p className="text-xs text-slate-500 font-medium truncate">{txn.soldBy || 'Shop'}</p>
+                                <p className="text-xs text-slate-500 font-medium truncate">{txn.salesmanName || txn.soldBy || 'Shop'}</p>
                             </div>
 
                             {/* 4. Amount */}
@@ -123,7 +123,7 @@ export default function TransactionList({ transactions = [], searchTerm = '', is
                                 <p className={`text-sm font-black ${isIncome ? 'text-emerald-600' : 'text-red-600'}`}>
                                     {isIncome ? '+' : '-'}€{parseFloat(txn.amount).toFixed(2)}
                                 </p>
-                                <p className="text-[9px] text-slate-400 sm:hidden">Sold By: {txn.soldBy || 'Shop'}</p>
+                                <p className="text-[9px] text-slate-400 sm:hidden">User: {txn.salesmanName || txn.soldBy || 'Shop'}</p>
                             </div>
 
                             {/* 5. Action Icons */}

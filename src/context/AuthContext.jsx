@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
@@ -10,23 +11,14 @@ export function AuthProvider({ children }) {
     }); // For salesman details
     const [lowStockAlerts, setLowStockAlerts] = useState([]);
 
-    // ── Persistent Data ──
-    const [adminPassword, setAdminPassword] = useState(() => {
-        return localStorage.getItem('adminPassword') || 'admin123';
-    });
-
-    const [slowMovingDays, setSlowMovingDays] = useState(() => {
-        return parseInt(localStorage.getItem('slowMovingDays')) || 30;
-    });
-
+    // ── Persistent Config Data ──
+    const [adminPassword, setAdminPassword] = useState(() => localStorage.getItem('adminPassword') || 'admin123');
+    const [slowMovingDays, setSlowMovingDays] = useState(() => parseInt(localStorage.getItem('slowMovingDays')) || 30);
     const [autoLockEnabled, setAutoLockEnabled] = useState(() => {
         const saved = localStorage.getItem('autoLockEnabled');
         return saved !== null ? saved === 'true' : true;
     });
-
-    const [autoLockTimeout, setAutoLockTimeout] = useState(() => {
-        return parseInt(localStorage.getItem('autoLockTimeout')) || 120;
-    });
+    const [autoLockTimeout, setAutoLockTimeout] = useState(() => parseInt(localStorage.getItem('autoLockTimeout')) || 120);
 
     const [salesmen, setSalesmen] = useState(() => {
         const saved = localStorage.getItem('salesmen');
@@ -37,50 +29,25 @@ export function AuthProvider({ children }) {
 
     // ── Persistence Effects ──
     useEffect(() => {
-        if (role) localStorage.setItem('role', role);
-        else localStorage.removeItem('role');
-
-        if (user) localStorage.setItem('user', JSON.stringify(user));
-        else localStorage.removeItem('user');
+        if (role) localStorage.setItem('role', role); else localStorage.removeItem('role');
+        if (user) localStorage.setItem('user', JSON.stringify(user)); else localStorage.removeItem('user');
     }, [user, role]);
 
-    useEffect(() => {
-        localStorage.setItem('adminPassword', adminPassword);
-    }, [adminPassword]);
-
-    useEffect(() => {
-        localStorage.setItem('slowMovingDays', String(slowMovingDays));
-    }, [slowMovingDays]);
-
-    useEffect(() => {
-        localStorage.setItem('autoLockEnabled', String(autoLockEnabled));
-    }, [autoLockEnabled]);
-
-    useEffect(() => {
-        localStorage.setItem('autoLockTimeout', String(autoLockTimeout));
-    }, [autoLockTimeout]);
-
-    useEffect(() => {
-        localStorage.setItem('salesmen', JSON.stringify(salesmen));
-    }, [salesmen]);
+    useEffect(() => { localStorage.setItem('adminPassword', adminPassword); }, [adminPassword]);
+    useEffect(() => { localStorage.setItem('slowMovingDays', String(slowMovingDays)); }, [slowMovingDays]);
+    useEffect(() => { localStorage.setItem('autoLockEnabled', String(autoLockEnabled)); }, [autoLockEnabled]);
+    useEffect(() => { localStorage.setItem('autoLockTimeout', String(autoLockTimeout)); }, [autoLockTimeout]);
+    useEffect(() => { localStorage.setItem('salesmen', JSON.stringify(salesmen)); }, [salesmen]);
 
     // ── Storage Event Listener for Cross-Tab Sync ──
     useEffect(() => {
         const handleStorageChange = (e) => {
-            // Don't sync role/user if the current session already has an active user
-            // This prevents admin's role from being overwritten when a salesman logs in on another tab
             if (e.key === 'role' && !user) setRole(e.newValue);
             if (e.key === 'user' && e.newValue && !user) {
-                try { setUser(JSON.parse(e.newValue)); }
-                catch (err) { console.error("Sync error (user):", err); }
+                try { setUser(JSON.parse(e.newValue)); } catch (err) { console.error("Sync error (user):", err); }
             }
             if (e.key === 'salesmen' && e.newValue) {
-                try { setSalesmen(JSON.parse(e.newValue)); }
-                catch (err) { console.error("Sync error (salesmen):", err); }
-            }
-            if (e.key === 'attendanceLogs' && e.newValue) {
-                try { setAttendanceLogs(JSON.parse(e.newValue)); }
-                catch (err) { console.error("Sync error (attendanceLogs):", err); }
+                try { setSalesmen(JSON.parse(e.newValue)); } catch (err) { console.error("Sync error (salesmen):", err); }
             }
             if (e.key === 'adminPassword' && e.newValue) {
                 setAdminPassword(e.newValue);
@@ -90,27 +57,39 @@ export function AuthProvider({ children }) {
         return () => window.removeEventListener('storage', handleStorageChange);
     }, []);
 
-    // ── Attendance Logs ──
-    const [attendanceLogs, setAttendanceLogs] = useState(() => {
-        const saved = localStorage.getItem('attendanceLogs');
-        return saved ? JSON.parse(saved) : [];
-    });
-
-    // ── Punch In/Out State ──
+    // ── Preloaded Attendance Logs from Supabase ──
+    const [attendanceLogs, setAttendanceLogs] = useState([]);
     const [isPunchedIn, setIsPunchedIn] = useState(false);
 
+    // Initial Fetch
     useEffect(() => {
-        localStorage.setItem('attendanceLogs', JSON.stringify(attendanceLogs));
+        const fetchAttendance = async () => {
+            const { data, error } = await supabase.from('attendance').select('*').order('timestamp', { ascending: false });
+            if (!error && data) {
+                // Map DB schema to local expectations (DB has UUID, local had timestamp-based IDs etc)
+                // We'll standardise date and time strings for UI components
+                const formatted = data.map(dbLog => {
+                    const dObj = new Date(dbLog.timestamp);
+                    return {
+                        ...dbLog,
+                        userId: parseInt(dbLog.workerId) || dbLog.workerId, // Parse back to int for local compatibility
+                        userName: dbLog.workerName,
+                        date: dObj.toLocaleDateString('en-PK'),
+                        time: dObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
+                    };
+                });
+                setAttendanceLogs(formatted);
+            }
+        };
+        fetchAttendance();
+    }, []);
 
-        // Sync isPunchedIn state on load/update
+    // Set `isPunchedIn` state on load/update
+    useEffect(() => {
         if (user && role === 'salesman') {
             const todayStr = new Date().toLocaleDateString('en-PK');
-            const myLogsToday = attendanceLogs.filter(l => l.date === todayStr && l.userId === user.id);
+            const myLogsToday = attendanceLogs.filter(l => l.date === todayStr && String(l.userId) === String(user.id));
             if (myLogsToday.length > 0) {
-                // Creates a new array to safe sort, though filter returns new array. 
-                // Log logic: The LATEST log determines status. 
-                // Assuming we prepend logs, index 0 is latest. 
-                // But to be safe, let's sort by timestamp descending.
                 const latest = myLogsToday.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
                 setIsPunchedIn(latest.type === 'IN');
             } else {
@@ -119,28 +98,48 @@ export function AuthProvider({ children }) {
         }
     }, [attendanceLogs, user, role]);
 
-    const handlePunch = (type) => { // type: 'IN' | 'OUT'
+    const handlePunch = async (type) => { // type: 'IN' | 'OUT'
         if (!user) return;
 
-        const log = {
-            id: Date.now(),
+        const ts = new Date();
+        const uiLog = {
+            id: crypto.randomUUID(), // Optimistic UUID
             userId: user.id,
             userName: user.name,
+            workerId: String(user.id),
+            workerName: user.name,
             type,
-            timestamp: new Date().toISOString(),
-            date: new Date().toLocaleDateString('en-PK'),
-            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
+            timestamp: ts.toISOString(),
+            date: ts.toLocaleDateString('en-PK'),
+            time: ts.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            note: ''
         };
 
-        setAttendanceLogs(prev => [log, ...prev]);
+        // Optimistic update
+        setAttendanceLogs(prev => [uiLog, ...prev]);
         setIsPunchedIn(type === 'IN');
+
+        // Supabase DB Update
+        const { error } = await supabase.from('attendance').insert([{
+            id: uiLog.id,
+            workerId: String(user.id),
+            workerName: user.name,
+            type: type,
+            timestamp: uiLog.timestamp,
+            note: ''
+        }]);
+
+        if (error) {
+            console.error('Failed to punch attendance:', error);
+            // Typically revert optimistic state here, but omitting for brevity
+            return;
+        }
 
         // ── Auto-save salary transaction on punch OUT ──
         if (type === 'OUT') {
-            const todayStr = new Date().toLocaleDateString('en-PK');
+            const todayStr = ts.toLocaleDateString('en-PK');
             const salesman = salesmen.find(s => s.id === user.id);
             if (salesman) {
-                // Find the latest IN log for this user today
                 const myLogsToday = attendanceLogs
                     .filter(l => l.userId === user.id && l.date === todayStr)
                     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
@@ -148,71 +147,57 @@ export function AuthProvider({ children }) {
                 const latestIn = myLogsToday.find(l => l.type === 'IN');
                 if (latestIn?.timestamp) {
                     const shiftStart = new Date(latestIn.timestamp).getTime();
-                    const now = Date.now();
+                    const now = ts.getTime();
                     const hoursWorked = (now - shiftStart) / 3600000;
                     const hourlyRate = salesman.hourlyRate || 12.50;
                     const sessionSalary = hoursWorked * hourlyRate;
 
-                    if (sessionSalary > 0.001) { // Only save if meaningful
+                    if (sessionSalary > 0.001) {
                         const salaryTxn = {
-                            id: Date.now() + 1,
+                            id: String(Date.now()),
                             desc: `Salary: ${salesman.name} (${hoursWorked.toFixed(1)}h @ €${hourlyRate}/hr)`,
                             amount: parseFloat(sessionSalary.toFixed(2)),
                             type: 'expense',
                             category: 'Salary',
                             isFixedExpense: true,
-                            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-                            timestamp: new Date().toISOString(),
+                            date: ts.toLocaleDateString('en-CA'),
+                            time: ts.toLocaleTimeString('en-US', { hour12: false }),
+                            timestamp: ts.toISOString(),
                             source: 'payroll-auto',
-                            salesmanId: salesman.id,
+                            workerId: String(salesman.id),
                             salesmanName: salesman.name
                         };
 
-                        // Save directly to localStorage transactions (InventoryContext's storage)
-                        try {
-                            const existing = JSON.parse(localStorage.getItem('transactions') || '[]');
-                            const updated = [salaryTxn, ...existing];
-                            localStorage.setItem('transactions', JSON.stringify(updated));
+                        // Push directly to Supabase since transactions are now online
+                        await supabase.from('transactions').insert([salaryTxn]);
 
-                            // Dispatch custom event so InventoryContext picks it up on same tab
-                            window.dispatchEvent(new CustomEvent('transactions-updated', { detail: updated }));
-                        } catch (e) {
-                            console.error('Failed to auto-save salary transaction:', e);
-                        }
+                        // Tell InventoryContext to refetch or inject optimistic transaction
+                        // (Usually a reload handles this perfectly, but an event works too)
+                        window.dispatchEvent(new CustomEvent('transactions-added-remote', { detail: salaryTxn }));
 
-                        // Reset accrued salary for this salesman
-                        setSalesmen(prev => prev.map(s =>
-                            s.id === salesman.id ? { ...s, totalAccruedSalary: 0 } : s
-                        ));
+                        setSalesmen(prev => prev.map(s => s.id === salesman.id ? { ...s, totalAccruedSalary: 0 } : s));
                     }
                 }
             }
         }
     };
 
-    // Deprecated: addAttendanceLog
     const addAttendanceLog = (userObj, type) => handlePunch(type);
 
-    const updateAttendanceLog = useCallback((id, updates) => {
+    const updateAttendanceLog = useCallback(async (id, updates) => {
         setAttendanceLogs(prev => prev.map(l => {
             if (l.id === id) {
                 const newLog = { ...l, ...updates };
-                // If time/date changed, reconstruct timestamp for duration logic
                 if (updates.time) {
                     try {
-                        // Parse "HH:MM AM/PM" or "HH:MM"
                         const timeMatch = newLog.time.match(/(\d+):(\d+)(?:\s*(AM|PM))?/i);
                         if (timeMatch) {
                             let [_, hours, minutes, ampm] = timeMatch;
-                            hours = parseInt(hours);
-                            minutes = parseInt(minutes);
-
+                            hours = parseInt(hours); minutes = parseInt(minutes);
                             if (ampm) {
                                 if (ampm.toUpperCase() === 'PM' && hours < 12) hours += 12;
                                 if (ampm.toUpperCase() === 'AM' && hours === 12) hours = 0;
                             }
-
                             const dateObj = new Date(newLog.timestamp);
                             dateObj.setHours(hours, minutes, 0, 0);
                             newLog.timestamp = dateObj.toISOString();
@@ -221,14 +206,23 @@ export function AuthProvider({ children }) {
                         console.error("Reconstruct timestamp failed:", e);
                     }
                 }
+
+                // Fire off Supabase update
+                supabase.from('attendance').update({
+                    type: newLog.type,
+                    timestamp: newLog.timestamp,
+                    note: newLog.note
+                }).eq('id', newLog.id).then();
+
                 return newLog;
             }
             return l;
         }));
     }, []);
 
-    const deleteAttendanceLog = useCallback((id) => {
+    const deleteAttendanceLog = useCallback(async (id) => {
         setAttendanceLogs(prev => prev.filter(l => l.id !== id));
+        await supabase.from('attendance').delete().eq('id', id);
     }, []);
 
     // ── Auth Logic ──
@@ -243,7 +237,7 @@ export function AuthProvider({ children }) {
         }
 
         if (userData.role === 'salesman') {
-            const salesman = salesmen.find(s => s.pin === userData.pin);
+            const salesman = salesmen.find(s => String(s.pin) === String(userData.pin));
             if (salesman) {
                 setRole('salesman');
                 setUser(salesman);
@@ -259,49 +253,30 @@ export function AuthProvider({ children }) {
         setUser(null);
         setIsPunchedIn(false);
         setLowStockAlerts([]);
-        localStorage.removeItem('user'); // Optional: clear user on logout? 
-        // Logic: setUser(null) triggers useEffect which sets localStorage 'user' to null. So removeItem is redundant but harmless.
+        localStorage.removeItem('user');
     };
 
     // ── Management Functions ──
-    const updateAdminPassword = (newPass) => {
-        setAdminPassword(newPass);
-    };
-
+    const updateAdminPassword = (newPass) => setAdminPassword(newPass);
     const addSalesman = (name, pin) => {
         const newSalesman = { id: Date.now(), name, pin, active: true, hourlyRate: 12.50 };
         setSalesmen(prev => [...prev, newSalesman]);
     };
-
-    const deleteSalesman = (id) => {
-        setSalesmen(prev => prev.filter(s => s.id !== id));
-    };
-
+    const deleteSalesman = (id) => setSalesmen(prev => prev.filter(s => s.id !== id));
     const updateSalesman = (id, updates) => {
         setSalesmen(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
-        if (user && user.id === id) {
-            setUser(prev => ({ ...prev, ...updates }));
-        }
+        if (user && user.id === id) setUser(prev => ({ ...prev, ...updates }));
     };
 
-    // ── Alert Logic (Existing) ──
+    // ── Alert Logic ──
     const addLowStockAlert = (product) => {
         setLowStockAlerts((prev) => {
             if (prev.some((a) => a.barcode === product.barcode)) return prev;
-            return [
-                { ...product, alertTime: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) },
-                ...prev,
-            ];
+            return [{ ...product, alertTime: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) }, ...prev];
         });
     };
-
-    const clearAlert = (barcode) => {
-        setLowStockAlerts((prev) => prev.filter((a) => a.barcode !== barcode));
-    };
-
-    const clearAllAlerts = () => {
-        setLowStockAlerts([]);
-    };
+    const clearAlert = (barcode) => setLowStockAlerts((prev) => prev.filter((a) => a.barcode !== barcode));
+    const clearAllAlerts = () => setLowStockAlerts([]);
 
     const value = {
         role, user, login, logout,

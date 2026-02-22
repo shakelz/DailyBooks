@@ -293,6 +293,9 @@ export default function AdminDashboard() {
     return (
         <div className="h-full flex flex-col space-y-4">
 
+            {/* ONE-TIME MIGRATION WIDGET */}
+            <SupabaseMigrationWidget />
+
             {/* ═══ DASHBOARD HEADER ═══ */}
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>
@@ -708,10 +711,17 @@ export default function AdminDashboard() {
                             quantity: parseInt(entry.stock) || 1,
                             date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                            salesmanName: 'Admin',
+                            workerId: 'admin'
                         });
                     }
                     setShowInventoryForm(false);
                 }}
+            />
+
+            <CategoryManagerModal
+                isOpen={showCategoryManager}
+                onClose={() => setShowCategoryManager(false)}
             />
 
             <TransactionModal
@@ -896,7 +906,7 @@ export default function AdminDashboard() {
                     <span className="text-lg">🧮</span>
                 </button>
                 <button onClick={() => {
-                    setFormMode('inventory'); setShowInventoryForm(true);
+                    setShowCategoryManager(true);
                 }}
                     className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30 flex items-center justify-center hover:shadow-blue-500/40 active:scale-90 transition-all cursor-pointer">
                     <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
