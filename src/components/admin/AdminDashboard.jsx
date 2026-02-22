@@ -13,6 +13,18 @@ import { ChevronRight } from 'lucide-react';
 import DateRangeFilter from './DateRangeFilter';
 import CategoryManagerModal from '../CategoryManagerModal';
 
+function getTimestampMs(value) {
+    if (!value) return NaN;
+    const ms = Date.parse(value);
+    return Number.isNaN(ms) ? NaN : ms;
+}
+
+function getRangeOverlapMs(startMs, endMs, rangeStartMs, rangeEndMs) {
+    const from = Math.max(startMs, rangeStartMs);
+    const to = Math.min(endMs, rangeEndMs);
+    return Math.max(0, to - from);
+}
+
 // ══════════════════════════════════════════════════════════
 // DailyBooks — Admin Dashboard (Unified UI)
 // Matches Salesman UI + Admin Features (Production/Logs)
@@ -80,18 +92,6 @@ export default function AdminDashboard() {
         return () => clearInterval(timer);
     }, []);
 
-    // ── Total earnings per salesman from past salary transactions ──
-    const salaryEarnings = useMemo(() => {
-        const earnings = {};
-        transactions.forEach(t => {
-            if (t.category === 'Salary' && t.type === 'expense' && t.isFixedExpense && (t.salesmanId || t.workerId)) {
-                const idStr = String(t.salesmanId || t.workerId);
-                earnings[idStr] = (earnings[idStr] || 0) + (parseFloat(t.amount) || 0);
-            }
-        });
-        return earnings;
-    }, [transactions]);
-
     // ═══════════════════ COMPUTED ═══════════════════
 
     // Standardize to the start and end of the selected date range for filtering
@@ -100,13 +100,120 @@ export default function AdminDashboard() {
 
     const targetDateEnd = new Date(dateSelection[0].endDate);
     targetDateEnd.setHours(23, 59, 59, 999);
+    const targetStartMs = targetDateStart.getTime();
+    const targetEndMs = targetDateEnd.getTime();
+    const nowMs = time.getTime();
 
     const formattedStartDate = targetDateStart.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
     const formattedEndDate = targetDateEnd.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
     const formattedDisplayDate = formattedStartDate === formattedEndDate ? formattedStartDate : `${formattedStartDate} - ${formattedEndDate}`;
 
-    // For single-day fallback logic (e.g. attendance might only log by date sometimes, but we updated it to timestamps)
-    // We will use targetDateStart and targetDateEnd universally now.
+    const allAttendanceLogs = useMemo(() => {
+        return attendanceLogs
+            .filter(l => l?.timestamp && !Number.isNaN(getTimestampMs(l.timestamp)))
+            .sort((a, b) => getTimestampMs(a.timestamp) - getTimestampMs(b.timestamp));
+    }, [attendanceLogs]);
+
+    const attendanceLogsInRange = useMemo(() => {
+        return allAttendanceLogs
+            .filter(l => {
+                const ts = getTimestampMs(l.timestamp);
+                return ts >= targetStartMs && ts <= targetEndMs;
+            })
+            .sort((a, b) => getTimestampMs(b.timestamp) - getTimestampMs(a.timestamp));
+    }, [allAttendanceLogs, targetStartMs, targetEndMs]);
+
+    // Salary paid transactions only in selected period
+    const paidSalaryByStaffInRange = useMemo(() => {
+        const earnings = {};
+        transactions.forEach(t => {
+            if (!(t.category === 'Salary' && t.type === 'expense' && t.isFixedExpense)) return;
+
+            const ts = t.timestamp ? getTimestampMs(t.timestamp) : NaN;
+            if (!Number.isNaN(ts) && (ts < targetStartMs || ts > targetEndMs)) return;
+            if (Number.isNaN(ts)) {
+                const dateStr = String(t.date || '').trim();
+                if (dateStr !== formattedStartDate && dateStr !== formattedEndDate) return;
+            }
+
+            const idStr = String(t.salesmanId || t.workerId || '');
+            if (!idStr) return;
+            earnings[idStr] = (earnings[idStr] || 0) + (parseFloat(t.amount) || 0);
+        });
+        return earnings;
+    }, [transactions, targetStartMs, targetEndMs, formattedStartDate, formattedEndDate]);
+
+    const staffProductionStats = useMemo(() => {
+        const logsByStaff = {};
+        const allUserLogs = {};
+        const outSessionEarnings = {};
+        let totalProductionMs = 0;
+        let totalEarning = 0;
+
+        allAttendanceLogs.forEach(log => {
+            const uid = String(log.userId || log.workerId || '');
+            if (!uid) return;
+            if (!allUserLogs[uid]) allUserLogs[uid] = [];
+            allUserLogs[uid].push(log);
+        });
+
+        salesmen.forEach(staff => {
+            const uid = String(staff.id);
+            const userLogs = allUserLogs[uid] || [];
+            const hourlyRate = parseFloat(staff.hourlyRate) || 12.50;
+
+            let openInMs = null;
+            let completedMs = 0;
+            let liveMs = 0;
+            let isOnline = false;
+
+            userLogs.forEach(log => {
+                const ts = getTimestampMs(log.timestamp);
+                if (Number.isNaN(ts)) return;
+
+                if (log.type === 'IN') {
+                    openInMs = ts;
+                    isOnline = true;
+                    return;
+                }
+
+                if (log.type === 'OUT' && openInMs !== null) {
+                    const overlapMs = getRangeOverlapMs(openInMs, ts, targetStartMs, targetEndMs);
+                    completedMs += overlapMs;
+                    if (overlapMs > 0 && log.id) {
+                        outSessionEarnings[String(log.id)] = (overlapMs / 3600000) * hourlyRate;
+                    }
+                    openInMs = null;
+                    isOnline = false;
+                }
+            });
+
+            if (openInMs !== null) {
+                liveMs = getRangeOverlapMs(openInMs, nowMs, targetStartMs, targetEndMs);
+            }
+
+            const totalMs = completedMs + liveMs;
+            const totalHours = totalMs / 3600000;
+            const liveHours = liveMs / 3600000;
+            const earning = totalHours * hourlyRate;
+
+            logsByStaff[uid] = {
+                totalMs,
+                totalHours,
+                completedMs,
+                liveMs,
+                liveHours,
+                isOnline,
+                hourlyRate,
+                earning
+            };
+
+            totalProductionMs += totalMs;
+            totalEarning += earning;
+        });
+
+        return { byStaff: logsByStaff, outSessionEarnings, totalProductionMs, totalEarning };
+    }, [allAttendanceLogs, salesmen, targetStartMs, targetEndMs, nowMs]);
 
     const todayTransactions = transactions.filter(t => {
         if (!t.timestamp && !t.date) return false;
@@ -328,63 +435,33 @@ export default function AdminDashboard() {
                             <h3 className="font-bold text-slate-700 flex items-center gap-2">
                                 <span>⏱️</span> Staff Production & Salary
                             </h3>
+                            <div className="text-right">
+                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total {formattedDisplayDate}</p>
+                                <p className="text-xs font-black text-emerald-600">
+                                    {priceTag(staffProductionStats.totalEarning)}
+                                </p>
+                            </div>
                         </div>
                         <div className="p-0">
                             {salesmen.map(staff => {
-                                const staffLogs = attendanceLogs
-                                    .filter(l => {
-                                        if (!l.timestamp) return false;
-                                        const lDate = new Date(l.timestamp);
-                                        return lDate >= targetDateStart && lDate <= targetDateEnd && String(l.userId) === String(staff.id);
-                                    })
-                                    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                                const stat = staffProductionStats.byStaff[String(staff.id)] || {
+                                    totalMs: 0,
+                                    totalHours: 0,
+                                    liveMs: 0,
+                                    liveHours: 0,
+                                    isOnline: false,
+                                    hourlyRate: parseFloat(staff.hourlyRate) || 12.50,
+                                    earning: 0
+                                };
 
-                                let totalMs = 0;
-                                let startTime = null;
-                                let isOnline = false;
-
-                                staffLogs.forEach(log => {
-                                    if (log.type === 'IN') {
-                                        startTime = new Date(log.timestamp);
-                                        isOnline = true;
-                                    } else if (log.type === 'OUT' && startTime) {
-                                        const endTime = new Date(log.timestamp);
-                                        totalMs += (endTime - startTime);
-                                        startTime = null;
-                                        isOnline = false;
-                                    }
-                                });
-
-                                if (isOnline && startTime) {
-                                    totalMs += (time - startTime);
-                                }
-
+                                const totalMs = stat.totalMs;
                                 const hours = Math.floor(totalMs / (1000 * 60 * 60));
                                 const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60));
-
-                                // Live session salary (only if currently online)
-                                const hourlyRate = staff.hourlyRate || 12.50;
-                                const sessionHours = isOnline && startTime ? (time - startTime) / 3600000 : 0;
-                                const liveSalary = sessionHours * hourlyRate;
-                                const totalEarned = salaryEarnings[String(staff.id)] || 0;
-
-                                // Calculate ALL-TIME total hours from every attendance log for this staff
-                                const allLogs = attendanceLogs
-                                    .filter(l => l.timestamp && String(l.userId) === String(staff.id))
-                                    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-                                let allTimeMs = 0;
-                                let tempStart = null;
-                                allLogs.forEach(log => {
-                                    if (log.type === 'IN') {
-                                        tempStart = new Date(log.timestamp);
-                                    } else if (log.type === 'OUT' && tempStart) {
-                                        allTimeMs += (new Date(log.timestamp) - tempStart);
-                                        tempStart = null;
-                                    }
-                                });
-                                if (isOnline && tempStart) allTimeMs += (time - tempStart);
-                                const totalHoursWorked = allTimeMs / 3600000;
-                                const expectedSalary = totalHoursWorked * hourlyRate;
+                                const hourlyRate = stat.hourlyRate;
+                                const liveSalary = stat.liveHours * hourlyRate;
+                                const totalEarnedToday = stat.earning;
+                                const paidToday = paidSalaryByStaffInRange[String(staff.id)] || 0;
+                                const isOnline = stat.isOnline;
 
                                 return (
                                     <div key={staff.id} className="px-5 py-4 border-b border-slate-50 last:border-none hover:bg-slate-50/50 transition-colors">
@@ -407,24 +484,24 @@ export default function AdminDashboard() {
                                         </div>
                                         {/* Live Salary Row */}
                                         <div className="mt-2 flex flex-wrap items-center gap-2 pl-[52px]">
-                                            {isOnline ? (
+                                            {isOnline && stat.liveMs > 0 ? (
                                                 <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-xl">
                                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                                                     <span className="text-xs font-bold text-emerald-700 font-mono tabular-nums">€{liveSalary.toFixed(4)}</span>
                                                     <span className="text-[9px] text-emerald-500">session</span>
                                                 </div>
                                             ) : null}
-                                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-100 rounded-xl" title={`${totalHoursWorked.toFixed(1)}h × €${hourlyRate}/hr`}>
-                                                <span className="text-xs font-bold text-violet-700 font-mono">€{expectedSalary.toFixed(2)}</span>
-                                                <span className="text-[9px] text-violet-500">expected ({totalHoursWorked.toFixed(1)}h)</span>
+                                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-100 rounded-xl" title={`${stat.totalHours.toFixed(2)}h × €${hourlyRate}/hr`}>
+                                                <span className="text-xs font-bold text-violet-700 font-mono">€{totalEarnedToday.toFixed(2)}</span>
+                                                <span className="text-[9px] text-violet-500">today ({stat.totalHours.toFixed(1)}h)</span>
                                             </div>
-                                            {totalEarned > 0 && (
+                                            {paidToday > 0 && (
                                                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-xl">
-                                                    <span className="text-xs font-bold text-blue-700 font-mono">€{totalEarned.toFixed(2)}</span>
+                                                    <span className="text-xs font-bold text-blue-700 font-mono">€{paidToday.toFixed(2)}</span>
                                                     <span className="text-[9px] text-blue-500">paid</span>
                                                 </div>
                                             )}
-                                            {!isOnline && totalEarned === 0 && expectedSalary === 0 && (
+                                            {!isOnline && paidToday === 0 && totalEarnedToday === 0 && (
                                                 <span className="text-[10px] text-slate-300">No earnings yet</span>
                                             )}
                                         </div>
@@ -442,19 +519,11 @@ export default function AdminDashboard() {
                                 <span>📝</span> Activity Log ({formattedDisplayDate})
                             </h3>
                             <span className="text-[10px] bg-slate-200 px-2 py-0.5 rounded-full font-bold text-slate-600">
-                                {attendanceLogs.filter(l => {
-                                    if (!l.timestamp) return false;
-                                    const lDate = new Date(l.timestamp);
-                                    return (lDate >= targetDateStart && lDate <= targetDateEnd) || (l.date === formattedStartDate || l.date === formattedEndDate);
-                                }).length} Records
+                                {attendanceLogsInRange.length} Records
                             </span>
                         </div>
                         <div className="p-0">
-                            {attendanceLogs.filter(l => {
-                                if (!l.timestamp) return false;
-                                const lDate = new Date(l.timestamp);
-                                return (lDate >= targetDateStart && lDate <= targetDateEnd) || (l.date === formattedStartDate || l.date === formattedEndDate);
-                            }).length === 0 ? (
+                            {attendanceLogsInRange.length === 0 ? (
                                 <p className="text-center py-6 text-sm text-slate-400">No attendance records for {formattedDisplayDate}.</p>
                             ) : (
                                 <div className="max-h-60 overflow-y-auto">
@@ -467,28 +536,10 @@ export default function AdminDashboard() {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
-                                            {attendanceLogs.filter(l => {
-                                                if (!l.timestamp) return false;
-                                                const lDate = new Date(l.timestamp);
-                                                return lDate >= targetDateStart && lDate <= targetDateEnd || (l.date === formattedStartDate || l.date === formattedEndDate);
-                                            }).map((log, idx, filteredLogs) => {
-                                                // For OUT events, find matching IN and compute earned salary
-                                                let earnedAmount = null;
-                                                if (log.type === 'OUT') {
-                                                    const allUserLogs = attendanceLogs
-                                                        .filter(l => l.userId === log.userId)
-                                                        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-                                                    const logIndex = allUserLogs.findIndex(l => l.id === log.id);
-                                                    // The IN event should be the next one (earlier in time)
-                                                    const matchingIn = allUserLogs.slice(logIndex + 1).find(l => l.type === 'IN');
-                                                    if (matchingIn?.timestamp) {
-                                                        const inTime = new Date(matchingIn.timestamp).getTime();
-                                                        const outTime = new Date(log.timestamp).getTime();
-                                                        const hoursWorked = (outTime - inTime) / 3600000;
-                                                        const staff = salesmen.find(s => s.id === log.userId);
-                                                        earnedAmount = hoursWorked * (staff?.hourlyRate || 12.50);
-                                                    }
-                                                }
+                                            {attendanceLogsInRange.map((log) => {
+                                                const earnedAmount = log.type === 'OUT'
+                                                    ? staffProductionStats.outSessionEarnings[String(log.id)] ?? null
+                                                    : null;
                                                 return (
                                                     <tr key={log.id} className="hover:bg-slate-50">
                                                         <td className="px-5 py-2.5 font-mono text-slate-600 text-xs">{log.time}</td>
