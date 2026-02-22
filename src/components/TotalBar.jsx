@@ -38,7 +38,7 @@ export default function TotalBar({
         const total = toAmount(data.cash) + toAmount(data.visa) + toAmount(data.online);
 
         return (
-            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-52 p-3 bg-slate-900/95 text-white rounded-2xl shadow-2xl opacity-0 scale-95 translate-y-2 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-all duration-300 ease-out z-[110] border border-slate-700/60 backdrop-blur-md">
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-52 p-3 bg-slate-900/95 text-white rounded-2xl shadow-2xl opacity-0 scale-95 translate-y-2 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-all duration-300 ease-out z-[130] border border-slate-700/60 backdrop-blur-md">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 border-b border-slate-800 pb-1">{title}</p>
                 <div className="space-y-1.5">
                     <div className="flex justify-between items-center text-xs">
@@ -64,10 +64,10 @@ export default function TotalBar({
     };
 
     return (
-        <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex-shrink-0">
+        <div className="relative z-40 overflow-visible bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex-shrink-0">
             <div className="grid grid-cols-3 gap-3">
                 {/* Total Sale */}
-                <div className="relative overflow-visible rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200 p-4 group hover:shadow-lg hover:shadow-emerald-500/15 hover:-translate-y-0.5 transition-all duration-300 cursor-help">
+                <div className="relative z-10 hover:z-[120] overflow-visible rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200 p-4 group hover:shadow-lg hover:shadow-emerald-500/15 hover:-translate-y-0.5 transition-all duration-300 cursor-help">
                     <Tooltip data={normalizedIncomeBreakdown} title="Income Breakdown" />
                     <div className="absolute -top-4 -right-4 w-16 h-16 rounded-full bg-emerald-200/30 group-hover:scale-110 transition-transform" />
                     <div className="relative">
@@ -85,7 +85,7 @@ export default function TotalBar({
                 </div>
 
                 {/* Total Purchase */}
-                <div className="relative overflow-visible rounded-2xl bg-gradient-to-br from-red-50 to-red-100/50 border border-red-200 p-4 group hover:shadow-lg hover:shadow-red-500/15 hover:-translate-y-0.5 transition-all duration-300 cursor-help">
+                <div className="relative z-10 hover:z-[120] overflow-visible rounded-2xl bg-gradient-to-br from-red-50 to-red-100/50 border border-red-200 p-4 group hover:shadow-lg hover:shadow-red-500/15 hover:-translate-y-0.5 transition-all duration-300 cursor-help">
                     <Tooltip data={normalizedExpenseBreakdown} title="Expense Breakdown" />
                     <div className="absolute -top-4 -right-4 w-16 h-16 rounded-full bg-red-200/30 group-hover:scale-110 transition-transform" />
                     <div className="relative">
@@ -103,7 +103,7 @@ export default function TotalBar({
                 </div>
 
                 {/* Net Amount */}
-                <div className={`relative overflow-visible rounded-2xl border p-4 group hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 cursor-help ${netAmount >= 0
+                <div className={`relative z-10 hover:z-[120] overflow-visible rounded-2xl border p-4 group hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 cursor-help ${netAmount >= 0
                     ? 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200 hover:shadow-blue-500/15'
                     : 'bg-gradient-to-br from-orange-50 to-orange-100/50 border-orange-200 hover:shadow-orange-500/15'
                     }`}>
