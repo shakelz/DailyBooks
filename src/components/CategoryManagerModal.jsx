@@ -50,13 +50,18 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
 
     const handleAddSubmit = (e) => {
         e.preventDefault();
-        if (!newCategoryName.trim()) return alert("Name required!");
+        const trimmedName = newCategoryName.trim();
+        if (!trimmedName) return alert("Name required!");
 
         if (level === '1') {
-            addLevel1Category(newCategoryName.trim(), imagePreview);
+            const exists = l1Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === trimmedName.toLowerCase());
+            if (exists) return alert("This Main Category already exists!");
+            addLevel1Category(trimmedName, imagePreview);
         } else {
             if (!parentCategory) return alert("Select a parent category!");
-            addLevel2Category(parentCategory, newCategoryName.trim(), imagePreview);
+            const exists = l2Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === trimmedName.toLowerCase());
+            if (exists) return alert("This Sub Category already exists under the selected parent!");
+            addLevel2Category(parentCategory, trimmedName, imagePreview);
         }
 
         setNewCategoryName('');
