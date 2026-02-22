@@ -8,6 +8,61 @@ const DEFAULT_SALESMEN = [
 ];
 
 const ADMIN_ROLES = ['superadmin', 'admin'];
+const AUTH_SESSION_KEY = 'dailybooks_auth_session_v1';
+const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+function getSessionStorage() {
+    try {
+        if (typeof window === 'undefined') return null;
+        return window.sessionStorage;
+    } catch {
+        return null;
+    }
+}
+
+function readAuthSession() {
+    const storage = getSessionStorage();
+    if (!storage) return null;
+    const raw = storage.getItem(AUTH_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = safeParseJSON(raw, null);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+}
+
+function isAuthSessionValid() {
+    const session = readAuthSession();
+    if (!session) return false;
+    const expiresAt = Number(session.expiresAt || 0);
+    if (!expiresAt || Date.now() > expiresAt) {
+        const storage = getSessionStorage();
+        if (storage) storage.removeItem(AUTH_SESSION_KEY);
+        return false;
+    }
+    return true;
+}
+
+function persistAuthSession(role, user) {
+    const storage = getSessionStorage();
+    if (!storage) return;
+    const payload = {
+        role: asString(role),
+        userId: asString(user?.id),
+        expiresAt: Date.now() + AUTH_SESSION_TTL_MS,
+    };
+    storage.setItem(AUTH_SESSION_KEY, JSON.stringify(payload));
+}
+
+function clearAuthSession() {
+    const storage = getSessionStorage();
+    if (!storage) return;
+    storage.removeItem(AUTH_SESSION_KEY);
+}
+
+function clearPersistedAuthState() {
+    localStorage.removeItem('role');
+    localStorage.removeItem('user');
+    localStorage.removeItem('activeShopId');
+}
 
 function safeParseJSON(value, fallback) {
     if (!value) return fallback;
@@ -450,12 +505,22 @@ async function listSalesmenByPin(pinValue) {
 }
 
 export function AuthProvider({ children }) {
-    const [role, setRole] = useState(() => localStorage.getItem('role')); // superadmin | admin | salesman | null
+    const [role, setRole] = useState(() => {
+        if (!isAuthSessionValid()) {
+            clearPersistedAuthState();
+            return null;
+        }
+        return localStorage.getItem('role');
+    }); // superadmin | admin | salesman | null
     const [user, setUser] = useState(() => {
+        if (!isAuthSessionValid()) return null;
         const saved = safeParseJSON(localStorage.getItem('user'), null);
         return saved && typeof saved === 'object' ? saved : null;
     });
-    const [activeShopId, setActiveShopIdState] = useState(() => localStorage.getItem('activeShopId') || '');
+    const [activeShopId, setActiveShopIdState] = useState(() => {
+        if (!isAuthSessionValid()) return '';
+        return localStorage.getItem('activeShopId') || '';
+    });
     const [shops, setShops] = useState([]);
     const [authLoading, setAuthLoading] = useState(false);
 
@@ -478,7 +543,23 @@ export function AuthProvider({ children }) {
     const isSuperAdmin = role === 'superadmin';
     const isAdminLike = role === 'superadmin' || role === 'admin';
 
+    useEffect(() => {
+        if (isAuthSessionValid()) return;
+        clearPersistedAuthState();
+        setRole(null);
+        setUser(null);
+        setActiveShopIdState('');
+    }, []);
+
     // ── Persistence Effects ──
+    useEffect(() => {
+        if (role && user) {
+            persistAuthSession(role, user);
+            return;
+        }
+        clearAuthSession();
+    }, [role, user]);
+
     useEffect(() => {
         if (role) localStorage.setItem('role', role);
         else localStorage.removeItem('role');
@@ -503,6 +584,13 @@ export function AuthProvider({ children }) {
     // ── Storage Event Listener for Cross-Tab Sync ──
     useEffect(() => {
         const handleStorageChange = (e) => {
+            const isAuthKey = e.key === 'role' || e.key === 'user' || e.key === 'activeShopId';
+            if (isAuthKey && !isAuthSessionValid()) {
+                setRole(null);
+                setUser(null);
+                setActiveShopIdState('');
+                return;
+            }
             if (e.key === 'role') setRole(e.newValue || null);
             if (e.key === 'user') setUser(safeParseJSON(e.newValue, null));
             if (e.key === 'activeShopId') setActiveShopIdState(e.newValue || '');
@@ -1189,13 +1277,16 @@ export function AuthProvider({ children }) {
                     } else if (normalized.role !== 'superadmin') {
                         setActiveShopIdState('');
                     }
+                    persistAuthSession(normalized.role, normalized);
                     return { success: true, role: normalized.role };
                 }
 
                 // Legacy fallback
                 if (password === adminPassword) {
                     setRole('superadmin');
-                    setUser({ id: 'local-superadmin', name: 'Admin', role: 'superadmin', shop_id: '' });
+                    const fallbackSuperAdmin = { id: 'local-superadmin', name: 'Admin', role: 'superadmin', shop_id: '' };
+                    setUser(fallbackSuperAdmin);
+                    persistAuthSession('superadmin', fallbackSuperAdmin);
                     return { success: true, role: 'superadmin' };
                 }
 
@@ -1215,6 +1306,7 @@ export function AuthProvider({ children }) {
                     setRole('salesman');
                     setUser(normalized);
                     setActiveShopIdState(normalized.shop_id);
+                    persistAuthSession('salesman', normalized);
                     return { success: true, role: 'salesman' };
                 }
 
@@ -1229,6 +1321,7 @@ export function AuthProvider({ children }) {
                     setRole('salesman');
                     setUser(salesman);
                     if (salesman.shop_id) setActiveShopIdState(asString(salesman.shop_id));
+                    persistAuthSession('salesman', salesman);
                     return { success: true, role: 'salesman' };
                 }
 
@@ -1242,6 +1335,8 @@ export function AuthProvider({ children }) {
     }, [adminPassword, salesmen, activeShopId]);
 
     const logout = () => {
+        clearAuthSession();
+        clearPersistedAuthState();
         setRole(null);
         setUser(null);
         setActiveShopIdState('');
@@ -1249,8 +1344,6 @@ export function AuthProvider({ children }) {
         setIsPunchedIn(false);
         setLowStockAlerts([]);
         setAttendanceLogs([]);
-        localStorage.removeItem('user');
-        localStorage.removeItem('activeShopId');
     };
 
     // ── Management Functions ──
