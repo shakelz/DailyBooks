@@ -49,7 +49,7 @@ export default function InventoryManager() {
     // Auto-refresh products list
     const refreshProducts = useCallback(() => {
         setProducts(getAllProducts());
-    }, []);
+    }, [getAllProducts]);
 
     // ── Scanner Detection: rapid keystrokes → barcode ──
     useEffect(() => {
@@ -125,24 +125,29 @@ export default function InventoryManager() {
     };
 
     // ── Stock Update ──
-    const handleStockChange = (barcode, delta) => {
+    const handleStockChange = async (barcode, delta) => {
         const product = lookupBarcode(barcode);
         if (!product) return;
         const newStock = Math.max(0, product.stock + delta);
-        const updated = updateStock(barcode, newStock);
-        if (updated) {
-            setScannedProduct({ ...updated });
-            refreshProducts();
+        try {
+            const updated = await updateStock(barcode, newStock);
+            if (updated) {
+                setScannedProduct({ ...updated });
+                refreshProducts();
 
-            // Check if entering red zone
-            if (updated.stock < 3) {
-                addLowStockAlert(updated);
+                // Check if entering red zone
+                if (updated.stock < 3) {
+                    addLowStockAlert(updated);
+                }
             }
+        } catch (error) {
+            setScanError(`❌ Stock update failed: ${error?.message || 'Please try again.'}`);
+            setTimeout(() => setScanError(''), 3000);
         }
     };
 
     // ── Add New Product (Manual Form) ──
-    const handleAddProduct = () => {
+    const handleAddProduct = async () => {
         const { barcode, name, brand, price, costPrice, stock, category1, category2, category3 } = manualForm;
         if (!barcode || !name || !price) {
             setScanError('❌ Barcode, Name, aur Price required hain!');
@@ -160,15 +165,15 @@ export default function InventoryManager() {
             stock: parseInt(stock) || 0,
         };
 
-        const success = addProduct(newProduct);
-        if (success) {
+        try {
+            const savedProduct = await addProduct(newProduct);
             setShowManualForm(false);
             setScanError('');
-            setScannedProduct(newProduct);
+            setScannedProduct(savedProduct || newProduct);
             refreshProducts();
             setManualForm({ barcode: '', name: '', brand: '', price: '', costPrice: '', stock: '', category1: '', category2: '', category3: '' });
-        } else {
-            setScanError('❌ Ye barcode already database mein hai!');
+        } catch (error) {
+            setScanError(`❌ Product save failed: ${error?.message || 'Please try again.'}`);
             setTimeout(() => setScanError(''), 3000);
         }
     };

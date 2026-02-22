@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
@@ -32,7 +32,8 @@ export default function InventoryTab() {
         getLevel1Categories,
         getCategoryImage,
         bulkUpdateCategoryPricing,
-        lookupBarcode
+        lookupBarcode,
+        getProductDetails
     } = useInventory();
     const { slowMovingDays } = useAuth();
 
@@ -61,6 +62,31 @@ export default function InventoryTab() {
     const [auditScans, setAuditScans] = useState(new Set());
     const [lastScanned, setLastScanned] = useState(null);
 
+    const getProductCategoryL1 = useCallback((product) => {
+        if (!product) return '';
+        if (typeof product.category === 'object' && product.category !== null) {
+            return product.category.level1 || '';
+        }
+        if (typeof product.category === 'string') return product.category;
+        return '';
+    }, []);
+
+    const formatAttrValue = useCallback((value) => {
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            return String(value);
+        }
+        if (Array.isArray(value)) return value.map(v => String(v)).join(', ');
+        if (typeof value === 'object') {
+            try {
+                return JSON.stringify(value);
+            } catch {
+                return String(value);
+            }
+        }
+        return String(value);
+    }, []);
+
     // ── Calculations ──
     const calculateMargin = (sell, buy) => {
         if (!sell || sell <= 0) return 0;
@@ -86,7 +112,7 @@ export default function InventoryTab() {
         return products.filter(p => {
             const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                 (p.barcode || '').toLowerCase().includes(searchTerm.toLowerCase());
-            const matchesCategory = filterCategory === 'All' || p.category?.level1 === filterCategory;
+            const matchesCategory = filterCategory === 'All' || getProductCategoryL1(p) === filterCategory;
 
             let matchesStatus = true;
             if (filterStatus === 'Red') matchesStatus = p.stock < 3;
@@ -95,12 +121,12 @@ export default function InventoryTab() {
 
             return matchesSearch && matchesCategory && matchesStatus;
         });
-    }, [products, searchTerm, filterCategory, filterStatus]);
+    }, [products, searchTerm, filterCategory, filterStatus, getProductCategoryL1]);
 
     const categoryAnalysis = useMemo(() => {
         const analysis = {};
         products.forEach(p => {
-            const cat = p.category?.level1 || 'Uncategorized';
+            const cat = getProductCategoryL1(p) || 'Uncategorized';
             if (!analysis[cat]) analysis[cat] = { capital: 0, potentialProfit: 0 };
             analysis[cat].capital += p.purchasePrice * p.stock;
             const itemProfit = (p.sellingPrice - p.purchasePrice) * p.stock;
@@ -110,7 +136,7 @@ export default function InventoryTab() {
             name,
             ...data
         }));
-    }, [products]);
+    }, [products, getProductCategoryL1]);
 
     const salesVelocityMap = useMemo(() => {
         const rangeStart = new Date(dateSelection[0].startDate);
@@ -161,7 +187,7 @@ export default function InventoryTab() {
         const rows = filteredProducts.map(p => [
             p.barcode || 'N/A',
             p.name,
-            p.category?.level1 || 'N/A',
+            getProductCategoryL1(p) || 'N/A',
             p.stock,
             p.purchasePrice,
             p.sellingPrice,
@@ -179,6 +205,18 @@ export default function InventoryTab() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    };
+
+    const handleEditProduct = async (product) => {
+        try {
+            const fullProduct = await getProductDetails(product.id, true);
+            setSelectedProduct(fullProduct || product);
+        } catch (error) {
+            console.error('Failed to fetch full product details:', error);
+            setSelectedProduct(product);
+        } finally {
+            setIsFormOpen(true);
+        }
     };
 
     const handleBulkUpdate = () => {
@@ -423,15 +461,17 @@ export default function InventoryTab() {
                                                             <div className="flex items-center gap-2 mt-1">
                                                                 <p className="text-[10px] font-mono text-slate-400 font-bold">{product.barcode || 'NO-BARCODE'}</p>
                                                                 <span className="text-slate-300">•</span>
-                                                                <p className="text-[10px] font-bold text-blue-500">{product.category?.level1}</p>
+                                                                <p className="text-[10px] font-bold text-blue-500">{getProductCategoryL1(product) || 'Uncategorized'}</p>
                                                             </div>
                                                             {/* Attribute Chips */}
                                                             <div className="flex flex-wrap gap-1 mt-2">
-                                                                {Object.entries(product.attributes || {}).map(([key, val]) => (
-                                                                    <span key={key} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
-                                                                        {key.toUpperCase()}: {val}
-                                                                    </span>
-                                                                ))}
+                                                                {Object.entries(product.attributes || {})
+                                                                    .filter(([key, val]) => key !== '__categoryHierarchy' && val !== null && val !== undefined && formatAttrValue(val) !== '')
+                                                                    .map(([key, val]) => (
+                                                                        <span key={key} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
+                                                                            {key.toUpperCase()}: {formatAttrValue(val)}
+                                                                        </span>
+                                                                    ))}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -499,7 +539,7 @@ export default function InventoryTab() {
                                                             </a>
                                                         )}
                                                         <button
-                                                            onClick={() => { setSelectedProduct(product); setIsFormOpen(true); }}
+                                                            onClick={() => handleEditProduct(product)}
                                                             className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
                                                         >
                                                             <Edit2 size={14} />

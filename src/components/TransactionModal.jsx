@@ -140,6 +140,26 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
 
             // Attributes
             verifiedAttributes: { ...verifiedAttrs },
+            attributes: product.attributes || {},
+            barcode: product.barcode || '',
+            model: product.model || '',
+            brand: product.brand || '',
+            categorySnapshot: (product.category && typeof product.category === 'object') ? product.category : null,
+            categoryPath: product.categoryPath || null,
+            productSnapshot: {
+                id: product.id || null,
+                name: product.name || '',
+                desc: product.desc || product.name || '',
+                model: product.model || '',
+                brand: product.brand || '',
+                barcode: product.barcode || '',
+                category: (product.category && typeof product.category === 'object') ? product.category : null,
+                categoryPath: product.categoryPath || null,
+                attributes: product.attributes || {},
+                verifiedAttributes: { ...verifiedAttrs },
+                purchasePrice: purchasePriceSnapshot,
+                sellingPrice: currentBasePrice
+            },
 
             // Customer
             customerInfo: {
@@ -190,6 +210,26 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             discount: discountValue,
             taxInfo: { net: netTotal, tax: taxTotal, rate: 0.19 },
             verifiedAttributes: { ...verifiedAttrs },
+            attributes: product.attributes || {},
+            barcode: product.barcode || '',
+            model: product.model || '',
+            brand: product.brand || '',
+            categorySnapshot: (product.category && typeof product.category === 'object') ? product.category : null,
+            categoryPath: product.categoryPath || null,
+            productSnapshot: {
+                id: product.productId || product.id || null,
+                name: product.name || '',
+                desc: product.desc || product.name || '',
+                model: product.model || '',
+                brand: product.brand || '',
+                barcode: product.barcode || '',
+                category: (product.category && typeof product.category === 'object') ? product.category : null,
+                categoryPath: product.categoryPath || null,
+                attributes: product.attributes || {},
+                verifiedAttributes: { ...verifiedAttrs },
+                purchasePrice: purchasePriceSnapshot,
+                sellingPrice: currentBasePrice
+            },
             customerInfo: { name: customerName || 'Walk-in', phone: customerPhone, type: customerType },
             paymentMethod,
             notes,

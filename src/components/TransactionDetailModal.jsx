@@ -8,8 +8,8 @@ import { useInventory } from '../context/InventoryContext';
 // ══════════════════════════════════════════════════════════
 
 export default function TransactionDetailModal({ isOpen, onClose, txn, initialEditMode = false }) {
-    const { user: currentUser, role: currentRole } = useAuth();
-    const { updateTransaction, deleteTransaction } = useInventory();
+    const { role: currentRole } = useAuth();
+    const { updateTransaction, deleteTransaction, products } = useInventory();
 
     const [isEditing, setIsEditing] = useState(initialEditMode);
     const [editData, setEditData] = useState(null);
@@ -37,6 +37,35 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
     // Tax (19% German standard)
     const net = txn.taxInfo?.net || (amount / 1.19);
     const tax = txn.taxInfo?.tax || (amount - net);
+
+    const currentProduct = txn.productId
+        ? products.find(p => String(p.id) === String(txn.productId))
+        : null;
+    const snapshotProduct = txn.productSnapshot || {};
+
+    const displayBarcode = txn.barcode || snapshotProduct.barcode || currentProduct?.barcode || 'N/A';
+    const displayModel = txn.model || snapshotProduct.model || currentProduct?.model || 'N/A';
+    const displayBrand = txn.brand || snapshotProduct.brand || currentProduct?.brand || 'N/A';
+    const displayProductId = txn.productId || snapshotProduct.id || currentProduct?.id || 'N/A';
+    const displayCategory = txn.categorySnapshot
+        || snapshotProduct.category
+        || (txn.category && typeof txn.category === 'object' ? txn.category : null)
+        || (currentProduct?.category && typeof currentProduct.category === 'object' ? currentProduct.category : null);
+    const displayCategoryPath = txn.categoryPath || snapshotProduct.categoryPath || currentProduct?.categoryPath || null;
+    const displayBuyAtSale = parseFloat(txn.purchasePriceAtTime ?? snapshotProduct.purchasePrice ?? 0) || 0;
+    const displayUnitAtSale = parseFloat(txn.stdPriceAtTime ?? txn.unitPrice ?? snapshotProduct.sellingPrice ?? 0) || 0;
+
+    const mergedSpecs = {
+        ...(currentProduct?.attributes || {}),
+        ...(snapshotProduct?.attributes || {}),
+        ...(txn.attributes || {}),
+        ...(snapshotProduct?.verifiedAttributes || {}),
+        ...(txn.verifiedAttributes || {}),
+    };
+    const specEntries = Object.entries(mergedSpecs).filter(([_, value]) => {
+        if (value === null || value === undefined) return false;
+        return String(value).trim().length > 0;
+    });
 
     const handlePrint = () => {
         const receiptHTML = `
@@ -229,19 +258,33 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                         <div>
                                             <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Product Name</p>
                                             <p className="font-bold text-slate-800">{txn.name || txn.desc || 'Unknown Product'}</p>
-                                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">Barcode: {txn.barcode || 'N/A'}</p>
+                                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">Barcode: {displayBarcode}</p>
                                         </div>
                                         <div className="space-y-3">
-                                            {txn.category && (
+                                            {(displayCategory || displayCategoryPath) && (
                                                 <div>
                                                     <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Category</p>
-                                                    <div className="flex flex-wrap items-center gap-1.5">
-                                                        {txn.category.level1 && <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-bold">{txn.category.level1}</span>}
-                                                        {txn.category.level2 && <span className="text-slate-300">›</span>}
-                                                        {txn.category.level2 && <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-bold">{txn.category.level2}</span>}
-                                                        {txn.category.level3 && <span className="text-slate-300">›</span>}
-                                                        {txn.category.level3 && <span className="px-2 py-0.5 bg-blue-100 text-blue-600 rounded text-[10px] font-bold">{txn.category.level3}</span>}
-                                                    </div>
+                                                    {Array.isArray(displayCategoryPath) && displayCategoryPath.length > 0 ? (
+                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                            {displayCategoryPath.map((cat, idx) => (
+                                                                <span key={`${cat}-${idx}`} className={`px-2 py-0.5 rounded text-[10px] font-bold ${idx === displayCategoryPath.length - 1 ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-600'}`}>
+                                                                    {cat}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    ) : typeof displayCategoryPath === 'string' && displayCategoryPath.trim().length > 0 ? (
+                                                        <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-bold">{displayCategoryPath}</span>
+                                                    ) : typeof displayCategory === 'object' ? (
+                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                            {displayCategory.level1 && <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-bold">{displayCategory.level1}</span>}
+                                                            {displayCategory.level2 && <span className="text-slate-300">›</span>}
+                                                            {displayCategory.level2 && <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-bold">{displayCategory.level2}</span>}
+                                                            {displayCategory.level3 && <span className="text-slate-300">›</span>}
+                                                            {displayCategory.level3 && <span className="px-2 py-0.5 bg-blue-100 text-blue-600 rounded text-[10px] font-bold">{displayCategory.level3}</span>}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-bold">{String(displayCategory)}</span>
+                                                    )}
                                                 </div>
                                             )}
                                             <div className="inline-block px-3 py-1 bg-blue-100 text-blue-600 rounded-lg text-xs font-bold">
@@ -250,13 +293,35 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                         </div>
                                     </div>
 
-                                    {/* Dynamic Attributes Grid */}
-                                    {txn.verifiedAttributes && Object.keys(txn.verifiedAttributes).length > 0 && (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-200/50">
+                                        <div>
+                                            <p className="text-[9px] font-bold text-slate-400 uppercase">Product ID</p>
+                                            <p className="text-sm text-slate-700 font-medium break-all">{displayProductId}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[9px] font-bold text-slate-400 uppercase">Model</p>
+                                            <p className="text-sm text-slate-700 font-medium">{displayModel}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[9px] font-bold text-slate-400 uppercase">Brand</p>
+                                            <p className="text-sm text-slate-700 font-medium">{displayBrand}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[9px] font-bold text-slate-400 uppercase">Unit (At Sale)</p>
+                                            <p className="text-sm text-slate-700 font-medium">€{displayUnitAtSale.toFixed(2)}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[9px] font-bold text-slate-400 uppercase">Buy (At Sale)</p>
+                                            <p className="text-sm text-slate-700 font-medium">€{displayBuyAtSale.toFixed(2)}</p>
+                                        </div>
+                                    </div>
+
+                                    {specEntries.length > 0 && (
                                         <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-200/50">
-                                            {Object.entries(txn.verifiedAttributes).map(([key, value]) => (
+                                            {specEntries.map(([key, value]) => (
                                                 <div key={key}>
                                                     <p className="text-[9px] font-bold text-slate-400 uppercase">{key}</p>
-                                                    <p className="text-sm text-slate-700 font-medium">{value || '—'}</p>
+                                                    <p className="text-sm text-slate-700 font-medium">{String(value)}</p>
                                                 </div>
                                             ))}
                                         </div>
@@ -367,9 +432,13 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                     Cancel
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        updateTransaction(txn.id, editData);
-                                        setIsEditing(false);
+                                    onClick={async () => {
+                                        try {
+                                            await updateTransaction(txn.id, editData);
+                                            setIsEditing(false);
+                                        } catch (error) {
+                                            alert(error?.message || 'Failed to update transaction.');
+                                        }
                                     }}
                                     className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
                                 >

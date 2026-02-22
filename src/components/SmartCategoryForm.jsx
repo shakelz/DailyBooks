@@ -267,7 +267,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
     };
 
     // ── Submit ──
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         if (e) e.preventDefault();
         setSubmitted(true);
         if (!validate()) return;
@@ -297,39 +297,44 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             image: imagePreview || null,
         };
 
-        if (initialData && initialData.id) {
-            // ── UPDATE EXISTING ──
-            updateProduct(initialData.id, productData);
-        } else {
-            // ── ADD NEW ──
-            addProduct(productData);
+        try {
+            if (initialData && initialData.id) {
+                // ── UPDATE EXISTING ──
+                await updateProduct(initialData.id, productData);
+            } else {
+                // ── ADD NEW ──
+                await addProduct(productData);
+            }
+
+            // Call parent prop if provided
+            if (onSubmit) onSubmit(productData);
+
+            // Save Custom Categories or Update Images
+            if (level1 || customL1) {
+                addLevel1Category(customL1 || level1, catImagePreview);
+            }
+            if (level2 || customL2) {
+                addLevel2Category(level1 || customL1, customL2 || level2, catImagePreview);
+            }
+
+            // Reset
+            setLevel1(''); setLevel2(''); setLevel3Model('');
+            setName(''); setBarcode('');
+            setPurchasePrice(''); setSellingPrice('');
+            setStock('1');
+            setStockRed(''); setStockYellow(''); setStockGreen('');
+            setActiveChips([]); setDynamicFields({});
+            setProductUrl(''); setNotes('');
+            setImagePreview(null); setCatImagePreview(null); setErrors({}); setSubmitted(false);
+            setCustomChips([]);
+
+            setTimeout(() => {
+                onClose();
+            }, 500);
+        } catch (error) {
+            console.error('Product save failed:', error);
+            setErrors(prev => ({ ...prev, submit: error?.message || 'Failed to save product. Please try again.' }));
         }
-
-        // Call parent prop if provided
-        if (onSubmit) onSubmit(productData);
-
-        // Save Custom Categories or Update Images
-        if (level1 || customL1) {
-            addLevel1Category(customL1 || level1, catImagePreview);
-        }
-        if (level2 || customL2) {
-            addLevel2Category(level1 || customL1, customL2 || level2, catImagePreview);
-        }
-
-        // Reset
-        setLevel1(''); setLevel2(''); setLevel3Model('');
-        setName(''); setBarcode('');
-        setPurchasePrice(''); setSellingPrice('');
-        setStock('1');
-        setStockRed(''); setStockYellow(''); setStockGreen('');
-        setActiveChips([]); setDynamicFields({});
-        setProductUrl(''); setNotes('');
-        setImagePreview(null); setCatImagePreview(null); setErrors({}); setSubmitted(false);
-        setCustomChips([]);
-
-        setTimeout(() => {
-            onClose();
-        }, 500);
     };
 
     if (!isOpen) return null;
@@ -554,6 +559,11 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                         </div>
 
                         {/* ── Actions ── */}
+                        {errors.submit && (
+                            <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                                {errors.submit}
+                            </p>
+                        )}
                         <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
                             <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl text-slate-500 font-bold hover:bg-slate-100 transition-colors">Cancel</button>
                             <button type="submit" className="px-8 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 active:scale-95 transition-all">

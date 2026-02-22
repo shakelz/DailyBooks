@@ -3,6 +3,299 @@ import { supabase } from '../supabaseClient';
 import { buildProductJSON, generateId, getStockSeverity, getLevel1Categories, getLevel2Categories } from '../data/inventoryStore';
 
 const InventoryContext = createContext(null);
+const TRANSACTION_SNAPSHOT_STORAGE_KEY = 'dailybooks_transaction_snapshots_v1';
+const CATEGORY_HIERARCHY_KEY = '__categoryHierarchy';
+
+function cleanText(value) {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function isCategoryHierarchyObject(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const keys = Object.keys(value);
+    return keys.includes('path') && (keys.includes('level1') || keys.includes('level2') || keys.includes('level3'));
+}
+
+function stringifyAttributeValue(value) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return value;
+    }
+    if (Array.isArray(value)) {
+        return value.map(v => String(v)).join(', ');
+    }
+    if (typeof value === 'object') {
+        try {
+            return JSON.stringify(value);
+        } catch {
+            return String(value);
+        }
+    }
+    return String(value);
+}
+
+function buildCategoryHierarchy(category, categoryPath = null, rawAttributes = {}) {
+    const attrs = rawAttributes && typeof rawAttributes === 'object' ? rawAttributes : {};
+    const fromAttrs = attrs[CATEGORY_HIERARCHY_KEY] && typeof attrs[CATEGORY_HIERARCHY_KEY] === 'object'
+        ? attrs[CATEGORY_HIERARCHY_KEY]
+        : null;
+    const fromCategoryObj = category && typeof category === 'object' ? category : null;
+    const chosen = fromAttrs || fromCategoryObj || {};
+
+    let level1 = cleanText(chosen.level1);
+    let level2 = cleanText(chosen.level2);
+    let level3 = cleanText(chosen.level3);
+
+    if (!level1 && typeof category === 'string') {
+        level1 = cleanText(category);
+    }
+
+    const attrPath = attrs.categoryPath || attrs.path || null;
+    const finalPath = Array.isArray(categoryPath)
+        ? categoryPath
+        : (Array.isArray(attrPath) ? attrPath : null);
+
+    if (Array.isArray(finalPath)) {
+        if (!level1 && finalPath[0]) level1 = cleanText(String(finalPath[0]));
+        if (!level2 && finalPath[1]) level2 = cleanText(String(finalPath[1]));
+        if (!level3 && finalPath[2]) level3 = cleanText(String(finalPath[2]));
+    }
+
+    const path = [level1, level2, level3].filter(Boolean);
+    return { level1, level2, level3, path };
+}
+
+function normalizeInventoryRecord(product) {
+    const source = product || {};
+    const rawAttrs = source.attributes && typeof source.attributes === 'object' ? source.attributes : {};
+    const categoryHierarchy = buildCategoryHierarchy(source.category, source.categoryPath, rawAttrs);
+
+    const publicAttrs = { ...rawAttrs };
+    delete publicAttrs[CATEGORY_HIERARCHY_KEY];
+    const normalizedAttrs = Object.entries(publicAttrs).reduce((acc, [key, value]) => {
+        if (isCategoryHierarchyObject(value)) return acc;
+        const normalizedValue = stringifyAttributeValue(value);
+        if (normalizedValue === '') return acc;
+        acc[key] = normalizedValue;
+        return acc;
+    }, {});
+
+    const normalizedCategory = categoryHierarchy.level1
+        ? { level1: categoryHierarchy.level1, level2: categoryHierarchy.level2, level3: categoryHierarchy.level3 }
+        : (typeof source.category === 'string' ? cleanText(source.category) : (source.category || ''));
+
+    const normalizedPath = categoryHierarchy.path.length
+        ? categoryHierarchy.path
+        : (Array.isArray(source.categoryPath) ? source.categoryPath.filter(Boolean) : source.categoryPath || null);
+
+    const normalizedModel = cleanText(source.model) || categoryHierarchy.level3 || '';
+    const normalizedBrand = cleanText(source.brand)
+        || cleanText(publicAttrs.brand)
+        || cleanText(publicAttrs.Brand)
+        || '';
+
+    return {
+        ...source,
+        id: source.id ? String(source.id) : source.id,
+        name: source.name || source.desc || normalizedModel || '',
+        desc: source.desc || source.name || normalizedModel || '',
+        model: normalizedModel,
+        brand: normalizedBrand,
+        barcode: cleanText(source.barcode),
+        category: normalizedCategory,
+        categoryPath: normalizedPath,
+        attributes: normalizedAttrs,
+    };
+}
+
+function buildInventoryPayload(product, includeId = false) {
+    const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
+    const payloadAttributes = {
+        ...(product?.attributes && typeof product.attributes === 'object' ? product.attributes : {})
+    };
+
+    if (categoryHierarchy.level1 || categoryHierarchy.level2 || categoryHierarchy.level3) {
+        payloadAttributes[CATEGORY_HIERARCHY_KEY] = {
+            level1: categoryHierarchy.level1,
+            level2: categoryHierarchy.level2,
+            level3: categoryHierarchy.level3,
+            path: categoryHierarchy.path,
+        };
+    }
+
+    const payload = {
+        name: product?.name || product?.desc || product?.model || '',
+        purchasePrice: parseFloat(product?.purchasePrice ?? product?.costPrice ?? 0) || 0,
+        sellingPrice: parseFloat(product?.sellingPrice ?? product?.price ?? product?.unitPrice ?? product?.amount ?? 0) || 0,
+        stock: parseInt(product?.stock ?? product?.quantity ?? 0, 10) || 0,
+        category: categoryHierarchy.level1 || '',
+        barcode: product?.barcode ? String(product.barcode).trim() : '',
+        productUrl: product?.productUrl || '',
+        timestamp: product?.timestamp || new Date().toISOString(),
+        attributes: payloadAttributes,
+    };
+
+    if (includeId) payload.id = String(product?.id);
+
+    return payload;
+}
+
+function readTransactionSnapshots() {
+    if (typeof window === 'undefined') return {};
+    try {
+        const raw = localStorage.getItem(TRANSACTION_SNAPSHOT_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function writeTransactionSnapshots(next) {
+    if (typeof window === 'undefined') return;
+    try {
+        localStorage.setItem(TRANSACTION_SNAPSHOT_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+        // If storage quota is full, we silently skip snapshot persistence.
+    }
+}
+
+function saveTransactionSnapshot(txnId, snapshot) {
+    const strId = String(txnId || '');
+    if (!strId) return;
+
+    const current = readTransactionSnapshots();
+    const safeSnapshot = { ...(snapshot || {}) };
+    delete safeSnapshot.image;
+
+    if (safeSnapshot.productSnapshot && typeof safeSnapshot.productSnapshot === 'object') {
+        safeSnapshot.productSnapshot = { ...safeSnapshot.productSnapshot };
+        delete safeSnapshot.productSnapshot.image;
+    }
+
+    current[strId] = safeSnapshot;
+    writeTransactionSnapshots(current);
+}
+
+function removeTransactionSnapshot(txnId) {
+    const strId = String(txnId || '');
+    if (!strId) return;
+    const current = readTransactionSnapshots();
+    if (!(strId in current)) return;
+    delete current[strId];
+    writeTransactionSnapshots(current);
+}
+
+function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
+    if (!txn) return txn;
+    const strId = String(txn.id || '');
+    if (!strId) return txn;
+
+    const snapshotMap = providedSnapshots || readTransactionSnapshots();
+    const snapshot = snapshotMap[strId];
+    if (!snapshot) return txn;
+
+    const txnAttrs = txn.attributes && typeof txn.attributes === 'object' ? txn.attributes : {};
+    const snapAttrs = snapshot.attributes && typeof snapshot.attributes === 'object' ? snapshot.attributes : {};
+    const txnVerified = txn.verifiedAttributes && typeof txn.verifiedAttributes === 'object' ? txn.verifiedAttributes : {};
+    const snapVerified = snapshot.verifiedAttributes && typeof snapshot.verifiedAttributes === 'object' ? snapshot.verifiedAttributes : {};
+
+    return {
+        ...txn,
+        barcode: txn.barcode || snapshot.barcode || snapshot?.productSnapshot?.barcode || '',
+        model: txn.model || snapshot.model || snapshot?.productSnapshot?.model || '',
+        brand: txn.brand || snapshot.brand || snapshot?.productSnapshot?.brand || '',
+        categorySnapshot: snapshot.categorySnapshot || snapshot?.productSnapshot?.category || null,
+        categoryPath: txn.categoryPath || snapshot.categoryPath || snapshot?.productSnapshot?.categoryPath || null,
+        attributes: Object.keys(txnAttrs).length ? txnAttrs : (Object.keys(snapAttrs).length ? snapAttrs : {}),
+        verifiedAttributes: Object.keys(txnVerified).length ? txnVerified : (Object.keys(snapVerified).length ? snapVerified : {}),
+        customerInfo: txn.customerInfo || snapshot.customerInfo || null,
+        paymentMethod: txn.paymentMethod || snapshot.paymentMethod || '',
+        stdPriceAtTime: txn.stdPriceAtTime ?? snapshot.stdPriceAtTime ?? null,
+        unitPrice: txn.unitPrice ?? snapshot.unitPrice ?? null,
+        purchasePriceAtTime: txn.purchasePriceAtTime ?? snapshot.purchasePriceAtTime ?? null,
+        discount: txn.discount ?? snapshot.discount ?? 0,
+        taxInfo: txn.taxInfo || snapshot.taxInfo || null,
+        soldBy: txn.soldBy || snapshot.soldBy || '',
+        salesmanName: txn.salesmanName || snapshot.salesmanName || txn.userName || '',
+        transactionId: txn.transactionId || snapshot.transactionId || '',
+        productSnapshot: txn.productSnapshot || snapshot.productSnapshot || null,
+    };
+}
+
+function buildTransactionDBPayload(txn, includeId = false) {
+    const payload = {
+        desc: txn?.desc || txn?.name || '',
+        amount: parseFloat(txn?.amount || 0) || 0,
+        type: txn?.type || '',
+        category: txn?.category?.level1 || txn?.category || '',
+        notes: txn?.notes || '',
+        source: txn?.source || 'shop',
+        quantity: parseInt(txn?.quantity || 1, 10) || 1,
+        date: txn?.date || new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+        time: txn?.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
+        timestamp: txn?.timestamp || new Date().toISOString(),
+        isFixedExpense: txn?.isFixedExpense || false,
+        productId: txn?.productId ? String(txn.productId) : null,
+        workerId: txn?.workerId || null,
+        salesmanName: txn?.userName || txn?.salesmanName || txn?.soldBy || ''
+    };
+
+    if (includeId) payload.id = String(txn?.id || Date.now());
+
+    return payload;
+}
+
+function buildTransactionSnapshot(txn) {
+    const categorySnapshot = txn?.categorySnapshot
+        || txn?.productSnapshot?.category
+        || (txn?.category && typeof txn.category === 'object' ? txn.category : null);
+
+    const attributes = txn?.attributes && typeof txn.attributes === 'object'
+        ? txn.attributes
+        : (txn?.productSnapshot?.attributes && typeof txn.productSnapshot.attributes === 'object' ? txn.productSnapshot.attributes : {});
+
+    const verifiedAttributes = txn?.verifiedAttributes && typeof txn.verifiedAttributes === 'object'
+        ? txn.verifiedAttributes
+        : (txn?.productSnapshot?.verifiedAttributes && typeof txn.productSnapshot.verifiedAttributes === 'object' ? txn.productSnapshot.verifiedAttributes : {});
+
+    const snapshot = {
+        transactionId: txn?.transactionId || '',
+        barcode: txn?.barcode || txn?.productSnapshot?.barcode || '',
+        model: txn?.model || txn?.productSnapshot?.model || '',
+        brand: txn?.brand || txn?.productSnapshot?.brand || '',
+        categorySnapshot: categorySnapshot || null,
+        categoryPath: txn?.categoryPath || txn?.productSnapshot?.categoryPath || null,
+        attributes,
+        verifiedAttributes,
+        customerInfo: txn?.customerInfo || null,
+        paymentMethod: txn?.paymentMethod || '',
+        stdPriceAtTime: txn?.stdPriceAtTime ?? null,
+        unitPrice: txn?.unitPrice ?? null,
+        purchasePriceAtTime: txn?.purchasePriceAtTime ?? null,
+        discount: txn?.discount ?? 0,
+        taxInfo: txn?.taxInfo || null,
+        soldBy: txn?.soldBy || txn?.salesmanName || '',
+        salesmanName: txn?.salesmanName || txn?.soldBy || '',
+        productSnapshot: txn?.productSnapshot || {
+            id: txn?.productId || null,
+            name: txn?.name || txn?.desc || '',
+            desc: txn?.desc || txn?.name || '',
+            model: txn?.model || '',
+            brand: txn?.brand || '',
+            barcode: txn?.barcode || '',
+            category: categorySnapshot || null,
+            categoryPath: txn?.categoryPath || null,
+            attributes,
+            verifiedAttributes,
+            purchasePrice: parseFloat(txn?.purchasePriceAtTime ?? txn?.purchasePrice ?? 0) || 0,
+            sellingPrice: parseFloat(txn?.stdPriceAtTime ?? txn?.unitPrice ?? txn?.amount ?? 0) || 0,
+        },
+        snapshotTimestamp: new Date().toISOString(),
+    };
+
+    return snapshot;
+}
 
 export function InventoryProvider({ children }) {
     // ── Live Products (Local State mirroring Supabase) ──
@@ -17,10 +310,14 @@ export function InventoryProvider({ children }) {
     useEffect(() => {
         const fetchInitialData = async () => {
             const { data: invData, error: invErr } = await supabase.from('inventory').select('*');
-            if (!invErr && invData) setProducts(invData);
+            if (!invErr && invData) setProducts(invData.map(normalizeInventoryRecord));
 
             const { data: txnData, error: txnErr } = await supabase.from('transactions').select('*').order('timestamp', { ascending: false });
-            if (!txnErr && txnData) setTransactions(txnData);
+            if (!txnErr && txnData) {
+                const snapshotMap = readTransactionSnapshots();
+                const hydratedTransactions = txnData.map(t => mergeTransactionWithSnapshot(t, snapshotMap));
+                setTransactions(hydratedTransactions);
+            }
 
             // Fetch Categories
             const { data: catData, error: catErr } = await supabase.from('categories').select('*');
@@ -54,26 +351,33 @@ export function InventoryProvider({ children }) {
         const syncSubscription = supabase.channel('public:unified_sync')
             // TRANSACTIONS
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, (payload) => {
+                const mergedTxn = mergeTransactionWithSnapshot(payload.new);
                 setTransactions(prev => {
                     if (prev.some(t => String(t.id) === String(payload.new.id))) return prev;
-                    return [payload.new, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    return [mergedTxn, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions' }, (payload) => {
-                setTransactions(prev => prev.map(t => String(t.id) === String(payload.new.id) ? { ...t, ...payload.new } : t));
+                const mergedTxn = mergeTransactionWithSnapshot(payload.new);
+                setTransactions(prev => prev.map(t => String(t.id) === String(payload.new.id) ? { ...t, ...mergedTxn } : t));
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions' }, (payload) => {
                 setTransactions(prev => prev.filter(t => String(t.id) !== String(payload.old.id)));
             })
             // INVENTORY (Products)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory' }, (payload) => {
+                const incoming = normalizeInventoryRecord(payload.new);
                 setProducts(prev => {
                     if (prev.some(p => String(p.id) === String(payload.new.id))) return prev;
-                    return [payload.new, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    return [incoming, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'inventory' }, (payload) => {
-                setProducts(prev => prev.map(p => String(p.id) === String(payload.new.id) ? { ...p, ...payload.new } : p));
+                setProducts(prev => prev.map(p =>
+                    String(p.id) === String(payload.new.id)
+                        ? normalizeInventoryRecord({ ...p, ...payload.new })
+                        : p
+                ));
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'inventory' }, (payload) => {
                 setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
@@ -131,11 +435,16 @@ export function InventoryProvider({ children }) {
             .on('broadcast', { event: 'inventory_sync' }, (payload) => {
                 const { action, data } = payload.payload;
                 if (action === 'UPDATE') {
-                    setProducts(prev => prev.map(p => String(p.id) === String(data.id) ? { ...p, ...data } : p));
+                    setProducts(prev => prev.map(p =>
+                        String(p.id) === String(data.id)
+                            ? normalizeInventoryRecord({ ...p, ...data })
+                            : p
+                    ));
                 } else if (action === 'INSERT') {
+                    const incoming = normalizeInventoryRecord(data);
                     setProducts(prev => {
                         if (prev.some(p => String(p.id) === String(data.id))) return prev;
-                        return [data, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                        return [incoming, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                     });
                 } else if (action === 'DELETE') {
                     setProducts(prev => prev.filter(p => String(p.id) !== String(data.id)));
@@ -144,12 +453,14 @@ export function InventoryProvider({ children }) {
             .on('broadcast', { event: 'transaction_sync' }, (payload) => {
                 const { action, data } = payload.payload;
                 if (action === 'INSERT') {
+                    const mergedTxn = mergeTransactionWithSnapshot(data);
                     setTransactions(prev => {
                         if (prev.some(t => String(t.id) === String(data.id))) return prev;
-                        return [data, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                        return [mergedTxn, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                     });
                 } else if (action === 'UPDATE') {
-                    setTransactions(prev => prev.map(t => String(t.id) === String(data.id) ? { ...t, ...data } : t));
+                    const mergedTxn = mergeTransactionWithSnapshot(data);
+                    setTransactions(prev => prev.map(t => String(t.id) === String(data.id) ? { ...t, ...mergedTxn } : t));
                 } else if (action === 'DELETE') {
                     setTransactions(prev => prev.filter(t => String(t.id) !== String(data.id)));
                 }
@@ -168,36 +479,43 @@ export function InventoryProvider({ children }) {
         const entry = buildProductJSON(product);
         entry.id = String(entry.id); // Supabase ID is TEXT
 
+        // Preserve legacy/manual category path data when source flow provides it.
+        if ((!entry.category || (typeof entry.category === 'object' && Object.keys(entry.category).length === 0))
+            && Array.isArray(product?.categoryPath)
+            && product.categoryPath.length > 0) {
+            entry.category = {
+                level1: cleanText(product.categoryPath[0]),
+                level2: cleanText(product.categoryPath[1]),
+                level3: cleanText(product.categoryPath[2]),
+            };
+            entry.categoryPath = product.categoryPath.filter(Boolean);
+        }
+
         // Optimistic UI Update
         setProducts(prev => {
-            if (prev.find(p => p.id === entry.id)) return prev;
+            if (prev.find(p => String(p.id) === entry.id)) return prev;
             return [entry, ...prev];
         });
 
-        // Supabase DB Update
-        await supabase.from('inventory').insert([{
-            id: entry.id,
-            name: entry.name,
-            purchasePrice: parseFloat(entry.purchasePrice || 0),
-            sellingPrice: parseFloat(entry.sellingPrice || entry.price || 0),
-            stock: parseInt(entry.stock || 0),
-            category: entry.category?.level1 || entry.category || '',
-            barcode: entry.barcode || '',
-            productUrl: entry.productUrl || '',
-            timestamp: entry.timestamp || new Date().toISOString(),
-            attributes: entry.attributes || {},
-            stockAlert: entry.stockAlert || { red: 0, yellow: 0, green: 0 },
-            image: entry.image || null,
-            notes: entry.notes || ''
-        }]);
+        const payload = buildInventoryPayload(entry, true);
+        const { data, error } = await supabase.from('inventory').insert([payload]).select().single();
+
+        if (error) {
+            // Rollback optimistic insert when cloud save fails
+            setProducts(prev => prev.filter(p => String(p.id) !== entry.id));
+            throw new Error(error.message || 'Failed to save product.');
+        }
+
+        const savedEntry = normalizeInventoryRecord(data ? { ...entry, ...data, id: String(data.id || entry.id) } : entry);
+        setProducts(prev => prev.map(p => String(p.id) === entry.id ? savedEntry : p));
 
         supabase.channel('public:unified_sync').send({
             type: 'broadcast',
             event: 'inventory_sync',
-            payload: { action: 'INSERT', data: entry }
+            payload: { action: 'INSERT', data: savedEntry }
         }).catch(e => console.error(e));
 
-        return entry;
+        return savedEntry;
     }, []);
 
     const deleteProduct = useCallback(async (id) => {
@@ -215,44 +533,58 @@ export function InventoryProvider({ children }) {
 
     const updateProduct = useCallback(async (id, updatedData) => {
         const strId = String(id);
-        setProducts(prev => prev.map(p => {
-            if (String(p.id) === strId) return { ...p, ...updatedData };
-            return p;
-        }));
+        const previousProduct = products.find(p => String(p.id) === strId);
+        if (!previousProduct) return null;
 
-        await supabase.from('inventory').update({
-            name: updatedData.name,
-            purchasePrice: parseFloat(updatedData.purchasePrice || 0),
-            sellingPrice: parseFloat(updatedData.sellingPrice || updatedData.price || 0),
-            stock: parseInt(updatedData.stock || 0),
-            category: updatedData.category?.level1 || updatedData.category || '',
-            barcode: updatedData.barcode || '',
-            productUrl: updatedData.productUrl || '',
-            attributes: updatedData.attributes || {},
-            stockAlert: updatedData.stockAlert || { red: 0, yellow: 0, green: 0 },
-            image: updatedData.image || null,
-            notes: updatedData.notes || ''
-        }).eq('id', strId);
+        const mergedProduct = { ...previousProduct, ...updatedData, id: strId };
+        setProducts(prev => prev.map(p => String(p.id) === strId ? mergedProduct : p));
 
-        supabase.channel('public:unified_sync').send({
-            type: 'broadcast',
-            event: 'inventory_sync',
-            payload: { action: 'UPDATE', data: { id: strId, ...updatedData } }
-        }).catch(e => console.error(e));
-    }, []);
+        const payload = buildInventoryPayload(mergedProduct);
+        const { data, error } = await supabase.from('inventory').update(payload).eq('id', strId).select().single();
 
-    const updateStock = useCallback(async (productId, newStock) => {
-        const strId = String(productId);
-        setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: parseInt(newStock) } : p));
+        if (error) {
+            // Rollback optimistic update when cloud save fails
+            setProducts(prev => prev.map(p => String(p.id) === strId ? previousProduct : p));
+            throw new Error(error.message || 'Failed to update product.');
+        }
+
+        const savedProduct = normalizeInventoryRecord(data ? { ...mergedProduct, ...data, id: strId } : mergedProduct);
+        setProducts(prev => prev.map(p => String(p.id) === strId ? savedProduct : p));
 
         supabase.channel('public:unified_sync').send({
             type: 'broadcast',
             event: 'inventory_sync',
-            payload: { action: 'UPDATE', data: { id: strId, stock: parseInt(newStock) } }
+            payload: { action: 'UPDATE', data: savedProduct }
         }).catch(e => console.error(e));
 
-        await supabase.from('inventory').update({ stock: parseInt(newStock) }).eq('id', strId);
-    }, []);
+        return savedProduct;
+    }, [products]);
+
+    const updateStock = useCallback(async (productRef, newStock) => {
+        const searchRef = String(productRef);
+        const parsedStock = parseInt(newStock, 10);
+        const nextStock = Number.isNaN(parsedStock) ? 0 : Math.max(0, parsedStock);
+        const matchedProduct = products.find(p => String(p.id) === searchRef || String(p.barcode || '') === searchRef);
+        if (!matchedProduct) return null;
+
+        const strId = String(matchedProduct.id);
+        const previousStock = parseInt(matchedProduct.stock, 10) || 0;
+        setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: nextStock } : p));
+        const { error } = await supabase.from('inventory').update({ stock: nextStock }).eq('id', strId);
+
+        if (error) {
+            setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: previousStock } : p));
+            throw new Error(error.message || 'Failed to update stock.');
+        }
+
+        supabase.channel('public:unified_sync').send({
+            type: 'broadcast',
+            event: 'inventory_sync',
+            payload: { action: 'UPDATE', data: { id: strId, stock: nextStock } }
+        }).catch(e => console.error(e));
+
+        return { ...matchedProduct, stock: nextStock };
+    }, [products]);
 
     const adjustStock = useCallback(async (productId, delta) => {
         const strId = String(productId);
@@ -279,50 +611,66 @@ export function InventoryProvider({ children }) {
     // ── Transactions ──
 
     const addTransaction = useCallback(async (txn) => {
-        const formattedTxn = {
-            id: String(txn.id || Date.now()),
-            desc: txn.desc || txn.name || '',
-            amount: parseFloat(txn.amount || 0),
-            type: txn.type || '',
-            category: txn.category?.level1 || txn.category || '',
-            notes: txn.notes || '',
-            source: txn.source || 'shop',
-            quantity: parseInt(txn.quantity || 1),
-            date: txn.date || new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-            time: txn.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
-            timestamp: txn.timestamp || new Date().toISOString(),
-            isFixedExpense: txn.isFixedExpense || false,
-            productId: txn.productId ? String(txn.productId) : null,
-            workerId: txn.workerId || null,
-            salesmanName: txn.userName || txn.salesmanName || ''
-        };
+        const formattedTxn = buildTransactionDBPayload(txn, true);
+        const snapshot = buildTransactionSnapshot({ ...txn, ...formattedTxn });
+        saveTransactionSnapshot(formattedTxn.id, snapshot);
+        const hydratedTxn = mergeTransactionWithSnapshot(formattedTxn, { [formattedTxn.id]: snapshot });
 
         setTransactions(prev => {
-            if (prev.length > 0 && prev[0].id === formattedTxn.id) return prev;
-            return [formattedTxn, ...prev];
+            if (prev.some(t => String(t.id) === String(hydratedTxn.id))) return prev;
+            return [hydratedTxn, ...prev];
         });
 
         supabase.channel('public:unified_sync').send({
             type: 'broadcast',
             event: 'transaction_sync',
-            payload: { action: 'INSERT', data: formattedTxn }
+            payload: { action: 'INSERT', data: hydratedTxn }
         }).catch(e => console.error(e));
 
-        await supabase.from('transactions').insert([formattedTxn]);
+        const { error } = await supabase.from('transactions').insert([formattedTxn]);
+        if (error) {
+            setTransactions(prev => prev.filter(t => String(t.id) !== String(formattedTxn.id)));
+            removeTransactionSnapshot(formattedTxn.id);
+            throw new Error(error.message || 'Failed to save transaction.');
+        }
+
+        return hydratedTxn;
     }, []);
 
     const updateTransaction = useCallback(async (id, updates) => {
         const strId = String(id);
-        setTransactions(prev => prev.map(t => String(t.id) === strId ? { ...t, ...updates } : t));
+        const existingTxn = transactions.find(t => String(t.id) === strId);
+        if (!existingTxn) return null;
+
+        const nextTxn = { ...existingTxn, ...updates, id: strId };
+        const previousSnapshotMap = readTransactionSnapshots();
+        const previousSnapshot = previousSnapshotMap[strId];
+        const nextSnapshot = buildTransactionSnapshot(nextTxn);
+        saveTransactionSnapshot(strId, nextSnapshot);
+
+        const hydratedTxn = mergeTransactionWithSnapshot(nextTxn, { [strId]: nextSnapshot });
+        setTransactions(prev => prev.map(t => String(t.id) === strId ? hydratedTxn : t));
 
         supabase.channel('public:unified_sync').send({
             type: 'broadcast',
             event: 'transaction_sync',
-            payload: { action: 'UPDATE', data: { id: strId, ...updates } }
+            payload: { action: 'UPDATE', data: hydratedTxn }
         }).catch(e => console.error(e));
 
-        await supabase.from('transactions').update(updates).eq('id', strId);
-    }, []);
+        const dbUpdate = buildTransactionDBPayload(nextTxn, false);
+        const { error } = await supabase.from('transactions').update(dbUpdate).eq('id', strId);
+        if (error) {
+            if (previousSnapshot) {
+                saveTransactionSnapshot(strId, previousSnapshot);
+            } else {
+                removeTransactionSnapshot(strId);
+            }
+            setTransactions(prev => prev.map(t => String(t.id) === strId ? existingTxn : t));
+            throw new Error(error.message || 'Failed to update transaction.');
+        }
+
+        return hydratedTxn;
+    }, [transactions]);
 
     const deleteTransaction = useCallback(async (id) => {
         const strId = String(id);
@@ -336,6 +684,7 @@ export function InventoryProvider({ children }) {
         }
 
         setTransactions(prev => prev.filter(t => String(t.id) !== strId));
+        removeTransactionSnapshot(strId);
         await supabase.from('transactions').delete().eq('id', strId);
     }, [transactions, adjustStock]);
 
@@ -387,6 +736,28 @@ export function InventoryProvider({ children }) {
                 String(p.desc || '').toLowerCase().includes(q)
             );
         });
+    }, [products]);
+
+    const getProductDetails = useCallback(async (id, refresh = false) => {
+        const strId = String(id);
+        const localProduct = products.find(p => String(p.id) === strId) || null;
+        if (!refresh) return localProduct;
+
+        const { data, error } = await supabase.from('inventory').select('*').eq('id', strId).single();
+        if (error) {
+            if (localProduct) return localProduct;
+            throw new Error(error.message || 'Failed to fetch product details.');
+        }
+
+        const normalized = normalizeInventoryRecord({ ...(localProduct || {}), ...data, id: strId });
+        setProducts(prev => {
+            if (prev.some(p => String(p.id) === strId)) {
+                return prev.map(p => String(p.id) === strId ? normalized : p);
+            }
+            return [normalized, ...prev];
+        });
+
+        return normalized;
     }, [products]);
 
     // Stateful Category Helpers
@@ -503,6 +874,7 @@ export function InventoryProvider({ children }) {
         lookupBarcode,
         getProducts: () => [...products],
         getAllProducts: () => [...products],
+        getProductDetails,
         searchProducts,
         getLowStockProducts,
         updateStock,
