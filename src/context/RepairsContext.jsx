@@ -29,6 +29,20 @@ export function RepairsProvider({ children }) {
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'repairs' }, (payload) => {
                 setRepairJobs(prev => prev.filter(j => String(j.id) !== String(payload.old.id)));
             })
+            // Fallback Broadcast
+            .on('broadcast', { event: 'repair_sync' }, (payload) => {
+                const { action, data } = payload.payload;
+                if (action === 'INSERT') {
+                    setRepairJobs(prev => {
+                        if (prev.some(j => String(j.id) === String(data.id))) return prev;
+                        return [data, ...prev].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    });
+                } else if (action === 'UPDATE') {
+                    setRepairJobs(prev => prev.map(j => String(j.id) === String(data.id) ? { ...j, ...data } : j));
+                } else if (action === 'DELETE') {
+                    setRepairJobs(prev => prev.filter(j => String(j.id) !== String(data.id)));
+                }
+            })
             .subscribe();
 
         return () => supabase.removeChannel(repairsSub);
@@ -64,6 +78,13 @@ export function RepairsProvider({ children }) {
         // Supabase DB Update
         await supabase.from('repairs').insert([newJob]);
 
+        // Broadcast Fallback
+        supabase.channel('public:repairs').send({
+            type: 'broadcast',
+            event: 'repair_sync',
+            payload: { action: 'INSERT', data: newJob }
+        }).catch(e => console.error(e));
+
         return newJob;
     }, [generateRefId]);
 
@@ -85,6 +106,13 @@ export function RepairsProvider({ children }) {
 
         // Supabase DB Update
         await supabase.from('repairs').update(payload).eq('id', strId);
+
+        // Broadcast Fallback
+        supabase.channel('public:repairs').send({
+            type: 'broadcast',
+            event: 'repair_sync',
+            payload: { action: 'UPDATE', data: { id: strId, ...payload } }
+        }).catch(e => console.error(e));
     }, []);
 
     const deleteRepair = useCallback(async (id) => {
@@ -95,6 +123,13 @@ export function RepairsProvider({ children }) {
 
         // Supabase DB Update
         await supabase.from('repairs').delete().eq('id', strId);
+
+        // Broadcast Fallback
+        supabase.channel('public:repairs').send({
+            type: 'broadcast',
+            event: 'repair_sync',
+            payload: { action: 'DELETE', data: { id: strId } }
+        }).catch(e => console.error(e));
     }, []);
 
     const value = {

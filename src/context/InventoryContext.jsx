@@ -127,6 +127,33 @@ export function InventoryProvider({ children }) {
                     return next;
                 });
             })
+            // Fallback Broadcasts
+            .on('broadcast', { event: 'inventory_sync' }, (payload) => {
+                const { action, data } = payload.payload;
+                if (action === 'UPDATE') {
+                    setProducts(prev => prev.map(p => String(p.id) === String(data.id) ? { ...p, ...data } : p));
+                } else if (action === 'INSERT') {
+                    setProducts(prev => {
+                        if (prev.some(p => String(p.id) === String(data.id))) return prev;
+                        return [data, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    });
+                } else if (action === 'DELETE') {
+                    setProducts(prev => prev.filter(p => String(p.id) !== String(data.id)));
+                }
+            })
+            .on('broadcast', { event: 'transaction_sync' }, (payload) => {
+                const { action, data } = payload.payload;
+                if (action === 'INSERT') {
+                    setTransactions(prev => {
+                        if (prev.some(t => String(t.id) === String(data.id))) return prev;
+                        return [data, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    });
+                } else if (action === 'UPDATE') {
+                    setTransactions(prev => prev.map(t => String(t.id) === String(data.id) ? { ...t, ...data } : t));
+                } else if (action === 'DELETE') {
+                    setTransactions(prev => prev.filter(t => String(t.id) !== String(data.id)));
+                }
+            })
             .subscribe();
 
         return () => {
@@ -160,12 +187,25 @@ export function InventoryProvider({ children }) {
             timestamp: entry.timestamp || new Date().toISOString()
         }]);
 
+        supabase.channel('public:unified_sync').send({
+            type: 'broadcast',
+            event: 'inventory_sync',
+            payload: { action: 'INSERT', data: entry }
+        }).catch(e => console.error(e));
+
         return entry;
     }, []);
 
     const deleteProduct = useCallback(async (id) => {
         const strId = String(id);
         setProducts(prev => prev.filter(p => String(p.id) !== strId));
+
+        supabase.channel('public:unified_sync').send({
+            type: 'broadcast',
+            event: 'inventory_sync',
+            payload: { action: 'DELETE', data: { id: strId } }
+        }).catch(e => console.error(e));
+
         await supabase.from('inventory').delete().eq('id', strId);
     }, []);
 
@@ -185,29 +225,47 @@ export function InventoryProvider({ children }) {
             barcode: updatedData.barcode || '',
             productUrl: updatedData.productUrl || ''
         }).eq('id', strId);
+
+        supabase.channel('public:unified_sync').send({
+            type: 'broadcast',
+            event: 'inventory_sync',
+            payload: { action: 'UPDATE', data: { id: strId, ...updatedData } }
+        }).catch(e => console.error(e));
     }, []);
 
     const updateStock = useCallback(async (productId, newStock) => {
         const strId = String(productId);
         setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: parseInt(newStock) } : p));
+
+        supabase.channel('public:unified_sync').send({
+            type: 'broadcast',
+            event: 'inventory_sync',
+            payload: { action: 'UPDATE', data: { id: strId, stock: parseInt(newStock) } }
+        }).catch(e => console.error(e));
+
         await supabase.from('inventory').update({ stock: parseInt(newStock) }).eq('id', strId);
     }, []);
 
     const adjustStock = useCallback(async (productId, delta) => {
         const strId = String(productId);
-        let updatedStockVal = 0;
 
-        setProducts(prev => prev.map(p => {
-            if (String(p.id) === strId) {
-                updatedStockVal = Math.max(0, (parseInt(p.stock) || 0) + parseInt(delta));
-                return { ...p, stock: updatedStockVal };
-            }
-            return p;
-        }));
+        setProducts(prev => {
+            const product = prev.find(p => String(p.id) === strId);
+            if (!product) return prev;
 
-        // We delay the actual API call until state maps the updated stock val
-        // (In a highly concurrent system, Postgres RPC `increment` is better, but this fits our fast-paced local-first model)
-        await supabase.from('inventory').update({ stock: updatedStockVal }).eq('id', strId);
+            const updatedStockVal = Math.max(0, (parseInt(product.stock) || 0) + parseInt(delta));
+
+            // Fire off Supabase and Broadcast asynchronously
+            supabase.from('inventory').update({ stock: updatedStockVal }).eq('id', strId).then();
+
+            supabase.channel('public:unified_sync').send({
+                type: 'broadcast',
+                event: 'inventory_sync',
+                payload: { action: 'UPDATE', data: { id: strId, stock: updatedStockVal } }
+            }).catch(e => console.error(e));
+
+            return prev.map(p => String(p.id) === strId ? { ...p, stock: updatedStockVal } : p);
+        });
     }, []);
 
     // ── Transactions ──
@@ -236,12 +294,25 @@ export function InventoryProvider({ children }) {
             return [formattedTxn, ...prev];
         });
 
+        supabase.channel('public:unified_sync').send({
+            type: 'broadcast',
+            event: 'transaction_sync',
+            payload: { action: 'INSERT', data: formattedTxn }
+        }).catch(e => console.error(e));
+
         await supabase.from('transactions').insert([formattedTxn]);
     }, []);
 
     const updateTransaction = useCallback(async (id, updates) => {
         const strId = String(id);
         setTransactions(prev => prev.map(t => String(t.id) === strId ? { ...t, ...updates } : t));
+
+        supabase.channel('public:unified_sync').send({
+            type: 'broadcast',
+            event: 'transaction_sync',
+            payload: { action: 'UPDATE', data: { id: strId, ...updates } }
+        }).catch(e => console.error(e));
+
         await supabase.from('transactions').update(updates).eq('id', strId);
     }, []);
 
