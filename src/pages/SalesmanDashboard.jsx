@@ -158,6 +158,22 @@ export default function SalesmanDashboard() {
     const totalExpense = expenseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
     const netAmount = totalIncome - totalExpense;
 
+    const getBreakdown = (txns) => {
+        return txns.reduce((acc, t) => {
+            const method = String(t.paymentMethod || 'cash').toLowerCase();
+            const amt = parseFloat(t.amount) || 0;
+            if (acc[method] !== undefined) {
+                acc[method] += amt;
+            } else {
+                acc.cash += amt;
+            }
+            return acc;
+        }, { cash: 0, visa: 0, online: 0 });
+    };
+
+    const incomeBreakdown = getBreakdown(incomeTransactions);
+    const expenseBreakdown = getBreakdown(expenseTransactions);
+
     // ── Category Aggregation ──
     const aggregateByCategory = (txns) => {
         const map = {};
@@ -418,14 +434,13 @@ export default function SalesmanDashboard() {
 
             {/* ═══ HEADER ═══ */}
             <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-sm">
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-500/20">
-                        <span className="text-white text-sm font-bold">C</span>
-                    </div>
-                    <div>
-                        <h1 className="text-base font-black text-slate-800 tracking-tight">DailyBooks</h1>
-                        <p className="text-[10px] text-slate-400 font-medium">Hello, {user?.name || 'Salesman'}</p>
-                    </div>
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-black tracking-tight bg-gradient-to-r from-blue-700 via-indigo-600 to-cyan-500 bg-clip-text text-transparent">
+                        DailyBooks
+                    </h1>
+                    <p className="text-sm sm:text-base text-slate-500 font-semibold">
+                        Hello, <span className="text-slate-800 font-black">{user?.name || 'Salesman'}</span>
+                    </p>
                 </div>
                 <button
                     onClick={() => setShowProfileModal(true)}
@@ -454,7 +469,10 @@ export default function SalesmanDashboard() {
                 totalIncome={totalIncome}
                 totalExpense={totalExpense}
                 netAmount={netAmount}
-                todayCount={todayTransactions.length}
+                incomeCount={incomeTransactions.length}
+                expenseCount={expenseTransactions.length}
+                incomeBreakdown={incomeBreakdown}
+                expenseBreakdown={expenseBreakdown}
             />
 
             {/* ═══ MAIN CONTENT ═══ */}
@@ -728,7 +746,10 @@ export default function SalesmanDashboard() {
             {/* ═══ CALCULATOR FAB ═══ */}
             {showCalc && (
                 <Draggable nodeRef={calcNodeRef} handle=".calc-handle" bounds="parent">
-                    <div ref={calcNodeRef} className="fixed bottom-32 right-6 w-64 bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden z-[60]">
+                    <div
+                        ref={calcNodeRef}
+                        className="fixed bottom-32 right-6 w-[22rem] min-w-[20rem] min-h-[27rem] resize overflow-hidden bg-white rounded-3xl shadow-2xl border border-slate-200 z-[60]"
+                    >
                         <div className="calc-handle bg-slate-800 px-4 py-2 flex items-center justify-between cursor-grab active:cursor-grabbing">
                             <span className="text-white font-bold text-xs">🧮 Calculator</span>
                             <button onClick={() => setShowCalc(false)} className="text-slate-400 hover:text-white text-xs cursor-pointer">✕</button>
@@ -859,9 +880,16 @@ export default function SalesmanDashboard() {
                                                     <p className="text-sm font-bold text-slate-800">{job.customerName}</p>
                                                     <p className="text-xs text-slate-500">📱 {job.deviceModel}</p>
                                                     <p className="text-[11px] text-slate-400 mt-1 bg-white px-2 py-1 rounded-lg border border-slate-100">{job.problem}</p>
-                                                    <div className="flex gap-3 mt-2 text-[10px] text-slate-400">
-                                                        <span>Due: {deliveryDate}</span>
-                                                        <span>Est: {priceTag(job.estimatedCost)}</span>
+                                                    <div className="flex flex-wrap gap-2 mt-2">
+                                                        <span className={`inline-flex items-center px-2 py-1 rounded-lg border text-[10px] font-bold ${isOverdue
+                                                            ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                            }`}>
+                                                            Due: {deliveryDate}
+                                                        </span>
+                                                        <span className="inline-flex items-center px-2 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-bold">
+                                                            Est: {priceTag(job.estimatedCost)}
+                                                        </span>
                                                     </div>
                                                 </div>
                                                 <button

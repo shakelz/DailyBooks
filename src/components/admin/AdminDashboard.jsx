@@ -1012,7 +1012,10 @@ export default function AdminDashboard() {
             {/* ═══ CALCULATOR FAB ═══ */}
             {showCalc && (
                 <Draggable nodeRef={calcNodeRef} handle=".calc-handle" bounds="parent">
-                    <div ref={calcNodeRef} className="fixed bottom-32 right-6 w-64 bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden z-[60]">
+                    <div
+                        ref={calcNodeRef}
+                        className="fixed bottom-32 right-6 w-[22rem] min-w-[20rem] min-h-[27rem] resize overflow-hidden bg-white rounded-3xl shadow-2xl border border-slate-200 z-[60]"
+                    >
                         <div className="calc-handle bg-slate-800 px-4 py-2 flex items-center justify-between cursor-grab active:cursor-grabbing">
                             <span className="text-white font-bold text-xs">🧮 Calculator</span>
                             <button onClick={() => setShowCalc(false)} className="text-slate-400 hover:text-white text-xs cursor-pointer">✕</button>

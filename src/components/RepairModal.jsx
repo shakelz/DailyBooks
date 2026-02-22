@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useRepairs } from '../context/RepairsContext';
 import { X, Printer, Save, Wrench, Phone, User, Smartphone, Hash, FileText, Calendar, DollarSign } from 'lucide-react';
 
@@ -14,8 +14,6 @@ export default function RepairModal({ isOpen, onClose }) {
         estimatedCost: '',
         deliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0], // +3 days default
     });
-    const [savedJob, setSavedJob] = useState(null);
-    const printRef = useRef(null);
 
     const handleChange = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
@@ -25,43 +23,55 @@ export default function RepairModal({ isOpen, onClose }) {
             problem: '', estimatedCost: '',
             deliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
         });
-        setSavedJob(null);
     };
 
-    const handleSave = (shouldPrint = false) => {
+    const handleSave = async (shouldPrint = false) => {
         if (!form.customerName.trim() || !form.phone.trim() || !form.deviceModel.trim() || !form.problem.trim()) {
             alert('Please fill in Customer Name, Phone, Device Model, and Problem.');
             return;
         }
 
-        const job = addRepair({
-            customerName: form.customerName.trim(),
-            phone: form.phone.trim(),
-            deviceModel: form.deviceModel.trim(),
-            imei: form.imei.trim(),
-            problem: form.problem.trim(),
-            estimatedCost: parseFloat(form.estimatedCost) || 0,
-            deliveryDate: form.deliveryDate,
-        });
+        try {
+            const job = await addRepair({
+                customerName: form.customerName.trim(),
+                phone: form.phone.trim(),
+                deviceModel: form.deviceModel.trim(),
+                imei: form.imei.trim(),
+                problem: form.problem.trim(),
+                estimatedCost: parseFloat(form.estimatedCost) || 0,
+                deliveryDate: form.deliveryDate,
+            });
 
-        setSavedJob(job);
+            if (!job || typeof job !== 'object') {
+                throw new Error('Repair job save response is invalid.');
+            }
 
-        if (shouldPrint) {
-            setTimeout(() => {
-                const printWindow = window.open('', '_blank', 'width=400,height=600');
-                if (printWindow) {
-                    printWindow.document.write(generatePrintHTML(job));
+            if (shouldPrint) {
+                const printWindow = window.open('', '_blank', 'width=420,height=700');
+                if (!printWindow) {
+                    alert('Popup blocked. Please allow popups to print.');
+                } else {
+                    const html = generatePrintHTML(job);
+                    printWindow.document.open();
+                    printWindow.document.write(html);
                     printWindow.document.close();
                     printWindow.focus();
-                    setTimeout(() => { printWindow.print(); }, 300);
+                    printWindow.onload = () => {
+                        setTimeout(() => {
+                            printWindow.print();
+                        }, 150);
+                    };
                 }
-            }, 200);
-        }
+            }
 
-        setTimeout(() => {
-            resetForm();
-            onClose();
-        }, shouldPrint ? 1000 : 500);
+            setTimeout(() => {
+                resetForm();
+                onClose();
+            }, shouldPrint ? 700 : 350);
+        } catch (error) {
+            console.error('Failed to save/print repair job:', error);
+            alert(error?.message || 'Failed to save repair job.');
+        }
     };
 
     const generatePrintHTML = (job) => {

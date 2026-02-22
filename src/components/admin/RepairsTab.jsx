@@ -255,10 +255,22 @@ export default function RepairsTab() {
                                                 )}
                                             </div>
 
-                                            <div className="flex flex-wrap items-center gap-4 mt-3 pt-3 border-t border-slate-50 text-[10px] text-slate-400">
-                                                <span>Created: {createdDate}</span>
-                                                <span>Due: {deliveryDate}</span>
-                                                <span>Est: {priceTag(job.estimatedCost)}</span>
+                                            <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-50 text-[10px]">
+                                                <span className="text-slate-400">Created: {createdDate}</span>
+                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-md border font-bold ${isOverdue
+                                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                                    : job.status === 'pending'
+                                                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                        : 'bg-slate-50 text-slate-500 border-slate-200'
+                                                    }`}>
+                                                    Due: {deliveryDate}
+                                                </span>
+                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-md border font-bold ${job.status === 'pending'
+                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                    : 'bg-slate-50 text-slate-500 border-slate-200'
+                                                    }`}>
+                                                    Est: {priceTag(job.estimatedCost)}
+                                                </span>
                                                 {job.status === 'completed' && (
                                                     <>
                                                         <span className="text-slate-600">Gross: {priceTag(job.finalAmount)}</span>
