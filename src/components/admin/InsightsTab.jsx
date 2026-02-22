@@ -521,7 +521,7 @@ export default function InsightsTab() {
     }, [repairJobs, repairDateFilter]);
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-500 pb-10">
+        <div className="space-y-8 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
             {/* ── Header ── */}
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>
@@ -533,9 +533,9 @@ export default function InsightsTab() {
             </div>
 
             {/* ── 1. Financial KPIs (The Big Picture) ── */}
-            <div className="flex flex-wrap gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4">
                 {role === 'admin' && (
-                    <div className="flex-1 min-w-[240px]">
+                    <div className="min-w-0">
                         <MetricCard
                             title="Final Profit (Net-Net)"
                             value={priceTag(analytics.finalProfit)}
@@ -546,7 +546,7 @@ export default function InsightsTab() {
                     </div>
                 )}
                 {role === 'admin' && (
-                    <div className="flex-1 min-w-[240px]">
+                    <div className="min-w-0">
                         <MetricCard
                             title="Total Fixed Expenses"
                             value={priceTag(analytics.totalFixedExpenses)}
@@ -556,7 +556,7 @@ export default function InsightsTab() {
                         />
                     </div>
                 )}
-                <div className="flex-1 min-w-[240px]">
+                <div className="min-w-0">
                     <MetricCard
                         title="Gross Net Profit"
                         value={priceTag(analytics.totalProfit)}
@@ -565,7 +565,7 @@ export default function InsightsTab() {
                         subtext={`Prod: ${priceTag(analytics.productProfit)} | Serv: ${priceTag(analytics.serviceProfit)}`}
                     />
                 </div>
-                <div className="flex-1 min-w-[240px]">
+                <div className="min-w-0">
                     <MetricCard
                         title="Sales Growth (Weekly)"
                         value={`${analytics.salesGrowth > 0 ? '+' : ''}${analytics.salesGrowth.toFixed(1)}%`}
@@ -577,7 +577,7 @@ export default function InsightsTab() {
             </div>
 
             {/* ── 2. Team Performance (Salesman Leaderboard) ── */}
-            <div className="bg-gradient-to-br from-indigo-900 to-slate-800 p-6 rounded-[2rem] shadow-xl border border-indigo-800 text-white">
+            <div className="bg-gradient-to-br from-indigo-900 to-slate-800 p-4 md:p-6 rounded-[2rem] shadow-xl border border-indigo-800 text-white">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="p-3 bg-indigo-500/20 rounded-xl text-indigo-300"><Users size={20} /></div>
                     <div className="flex-1">
@@ -620,10 +620,10 @@ export default function InsightsTab() {
             </div>
 
             {/* ── 3. Advanced Visualizations ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-6 items-stretch">
 
                 {/* Sales vs Time (Line Chart) */}
-                <div className="lg:col-span-2 xl:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <div className="lg:col-span-2 xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full overflow-hidden">
                     <div className="flex items-center justify-between mb-6">
                         <div>
                             <h3 className="text-lg font-bold text-slate-800">Sales vs. Time</h3>
@@ -653,7 +653,7 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Peak Hours Analysis */}
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
+                <div className="xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
                     <div className="flex items-center justify-between mb-6">
                         <div>
                             <h3 className="text-lg font-bold text-slate-800">Peak Hours</h3>
@@ -696,7 +696,7 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Category Profitability (Pie Chart) */}
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
+                <div className="xl:col-span-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
                     <h3 className="text-lg font-bold text-slate-800 mb-2">Category Profitability</h3>
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-6">Which categories are Cash Cows?</p>
                     <div className="flex-1 w-full min-h-[250px]">
@@ -721,7 +721,7 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Service vs Product Margin (Pie Chart) */}
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
+                <div className="lg:col-span-2 xl:col-span-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
                     <h3 className="text-lg font-bold text-slate-800 mb-2">Profit Margins Breakdown</h3>
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-6">Service vs Product Revenue Mix</p>
                     <div className="flex-1 w-full min-h-[250px] relative">
@@ -751,10 +751,10 @@ export default function InsightsTab() {
             </div>
 
             {/* ── 4. Data Science Insights ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-6 items-start">
 
                 {/* Top 5 Best Sellers */}
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <div className="xl:col-span-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
                     <div className="flex items-center gap-3 mb-6">
                         <div className="p-3 bg-amber-50 rounded-xl text-amber-500"><Zap size={20} /></div>
                         <div>
@@ -780,7 +780,7 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Supplier Performance */}
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <div className="xl:col-span-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
                     <div className="flex items-center gap-3 mb-6">
                         <div className="p-3 bg-blue-50 rounded-xl text-blue-500"><Package size={20} /></div>
                         <div>
@@ -802,7 +802,7 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Inventory Intelligence */}
-                <div className="space-y-6">
+                <div className="space-y-6 lg:col-span-2 xl:col-span-4">
                     {/* Turnover Ratio */}
                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                         <div className="flex items-center justify-between mb-2">
@@ -841,10 +841,10 @@ export default function InsightsTab() {
 
             {/* ── 5. Salary, Expenses & Repairs Analytics (Admin Only) ── */}
             {role === 'admin' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
 
                     {/* Salary Analytics */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
                         <div className="flex items-center gap-3 mb-6">
                             <div className="p-3 bg-emerald-50 rounded-xl text-emerald-500"><DollarSign size={20} /></div>
                             <div>
@@ -876,7 +876,7 @@ export default function InsightsTab() {
                     </div>
 
                     {/* Expense Breakdown */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
                         <div className="flex items-center gap-3 mb-6">
                             <div className="p-3 bg-red-50 rounded-xl text-red-500"><Activity size={20} /></div>
                             <div>
@@ -922,7 +922,7 @@ export default function InsightsTab() {
                     </div>
 
                     {/* Repairs Analytics */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full lg:col-span-2 xl:col-span-1">
                         <div className="flex flex-col gap-3 mb-6">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 bg-purple-50 rounded-xl text-purple-500"><Wrench size={20} /></div>
@@ -932,23 +932,23 @@ export default function InsightsTab() {
                                 </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 min-w-[170px] flex-1 sm:flex-none">
                                     <Calendar size={14} className="text-slate-400" />
                                     <input
                                         type="date"
                                         value={repairDateFilter.startDate}
                                         onChange={(e) => setRepairDateFilter(prev => ({ ...prev, startDate: e.target.value }))}
-                                        className="text-xs font-semibold text-slate-700 bg-transparent outline-none"
+                                        className="text-xs font-semibold text-slate-700 bg-transparent outline-none w-full"
                                     />
                                 </div>
                                 <span className="text-xs font-bold text-slate-400">to</span>
-                                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 min-w-[170px] flex-1 sm:flex-none">
                                     <Calendar size={14} className="text-slate-400" />
                                     <input
                                         type="date"
                                         value={repairDateFilter.endDate}
                                         onChange={(e) => setRepairDateFilter(prev => ({ ...prev, endDate: e.target.value }))}
-                                        className="text-xs font-semibold text-slate-700 bg-transparent outline-none"
+                                        className="text-xs font-semibold text-slate-700 bg-transparent outline-none w-full"
                                     />
                                 </div>
                                 <button
@@ -969,7 +969,7 @@ export default function InsightsTab() {
                             </div>
                         </div>
                         {/* KPI Grid */}
-                        <div className="grid grid-cols-2 gap-3 mb-5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
                             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                                 <p className="text-2xl font-black text-slate-800">{repairsData.total}</p>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase">Total Jobs</p>
