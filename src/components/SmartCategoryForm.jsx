@@ -50,6 +50,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
     const [barcode, setBarcode] = useState('');
     const [purchasePrice, setPurchasePrice] = useState('');
     const [sellingPrice, setSellingPrice] = useState('');
+    const [purchaseFrom, setPurchaseFrom] = useState('');
     const [productUrl, setProductUrl] = useState('');
     const [notes, setNotes] = useState('');
     const [stock, setStock] = useState('1');
@@ -102,6 +103,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 // Prices & Stock
                 setPurchasePrice(initialData.purchasePrice || '');
                 setSellingPrice(initialData.sellingPrice || '');
+                setPurchaseFrom(initialData.purchaseFrom || '');
                 setStock(initialData.stock || '0');
                 // minStock fallback if not present
                 // setMinStock(initialData.minStock || '5'); 
@@ -153,6 +155,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 setLevel1(''); setLevel2(''); setLevel3Model('');
                 setName(''); setBarcode('');
                 setPurchasePrice(''); setSellingPrice('');
+                setPurchaseFrom('');
                 setStock('1'); setMinStock('5');
                 setStockRed(''); setStockYellow(''); setStockGreen(''); setStockAvailable('');
                 setActiveChips([]); setDynamicFields({});
@@ -285,6 +288,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             },
             purchasePrice: parseFloat(purchasePrice) || 0,
             sellingPrice: parseFloat(sellingPrice) || 0,
+            purchaseFrom: purchaseFrom.trim(),
             stock: parseInt(stock) || 0,
             stockAlert: {
                 red: parseInt(stockRed) || 0,
@@ -321,6 +325,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             setLevel1(''); setLevel2(''); setLevel3Model('');
             setName(''); setBarcode('');
             setPurchasePrice(''); setSellingPrice('');
+            setPurchaseFrom('');
             setStock('1');
             setStockRed(''); setStockYellow(''); setStockGreen('');
             setActiveChips([]); setDynamicFields({});
@@ -542,6 +547,17 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                         {/* ── 5. Standard Fields ── */}
                         <div className="space-y-3">
                             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">📋 Standard Fields</p>
+
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sold By / Purchase From</label>
+                                <input
+                                    type="text"
+                                    value={purchaseFrom}
+                                    onChange={e => setPurchaseFrom(e.target.value)}
+                                    placeholder="e.g. Local Market, ABC Traders, John Doe"
+                                    className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 transition-all"
+                                />
+                            </div>
 
                             <div className="space-y-1">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Source / Product URL</label>

@@ -5,6 +5,7 @@ import { buildProductJSON, generateId, getStockSeverity, getLevel1Categories, ge
 const InventoryContext = createContext(null);
 const TRANSACTION_SNAPSHOT_STORAGE_KEY = 'dailybooks_transaction_snapshots_v1';
 const CATEGORY_HIERARCHY_KEY = '__categoryHierarchy';
+const PURCHASE_FROM_KEY = '__purchaseFrom';
 
 function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
@@ -69,9 +70,11 @@ function normalizeInventoryRecord(product) {
     const source = product || {};
     const rawAttrs = source.attributes && typeof source.attributes === 'object' ? source.attributes : {};
     const categoryHierarchy = buildCategoryHierarchy(source.category, source.categoryPath, rawAttrs);
+    const attributePurchaseFrom = cleanText(rawAttrs[PURCHASE_FROM_KEY]);
 
     const publicAttrs = { ...rawAttrs };
     delete publicAttrs[CATEGORY_HIERARCHY_KEY];
+    delete publicAttrs[PURCHASE_FROM_KEY];
     const normalizedAttrs = Object.entries(publicAttrs).reduce((acc, [key, value]) => {
         if (isCategoryHierarchyObject(value)) return acc;
         const normalizedValue = stringifyAttributeValue(value);
@@ -93,6 +96,7 @@ function normalizeInventoryRecord(product) {
         || cleanText(publicAttrs.brand)
         || cleanText(publicAttrs.Brand)
         || '';
+    const normalizedPurchaseFrom = cleanText(source.purchaseFrom) || attributePurchaseFrom;
 
     return {
         ...source,
@@ -104,12 +108,14 @@ function normalizeInventoryRecord(product) {
         barcode: cleanText(source.barcode),
         category: normalizedCategory,
         categoryPath: normalizedPath,
+        purchaseFrom: normalizedPurchaseFrom,
         attributes: normalizedAttrs,
     };
 }
 
 function buildInventoryPayload(product, includeId = false) {
     const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
+    const purchaseFrom = cleanText(product?.purchaseFrom);
     const payloadAttributes = {
         ...(product?.attributes && typeof product.attributes === 'object' ? product.attributes : {})
     };
@@ -121,6 +127,12 @@ function buildInventoryPayload(product, includeId = false) {
             level3: categoryHierarchy.level3,
             path: categoryHierarchy.path,
         };
+    }
+
+    if (purchaseFrom) {
+        payloadAttributes[PURCHASE_FROM_KEY] = purchaseFrom;
+    } else {
+        delete payloadAttributes[PURCHASE_FROM_KEY];
     }
 
     const payload = {
@@ -217,6 +229,7 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
         discount: txn.discount ?? snapshot.discount ?? 0,
         taxInfo: txn.taxInfo || snapshot.taxInfo || null,
         soldBy: txn.soldBy || snapshot.soldBy || '',
+        purchaseFrom: txn.purchaseFrom || snapshot.purchaseFrom || snapshot?.productSnapshot?.purchaseFrom || '',
         salesmanName: txn.salesmanName || snapshot.salesmanName || txn.userName || '',
         transactionId: txn.transactionId || snapshot.transactionId || '',
         productSnapshot: txn.productSnapshot || snapshot.productSnapshot || null,
@@ -276,6 +289,7 @@ function buildTransactionSnapshot(txn) {
         discount: txn?.discount ?? 0,
         taxInfo: txn?.taxInfo || null,
         soldBy: txn?.soldBy || txn?.salesmanName || '',
+        purchaseFrom: txn?.purchaseFrom || txn?.productSnapshot?.purchaseFrom || '',
         salesmanName: txn?.salesmanName || txn?.soldBy || '',
         productSnapshot: txn?.productSnapshot || {
             id: txn?.productId || null,
@@ -288,6 +302,7 @@ function buildTransactionSnapshot(txn) {
             categoryPath: txn?.categoryPath || null,
             attributes,
             verifiedAttributes,
+            purchaseFrom: txn?.purchaseFrom || '',
             purchasePrice: parseFloat(txn?.purchasePriceAtTime ?? txn?.purchasePrice ?? 0) || 0,
             sellingPrice: parseFloat(txn?.stdPriceAtTime ?? txn?.unitPrice ?? txn?.amount ?? 0) || 0,
         },
@@ -478,6 +493,7 @@ export function InventoryProvider({ children }) {
     const addProduct = useCallback(async (product) => {
         const entry = buildProductJSON(product);
         entry.id = String(entry.id); // Supabase ID is TEXT
+        entry.purchaseFrom = cleanText(product?.purchaseFrom);
 
         // Preserve legacy/manual category path data when source flow provides it.
         if ((!entry.category || (typeof entry.category === 'object' && Object.keys(entry.category).length === 0))

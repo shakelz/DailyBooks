@@ -466,7 +466,7 @@ export default function InventoryTab() {
                                                             {/* Attribute Chips */}
                                                             <div className="flex flex-wrap gap-1 mt-2">
                                                                 {Object.entries(product.attributes || {})
-                                                                    .filter(([key, val]) => key !== '__categoryHierarchy' && val !== null && val !== undefined && formatAttrValue(val) !== '')
+                                                                    .filter(([key, val]) => !String(key).startsWith('__') && val !== null && val !== undefined && formatAttrValue(val) !== '')
                                                                     .map(([key, val]) => (
                                                                         <span key={key} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
                                                                             {key.toUpperCase()}: {formatAttrValue(val)}

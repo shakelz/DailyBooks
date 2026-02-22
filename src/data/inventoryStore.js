@@ -190,6 +190,7 @@ export function buildProductJSON(entry) {
         category: entry.category || {},
         purchasePrice: parseFloat(entry.purchasePrice || entry.costPrice) || 0,
         sellingPrice: parseFloat(entry.sellingPrice || entry.unitPrice || entry.amount) || 0,
+        purchaseFrom: entry.purchaseFrom || entry.soldBy || '',
         profit: (parseFloat(entry.sellingPrice || entry.unitPrice || entry.amount) || 0) - (parseFloat(entry.purchasePrice || entry.costPrice) || 0),
         stock: parseInt(entry.stock !== undefined ? entry.stock : (entry.quantity || 0)) || 0,
         stockAlert: entry.stockAlert || { red: 0, yellow: 0, green: 0 },

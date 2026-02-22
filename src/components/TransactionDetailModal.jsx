@@ -54,6 +54,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
     const displayCategoryPath = txn.categoryPath || snapshotProduct.categoryPath || currentProduct?.categoryPath || null;
     const displayBuyAtSale = parseFloat(txn.purchasePriceAtTime ?? snapshotProduct.purchasePrice ?? 0) || 0;
     const displayUnitAtSale = parseFloat(txn.stdPriceAtTime ?? txn.unitPrice ?? snapshotProduct.sellingPrice ?? 0) || 0;
+    const displayPurchaseFrom = txn.purchaseFrom || snapshotProduct.purchaseFrom || currentProduct?.purchaseFrom || '';
 
     const mergedSpecs = {
         ...(currentProduct?.attributes || {}),
@@ -62,7 +63,8 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
         ...(snapshotProduct?.verifiedAttributes || {}),
         ...(txn.verifiedAttributes || {}),
     };
-    const specEntries = Object.entries(mergedSpecs).filter(([_, value]) => {
+    const specEntries = Object.entries(mergedSpecs).filter(([key, value]) => {
+        if (String(key).startsWith('__')) return false;
         if (value === null || value === undefined) return false;
         return String(value).trim().length > 0;
     });
@@ -386,6 +388,12 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                             <span className="text-xs text-slate-500">Sold By</span>
                                             <span className="text-xs font-bold text-slate-800">{txn.soldBy || 'Unknown'}</span>
                                         </div>
+                                        {displayPurchaseFrom && (
+                                            <div className="flex justify-between items-center mb-2">
+                                                <span className="text-xs text-slate-500">Purchase From</span>
+                                                <span className="text-xs font-bold text-slate-800">{displayPurchaseFrom}</span>
+                                            </div>
+                                        )}
                                         <div className="flex justify-between items-center">
                                             <span className="text-xs text-slate-500">Type</span>
                                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${isIncome ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
