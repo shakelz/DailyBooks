@@ -22,6 +22,13 @@ function asString(value) {
     return value === null || value === undefined ? '' : String(value).trim();
 }
 
+function makeRowId() {
+    if (typeof globalThis !== 'undefined' && globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+    return `id_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function normalizeUserFromProfile(profile) {
     if (!profile || typeof profile !== 'object') return null;
     const name =
@@ -152,6 +159,7 @@ function buildProfileInsertPayloads({
     const loginIdentity = asString(email) || safeName;
     const safePin = asString(pin);
     const safePassword = asString(password);
+    const profileId = makeRowId();
 
     const nameKeyVariants = [
         { name: safeName },
@@ -174,6 +182,7 @@ function buildProfileInsertPayloads({
     shopKeyVariants.forEach((shopKeys) => {
         nameKeyVariants.forEach((nameKeys) => {
             const core = {
+                id: profileId,
                 ...shopKeys,
                 ...nameKeys,
                 role
