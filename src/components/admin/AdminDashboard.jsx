@@ -11,6 +11,7 @@ import { generateId } from '../../data/inventoryStore';
 import { priceTag } from '../../utils/currency';
 import { ChevronRight } from 'lucide-react';
 import DateRangeFilter from './DateRangeFilter';
+import CategoryManagerModal from '../CategoryManagerModal';
 
 // ══════════════════════════════════════════════════════════
 // DailyBooks — Admin Dashboard (Unified UI)
