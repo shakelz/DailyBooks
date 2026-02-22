@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus } from 'lucide-react';
-import DummyDataGenerator from './DummyDataGenerator';
 
 export default function AdminSettings() {
     const {
@@ -754,8 +753,6 @@ export default function AdminSettings() {
                 </div>
             </div>
 
-            {/* ── Developer Tools ── */}
-            <DummyDataGenerator />
         </div>
     );
 }
