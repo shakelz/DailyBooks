@@ -294,9 +294,7 @@ export function InventoryProvider({ children }) {
             isFixedExpense: txn.isFixedExpense || false,
             productId: txn.productId ? String(txn.productId) : null,
             workerId: txn.workerId || null,
-            salesmanName: txn.userName || txn.salesmanName || '',
-            barcode: txn.barcode || null,
-            attributes: txn.attributes || txn.verifiedAttributes || {}
+            salesmanName: txn.userName || txn.salesmanName || ''
         };
 
         setTransactions(prev => {

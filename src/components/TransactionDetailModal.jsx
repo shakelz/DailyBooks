@@ -91,11 +91,10 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                     <tr>
                         <td>
                             ${txn.name || txn.desc}<br/>
-                            ${(txn.attributes || txn.verifiedAttributes) ? Object.entries(txn.attributes || txn.verifiedAttributes)
+                            ${txn.verifiedAttributes ? Object.entries(txn.verifiedAttributes)
                 .filter(([_, v]) => v)
                 .map(([k, v]) => `<span style="font-size: 9px;">${k.toUpperCase()}: ${v}</span>`)
                 .join('<br/>') : ''}
-                            ${txn.barcode ? `<div style="font-size: 9px; margin-top: 2px;">Barcode: ${txn.barcode}</div>` : ''}
                         </td>
                         <td class="text-right">${qty}</td>
                         <td class="text-right">€${amount.toFixed(2)}</td>
@@ -252,12 +251,12 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                     </div>
 
                                     {/* Dynamic Attributes Grid */}
-                                    {((txn.attributes && Object.keys(txn.attributes).length > 0) || (txn.verifiedAttributes && Object.keys(txn.verifiedAttributes).length > 0)) && (
-                                        <div className="grid grid-cols-2 gap-x-4 gap-y-3 mt-4 pt-4 border-t border-slate-200/50">
-                                            {Object.entries({ ...(txn.verifiedAttributes || {}), ...(txn.attributes || {}) }).map(([key, value]) => (
+                                    {txn.verifiedAttributes && Object.keys(txn.verifiedAttributes).length > 0 && (
+                                        <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-200/50">
+                                            {Object.entries(txn.verifiedAttributes).map(([key, value]) => (
                                                 <div key={key}>
                                                     <p className="text-[9px] font-bold text-slate-400 uppercase">{key}</p>
-                                                    <p className="text-xs text-slate-700 font-bold">{value || '—'}</p>
+                                                    <p className="text-sm text-slate-700 font-medium">{value || '—'}</p>
                                                 </div>
                                             ))}
                                         </div>

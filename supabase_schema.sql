@@ -73,9 +73,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
     -- Foreign Keys for Data Integrity (Baigan Prevention) 🍆🚫
     "productId" TEXT REFERENCES public.inventory(id) ON DELETE SET NULL,
     "workerId" TEXT,
-    "salesmanName" TEXT,
-    "barcode" TEXT,
-    "attributes" JSONB DEFAULT '{}'::jsonb
+    "salesmanName" TEXT
 );
 
 -- Enable RLS for Transactions
