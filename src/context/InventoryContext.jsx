@@ -56,8 +56,9 @@ export function InventoryProvider({ children }) {
         };
         window.addEventListener('update-inventory-stock', handleStockUpdate);
 
-        // Listen for live updates via Supabase Realtime
-        const inventorySubscription = supabase.channel('public:inventory_transactions')
+        // Listen for live updates via Supabase Realtime (Transactions, Inventory, Categories)
+        const syncSubscription = supabase.channel('public:unified_sync')
+            // TRANSACTIONS
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, (payload) => {
                 setTransactions(prev => {
                     if (prev.some(t => String(t.id) === String(payload.new.id))) return prev;
@@ -70,11 +71,73 @@ export function InventoryProvider({ children }) {
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions' }, (payload) => {
                 setTransactions(prev => prev.filter(t => String(t.id) !== String(payload.old.id)));
             })
+            // INVENTORY (Products)
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory' }, (payload) => {
+                setProducts(prev => {
+                    if (prev.some(p => String(p.id) === String(payload.new.id))) return prev;
+                    return [payload.new, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                });
+            })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'inventory' }, (payload) => {
+                setProducts(prev => prev.map(p => String(p.id) === String(payload.new.id) ? { ...p, ...payload.new } : p));
+            })
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'inventory' }, (payload) => {
+                setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
+            })
+            // CATEGORIES
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'categories' }, (payload) => {
+                const newCat = payload.new;
+                if (newCat.level === 1) {
+                    setL1Categories(prev => {
+                        if (prev.some(c => (typeof c === 'object' ? c.name : c) === newCat.name)) return prev;
+                        return [...prev, newCat];
+                    });
+                } else if (newCat.level === 2) {
+                    setL2Map(prev => {
+                        const currentList = prev[newCat.parent] || [];
+                        if (currentList.some(c => (typeof c === 'object' ? c.name : c) === newCat.name)) return prev;
+                        return { ...prev, [newCat.parent]: [...currentList, newCat] };
+                    });
+                }
+            })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'categories' }, (payload) => {
+                const updated = payload.new;
+                if (updated.level === 1) {
+                    setL1Categories(prev => prev.map(c => {
+                        const cName = typeof c === 'object' ? c.name : c;
+                        // For updates, we match by name since UI often treats name as primary key, or use id if we switched to id
+                        // Since DB uses ID, let's match by ID securely
+                        return (typeof c === 'object' && c.id === updated.id) ? updated : (cName === updated.name ? updated : c);
+                    }));
+                } else if (updated.level === 2) {
+                    setL2Map(prev => {
+                        const next = { ...prev };
+                        if (next[updated.parent]) {
+                            next[updated.parent] = next[updated.parent].map(c =>
+                                ((typeof c === 'object' && c.id === updated.id) || (typeof c === 'object' ? c.name : c) === updated.name) ? updated : c
+                            );
+                        }
+                        return next;
+                    });
+                }
+            })
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'categories' }, (payload) => {
+                const deletedId = payload.old.id;
+                // Deleting from both L1 and L2 since payload only has ID, no level info easily accessible without old row full replica
+                setL1Categories(prev => prev.filter(c => typeof c !== 'object' || c.id !== deletedId));
+                setL2Map(prev => {
+                    const next = { ...prev };
+                    Object.keys(next).forEach(key => {
+                        next[key] = next[key].filter(c => typeof c !== 'object' || c.id !== deletedId);
+                    });
+                    return next;
+                });
+            })
             .subscribe();
 
         return () => {
             window.removeEventListener('update-inventory-stock', handleStockUpdate);
-            supabase.removeChannel(inventorySubscription);
+            supabase.removeChannel(syncSubscription);
         };
     }, []);
 

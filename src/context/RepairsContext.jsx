@@ -15,6 +15,23 @@ export function RepairsProvider({ children }) {
             }
         };
         fetchRepairs();
+
+        const repairsSub = supabase.channel('public:repairs')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'repairs' }, (payload) => {
+                setRepairJobs(prev => {
+                    if (prev.some(j => String(j.id) === String(payload.new.id))) return prev;
+                    return [payload.new, ...prev].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                });
+            })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'repairs' }, (payload) => {
+                setRepairJobs(prev => prev.map(j => String(j.id) === String(payload.new.id) ? { ...j, ...payload.new } : j));
+            })
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'repairs' }, (payload) => {
+                setRepairJobs(prev => prev.filter(j => String(j.id) !== String(payload.old.id)));
+            })
+            .subscribe();
+
+        return () => supabase.removeChannel(repairsSub);
     }, []);
 
     // Generate sequential Ref ID: REP-2026-001 based on current array length

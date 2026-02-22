@@ -61,6 +61,29 @@ export function AuthProvider({ children }) {
     const [attendanceLogs, setAttendanceLogs] = useState([]);
     const [isPunchedIn, setIsPunchedIn] = useState(false);
 
+    // ── Live Broadcasting for Settings ──
+    const broadcastSetting = useCallback(async (key, value) => {
+        await supabase.channel('public:settings').send({
+            type: 'broadcast',
+            event: 'settings_sync',
+            payload: { key, value }
+        });
+    }, []);
+
+    useEffect(() => {
+        const channel = supabase.channel('public:settings')
+            .on('broadcast', { event: 'settings_sync' }, (payload) => {
+                const { key, value } = payload.payload;
+                if (key === 'salesmen') setSalesmen(value);
+                else if (key === 'adminPassword') setAdminPassword(value);
+                else if (key === 'slowMovingDays') setSlowMovingDays(value);
+                else if (key === 'autoLockEnabled') setAutoLockEnabled(value);
+                else if (key === 'autoLockTimeout') setAutoLockTimeout(value);
+            })
+            .subscribe();
+        return () => supabase.removeChannel(channel);
+    }, []);
+
     // Initial Fetch
     useEffect(() => {
         const fetchAttendance = async () => {
@@ -298,15 +321,53 @@ export function AuthProvider({ children }) {
     };
 
     // ── Management Functions ──
-    const updateAdminPassword = (newPass) => setAdminPassword(newPass);
+    const updateAdminPassword = (newPass) => {
+        setAdminPassword(newPass);
+        broadcastSetting('adminPassword', newPass);
+    };
+
     const addSalesman = (name, pin) => {
         const newSalesman = { id: Date.now(), name, pin, active: true, hourlyRate: 12.50 };
-        setSalesmen(prev => [...prev, newSalesman]);
+        setSalesmen(prev => {
+            const next = [...prev, newSalesman];
+            broadcastSetting('salesmen', next);
+            return next;
+        });
     };
-    const deleteSalesman = (id) => setSalesmen(prev => prev.filter(s => s.id !== id));
+
+    const deleteSalesman = (id) => {
+        setSalesmen(prev => {
+            const next = prev.filter(s => s.id !== id);
+            broadcastSetting('salesmen', next);
+            return next;
+        });
+    };
+
     const updateSalesman = (id, updates) => {
-        setSalesmen(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+        setSalesmen(prev => {
+            const next = prev.map(s => s.id === id ? { ...s, ...updates } : s);
+            broadcastSetting('salesmen', next);
+            return next;
+        });
         if (user && user.id === id) setUser(prev => ({ ...prev, ...updates }));
+    };
+
+    const handleSetSlowMovingDays = (val) => {
+        const newVal = typeof val === 'function' ? val(slowMovingDays) : val;
+        setSlowMovingDays(newVal);
+        broadcastSetting('slowMovingDays', newVal);
+    };
+
+    const handleSetAutoLockEnabled = (val) => {
+        const newVal = typeof val === 'function' ? val(autoLockEnabled) : val;
+        setAutoLockEnabled(newVal);
+        broadcastSetting('autoLockEnabled', newVal);
+    };
+
+    const handleSetAutoLockTimeout = (val) => {
+        const newVal = typeof val === 'function' ? val(autoLockTimeout) : val;
+        setAutoLockTimeout(newVal);
+        broadcastSetting('autoLockTimeout', newVal);
     };
 
     // ── Alert Logic ──
@@ -323,9 +384,9 @@ export function AuthProvider({ children }) {
         role, user, login, logout,
         salesmen, addSalesman, deleteSalesman, updateSalesman,
         adminPassword, updateAdminPassword,
-        slowMovingDays, setSlowMovingDays,
-        autoLockEnabled, setAutoLockEnabled,
-        autoLockTimeout, setAutoLockTimeout,
+        slowMovingDays, setSlowMovingDays: handleSetSlowMovingDays,
+        autoLockEnabled, setAutoLockEnabled: handleSetAutoLockEnabled,
+        autoLockTimeout, setAutoLockTimeout: handleSetAutoLockTimeout,
         lowStockAlerts, addLowStockAlert, clearAlert, clearAllAlerts,
         attendanceLogs, handlePunch, isPunchedIn, addAttendanceLog,
         updateAttendanceLog, deleteAttendanceLog
