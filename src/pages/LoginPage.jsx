@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../supabaseClient';
 
 export default function LoginPage() {
     const navigate = useNavigate();
@@ -15,8 +14,6 @@ export default function LoginPage() {
     const [error, setError] = useState('');
     const [pinLoading, setPinLoading] = useState(false);
     const [salesmanShopId, setSalesmanShopId] = useState('');
-    const [salesmanShops, setSalesmanShops] = useState([]);
-    const [shopsLoading, setShopsLoading] = useState(false);
 
     // Admin credentials state
     const [adminUser, setAdminUser] = useState('');
@@ -65,40 +62,6 @@ export default function LoginPage() {
         setError('');
     };
 
-    const loadSalesmanShops = useCallback(async () => {
-        setShopsLoading(true);
-        try {
-            let response = await supabase
-                .from('shops')
-                .select('*')
-                .order('name', { ascending: true });
-            const errMsg = String(response?.error?.message || '').toLowerCase();
-            if (response?.error && (errMsg.includes('schema cache') || errMsg.includes('column'))) {
-                response = await supabase.from('shops').select('*');
-            }
-            const { data, error: shopsError } = response;
-
-            if (shopsError || !Array.isArray(data)) {
-                setSalesmanShops([]);
-                setSalesmanShopId('');
-                return;
-            }
-
-            const mapped = data.map((shop) => ({
-                id: String(shop.id || shop.shop_id || ''),
-                name: String(shop.name || shop.shop_name || 'Shop').trim() || 'Shop',
-            })).filter((shop) => shop.id);
-
-            setSalesmanShops(mapped);
-            setSalesmanShopId((prev) => {
-                if (prev && mapped.some((s) => s.id === prev)) return prev;
-                return mapped[0]?.id || '';
-            });
-        } finally {
-            setShopsLoading(false);
-        }
-    }, []);
-
     // ── Keyboard support for PIN entry ──
     useEffect(() => {
         if (role !== 'salesman') return;
@@ -114,12 +77,6 @@ export default function LoginPage() {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [role, handlePinInput, pin]);
-
-    useEffect(() => {
-        if (role === 'salesman') {
-            loadSalesmanShops();
-        }
-    }, [role, loadSalesmanShops]);
 
     // ── Admin Login Handler ──
     const handleAdminLogin = async (e) => {
@@ -374,21 +331,15 @@ export default function LoginPage() {
                     </div>
 
                     <div className="mb-6">
-                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Shop</label>
-                        <select
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Shop Code / ID</label>
+                        <input
+                            type="text"
                             value={salesmanShopId}
                             onChange={(e) => { setSalesmanShopId(e.target.value); setPin(''); setError(''); }}
-                            disabled={shopsLoading || salesmanShops.length === 0}
-                            className="w-full px-4 py-3 rounded-2xl bg-slate-800/80 border border-slate-700/50 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all disabled:opacity-60"
-                        >
-                            {salesmanShops.length === 0 ? (
-                                <option value="">{shopsLoading ? 'Loading shops...' : 'No shops found'}</option>
-                            ) : (
-                                salesmanShops.map((shop) => (
-                                    <option key={shop.id} value={shop.id}>{shop.name}</option>
-                                ))
-                            )}
-                        </select>
+                            placeholder="Enter your shop code"
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-800/80 border border-slate-700/50 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
+                        />
+                        <p className="text-[11px] text-slate-500 mt-2">Ask your admin for your shop code.</p>
                     </div>
 
                     {/* PIN Dots */}
