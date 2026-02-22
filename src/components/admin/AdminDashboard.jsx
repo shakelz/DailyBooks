@@ -445,7 +445,7 @@ export default function AdminDashboard() {
                                 {attendanceLogs.filter(l => {
                                     if (!l.timestamp) return false;
                                     const lDate = new Date(l.timestamp);
-                                    return lDate >= targetDateStart && lDate <= targetDateEnd;
+                                    return (lDate >= targetDateStart && lDate <= targetDateEnd) || (l.date === formattedStartDate || l.date === formattedEndDate);
                                 }).length} Records
                             </span>
                         </div>
@@ -453,7 +453,7 @@ export default function AdminDashboard() {
                             {attendanceLogs.filter(l => {
                                 if (!l.timestamp) return false;
                                 const lDate = new Date(l.timestamp);
-                                return lDate >= targetDateStart && lDate <= targetDateEnd;
+                                return (lDate >= targetDateStart && lDate <= targetDateEnd) || (l.date === formattedStartDate || l.date === formattedEndDate);
                             }).length === 0 ? (
                                 <p className="text-center py-6 text-sm text-slate-400">No attendance records for {formattedDisplayDate}.</p>
                             ) : (
@@ -470,7 +470,7 @@ export default function AdminDashboard() {
                                             {attendanceLogs.filter(l => {
                                                 if (!l.timestamp) return false;
                                                 const lDate = new Date(l.timestamp);
-                                                return lDate >= targetDateStart && lDate <= targetDateEnd;
+                                                return lDate >= targetDateStart && lDate <= targetDateEnd || (l.date === formattedStartDate || l.date === formattedEndDate);
                                             }).map((log, idx, filteredLogs) => {
                                                 // For OUT events, find matching IN and compute earned salary
                                                 let earnedAmount = null;
