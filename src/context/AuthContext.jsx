@@ -72,11 +72,24 @@ function normalizeShop(shop) {
 }
 
 function buildShopInsertPayloads({ name, location, ownerEmail }) {
-    return [
-        { name, location, owner_email: ownerEmail },
-        { name, location, ownerEmail },
-        { name, location },
-    ];
+    const safeName = asString(name);
+    const safeLocation = asString(location);
+    const safeOwnerEmail = asString(ownerEmail).toLowerCase();
+
+    const nameVariants = safeName ? [{ name: safeName }, { shop_name: safeName }] : [];
+    const locationVariants = safeLocation ? [{ location: safeLocation }, { address: safeLocation }, {}] : [{}];
+    const ownerVariants = safeOwnerEmail ? [{ owner_email: safeOwnerEmail }, { ownerEmail: safeOwnerEmail }, {}] : [{}];
+
+    const payloads = [];
+    nameVariants.forEach((namePayload) => {
+        locationVariants.forEach((locationPayload) => {
+            ownerVariants.forEach((ownerPayload) => {
+                payloads.push(cleanPayload({ ...namePayload, ...locationPayload, ...ownerPayload }));
+            });
+        });
+    });
+
+    return dedupePayloads(payloads.filter((payload) => Object.keys(payload).length > 0));
 }
 
 function cleanPayload(payload) {
@@ -99,14 +112,29 @@ function dedupePayloads(payloads) {
 
 function buildShopUpdatePayloads({ name, location, ownerEmail }) {
     const email = ownerEmail === undefined ? undefined : asString(ownerEmail).toLowerCase();
-    const candidates = [
-        cleanPayload({ name, location, owner_email: email }),
-        cleanPayload({ name, location, ownerEmail: email }),
-        cleanPayload({ name, address: location, owner_email: email }),
-        cleanPayload({ shop_name: name, location, owner_email: email }),
-        cleanPayload({ shop_name: name, address: location, owner_email: email }),
-    ];
-    return dedupePayloads(candidates.filter((payload) => Object.keys(payload).length > 0));
+    const safeName = name === undefined ? undefined : asString(name);
+    const safeLocation = location === undefined ? undefined : asString(location);
+
+    const nameVariants = safeName === undefined ? [{}] : [{ name: safeName }, { shop_name: safeName }];
+    const locationVariants = safeLocation === undefined ? [{}] : [{ location: safeLocation }, { address: safeLocation }, {}];
+    const ownerVariants = email === undefined ? [{}] : [{ owner_email: email }, { ownerEmail: email }, {}];
+
+    const candidates = [];
+    nameVariants.forEach((namePayload) => {
+        locationVariants.forEach((locationPayload) => {
+            ownerVariants.forEach((ownerPayload) => {
+                candidates.push(cleanPayload({ ...namePayload, ...locationPayload, ...ownerPayload }));
+            });
+        });
+    });
+
+    const unique = dedupePayloads(candidates.filter((payload) => Object.keys(payload).length > 0));
+    return unique.filter((payload) => {
+        const hasName = Object.prototype.hasOwnProperty.call(payload, 'name') || Object.prototype.hasOwnProperty.call(payload, 'shop_name');
+        const hasLocation = Object.prototype.hasOwnProperty.call(payload, 'location') || Object.prototype.hasOwnProperty.call(payload, 'address');
+        const hasOwner = Object.prototype.hasOwnProperty.call(payload, 'owner_email') || Object.prototype.hasOwnProperty.call(payload, 'ownerEmail');
+        return hasName || hasLocation || hasOwner;
+    });
 }
 
 function buildProfileInsertPayloads({
@@ -133,7 +161,6 @@ function buildProfileInsertPayloads({
     ];
     const shopKeyVariants = [
         { shop_id: shopId },
-        { shopId },
     ];
     const pinFieldVariants = (!includePin || !safePin)
         ? [{}]
