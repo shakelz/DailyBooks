@@ -59,6 +59,8 @@ export default function CartSidebar({ onEditItem, onFinalized }) {
                 profit: parseFloat(item.profit) || 0,
                 discount: parseFloat(item.discount) || 0,
                 quantity: parseInt(item.quantity) || 1,
+                barcode: item.barcode || null,
+                attributes: item.attributes || {},
                 date: currentDate,
                 time: currentTime,
                 timestamp: new Date().toISOString(),
