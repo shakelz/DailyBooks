@@ -50,6 +50,7 @@ export default function CartSidebar({ onEditItem, onFinalized }) {
         // so they show up as separate rows in Recent Transactions,
         // but share the SAME transactionId for searching/grouping.
         cart.forEach(item => {
+            const itemNotes = String(item.notes || '').trim();
             const individualTxn = {
                 ...item,
                 id: generateId('ITM'), // Unique ID for literal row
@@ -70,7 +71,7 @@ export default function CartSidebar({ onEditItem, onFinalized }) {
                 userId: user?.id,
                 customerInfo: item.customerInfo || cart[0]?.customerInfo || { name: 'Walk-in', phone: '', type: 'New' },
                 paymentMethod: item.paymentMethod || cart[0]?.paymentMethod || 'Cash',
-                notes: `Part of multi-item sale ${masterTransactionId}`,
+                notes: itemNotes ? `${itemNotes} | Part of multi-item sale ${masterTransactionId}` : `Part of multi-item sale ${masterTransactionId}`,
                 isConsolidatedItem: true
             };
 
