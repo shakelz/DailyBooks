@@ -9,7 +9,7 @@ import {
 export default function AdminPanel() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { logout, role, isAdminLike, activeShopId, setActiveShopId, shops } = useAuth();
+    const { logout, role, isAdminLike, isSuperAdmin, activeShopId, setActiveShopId, shops } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(true);
 
     const currentShop = useMemo(
@@ -119,7 +119,7 @@ export default function AdminPanel() {
                 <main className="flex-1 overflow-auto p-4 md:p-8 relative">
                     <div className="max-w-7xl mx-auto">
                         <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
-                            {isAdminLike ? (
+                            {isSuperAdmin ? (
                                 <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
                                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Switch Shop</span>
                                     <select

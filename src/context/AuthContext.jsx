@@ -78,6 +78,48 @@ function normalizeShop(shop) {
     };
 }
 
+function getProfilePassword(profile) {
+    return asString(profile?.password || profile?.adminPassword || profile?.passcode || profile?.pass_code);
+}
+
+async function attachShopOwnerCredentials(shopList = []) {
+    const normalizedShops = Array.isArray(shopList) ? shopList : [];
+    if (normalizedShops.length === 0) return normalizedShops;
+
+    const shopIds = normalizedShops.map((shop) => asString(shop.id)).filter(Boolean);
+    if (shopIds.length === 0) return normalizedShops;
+
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('role', 'admin')
+        .in('shop_id', shopIds);
+
+    if (error || !Array.isArray(data)) return normalizedShops;
+
+    const ownersByShop = new Map();
+    data.forEach((profile) => {
+        const sid = asString(profile.shop_id);
+        if (!sid || ownersByShop.has(sid)) return;
+        ownersByShop.set(sid, {
+            owner_profile_id: asString(profile.id),
+            owner_email: asString(profile.email),
+            owner_password: getProfilePassword(profile),
+        });
+    });
+
+    return normalizedShops.map((shop) => {
+        const owner = ownersByShop.get(asString(shop.id));
+        if (!owner) return shop;
+        return {
+            ...shop,
+            owner_email: shop.owner_email || owner.owner_email,
+            owner_password: owner.owner_password || '',
+            owner_profile_id: owner.owner_profile_id || '',
+        };
+    });
+}
+
 function buildShopInsertPayloads({ name, location, ownerEmail }) {
     const safeName = asString(name);
     const safeLocation = asString(location);
@@ -318,21 +360,28 @@ async function trySelectProfileByField(field, value, roles) {
     return data[0];
 }
 
-async function trySelectSalesmanByPin(pinValue) {
+async function trySelectSalesmanByPin(pinValue, shopId = '') {
     const safePin = asString(pinValue);
+    const sid = asString(shopId);
     if (!safePin) return null;
 
     const pinFields = ['pin', 'passcode', 'pin_code', 'pass_code'];
     let shouldFallbackScan = false;
 
     for (const field of pinFields) {
-        const { data, error } = await supabase
+        let query = supabase
             .from('profiles')
             .select('*')
             .eq(field, safePin)
-            .eq('role', 'salesman')
-            .limit(1);
+            .eq('role', 'salesman');
+        if (sid) {
+            query = query.eq('shop_id', sid);
+        }
+        const { data, error } = await query.limit(2);
 
+        if (!error && Array.isArray(data) && data.length > 1 && !sid) {
+            return null;
+        }
         if (!error && Array.isArray(data) && data.length > 0) {
             return data[0];
         }
@@ -358,8 +407,13 @@ async function trySelectSalesmanByPin(pinValue) {
         .eq('role', 'salesman');
 
     if (scanError || !Array.isArray(rows)) return null;
-
-    return rows.find((row) => asString(row.pin || row.passcode || row.pin_code || row.pass_code) === safePin) || null;
+    const matches = rows.filter((row) => {
+        const rowShopId = asString(row.shop_id);
+        if (sid && rowShopId !== sid) return false;
+        return asString(row.pin || row.passcode || row.pin_code || row.pass_code) === safePin;
+    });
+    if (!sid && matches.length > 1) return null;
+    return matches[0] || null;
 }
 
 export function AuthProvider({ children }) {
@@ -458,7 +512,7 @@ export function AuthProvider({ children }) {
             return [];
         }
 
-        if (role !== 'salesman') {
+        if (role === 'superadmin') {
             const { data, error } = await supabase.from('shops').select('*').order('name', { ascending: true });
             if (error || !Array.isArray(data)) {
                 setShops([]);
@@ -466,18 +520,19 @@ export function AuthProvider({ children }) {
             }
 
             const normalized = data.map(normalizeShop).filter(Boolean);
-            setShops(normalized);
+            const enriched = await attachShopOwnerCredentials(normalized);
+            setShops(enriched);
 
             const preferred = asString(preferredShopId || activeShopId || user.shop_id);
-            const preferredExists = preferred && normalized.some(s => s.id === preferred);
+            const preferredExists = preferred && enriched.some(s => s.id === preferred);
             if (preferredExists) {
                 setActiveShopIdState(preferred);
-            } else if (normalized.length > 0) {
-                setActiveShopIdState(normalized[0].id);
+            } else if (enriched.length > 0) {
+                setActiveShopIdState(enriched[0].id);
             } else {
                 setActiveShopIdState('');
             }
-            return normalized;
+            return enriched;
         }
 
         const sid = asString(preferredShopId || user.shop_id || activeShopId);
@@ -495,9 +550,10 @@ export function AuthProvider({ children }) {
         }
 
         const normalized = normalizeShop(data);
-        setShops(normalized ? [normalized] : []);
+        const enriched = normalized ? await attachShopOwnerCredentials([normalized]) : [];
+        setShops(enriched);
         setActiveShopIdState(sid);
-        return normalized ? [normalized] : [];
+        return enriched;
     }, [role, user, activeShopId]);
 
     const loadSalesmenForShop = useCallback(async (shopIdParam = '') => {
@@ -570,19 +626,19 @@ export function AuthProvider({ children }) {
 
     const setActiveShopId = useCallback((shopId) => {
         const sid = asString(shopId);
-        if (isAdminLike) {
+        if (isSuperAdmin) {
             setActiveShopIdState(sid);
             return;
         }
 
-        // Salesman users are bound to their mapped shop.
+        // Shop-admin and salesman users are bound to their mapped shop.
         const lockedShopId = asString(user?.shop_id || activeShopId);
         setActiveShopIdState(lockedShopId || sid);
-    }, [isAdminLike, user, activeShopId]);
+    }, [isSuperAdmin, user, activeShopId]);
 
     const createShop = useCallback(async ({ shopName, location, ownerEmail }) => {
-        if (role !== 'superadmin' && role !== 'admin') {
-            throw new Error('Only admin can create shops.');
+        if (role !== 'superadmin') {
+            throw new Error('Only superadmin can create shops.');
         }
 
         const name = asString(shopName);
@@ -639,8 +695,15 @@ export function AuthProvider({ children }) {
             throw new Error(profileError?.message || 'Shop created but admin user creation failed.');
         }
 
+        const createdShopWithCredentials = {
+            ...createdShop,
+            owner_email: createdShop.owner_email || email,
+            owner_password: getProfilePassword(createdProfile) || tempPassword,
+            owner_profile_id: asString(createdProfile.id),
+        };
+
         setShops(prev => {
-            const merged = [...prev, createdShop]
+            const merged = [...prev, createdShopWithCredentials]
                 .filter((s, idx, arr) => s && arr.findIndex(x => x.id === s.id) === idx)
                 .sort((a, b) => a.name.localeCompare(b.name));
             return merged;
@@ -651,19 +714,19 @@ export function AuthProvider({ children }) {
         }
 
         return {
-            shop: createdShop,
+            shop: createdShopWithCredentials,
             admin: createdProfile,
             credentials: {
                 email,
                 pin: '',
-                password: tempPassword
+                password: getProfilePassword(createdProfile) || tempPassword
             }
         };
     }, [role, activeShopId]);
 
     const updateShop = useCallback(async (shopId, updates = {}) => {
-        if (role !== 'superadmin' && role !== 'admin') {
-            throw new Error('Only admin can update shops.');
+        if (role !== 'superadmin') {
+            throw new Error('Only superadmin can update shops.');
         }
 
         const sid = asString(shopId);
@@ -715,7 +778,11 @@ export function AuthProvider({ children }) {
             throw new Error(updateError?.message || 'Failed to update shop.');
         }
 
-        setShops((prev) => prev.map((shop) => (shop.id === sid ? updatedShop : shop)));
+        setShops((prev) => prev.map((shop) => (
+            shop.id === sid
+                ? { ...shop, ...updatedShop }
+                : shop
+        )));
 
         if (user && asString(user.shop_id) === sid) {
             setUser((prev) => prev ? { ...prev, shopName: updatedShop.name, shop_id: updatedShop.id } : prev);
@@ -725,8 +792,8 @@ export function AuthProvider({ children }) {
     }, [role, user]);
 
     const deleteShop = useCallback(async (shopId) => {
-        if (role !== 'superadmin' && role !== 'admin') {
-            throw new Error('Only admin can delete shops.');
+        if (role !== 'superadmin') {
+            throw new Error('Only superadmin can delete shops.');
         }
 
         const sid = asString(shopId);
@@ -996,6 +1063,9 @@ export function AuthProvider({ children }) {
                     if (!storedPass && password !== adminPassword) {
                         return { success: false, message: 'Invalid credentials' };
                     }
+                    if (normalized.role === 'admin' && !asString(normalized.shop_id)) {
+                        return { success: false, message: 'Shop admin is not linked to any shop.' };
+                    }
 
                     setRole(normalized.role);
                     setUser(normalized);
@@ -1009,9 +1079,9 @@ export function AuthProvider({ children }) {
 
                 // Legacy fallback
                 if (password === adminPassword) {
-                    setRole('admin');
-                    setUser({ id: 'local-admin', name: 'Admin', role: 'admin', shop_id: asString(activeShopId) });
-                    return { success: true, role: 'admin' };
+                    setRole('superadmin');
+                    setUser({ id: 'local-superadmin', name: 'Admin', role: 'superadmin', shop_id: '' });
+                    return { success: true, role: 'superadmin' };
                 }
 
                 return { success: false, message: 'Invalid Admin credentials' };
@@ -1019,9 +1089,11 @@ export function AuthProvider({ children }) {
 
             if (userData.role === 'salesman') {
                 const pin = asString(userData.pin);
+                const shopId = asString(userData.shopId || userData.shop_id);
                 if (!pin) return { success: false, message: 'PIN required' };
+                if (!shopId) return { success: false, message: 'Select shop first' };
 
-                const profile = await trySelectSalesmanByPin(pin);
+                const profile = await trySelectSalesmanByPin(pin, shopId);
                 if (profile) {
                     const normalized = normalizeUserFromProfile(profile);
                     if (normalized.active === false) {
@@ -1034,7 +1106,7 @@ export function AuthProvider({ children }) {
                 }
 
                 // Legacy fallback
-                const salesman = salesmen.find(s => String(s.pin) === pin);
+                const salesman = salesmen.find(s => String(s.pin) === pin && asString(s.shop_id) === shopId);
                 if (salesman) {
                     setRole('salesman');
                     setUser(salesman);

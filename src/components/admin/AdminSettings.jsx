@@ -5,7 +5,7 @@ import DummyDataGenerator from './DummyDataGenerator';
 
 export default function AdminSettings() {
     const {
-        isAdminLike, activeShopId, shops, refreshShops, createShop, updateShop, deleteShop,
+        isAdminLike, isSuperAdmin, activeShopId, shops, refreshShops, createShop, updateShop, deleteShop,
         updateAdminPassword,
         salesmen, addSalesman, deleteSalesman, updateSalesman,
         slowMovingDays, setSlowMovingDays,
@@ -47,6 +47,7 @@ export default function AdminSettings() {
     const [editingShopOwnerEmail, setEditingShopOwnerEmail] = useState('');
     const [isSavingShop, setIsSavingShop] = useState(false);
     const [deletingShopId, setDeletingShopId] = useState('');
+    const [visibleShopPasswords, setVisibleShopPasswords] = useState({});
 
     useEffect(() => {
         if (isAdminLike) {
@@ -226,6 +227,13 @@ export default function AdminSettings() {
         }
     };
 
+    const toggleShopPassword = (shopId) => {
+        setVisibleShopPasswords((prev) => ({
+            ...prev,
+            [shopId]: !prev[shopId],
+        }));
+    };
+
     return (
         <div className="space-y-6 max-w-4xl">
             <div>
@@ -234,7 +242,7 @@ export default function AdminSettings() {
             </div>
 
             {/* ── Admin: Manage Shops ── */}
-            {isAdminLike && (
+            {isSuperAdmin && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-5">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-violet-50 text-violet-600 rounded-lg">
@@ -371,7 +379,27 @@ export default function AdminSettings() {
                                                     <p className="text-xs text-slate-500">{shop.location || 'Location not set'}</p>
                                                 </div>
                                                 <div className="flex items-center gap-3">
-                                                    <div className="text-xs text-slate-500 font-mono">{shop.owner_email || 'No owner email'}</div>
+                                                    <div className="text-right">
+                                                        <div className="text-xs text-slate-500 font-mono">{shop.owner_email || 'No owner email'}</div>
+                                                        <div className="text-xs text-slate-500 font-mono flex items-center justify-end gap-1 mt-1">
+                                                            <span>Password:</span>
+                                                            <span className="font-semibold text-slate-700">
+                                                                {shop.owner_password
+                                                                    ? (visibleShopPasswords[shop.id] ? shop.owner_password : '••••••••')
+                                                                    : 'N/A'}
+                                                            </span>
+                                                            {shop.owner_password && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleShopPassword(shop.id)}
+                                                                    className="p-1 rounded hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-colors"
+                                                                    title={visibleShopPasswords[shop.id] ? 'Hide Password' : 'Show Password'}
+                                                                >
+                                                                    {visibleShopPasswords[shop.id] ? <EyeOff size={13} /> : <Eye size={13} />}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                     <button
                                                         type="button"
                                                         onClick={() => startShopEdit(shop)}
@@ -401,6 +429,7 @@ export default function AdminSettings() {
             )}
 
             {/* ── Admin Security Section ── */}
+            {isSuperAdmin && (
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
@@ -444,6 +473,7 @@ export default function AdminSettings() {
                     </button>
                 </form>
             </div>
+            )}
 
             {/* ── Salesman Management Section ── */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
@@ -696,3 +726,4 @@ export default function AdminSettings() {
         </div>
     );
 }
+

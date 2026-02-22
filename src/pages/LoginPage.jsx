@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 
 export default function LoginPage() {
     const navigate = useNavigate();
@@ -13,6 +14,9 @@ export default function LoginPage() {
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [pinLoading, setPinLoading] = useState(false);
+    const [salesmanShopId, setSalesmanShopId] = useState('');
+    const [salesmanShops, setSalesmanShops] = useState([]);
+    const [shopsLoading, setShopsLoading] = useState(false);
 
     // Admin credentials state
     const [adminUser, setAdminUser] = useState('');
@@ -24,6 +28,10 @@ export default function LoginPage() {
     // ── Salesman PIN Handlers ──
     const handlePinInput = useCallback(async (digit) => {
         if (pinLoading) return;
+        if (!salesmanShopId) {
+            setError('❌ Shop select karo first.');
+            return;
+        }
 
         if (pin.length < 4) {
             const newPin = pin + digit;
@@ -34,7 +42,7 @@ export default function LoginPage() {
                 // Attempt Login via Context
                 setPinLoading(true);
                 try {
-                    const result = await login({ role: 'salesman', pin: newPin });
+                    const result = await login({ role: 'salesman', pin: newPin, shopId: salesmanShopId });
 
                     if (result?.success) {
                         navigate('/salesman');
@@ -50,12 +58,46 @@ export default function LoginPage() {
                 }
             }
         }
-    }, [pin, pinLoading, login, navigate]);
+    }, [pin, pinLoading, login, navigate, salesmanShopId]);
 
     const handleBackspace = () => {
         setPin(pin.slice(0, -1));
         setError('');
     };
+
+    const loadSalesmanShops = useCallback(async () => {
+        setShopsLoading(true);
+        try {
+            let response = await supabase
+                .from('shops')
+                .select('*')
+                .order('name', { ascending: true });
+            const errMsg = String(response?.error?.message || '').toLowerCase();
+            if (response?.error && (errMsg.includes('schema cache') || errMsg.includes('column'))) {
+                response = await supabase.from('shops').select('*');
+            }
+            const { data, error: shopsError } = response;
+
+            if (shopsError || !Array.isArray(data)) {
+                setSalesmanShops([]);
+                setSalesmanShopId('');
+                return;
+            }
+
+            const mapped = data.map((shop) => ({
+                id: String(shop.id || shop.shop_id || ''),
+                name: String(shop.name || shop.shop_name || 'Shop').trim() || 'Shop',
+            })).filter((shop) => shop.id);
+
+            setSalesmanShops(mapped);
+            setSalesmanShopId((prev) => {
+                if (prev && mapped.some((s) => s.id === prev)) return prev;
+                return mapped[0]?.id || '';
+            });
+        } finally {
+            setShopsLoading(false);
+        }
+    }, []);
 
     // ── Keyboard support for PIN entry ──
     useEffect(() => {
@@ -72,6 +114,12 @@ export default function LoginPage() {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [role, handlePinInput, pin]);
+
+    useEffect(() => {
+        if (role === 'salesman') {
+            loadSalesmanShops();
+        }
+    }, [role, loadSalesmanShops]);
 
     // ── Admin Login Handler ──
     const handleAdminLogin = async (e) => {
@@ -304,7 +352,7 @@ export default function LoginPage() {
                 <div className="w-full max-w-sm">
                     {/* Back button */}
                     <button
-                        onClick={() => { setRole(null); setPin(''); setError(''); }}
+                        onClick={() => { setRole(null); setPin(''); setError(''); setSalesmanShopId(''); }}
                         id="back-btn"
                         className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-8 cursor-pointer"
                     >
@@ -323,6 +371,24 @@ export default function LoginPage() {
                         </div>
                         <h2 className="text-2xl font-bold text-white">Salesman Login</h2>
                         <p className="text-slate-400 text-sm mt-1">Enter your 4-digit PIN</p>
+                    </div>
+
+                    <div className="mb-6">
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Shop</label>
+                        <select
+                            value={salesmanShopId}
+                            onChange={(e) => { setSalesmanShopId(e.target.value); setPin(''); setError(''); }}
+                            disabled={shopsLoading || salesmanShops.length === 0}
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-800/80 border border-slate-700/50 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all disabled:opacity-60"
+                        >
+                            {salesmanShops.length === 0 ? (
+                                <option value="">{shopsLoading ? 'Loading shops...' : 'No shops found'}</option>
+                            ) : (
+                                salesmanShops.map((shop) => (
+                                    <option key={shop.id} value={shop.id}>{shop.name}</option>
+                                ))
+                            )}
+                        </select>
                     </div>
 
                     {/* PIN Dots */}
