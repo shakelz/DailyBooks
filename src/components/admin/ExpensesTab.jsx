@@ -155,7 +155,44 @@ export default function ExpensesTab() {
                         </div>
                     </div>
                 </div>
-                <div className="p-0 overflow-x-auto">
+                <div className="md:hidden p-4 space-y-3">
+                    {fixedExpenses.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-400 font-medium">
+                            No fixed expenses recorded yet.
+                        </div>
+                    ) : fixedExpenses.map((txn) => (
+                        <div key={`mobile-exp-${txn.id}`} className="rounded-2xl border border-slate-100 bg-white p-4 space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <div className="w-9 h-9 rounded-lg bg-red-100 text-red-500 flex items-center justify-center shrink-0">
+                                        <FileText size={16} />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-bold text-slate-800 truncate">{txn.desc}</p>
+                                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded inline-block mt-1">{txn.category}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => { if (window.confirm('Delete expense?')) deleteTransaction(txn.id); }}
+                                    className="p-2 text-slate-300 hover:bg-red-50 hover:text-red-500 rounded-lg transition-all"
+                                    title="Delete Expense"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2 text-slate-500">
+                                    <Calendar size={14} className="text-slate-400" />
+                                    <span>{txn.date}</span>
+                                    {txn.time && <span className="text-slate-400">{txn.time}</span>}
+                                </div>
+                                <span className="text-red-500 font-bold text-base">{priceTag(txn.amount)}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="hidden md:block p-0 overflow-x-auto">
                     <table className="w-full text-left border-collapse min-w-[600px]">
                         <thead className="bg-slate-50 border-b border-slate-100">
                             <tr>

@@ -585,7 +585,37 @@ export default function InsightsTab() {
                         <p className="text-xs text-indigo-300 font-bold uppercase tracking-wider">Top Performers by Revenue & Margin</p>
                     </div>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="md:hidden space-y-2">
+                    {analytics.salesmanData.length === 0 ? (
+                        <div className="py-6 text-center text-sm text-indigo-300 rounded-xl border border-indigo-500/20">
+                            No sales data found.
+                        </div>
+                    ) : analytics.salesmanData.map((staff, idx) => (
+                        <div key={`mobile-leader-${idx}`} className="rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${idx === 0 ? 'bg-yellow-400 text-yellow-900' : idx === 1 ? 'bg-slate-300 text-slate-800' : idx === 2 ? 'bg-orange-400 text-orange-900' : 'bg-slate-700 text-white'}`}>
+                                        {idx + 1}
+                                    </span>
+                                    <p className="font-bold text-sm truncate">{staff.name}</p>
+                                </div>
+                                <p className="font-black text-emerald-400">{priceTag(staff.sales)}</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mt-2 text-[11px]">
+                                <div className="rounded-lg bg-white/10 px-2 py-1">
+                                    <p className="text-indigo-300 uppercase text-[9px] font-bold">Avg Margin</p>
+                                    <p className="font-bold text-blue-300">{staff.avgMargin.toFixed(1)}%</p>
+                                </div>
+                                <div className="rounded-lg bg-white/10 px-2 py-1">
+                                    <p className="text-indigo-300 uppercase text-[9px] font-bold">Avg Discount</p>
+                                    <p className="font-bold text-red-300">€{staff.avgDiscount.toFixed(2)}</p>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="border-b border-indigo-500/30">

@@ -65,7 +65,7 @@ export default function TotalBar({
 
     return (
         <div className="relative z-40 overflow-visible bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex-shrink-0">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {/* Total Sale */}
                 <div className="relative z-10 hover:z-[120] overflow-visible rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200 p-4 group hover:shadow-lg hover:shadow-emerald-500/15 hover:-translate-y-0.5 transition-all duration-300 cursor-help">
                     <Tooltip data={normalizedIncomeBreakdown} title="Income Breakdown" />

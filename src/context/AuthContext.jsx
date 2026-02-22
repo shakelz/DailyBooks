@@ -186,6 +186,25 @@ function buildShopUpdatePayloads({ name, location, ownerEmail }) {
     });
 }
 
+function buildShopOwnerProfileUpdatePayloads({ ownerEmail, ownerPassword }) {
+    const email = ownerEmail === undefined ? undefined : asString(ownerEmail).toLowerCase();
+    const password = ownerPassword === undefined ? undefined : asString(ownerPassword);
+
+    const emailVariants = email === undefined ? [{}] : [{ email }];
+    const passwordVariants = password === undefined
+        ? [{}]
+        : [{ password }, { adminPassword: password }, { passcode: password }, { pass_code: password }];
+
+    const candidates = [];
+    emailVariants.forEach((emailPayload) => {
+        passwordVariants.forEach((passwordPayload) => {
+            candidates.push(cleanPayload({ ...emailPayload, ...passwordPayload }));
+        });
+    });
+
+    return dedupePayloads(candidates.filter((payload) => Object.keys(payload).length > 0));
+}
+
 function buildProfileInsertPayloads({
     name,
     email = '',
@@ -745,65 +764,147 @@ export function AuthProvider({ children }) {
 
         const sid = asString(shopId);
         if (!sid) throw new Error('Invalid shop id.');
+        const currentShop = (Array.isArray(shops) ? shops : []).find((shop) => shop.id === sid) || null;
 
         const hasName = Object.prototype.hasOwnProperty.call(updates, 'name');
         const hasLocation = Object.prototype.hasOwnProperty.call(updates, 'location')
             || Object.prototype.hasOwnProperty.call(updates, 'address');
         const hasOwner = Object.prototype.hasOwnProperty.call(updates, 'ownerEmail')
             || Object.prototype.hasOwnProperty.call(updates, 'owner_email');
+        const hasOwnerPassword = Object.prototype.hasOwnProperty.call(updates, 'ownerPassword')
+            || Object.prototype.hasOwnProperty.call(updates, 'owner_password');
 
         const nextName = hasName ? asString(updates.name) : undefined;
         const nextLocation = hasLocation ? asString(updates.location ?? updates.address) : undefined;
         const nextOwnerEmail = hasOwner ? asString(updates.ownerEmail ?? updates.owner_email) : undefined;
+        const nextOwnerPassword = hasOwnerPassword
+            ? asString(updates.ownerPassword ?? updates.owner_password)
+            : undefined;
+        const shouldUpdateOwnerPassword = hasOwnerPassword && !!nextOwnerPassword;
+        const shouldUpdateShopTable = hasName || hasLocation || hasOwner;
+        const shouldUpdateOwnerProfile = hasOwner || shouldUpdateOwnerPassword;
 
         if (hasName && !nextName) {
             throw new Error('Shop name is required.');
         }
 
-        const payloads = buildShopUpdatePayloads({
-            name: nextName,
-            location: nextLocation,
-            ownerEmail: nextOwnerEmail
-        });
-
-        if (payloads.length === 0) {
+        if (!shouldUpdateShopTable && !shouldUpdateOwnerProfile) {
             throw new Error('No valid shop fields provided.');
         }
 
-        let updatedShop = null;
-        let updateError = null;
+        let updatedShop = currentShop ? { ...currentShop } : null;
 
-        for (const payload of payloads) {
-            const { data, error } = await supabase
-                .from('shops')
-                .update(payload)
-                .eq('id', sid)
-                .select()
-                .single();
+        if (shouldUpdateShopTable) {
+            const payloads = buildShopUpdatePayloads({
+                name: nextName,
+                location: nextLocation,
+                ownerEmail: nextOwnerEmail
+            });
 
-            if (!error && data) {
-                updatedShop = normalizeShop(data);
-                break;
+            if (payloads.length === 0) {
+                throw new Error('No valid shop fields provided.');
             }
-            updateError = error;
+
+            let updateError = null;
+            for (const payload of payloads) {
+                const { data, error } = await supabase
+                    .from('shops')
+                    .update(payload)
+                    .eq('id', sid)
+                    .select()
+                    .single();
+
+                if (!error && data) {
+                    updatedShop = normalizeShop(data);
+                    break;
+                }
+                updateError = error;
+            }
+
+            if (!updatedShop) {
+                throw new Error(updateError?.message || 'Failed to update shop.');
+            }
         }
 
-        if (!updatedShop) {
-            throw new Error(updateError?.message || 'Failed to update shop.');
+        let updatedOwnerProfile = null;
+        if (shouldUpdateOwnerProfile) {
+            const ownerPayloads = buildShopOwnerProfileUpdatePayloads({
+                ownerEmail: hasOwner ? nextOwnerEmail : undefined,
+                ownerPassword: shouldUpdateOwnerPassword ? nextOwnerPassword : undefined
+            });
+
+            if (ownerPayloads.length > 0) {
+                let ownerProfileId = asString(currentShop?.owner_profile_id);
+                if (!ownerProfileId) {
+                    const { data, error } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('shop_id', sid)
+                        .eq('role', 'admin')
+                        .limit(1);
+
+                    if (error) {
+                        throw new Error(error.message || 'Failed to load shop admin profile.');
+                    }
+
+                    const ownerRow = Array.isArray(data) ? data[0] : null;
+                    ownerProfileId = asString(ownerRow?.id);
+                }
+
+                if (!ownerProfileId) {
+                    throw new Error('No admin profile found for this shop.');
+                }
+
+                let ownerUpdateError = null;
+                for (const payload of ownerPayloads) {
+                    const { data, error } = await supabase
+                        .from('profiles')
+                        .update(payload)
+                        .eq('id', ownerProfileId)
+                        .select()
+                        .single();
+
+                    if (!error && data) {
+                        updatedOwnerProfile = data;
+                        break;
+                    }
+                    ownerUpdateError = error;
+                }
+
+                if (!updatedOwnerProfile) {
+                    throw new Error(ownerUpdateError?.message || 'Failed to update shop owner credentials.');
+                }
+            }
         }
+
+        const mergedShop = {
+            ...(updatedShop || { id: sid }),
+            owner_profile_id: asString(updatedOwnerProfile?.id || updatedShop?.owner_profile_id || currentShop?.owner_profile_id),
+            owner_email: hasOwner
+                ? nextOwnerEmail
+                : asString(updatedOwnerProfile?.email || updatedShop?.owner_email || currentShop?.owner_email),
+            owner_password: shouldUpdateOwnerPassword
+                ? nextOwnerPassword
+                : asString(getProfilePassword(updatedOwnerProfile) || updatedShop?.owner_password || currentShop?.owner_password),
+        };
 
         setShops((prev) => prev.map((shop) => (
             shop.id === sid
-                ? { ...shop, ...updatedShop }
+                ? { ...shop, ...mergedShop }
                 : shop
         )));
 
         if (user && asString(user.shop_id) === sid) {
-            setUser((prev) => prev ? { ...prev, shopName: updatedShop.name, shop_id: updatedShop.id } : prev);
+            setUser((prev) => prev ? {
+                ...prev,
+                shopName: mergedShop.name || prev.shopName,
+                shop_id: mergedShop.id || prev.shop_id,
+                email: asString(updatedOwnerProfile?.email || prev.email)
+            } : prev);
         }
 
-        return updatedShop;
-    }, [role, user]);
+        return mergedShop;
+    }, [role, user, shops]);
 
     const deleteShop = useCallback(async (shopId) => {
         if (role !== 'superadmin') {

@@ -560,7 +560,46 @@ export default function AdminDashboard() {
                             {attendanceLogsInRange.length === 0 ? (
                                 <p className="text-center py-6 text-sm text-slate-400">No attendance records for {formattedDisplayDate}.</p>
                             ) : (
-                                <div className="max-h-60 overflow-y-auto">
+                                <>
+                                    <div className="md:hidden max-h-60 overflow-y-auto p-3 space-y-2">
+                                    {attendanceLogsInRange.map((log) => {
+                                        const earnedAmount = log.type === 'OUT'
+                                            ? staffProductionStats.outSessionEarnings[String(log.id)] ?? null
+                                            : null;
+                                        return (
+                                            <div key={`mobile-log-${log.id}`} className="rounded-xl border border-slate-100 bg-white p-3 space-y-2">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div>
+                                                        <p className="text-sm font-bold text-slate-800">{log.userName}</p>
+                                                        <p className="text-[11px] font-mono text-slate-500">{log.time}</p>
+                                                    </div>
+                                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${log.type === 'IN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                        <span className={`w-1.5 h-1.5 rounded-full ${log.type === 'IN' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                                                        {log.type === 'IN' ? 'PUNCHED IN' : 'PUNCHED OUT'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    {earnedAmount !== null && earnedAmount > 0.001 ? (
+                                                        <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold font-mono">
+                                                            €{earnedAmount.toFixed(2)}
+                                                        </span>
+                                                    ) : <span className="text-[10px] text-slate-300">-</span>}
+                                                    <button
+                                                        onClick={() => setEditingLog(log)}
+                                                        className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-500 transition-colors"
+                                                        title="Edit Punch"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    </div>
+
+                                    <div className="hidden md:block max-h-60 overflow-y-auto">
                                     <table className="w-full text-sm text-left">
                                         <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold sticky top-0">
                                             <tr>
@@ -604,7 +643,8 @@ export default function AdminDashboard() {
                                             })}
                                         </tbody>
                                     </table>
-                                </div>
+                                    </div>
+                                </>
                             )}
                         </div>
                     </div>

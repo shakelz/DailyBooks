@@ -45,6 +45,8 @@ export default function AdminSettings() {
     const [editingShopName, setEditingShopName] = useState('');
     const [editingShopLocation, setEditingShopLocation] = useState('');
     const [editingShopOwnerEmail, setEditingShopOwnerEmail] = useState('');
+    const [editingShopOwnerPassword, setEditingShopOwnerPassword] = useState('');
+    const [showEditingShopOwnerPassword, setShowEditingShopOwnerPassword] = useState(false);
     const [isSavingShop, setIsSavingShop] = useState(false);
     const [deletingShopId, setDeletingShopId] = useState('');
     const [visibleShopPasswords, setVisibleShopPasswords] = useState({});
@@ -167,6 +169,8 @@ export default function AdminSettings() {
         setEditingShopName(shop.name || '');
         setEditingShopLocation(shop.location || '');
         setEditingShopOwnerEmail(shop.owner_email || '');
+        setEditingShopOwnerPassword('');
+        setShowEditingShopOwnerPassword(false);
     };
 
     const cancelShopEdit = () => {
@@ -174,6 +178,8 @@ export default function AdminSettings() {
         setEditingShopName('');
         setEditingShopLocation('');
         setEditingShopOwnerEmail('');
+        setEditingShopOwnerPassword('');
+        setShowEditingShopOwnerPassword(false);
     };
 
     const handleSaveShop = async () => {
@@ -187,10 +193,17 @@ export default function AdminSettings() {
         setShopMessage('');
         setIsSavingShop(true);
         try {
-            const updated = await updateShop(editingShopId, {
+            const payload = {
                 name: editingShopName,
                 location: editingShopLocation,
                 ownerEmail: editingShopOwnerEmail
+            };
+            if (editingShopOwnerPassword.trim()) {
+                payload.ownerPassword = editingShopOwnerPassword.trim();
+            }
+
+            const updated = await updateShop(editingShopId, {
+                ...payload
             });
             setShopMessage(`Shop "${updated?.name || editingShopName}" updated successfully.`);
             cancelShopEdit();
@@ -325,7 +338,7 @@ export default function AdminSettings() {
                                 shops.map((shop) => (
                                     <div key={shop.id} className="px-3 py-2 rounded-xl border border-slate-100 bg-slate-50 space-y-3">
                                         {editingShopId === shop.id ? (
-                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
                                                 <div>
                                                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Shop Name</label>
                                                     <input
@@ -351,6 +364,26 @@ export default function AdminSettings() {
                                                         className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
                                                         placeholder="owner@shop.com"
                                                     />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Owner Password</label>
+                                                    <div className="relative">
+                                                        <input
+                                                            type={showEditingShopOwnerPassword ? 'text' : 'password'}
+                                                            value={editingShopOwnerPassword}
+                                                            onChange={(e) => setEditingShopOwnerPassword(e.target.value)}
+                                                            className="w-full px-3 py-2 pr-9 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
+                                                            placeholder="Leave blank to keep current"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowEditingShopOwnerPassword((prev) => !prev)}
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 rounded"
+                                                            title={showEditingShopOwnerPassword ? 'Hide Password' : 'Show Password'}
+                                                        >
+                                                            {showEditingShopOwnerPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                        </button>
+                                                    </div>
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <button

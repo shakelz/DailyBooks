@@ -416,7 +416,128 @@ export default function InventoryTab() {
 
                     {/* Table */}
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden min-h-[500px]">
-                        <div className="overflow-x-auto">
+                        <div className="md:hidden p-4 space-y-3">
+                            {filteredProducts.length === 0 ? (
+                                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-400 font-medium">
+                                    No products found for selected filters.
+                                </div>
+                            ) : filteredProducts.map((product) => {
+                                const slowMoving = isSlowMoving(product.timestamp);
+                                const margin = calculateMargin(product.sellingPrice, product.purchasePrice);
+                                const isAudited = auditScans.has(product.id);
+
+                                return (
+                                    <div
+                                        key={`mobile-${product.id}`}
+                                        className={`rounded-2xl border p-3 space-y-3 ${showAuditMode && isAudited
+                                            ? 'border-emerald-200 bg-emerald-50/50'
+                                            : slowMoving
+                                                ? 'border-orange-200 bg-orange-50/30'
+                                                : 'border-slate-100 bg-white'
+                                            }`}
+                                    >
+                                        <div className="flex items-start gap-3">
+                                            <div className="relative w-14 h-14 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 flex items-center justify-center shrink-0">
+                                                {product.image ? (
+                                                    <img src={product.image} className="w-full h-full object-cover" alt="" />
+                                                ) : (
+                                                    <span className="text-xl">🛠️</span>
+                                                )}
+                                                {showAuditMode && (
+                                                    <div className={`absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] ${isAudited ? 'text-emerald-500' : 'text-slate-300'}`}>
+                                                        {isAudited ? <CheckCircle size={22} className="drop-shadow-sm" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300" />}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="text-sm font-bold text-slate-800 truncate">{product.name}</h4>
+                                                    {slowMoving && (
+                                                        <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[9px] font-black uppercase tracking-tighter">Slow</span>
+                                                    )}
+                                                </div>
+                                                <p className="text-[10px] font-mono text-slate-400 mt-1 truncate">{product.barcode || 'NO-BARCODE'}</p>
+                                                <p className="text-[10px] font-bold text-blue-500 mt-0.5">{getProductCategoryL1(product) || 'Uncategorized'}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className={`inline-flex flex-col px-3 py-1 rounded-xl items-center ${product.stock < 3 ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                product.stock < 6 ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                                    'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                }`}>
+                                                <span className="text-lg font-black">{product.stock}</span>
+                                                <span className="text-[8px] font-bold uppercase tracking-widest -mt-1 opacity-60">Units</span>
+                                            </div>
+                                            <div className="flex-1 text-xs space-y-1">
+                                                <div className="flex justify-between">
+                                                    <span className="text-slate-400 font-bold">Buy</span>
+                                                    <span className="text-slate-700 font-black">{priceTag(product.purchasePrice)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-slate-400 font-bold">Sell</span>
+                                                    <span className="text-blue-600 font-black">{priceTag(product.sellingPrice)}</span>
+                                                </div>
+                                                <div className="flex justify-end">
+                                                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                                                        }`}>
+                                                        {margin}% MARGIN
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-1">
+                                            {Object.entries(product.attributes || {})
+                                                .filter(([key, val]) => !String(key).startsWith('__') && val !== null && val !== undefined && formatAttrValue(val) !== '')
+                                                .slice(0, 5)
+                                                .map(([key, val]) => (
+                                                    <span key={`${product.id}-${key}`} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
+                                                        {key.toUpperCase()}: {formatAttrValue(val)}
+                                                    </span>
+                                                ))}
+                                        </div>
+
+                                        <div className="flex items-center justify-end gap-2">
+                                            <button
+                                                onClick={() => printLabel(product)}
+                                                className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
+                                                title="Print QR Label"
+                                            >
+                                                <Tags size={14} />
+                                            </button>
+                                            {product.productUrl && (
+                                                <a
+                                                    href={product.productUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                    title="Supplier Link"
+                                                >
+                                                    <ExternalLink size={14} />
+                                                </a>
+                                            )}
+                                            <button
+                                                onClick={() => handleEditProduct(product)}
+                                                className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                title="Edit Product"
+                                            >
+                                                <Edit2 size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => { if (window.confirm('Delete this product?')) deleteProduct(product.id); }}
+                                                className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center"
+                                                title="Delete Product"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                                 <thead>
                                     <tr className="bg-slate-50/50 border-b border-slate-100">
