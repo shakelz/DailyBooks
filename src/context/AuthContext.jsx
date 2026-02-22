@@ -82,6 +82,47 @@ export function AuthProvider({ children }) {
             }
         };
         fetchAttendance();
+
+        // Listen for live updates via Supabase Realtime
+        const attendanceSubscription = supabase.channel('public:attendance')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance' }, (payload) => {
+                const dbLog = payload.new;
+                const dObj = new Date(dbLog.timestamp);
+                const newLog = {
+                    ...dbLog,
+                    userId: parseInt(dbLog.workerId) || dbLog.workerId,
+                    userName: dbLog.workerName,
+                    date: dObj.toLocaleDateString('en-PK'),
+                    time: dObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
+                };
+                setAttendanceLogs(prev => {
+                    if (prev.some(l => l.id === newLog.id)) return prev; // Avoid duplicates from optimistic UI
+                    return [newLog, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                });
+            })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'attendance' }, (payload) => {
+                const dbLog = payload.new;
+                const dObj = new Date(dbLog.timestamp);
+                setAttendanceLogs(prev => prev.map(l => {
+                    if (l.id === dbLog.id) {
+                        return {
+                            ...l,
+                            ...dbLog,
+                            date: dObj.toLocaleDateString('en-PK'),
+                            time: dObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
+                        };
+                    }
+                    return l;
+                }));
+            })
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'attendance' }, (payload) => {
+                setAttendanceLogs(prev => prev.filter(l => l.id !== payload.old.id));
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(attendanceSubscription);
+        };
     }, []);
 
     // Set `isPunchedIn` state on load/update

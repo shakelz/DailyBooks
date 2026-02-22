@@ -56,7 +56,26 @@ export function InventoryProvider({ children }) {
         };
         window.addEventListener('update-inventory-stock', handleStockUpdate);
 
-        return () => window.removeEventListener('update-inventory-stock', handleStockUpdate);
+        // Listen for live updates via Supabase Realtime
+        const inventorySubscription = supabase.channel('public:inventory_transactions')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, (payload) => {
+                setTransactions(prev => {
+                    if (prev.some(t => String(t.id) === String(payload.new.id))) return prev;
+                    return [payload.new, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                });
+            })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions' }, (payload) => {
+                setTransactions(prev => prev.map(t => String(t.id) === String(payload.new.id) ? { ...t, ...payload.new } : t));
+            })
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions' }, (payload) => {
+                setTransactions(prev => prev.filter(t => String(t.id) !== String(payload.old.id)));
+            })
+            .subscribe();
+
+        return () => {
+            window.removeEventListener('update-inventory-stock', handleStockUpdate);
+            supabase.removeChannel(inventorySubscription);
+        };
     }, []);
 
     // ── Optimistic CRUD Async Helpers ──

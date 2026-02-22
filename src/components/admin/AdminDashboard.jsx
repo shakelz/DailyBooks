@@ -84,8 +84,9 @@ export default function AdminDashboard() {
     const salaryEarnings = useMemo(() => {
         const earnings = {};
         transactions.forEach(t => {
-            if (t.category === 'Salary' && t.type === 'expense' && t.isFixedExpense && t.salesmanId) {
-                earnings[t.salesmanId] = (earnings[t.salesmanId] || 0) + (parseFloat(t.amount) || 0);
+            if (t.category === 'Salary' && t.type === 'expense' && t.isFixedExpense && (t.salesmanId || t.workerId)) {
+                const idStr = String(t.salesmanId || t.workerId);
+                earnings[idStr] = (earnings[idStr] || 0) + (parseFloat(t.amount) || 0);
             }
         });
         return earnings;
@@ -334,7 +335,7 @@ export default function AdminDashboard() {
                                     .filter(l => {
                                         if (!l.timestamp) return false;
                                         const lDate = new Date(l.timestamp);
-                                        return lDate >= targetDateStart && lDate <= targetDateEnd && l.userId === staff.id;
+                                        return lDate >= targetDateStart && lDate <= targetDateEnd && String(l.userId) === String(staff.id);
                                     })
                                     .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
@@ -365,7 +366,7 @@ export default function AdminDashboard() {
                                 const hourlyRate = staff.hourlyRate || 12.50;
                                 const sessionHours = isOnline && startTime ? (time - startTime) / 3600000 : 0;
                                 const liveSalary = sessionHours * hourlyRate;
-                                const totalEarned = salaryEarnings[staff.id] || 0;
+                                const totalEarned = salaryEarnings[String(staff.id)] || 0;
 
                                 return (
                                     <div key={staff.id} className="px-5 py-4 border-b border-slate-50 last:border-none hover:bg-slate-50/50 transition-colors">
