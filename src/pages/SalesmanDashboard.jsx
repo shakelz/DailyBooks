@@ -693,7 +693,9 @@ export default function SalesmanDashboard() {
                             category: entry.category?.level1 || 'Inventory',
                             notes: `Added ${entry.stock} units via Purchase Entry. ${entry.notes || ''}`,
                             type: 'expense',
+                            paymentMethod: entry.paymentMode || 'Cash',
                             source: 'shop',
+                            purchaseFrom: entry.purchaseFrom || '',
                             quantity: parseInt(entry.stock) || 1,
                             date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
@@ -748,7 +750,7 @@ export default function SalesmanDashboard() {
                 <Draggable nodeRef={calcNodeRef} handle=".calc-handle" bounds="parent">
                     <div
                         ref={calcNodeRef}
-                        className="fixed bottom-32 right-6 w-[22rem] min-w-[20rem] min-h-[27rem] resize overflow-hidden bg-white rounded-3xl shadow-2xl border border-slate-200 z-[60]"
+                        className="fixed bottom-32 right-6 w-[23rem] h-[30rem] min-w-[20rem] min-h-[27rem] resize overflow-hidden bg-white rounded-3xl shadow-2xl border border-slate-200 z-[60] flex flex-col"
                     >
                         <div className="calc-handle bg-slate-800 px-4 py-2 flex items-center justify-between cursor-grab active:cursor-grabbing">
                             <span className="text-white font-bold text-xs">🧮 Calculator</span>
@@ -760,10 +762,10 @@ export default function SalesmanDashboard() {
                             <p className="text-white text-2xl font-bold font-mono tracking-tight">{calcDisplay}</p>
                         </div>
 
-                        <div className="grid grid-cols-4 gap-px bg-slate-200 p-px">
+                        <div className="flex-1 grid grid-cols-4 grid-rows-5 gap-px bg-slate-200 p-px">
                             {['C', '⌫', '÷', '×', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
                                 <button key={key} onClick={() => handleCalcPress(key)}
-                                    className={`py-3 text-sm font-bold transition-all active:scale-95 cursor-pointer
+                                    className={`h-full text-sm font-bold transition-all active:scale-95 cursor-pointer
                                                 ${key === '=' ? 'col-span-1 row-span-2 bg-blue-500 text-white hover:bg-blue-600'
                                             : key === '0' ? 'col-span-2 bg-white hover:bg-slate-50 text-slate-800'
                                                 : ['C', '⌫'].includes(key) ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'

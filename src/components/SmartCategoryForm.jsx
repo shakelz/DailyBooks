@@ -24,6 +24,7 @@ const CHIP_LIBRARY = [
     { key: 'networkType', label: 'Network Type', icon: '📡', type: 'select', options: ['4G LTE', '5G', '3G', 'WiFi Only'] },
     { key: 'packagingCond', label: 'Packaging Condition', icon: '📦', type: 'select', options: ['Sealed Box', 'Open Box', 'No Box', 'Damaged Box'] },
 ];
+const PAYMENT_MODE_OPTIONS = ['Cash', 'Visa', 'Online'];
 
 export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialData = null }) {
     const {
@@ -51,6 +52,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
     const [purchasePrice, setPurchasePrice] = useState('');
     const [sellingPrice, setSellingPrice] = useState('');
     const [purchaseFrom, setPurchaseFrom] = useState('');
+    const [paymentMode, setPaymentMode] = useState('');
     const [productUrl, setProductUrl] = useState('');
     const [notes, setNotes] = useState('');
     const [stock, setStock] = useState('1');
@@ -104,6 +106,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 setPurchasePrice(initialData.purchasePrice || '');
                 setSellingPrice(initialData.sellingPrice || '');
                 setPurchaseFrom(initialData.purchaseFrom || '');
+                setPaymentMode(initialData.paymentMode || initialData.attributes?.__paymentMode || '');
                 setStock(initialData.stock || '0');
                 // minStock fallback if not present
                 // setMinStock(initialData.minStock || '5'); 
@@ -156,6 +159,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 setName(''); setBarcode('');
                 setPurchasePrice(''); setSellingPrice('');
                 setPurchaseFrom('');
+                setPaymentMode('');
                 setStock('1'); setMinStock('5');
                 setStockRed(''); setStockYellow(''); setStockGreen(''); setStockAvailable('');
                 setActiveChips([]); setDynamicFields({});
@@ -251,6 +255,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
         // 2. Pricing checks
         if (!sellingPrice || parseFloat(sellingPrice) <= 0) errs.sellingPrice = 'Selling price required';
         if (!purchasePrice || parseFloat(purchasePrice) <= 0) errs.purchasePrice = 'Purchase price required';
+        if (!paymentMode) errs.paymentMode = 'Payment mode required';
 
         // 3. Name fallback check (must have Name or Model)
         if (!name.trim() && !level3Model.trim()) {
@@ -289,6 +294,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             purchasePrice: parseFloat(purchasePrice) || 0,
             sellingPrice: parseFloat(sellingPrice) || 0,
             purchaseFrom: purchaseFrom.trim(),
+            paymentMode: paymentMode.trim(),
             stock: parseInt(stock) || 0,
             stockAlert: {
                 red: parseInt(stockRed) || 0,
@@ -326,6 +332,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             setName(''); setBarcode('');
             setPurchasePrice(''); setSellingPrice('');
             setPurchaseFrom('');
+            setPaymentMode('');
             setStock('1');
             setStockRed(''); setStockYellow(''); setStockGreen('');
             setActiveChips([]); setDynamicFields({});
@@ -557,6 +564,21 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                                     placeholder="e.g. Local Market, ABC Traders, John Doe"
                                     className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 transition-all"
                                 />
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment Mode <span className="text-red-500">*</span></label>
+                                <select
+                                    value={paymentMode}
+                                    onChange={e => setPaymentMode(e.target.value)}
+                                    className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 transition-all ${errors.paymentMode ? 'bg-red-50 border-red-300 focus:ring-red-200' : 'bg-slate-50 border-slate-200 focus:ring-blue-400/50'}`}
+                                >
+                                    <option value="">Select payment mode...</option>
+                                    {PAYMENT_MODE_OPTIONS.map((mode) => (
+                                        <option key={mode} value={mode}>{mode}</option>
+                                    ))}
+                                </select>
+                                {errors.paymentMode && <p className="text-[10px] text-red-500 mt-1 font-bold">{errors.paymentMode}</p>}
                             </div>
 
                             <div className="space-y-1">

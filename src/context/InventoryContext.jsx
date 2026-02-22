@@ -6,6 +6,7 @@ const InventoryContext = createContext(null);
 const TRANSACTION_SNAPSHOT_STORAGE_KEY = 'dailybooks_transaction_snapshots_v1';
 const CATEGORY_HIERARCHY_KEY = '__categoryHierarchy';
 const PURCHASE_FROM_KEY = '__purchaseFrom';
+const PAYMENT_MODE_KEY = '__paymentMode';
 
 function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
@@ -71,10 +72,12 @@ function normalizeInventoryRecord(product) {
     const rawAttrs = source.attributes && typeof source.attributes === 'object' ? source.attributes : {};
     const categoryHierarchy = buildCategoryHierarchy(source.category, source.categoryPath, rawAttrs);
     const attributePurchaseFrom = cleanText(rawAttrs[PURCHASE_FROM_KEY]);
+    const attributePaymentMode = cleanText(rawAttrs[PAYMENT_MODE_KEY]);
 
     const publicAttrs = { ...rawAttrs };
     delete publicAttrs[CATEGORY_HIERARCHY_KEY];
     delete publicAttrs[PURCHASE_FROM_KEY];
+    delete publicAttrs[PAYMENT_MODE_KEY];
     const normalizedAttrs = Object.entries(publicAttrs).reduce((acc, [key, value]) => {
         if (isCategoryHierarchyObject(value)) return acc;
         const normalizedValue = stringifyAttributeValue(value);
@@ -97,6 +100,7 @@ function normalizeInventoryRecord(product) {
         || cleanText(publicAttrs.Brand)
         || '';
     const normalizedPurchaseFrom = cleanText(source.purchaseFrom) || attributePurchaseFrom;
+    const normalizedPaymentMode = cleanText(source.paymentMode) || cleanText(source.paymentMethod) || attributePaymentMode;
 
     return {
         ...source,
@@ -109,6 +113,7 @@ function normalizeInventoryRecord(product) {
         category: normalizedCategory,
         categoryPath: normalizedPath,
         purchaseFrom: normalizedPurchaseFrom,
+        paymentMode: normalizedPaymentMode,
         attributes: normalizedAttrs,
     };
 }
@@ -116,6 +121,7 @@ function normalizeInventoryRecord(product) {
 function buildInventoryPayload(product, includeId = false) {
     const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
     const purchaseFrom = cleanText(product?.purchaseFrom);
+    const paymentMode = cleanText(product?.paymentMode);
     const payloadAttributes = {
         ...(product?.attributes && typeof product.attributes === 'object' ? product.attributes : {})
     };
@@ -133,6 +139,12 @@ function buildInventoryPayload(product, includeId = false) {
         payloadAttributes[PURCHASE_FROM_KEY] = purchaseFrom;
     } else {
         delete payloadAttributes[PURCHASE_FROM_KEY];
+    }
+
+    if (paymentMode) {
+        payloadAttributes[PAYMENT_MODE_KEY] = paymentMode;
+    } else {
+        delete payloadAttributes[PAYMENT_MODE_KEY];
     }
 
     const payload = {
@@ -494,6 +506,7 @@ export function InventoryProvider({ children }) {
         const entry = buildProductJSON(product);
         entry.id = String(entry.id); // Supabase ID is TEXT
         entry.purchaseFrom = cleanText(product?.purchaseFrom);
+        entry.paymentMode = cleanText(product?.paymentMode) || cleanText(product?.paymentMethod);
 
         // Preserve legacy/manual category path data when source flow provides it.
         if ((!entry.category || (typeof entry.category === 'object' && Object.keys(entry.category).length === 0))

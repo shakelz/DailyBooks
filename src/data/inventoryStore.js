@@ -191,6 +191,7 @@ export function buildProductJSON(entry) {
         purchasePrice: parseFloat(entry.purchasePrice || entry.costPrice) || 0,
         sellingPrice: parseFloat(entry.sellingPrice || entry.unitPrice || entry.amount) || 0,
         purchaseFrom: entry.purchaseFrom || entry.soldBy || '',
+        paymentMode: entry.paymentMode || entry.paymentMethod || '',
         profit: (parseFloat(entry.sellingPrice || entry.unitPrice || entry.amount) || 0) - (parseFloat(entry.purchasePrice || entry.costPrice) || 0),
         stock: parseInt(entry.stock !== undefined ? entry.stock : (entry.quantity || 0)) || 0,
         stockAlert: entry.stockAlert || { red: 0, yellow: 0, green: 0 },
