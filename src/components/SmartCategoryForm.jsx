@@ -89,10 +89,14 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 setBarcode(initialData.barcode || '');
 
                 // Category
-                if (initialData.category) {
+                if (typeof initialData.category === 'object' && initialData.category !== null) {
                     setLevel1(initialData.category.level1 || '');
                     setLevel2(initialData.category.level2 || '');
                     setLevel3Model(initialData.category.level3 || '');
+                } else if (typeof initialData.category === 'string') {
+                    setLevel1(initialData.category);
+                    setLevel2('');
+                    setLevel3Model('');
                 }
 
                 // Prices & Stock
@@ -114,11 +118,34 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 setNotes(initialData.notes || '');
                 if (initialData.image) setImagePreview(initialData.image);
 
-                // Chips
+                // Chips & Attributes
                 if (initialData.attributes) {
-                    const keys = Object.keys(initialData.attributes);
-                    setActiveChips(keys);
-                    setDynamicFields(initialData.attributes);
+                    const attrs = initialData.attributes;
+                    setDynamicFields(attrs);
+
+                    const libraryKeys = CHIP_LIBRARY.map(c => c.key);
+                    const existingKeys = Object.keys(attrs);
+
+                    // Identify custom keys (those not in built-in library)
+                    const customKeys = existingKeys.filter(k => !libraryKeys.includes(k));
+                    if (customKeys.length > 0) {
+                        const restoredCustomChips = customKeys.map(k => ({
+                            key: k,
+                            label: k.startsWith('custom_') ? k.replace('custom_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : k,
+                            icon: '🔧',
+                            type: 'text',
+                            placeholder: `Enter ${k}...`
+                        }));
+                        setCustomChips(restoredCustomChips);
+                    } else {
+                        setCustomChips([]);
+                    }
+
+                    setActiveChips(existingKeys);
+                } else {
+                    setActiveChips([]);
+                    setCustomChips([]);
+                    setDynamicFields({});
                 }
 
             } else {

@@ -184,7 +184,11 @@ export function InventoryProvider({ children }) {
             category: entry.category?.level1 || entry.category || '',
             barcode: entry.barcode || '',
             productUrl: entry.productUrl || '',
-            timestamp: entry.timestamp || new Date().toISOString()
+            timestamp: entry.timestamp || new Date().toISOString(),
+            attributes: entry.attributes || {},
+            stockAlert: entry.stockAlert || { red: 0, yellow: 0, green: 0 },
+            image: entry.image || null,
+            notes: entry.notes || ''
         }]);
 
         supabase.channel('public:unified_sync').send({
@@ -223,7 +227,11 @@ export function InventoryProvider({ children }) {
             stock: parseInt(updatedData.stock || 0),
             category: updatedData.category?.level1 || updatedData.category || '',
             barcode: updatedData.barcode || '',
-            productUrl: updatedData.productUrl || ''
+            productUrl: updatedData.productUrl || '',
+            attributes: updatedData.attributes || {},
+            stockAlert: updatedData.stockAlert || { red: 0, yellow: 0, green: 0 },
+            image: updatedData.image || null,
+            notes: updatedData.notes || ''
         }).eq('id', strId);
 
         supabase.channel('public:unified_sync').send({
