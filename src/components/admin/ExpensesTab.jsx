@@ -13,7 +13,11 @@ export default function ExpensesTab() {
     const [title, setTitle] = useState('');
     const [amount, setAmount] = useState('');
     const [category, setCategory] = useState('Rent');
-    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [date, setDate] = useState(() => {
+        const now = new Date();
+        // Format as datetime-local value: YYYY-MM-DDTHH:MM
+        return now.toISOString().slice(0, 16);
+    });
     const [showForm, setShowForm] = useState(false);
 
     // ── Date Range State ──
@@ -65,10 +69,10 @@ export default function ExpensesTab() {
             type: 'expense',
             category: category,
             isFixedExpense: true,
-            date: new Date(date).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            date: new Date(date).toLocaleDateString('en-CA'),
+            time: new Date(date).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
             timestamp: new Date(date).toISOString(),
-            source: 'admin' // Added mostly for reporting safety
+            source: 'admin'
         });
 
         setTitle('');
@@ -97,7 +101,7 @@ export default function ExpensesTab() {
             {/* Form */}
             {showForm && (
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-blue-100 animate-in slide-in-from-top-4 duration-300">
-                    <form onSubmit={handleAddExpense} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                    <form onSubmit={handleAddExpense} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
                         <div className="md:col-span-1">
                             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Category</label>
                             <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold" value={category} onChange={e => setCategory(e.target.value)}>
@@ -116,6 +120,10 @@ export default function ExpensesTab() {
                         <div className="md:col-span-1">
                             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Amount (€)</label>
                             <input required type="number" min="0" step="0.01" placeholder="0.00" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium" value={amount} onChange={e => setAmount(e.target.value)} />
+                        </div>
+                        <div className="md:col-span-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Date & Time</label>
+                            <input type="datetime-local" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium" value={date} onChange={e => setDate(e.target.value)} />
                         </div>
                         <div className="md:col-span-1">
                             <button type="submit" className="w-full p-3 bg-indigo-600 text-white rounded-xl shadow shadow-indigo-500/30 hover:bg-indigo-700 active:scale-95 transition-all text-sm font-bold">
@@ -167,7 +175,10 @@ export default function ExpensesTab() {
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-2">
                                             <Calendar size={14} className="text-slate-400" />
-                                            <span className="text-sm font-medium text-slate-600">{txn.date}</span>
+                                            <div>
+                                                <span className="text-sm font-medium text-slate-600">{txn.date}</span>
+                                                {txn.time && <span className="text-xs text-slate-400 ml-2">{txn.time}</span>}
+                                            </div>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">

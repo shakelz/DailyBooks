@@ -149,9 +149,12 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             },
 
             // Meta
+            desc: product.name || '',
+            category: product.category?.level1 || (typeof product.category === 'string' ? product.category : '') || '',
+            salesmanName: user?.name || 'Unknown',
             soldBy: user?.name || 'Unknown',
             notes: notes,
-            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+            date: new Date().toLocaleDateString('en-CA'),
             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
             timestamp: new Date().toISOString(),
             type: 'income',

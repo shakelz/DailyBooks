@@ -19,7 +19,7 @@ export function InventoryProvider({ children }) {
             const { data: invData, error: invErr } = await supabase.from('inventory').select('*');
             if (!invErr && invData) setProducts(invData);
 
-            const { data: txnData, error: txnErr } = await supabase.from('transactions').select('*');
+            const { data: txnData, error: txnErr } = await supabase.from('transactions').select('*').order('timestamp', { ascending: false });
             if (!txnErr && txnData) setTransactions(txnData);
 
             // Fetch Categories
@@ -28,11 +28,7 @@ export function InventoryProvider({ children }) {
                 const l1 = catData.filter(c => c.level === 1) || [];
                 const l2 = catData.filter(c => c.level === 2) || [];
 
-                if (l1.length === 0) {
-                    setL1Categories(getLevel1Categories()); // Fallback to defaults
-                } else {
-                    setL1Categories(l1);
-                }
+                setL1Categories(l1);
 
                 const map2 = {};
                 l2.forEach(c => {
@@ -40,8 +36,6 @@ export function InventoryProvider({ children }) {
                     map2[c.parent].push(c);
                 });
                 setL2Map(map2);
-            } else {
-                setL1Categories(getLevel1Categories());
             }
         };
         fetchInitialData();
@@ -221,7 +215,7 @@ export function InventoryProvider({ children }) {
     const addTransaction = useCallback(async (txn) => {
         const formattedTxn = {
             id: String(txn.id || Date.now()),
-            desc: txn.desc || '',
+            desc: txn.desc || txn.name || '',
             amount: parseFloat(txn.amount || 0),
             type: txn.type || '',
             category: txn.category?.level1 || txn.category || '',

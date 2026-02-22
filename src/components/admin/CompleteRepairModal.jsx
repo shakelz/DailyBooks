@@ -21,10 +21,9 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         }
     }, [isOpen, job]);
 
-    if (!isOpen || !job) return null;
-
     // Search Inventory
     const searchResults = useMemo(() => {
+        if (!isOpen || !job) return [];
         if (!searchTerm.trim()) return [];
         const q = searchTerm.toLowerCase();
         return products.filter(p =>
@@ -34,7 +33,11 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
                 (p.barcode || '').includes(q)
             )
         ).slice(0, 10); // Limit to 10 results
-    }, [products, searchTerm]);
+    }, [products, searchTerm, isOpen, job]);
+
+    const totalPartsCost = selectedParts.reduce((sum, part) => sum + (part.costPrice * part.quantity), 0);
+
+    if (!isOpen || !job) return null;
 
     const handleAddPart = (product) => {
         setSelectedParts(prev => {
@@ -75,7 +78,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         setSelectedParts(prev => prev.filter(p => p.product.id !== productId));
     };
 
-    const totalPartsCost = selectedParts.reduce((sum, part) => sum + (part.costPrice * part.quantity), 0);
+
 
     const handleSubmit = () => {
         const amount = parseFloat(finalAmount) || 0;

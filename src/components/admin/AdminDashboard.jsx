@@ -368,6 +368,24 @@ export default function AdminDashboard() {
                                 const liveSalary = sessionHours * hourlyRate;
                                 const totalEarned = salaryEarnings[String(staff.id)] || 0;
 
+                                // Calculate ALL-TIME total hours from every attendance log for this staff
+                                const allLogs = attendanceLogs
+                                    .filter(l => l.timestamp && String(l.userId) === String(staff.id))
+                                    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                                let allTimeMs = 0;
+                                let tempStart = null;
+                                allLogs.forEach(log => {
+                                    if (log.type === 'IN') {
+                                        tempStart = new Date(log.timestamp);
+                                    } else if (log.type === 'OUT' && tempStart) {
+                                        allTimeMs += (new Date(log.timestamp) - tempStart);
+                                        tempStart = null;
+                                    }
+                                });
+                                if (isOnline && tempStart) allTimeMs += (time - tempStart);
+                                const totalHoursWorked = allTimeMs / 3600000;
+                                const expectedSalary = totalHoursWorked * hourlyRate;
+
                                 return (
                                     <div key={staff.id} className="px-5 py-4 border-b border-slate-50 last:border-none hover:bg-slate-50/50 transition-colors">
                                         <div className="flex items-center justify-between">
@@ -384,11 +402,11 @@ export default function AdminDashboard() {
                                             </div>
                                             <div className="text-right">
                                                 <p className="font-mono font-bold text-slate-800 text-sm">{hours}h {minutes}m</p>
-                                                <p className="text-[10px] text-slate-400">Production</p>
+                                                <p className="text-[10px] text-slate-400">Today's Production</p>
                                             </div>
                                         </div>
                                         {/* Live Salary Row */}
-                                        <div className="mt-2 flex items-center gap-3 pl-[52px]">
+                                        <div className="mt-2 flex flex-wrap items-center gap-2 pl-[52px]">
                                             {isOnline ? (
                                                 <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-xl">
                                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -396,13 +414,17 @@ export default function AdminDashboard() {
                                                     <span className="text-[9px] text-emerald-500">session</span>
                                                 </div>
                                             ) : null}
+                                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-100 rounded-xl" title={`${totalHoursWorked.toFixed(1)}h × €${hourlyRate}/hr`}>
+                                                <span className="text-xs font-bold text-violet-700 font-mono">€{expectedSalary.toFixed(2)}</span>
+                                                <span className="text-[9px] text-violet-500">expected ({totalHoursWorked.toFixed(1)}h)</span>
+                                            </div>
                                             {totalEarned > 0 && (
                                                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-xl">
                                                     <span className="text-xs font-bold text-blue-700 font-mono">€{totalEarned.toFixed(2)}</span>
-                                                    <span className="text-[9px] text-blue-500">total earned</span>
+                                                    <span className="text-[9px] text-blue-500">paid</span>
                                                 </div>
                                             )}
-                                            {!isOnline && totalEarned === 0 && (
+                                            {!isOnline && totalEarned === 0 && expectedSalary === 0 && (
                                                 <span className="text-[10px] text-slate-300">No earnings yet</span>
                                             )}
                                         </div>
