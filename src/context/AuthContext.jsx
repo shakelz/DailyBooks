@@ -416,6 +416,20 @@ async function trySelectSalesmanByPin(pinValue, shopId = '') {
     return matches[0] || null;
 }
 
+async function listSalesmenByPin(pinValue) {
+    const safePin = asString(pinValue);
+    if (!safePin) return [];
+
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('role', 'salesman');
+
+    if (error || !Array.isArray(data)) return [];
+
+    return data.filter((row) => asString(row.pin || row.passcode || row.pin_code || row.pass_code) === safePin);
+}
+
 export function AuthProvider({ children }) {
     const [role, setRole] = useState(() => localStorage.getItem('role')); // superadmin | admin | salesman | null
     const [user, setUser] = useState(() => {
@@ -1089,11 +1103,9 @@ export function AuthProvider({ children }) {
 
             if (userData.role === 'salesman') {
                 const pin = asString(userData.pin);
-                const shopId = asString(userData.shopId || userData.shop_id);
                 if (!pin) return { success: false, message: 'PIN required' };
-                if (!shopId) return { success: false, message: 'Select shop first' };
 
-                const profile = await trySelectSalesmanByPin(pin, shopId);
+                const profile = await trySelectSalesmanByPin(pin);
                 if (profile) {
                     const normalized = normalizeUserFromProfile(profile);
                     if (normalized.active === false) {
@@ -1105,8 +1117,13 @@ export function AuthProvider({ children }) {
                     return { success: true, role: 'salesman' };
                 }
 
+                const conflictingPins = await listSalesmenByPin(pin);
+                if (conflictingPins.length > 1) {
+                    return { success: false, message: 'PIN conflict across shops. Ask admin to set a unique PIN.' };
+                }
+
                 // Legacy fallback
-                const salesman = salesmen.find(s => String(s.pin) === pin && asString(s.shop_id) === shopId);
+                const salesman = salesmen.find(s => String(s.pin) === pin);
                 if (salesman) {
                     setRole('salesman');
                     setUser(salesman);
@@ -1145,6 +1162,11 @@ export function AuthProvider({ children }) {
         const trimmedName = asString(name);
         const trimmedPin = asString(pin);
         if (!trimmedName || !trimmedPin || !activeShopId) return;
+
+        const existingPins = await listSalesmenByPin(trimmedPin);
+        if (existingPins.length > 0) {
+            throw new Error('PIN already used in another shop. Please use a unique PIN.');
+        }
 
         let createdProfile = null;
         let insertError = null;
@@ -1197,6 +1219,17 @@ export function AuthProvider({ children }) {
 
     const updateSalesman = async (id, updates) => {
         const sid = asString(activeShopId);
+        const normalizedId = asString(id);
+        const nextPin = asString(updates?.pin);
+
+        if (nextPin) {
+            const conflicts = await listSalesmenByPin(nextPin);
+            const hasConflict = conflicts.some((row) => asString(row.id) !== normalizedId);
+            if (hasConflict) {
+                throw new Error('PIN already used in another shop. Please choose a different PIN.');
+            }
+        }
+
         if (sid) {
             let updatedOnDB = false;
             const candidates = buildProfileUpdatePayloads(updates);

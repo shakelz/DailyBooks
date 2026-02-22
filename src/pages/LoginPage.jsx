@@ -13,7 +13,6 @@ export default function LoginPage() {
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [pinLoading, setPinLoading] = useState(false);
-    const [salesmanShopId, setSalesmanShopId] = useState('');
 
     // Admin credentials state
     const [adminUser, setAdminUser] = useState('');
@@ -25,11 +24,6 @@ export default function LoginPage() {
     // ── Salesman PIN Handlers ──
     const handlePinInput = useCallback(async (digit) => {
         if (pinLoading) return;
-        if (!salesmanShopId) {
-            setError('❌ Shop select karo first.');
-            return;
-        }
-
         if (pin.length < 4) {
             const newPin = pin + digit;
             setPin(newPin);
@@ -39,7 +33,7 @@ export default function LoginPage() {
                 // Attempt Login via Context
                 setPinLoading(true);
                 try {
-                    const result = await login({ role: 'salesman', pin: newPin, shopId: salesmanShopId });
+                    const result = await login({ role: 'salesman', pin: newPin });
 
                     if (result?.success) {
                         navigate('/salesman');
@@ -55,7 +49,7 @@ export default function LoginPage() {
                 }
             }
         }
-    }, [pin, pinLoading, login, navigate, salesmanShopId]);
+    }, [pin, pinLoading, login, navigate]);
 
     const handleBackspace = () => {
         setPin(pin.slice(0, -1));
@@ -309,7 +303,7 @@ export default function LoginPage() {
                 <div className="w-full max-w-sm">
                     {/* Back button */}
                     <button
-                        onClick={() => { setRole(null); setPin(''); setError(''); setSalesmanShopId(''); }}
+                        onClick={() => { setRole(null); setPin(''); setError(''); }}
                         id="back-btn"
                         className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-8 cursor-pointer"
                     >
@@ -328,18 +322,6 @@ export default function LoginPage() {
                         </div>
                         <h2 className="text-2xl font-bold text-white">Salesman Login</h2>
                         <p className="text-slate-400 text-sm mt-1">Enter your 4-digit PIN</p>
-                    </div>
-
-                    <div className="mb-6">
-                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Shop Code / ID</label>
-                        <input
-                            type="text"
-                            value={salesmanShopId}
-                            onChange={(e) => { setSalesmanShopId(e.target.value); setPin(''); setError(''); }}
-                            placeholder="Enter your shop code"
-                            className="w-full px-4 py-3 rounded-2xl bg-slate-800/80 border border-slate-700/50 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
-                        />
-                        <p className="text-[11px] text-slate-500 mt-2">Ask your admin for your shop code.</p>
                     </div>
 
                     {/* PIN Dots */}
