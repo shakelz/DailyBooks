@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
-import { X, Search, Plus, Minus, Package, DollarSign, CheckCircle2 } from 'lucide-react';
+import { X, Search, Plus, Minus, Package, DollarSign, CheckCircle2, Printer } from 'lucide-react';
 import { priceTag } from '../../utils/currency';
 
 export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }) {
@@ -78,9 +78,121 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         setSelectedParts(prev => prev.filter(p => p.product.id !== productId));
     };
 
+    const generateCompletionPrintHTML = (printData) => {
+        const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+        ));
+        const toAmount = (value) => `€${(parseFloat(value) || 0).toFixed(2)}`;
+        const toDate = (value, withTime = false) => {
+            if (!value) return 'N/A';
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) return 'N/A';
+            if (withTime) {
+                return parsed.toLocaleString('de-DE', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+            return parsed.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' });
+        };
 
+        const partsRows = (printData.partsUsed || []).length > 0
+            ? printData.partsUsed.map((part) => {
+                const qty = parseInt(part.quantity, 10) || 0;
+                const unit = parseFloat(part.costPrice) || 0;
+                const total = qty * unit;
+                return `
+                    <tr>
+                        <td>${qty}x</td>
+                        <td>${esc(part.name || 'Part')}</td>
+                        <td style="text-align:right">${toAmount(total)}</td>
+                    </tr>
+                `;
+            }).join('')
+            : '<tr><td colspan="3" style="text-align:center;color:#666;">No parts used</td></tr>';
 
-    const handleSubmit = () => {
+        const serviceAmount = parseFloat(printData.finalAmount) || 0;
+        const partsCost = parseFloat(printData.totalPartsCost) || 0;
+        const netEarning = serviceAmount - partsCost;
+        const completedAt = printData.completedAt || new Date().toISOString();
+
+        return `<!DOCTYPE html>
+<html>
+<head>
+    <title>Repair Invoice - ${esc(printData.refId)}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Courier New', monospace; width: 80mm; }
+        .slip { padding: 4mm; page-break-after: always; border-bottom: 2px dashed #000; }
+        .slip:last-child { border-bottom: none; page-break-after: auto; }
+        .title { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 2mm; color: #666; }
+        .shop-name { font-size: 16px; font-weight: bold; text-align: center; margin-bottom: 2mm; }
+        .shop-addr { font-size: 10px; text-align: center; margin-bottom: 3mm; color: #333; }
+        .divider { border-top: 1px solid #000; margin: 2mm 0; }
+        .ref-id { font-size: 18px; font-weight: bold; text-align: center; margin: 3mm 0; letter-spacing: 2px; }
+        .row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; margin: 1mm 0; }
+        .row .label-text { font-weight: bold; white-space: nowrap; }
+        .problem { font-size: 11px; margin: 2mm 0; padding: 2mm; border: 1px solid #ccc; background: #f5f5f5; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 2mm; }
+        th, td { padding: 1.5mm 0; border-bottom: 1px dotted #ccc; }
+        th { text-align: left; font-size: 10px; text-transform: uppercase; color: #555; }
+        @media print { body { width: 80mm; } .slip { break-inside: avoid; } }
+    </style>
+</head>
+<body>
+    <div class="slip">
+        <div class="title">— Repair Completion Invoice —</div>
+        <div class="shop-name">DailyBooks</div>
+        <div class="shop-addr">Kurt-Schumacher-Damm 1</div>
+        <div class="divider"></div>
+        <div class="ref-id">${esc(printData.refId)}</div>
+        <div class="divider"></div>
+        <div class="row"><span class="label-text">Completed:</span><span>${toDate(completedAt, true)}</span></div>
+        <div class="row"><span class="label-text">Delivery Date:</span><span>${toDate(printData.deliveryDate)}</span></div>
+        <div class="divider"></div>
+        <div class="row"><span class="label-text">Name:</span><span>${esc(printData.customerName)}</span></div>
+        <div class="row"><span class="label-text">Phone:</span><span>${esc(printData.phone)}</span></div>
+        <div class="row"><span class="label-text">Device:</span><span>${esc(printData.deviceModel)}</span></div>
+        ${printData.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(printData.imei)}</span></div>` : ''}
+        <div class="problem"><strong>Issue:</strong> ${esc(printData.problem || 'N/A')}</div>
+        <div class="divider"></div>
+        <div class="row" style="font-size:13px;"><span class="label-text">Final Amount:</span><span><strong>${toAmount(serviceAmount)}</strong></span></div>
+        <div class="divider"></div>
+        <div class="title" style="text-align:left; margin-bottom:1mm;">Parts Used</div>
+        <table>
+            <thead>
+                <tr><th>Qty</th><th>Part</th><th style="text-align:right">Amount</th></tr>
+            </thead>
+            <tbody>
+                ${partsRows}
+            </tbody>
+        </table>
+        <div class="row"><span class="label-text">Parts Cost:</span><span>${toAmount(partsCost)}</span></div>
+        <div class="divider"></div>
+        <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Thank you for choosing DailyBooks!</div>
+    </div>
+
+    <div class="slip">
+        <div class="title">— Shop Copy —</div>
+        <div class="ref-id">${esc(printData.refId)}</div>
+        <div class="divider"></div>
+        <div class="row"><span class="label-text">Customer:</span><span>${esc(printData.customerName)}</span></div>
+        <div class="row"><span class="label-text">Device:</span><span>${esc(printData.deviceModel)}</span></div>
+        <div class="row"><span class="label-text">Completed:</span><span>${toDate(completedAt, true)}</span></div>
+        <div class="problem"><strong>Issue:</strong> ${esc(printData.problem || 'N/A')}</div>
+        <div class="divider"></div>
+        <div class="row"><span class="label-text">Service Amount:</span><span>${toAmount(serviceAmount)}</span></div>
+        <div class="row"><span class="label-text">Parts Cost:</span><span>${toAmount(partsCost)}</span></div>
+        <div class="row" style="font-size:13px;"><span class="label-text">Net Earning:</span><span><strong>${toAmount(netEarning)}</strong></span></div>
+    </div>
+</body>
+</html>`;
+    };
+
+    const handleSubmit = async (shouldPrint = false) => {
         const amount = parseFloat(finalAmount) || 0;
         if (amount < 0) {
             alert('Amount cannot be negative.');
@@ -95,12 +207,47 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
             costPrice: sp.costPrice // Save cost price at time of use
         }));
 
-        onComplete({
-            finalAmount: amount,
-            partsUsed,
-            totalPartsCost
-        });
-        onClose();
+        let printWindow = null;
+        if (shouldPrint) {
+            printWindow = window.open('', '_blank', 'width=420,height=760');
+            if (!printWindow) {
+                alert('Popup blocked. Please allow popups to print.');
+            }
+        }
+
+        try {
+            const completedAt = new Date().toISOString();
+            await Promise.resolve(onComplete({
+                finalAmount: amount,
+                partsUsed,
+                totalPartsCost
+            }));
+
+            if (shouldPrint && printWindow) {
+                const printPayload = {
+                    ...job,
+                    finalAmount: amount,
+                    partsUsed,
+                    totalPartsCost,
+                    completedAt
+                };
+                const html = generateCompletionPrintHTML(printPayload);
+                printWindow.document.open();
+                printWindow.document.write(html);
+                printWindow.document.close();
+                printWindow.focus();
+                printWindow.onload = () => {
+                    setTimeout(() => {
+                        printWindow.print();
+                    }, 150);
+                };
+            }
+
+            onClose();
+        } catch (error) {
+            console.error('Failed to complete/print repair:', error);
+            alert(error?.message || 'Failed to complete repair.');
+        }
     };
 
     return (
@@ -218,11 +365,14 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
                 </div>
 
                 {/* Footer */}
-                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 flex-wrap">
                     <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-100 transition-colors">
                         Cancel
                     </button>
-                    <button onClick={handleSubmit} className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-2 transition-colors">
+                    <button onClick={() => handleSubmit(true)} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-2 transition-colors">
+                        <Printer size={18} /> Complete & Print
+                    </button>
+                    <button onClick={() => handleSubmit(false)} className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-2 transition-colors">
                         <CheckCircle2 size={18} /> Confirm & Complete
                     </button>
                 </div>
