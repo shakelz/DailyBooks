@@ -293,9 +293,6 @@ export default function AdminDashboard() {
     return (
         <div className="h-full flex flex-col space-y-4">
 
-            {/* ONE-TIME MIGRATION WIDGET */}
-            <SupabaseMigrationWidget />
-
             {/* ═══ DASHBOARD HEADER ═══ */}
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>

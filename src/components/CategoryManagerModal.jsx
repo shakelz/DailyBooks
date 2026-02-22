@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
 
 export default function CategoryManagerModal({ isOpen, onClose }) {
-    const { getLevel1Categories, getLevel2Categories, addLevel1Category, addLevel2Category } = useInventory();
+    const { getLevel1Categories, getLevel2Categories, addLevel1Category, addLevel2Category, deleteCategory } = useInventory();
 
     // Tabs: 'add' | 'update'
     const [activeTab, setActiveTab] = useState('add');
@@ -105,10 +105,22 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         if (editingCategory.isL1) {
             addLevel1Category(updateName.trim(), updateImagePreview);
         } else {
-            addLevel2Category(selectedUpdateL1, updateName.trim(), updateImagePreview);
+            addLevel2Category(selectedUpdateL1, updateName.trim(), null);
         }
         setEditingCategory(null);
         alert("Category Updated!");
+    };
+
+    const handleDelete = async (cat, isL1) => {
+        const nameData = typeof cat === 'object' ? cat.name : cat;
+        if (!window.confirm(`Are you sure you want to delete the ${isL1 ? 'Main' : 'Sub'} Category "${nameData}"?`)) return;
+
+        if (isL1) {
+            if (selectedUpdateL1 === nameData) setSelectedUpdateL1('');
+            await deleteCategory(1, nameData);
+        } else {
+            await deleteCategory(2, nameData, selectedUpdateL1);
+        }
     };
 
     return (
@@ -251,7 +263,10 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                                             {name}
                                                         </button>
                                                         {isActive && (
-                                                            <button onClick={() => startEditing(c, true)} className="p-2 rounded-lg text-blue-500 hover:bg-blue-100 transition-all ml-1">✏️</button>
+                                                            <div className="flex border border-slate-200 rounded-lg overflow-hidden ml-1 shadow-sm">
+                                                                <button onClick={() => startEditing(c, true)} className="px-2.5 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all border-r border-slate-200">✏️</button>
+                                                                <button onClick={() => handleDelete(c, true)} className="px-2.5 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 transition-all">🗑️</button>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 );
@@ -271,9 +286,14 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                                         return (
                                                             <div key={name} className="flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                                                                 <span className="px-3 py-1.5 text-sm font-bold text-slate-600">{name}</span>
-                                                                <button onClick={() => startEditing(c, false)} className="px-3 py-1.5 bg-slate-50 hover:bg-blue-100 text-blue-500 border-l border-slate-200 transition-all">
-                                                                    ✏️
-                                                                </button>
+                                                                <div className="flex border-l border-slate-200">
+                                                                    <button onClick={() => startEditing(c, false)} className="px-2.5 py-1.5 bg-slate-50 hover:bg-blue-100 text-blue-500 border-r border-slate-200 transition-all">
+                                                                        ✏️
+                                                                    </button>
+                                                                    <button onClick={() => handleDelete(c, false)} className="px-2.5 py-1.5 bg-slate-50 hover:bg-red-100 text-red-500 transition-all">
+                                                                        🗑️
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         );
                                                     })}
@@ -297,18 +317,20 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                         <p className="text-[10px] text-slate-400 mt-1">Note: Please focus on updating images. Name updates will create a new entry.</p>
                                     </div>
 
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Image</label>
-                                        <div onClick={() => updateFileInputRef.current?.click()}
-                                            className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:bg-white hover:border-blue-400 transition-all overflow-hidden relative bg-white">
-                                            {updateImagePreview ? (
-                                                <img src={updateImagePreview} alt="Preview" className="w-full h-full object-cover" />
-                                            ) : (
-                                                <span className="text-xl">📷</span>
-                                            )}
-                                            <input type="file" ref={updateFileInputRef} onChange={e => handleImageChange(e, setUpdateImagePreview)} className="hidden" accept="image/*" />
+                                    {editingCategory.isL1 && (
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Image</label>
+                                            <div onClick={() => updateFileInputRef.current?.click()}
+                                                className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:bg-white hover:border-blue-400 transition-all overflow-hidden relative bg-white">
+                                                {updateImagePreview ? (
+                                                    <img src={updateImagePreview} alt="Preview" className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <span className="text-xl">📷</span>
+                                                )}
+                                                <input type="file" ref={updateFileInputRef} onChange={e => handleImageChange(e, setUpdateImagePreview)} className="hidden" accept="image/*" />
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
 
                                     <button type="submit" className="w-full py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all shadow-md">
                                         Save Changes

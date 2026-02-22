@@ -298,6 +298,29 @@ export function InventoryProvider({ children }) {
         return null;
     }, [l1Categories, l2Map]);
 
+    const deleteCategory = useCallback(async (level, name, parentName = null) => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+
+        if (level === 1) {
+            setL1Categories(prev => prev.filter(c => (typeof c === 'object' ? c?.name : c) !== trimmed));
+            setL2Map(prev => {
+                const next = { ...prev };
+                delete next[trimmed];
+                return next;
+            });
+            await supabase.from('categories').delete().eq('name', trimmed).eq('level', 1);
+            // Delete associated L2 categories in DB
+            await supabase.from('categories').delete().eq('parent', trimmed).eq('level', 2);
+        } else if (level === 2 && parentName) {
+            setL2Map(prev => {
+                const currentList = prev[parentName] || [];
+                return { ...prev, [parentName]: currentList.filter(c => (typeof c === 'object' ? c?.name : c) !== trimmed) };
+            });
+            await supabase.from('categories').delete().eq('name', trimmed).eq('parent', parentName).eq('level', 2);
+        }
+    }, []);
+
     const getLowStockProducts = useCallback(() => {
         return products.filter(p => {
             if (typeof p.stock === 'number') return p.stock < 3;
@@ -336,6 +359,7 @@ export function InventoryProvider({ children }) {
         getLevel2Categories: getL2Categories,
         addLevel1Category: addL1Category,
         addLevel2Category: addL2Category,
+        deleteCategory,
         getCategoryImage: getCatImage,
         buildProductJSON,
         generateId,
