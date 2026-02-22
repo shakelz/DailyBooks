@@ -8,9 +8,10 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const [activeTab, setActiveTab] = useState('add');
 
     // ── ADD CATEGORY STATE ──
-    const [level, setLevel] = useState('1'); // '1' or '2'
-    const [parentCategory, setParentCategory] = useState('');
-    const [newCategoryName, setNewCategoryName] = useState('');
+    const [mainCatSelect, setMainCatSelect] = useState('');
+    const [newMainCatStr, setNewMainCatStr] = useState('');
+    const [subCatSelect, setSubCatSelect] = useState('');
+    const [newSubCatStr, setNewSubCatStr] = useState('');
     const [imagePreview, setImagePreview] = useState(null);
     const fileInputRef = useRef(null);
 
@@ -23,14 +24,15 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const updateFileInputRef = useRef(null);
 
     const l1Categories = getLevel1Categories();
-    const l2Categories = parentCategory ? getLevel2Categories(parentCategory) : [];
+    const l2Categories = mainCatSelect && mainCatSelect !== 'NEW_ADD' ? getLevel2Categories(mainCatSelect) : [];
     const updateL2Categories = selectedUpdateL1 ? getLevel2Categories(selectedUpdateL1) : [];
 
     // Reset when tab changes
     useEffect(() => {
-        setLevel('1');
-        setParentCategory('');
-        setNewCategoryName('');
+        setMainCatSelect('');
+        setNewMainCatStr('');
+        setSubCatSelect('');
+        setNewSubCatStr('');
         setImagePreview(null);
         setSelectedUpdateL1('');
         setSelectedUpdateL2('');
@@ -48,23 +50,40 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         }
     };
 
-    const handleAddSubmit = (e) => {
+    const handleAddSubmit = async (e) => {
         e.preventDefault();
-        const trimmedName = newCategoryName.trim();
-        if (!trimmedName) return alert("Name required!");
 
-        if (level === '1') {
-            const exists = l1Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === trimmedName.toLowerCase());
+        let finalMainCat = mainCatSelect;
+
+        if (mainCatSelect === 'NEW_ADD') {
+            finalMainCat = newMainCatStr.trim();
+            if (!finalMainCat) return alert("Main Category name required!");
+
+            const exists = l1Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalMainCat.toLowerCase());
             if (exists) return alert("This Main Category already exists!");
-            addLevel1Category(trimmedName, imagePreview);
-        } else {
-            if (!parentCategory) return alert("Select a parent category!");
-            const exists = l2Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === trimmedName.toLowerCase());
-            if (exists) return alert("This Sub Category already exists under the selected parent!");
-            addLevel2Category(parentCategory, trimmedName, imagePreview);
+
+            await addLevel1Category(finalMainCat, subCatSelect === 'NEW_ADD' ? null : imagePreview);
+        } else if (!finalMainCat) {
+            return alert("Please select or add a Main Category!");
         }
 
-        setNewCategoryName('');
+        if (subCatSelect === 'NEW_ADD') {
+            const finalSubCat = newSubCatStr.trim();
+            if (!finalSubCat) return alert("Sub Category name required!");
+
+            const existingL2s = getLevel2Categories(finalMainCat) || [];
+            const exists = existingL2s.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalSubCat.toLowerCase());
+            if (exists) return alert("This Sub Category already exists under the selected Main Category!");
+
+            await addLevel2Category(finalMainCat, finalSubCat, imagePreview);
+        } else if (mainCatSelect !== 'NEW_ADD') {
+            return alert("Select ➕ Add New... to create a new category. To update existing categories, use the Update tab.");
+        }
+
+        setMainCatSelect('');
+        setNewMainCatStr('');
+        setSubCatSelect('');
+        setNewSubCatStr('');
         setImagePreview(null);
         alert("Category Added Successfully!");
     };
@@ -128,41 +147,72 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                 <div className="p-6 overflow-y-auto flex-1">
                     {/* ═══ ADD TAB ═══ */}
                     {activeTab === 'add' && (
-                        <form onSubmit={handleAddSubmit} className="space-y-5">
+                        <form onSubmit={handleAddSubmit} className="space-y-4">
+
+                            {/* Main Category */}
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Level</label>
-                                <div className="flex bg-slate-100 p-1 rounded-xl">
-                                    <button type="button" onClick={() => setLevel('1')}
-                                        className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${level === '1' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}>
-                                        Main Category (L1)
-                                    </button>
-                                    <button type="button" onClick={() => setLevel('2')}
-                                        className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${level === '2' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}>
-                                        Sub Category (L2)
-                                    </button>
-                                </div>
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Main Category</label>
+                                <select
+                                    value={mainCatSelect}
+                                    onChange={e => {
+                                        setMainCatSelect(e.target.value);
+                                        setSubCatSelect('');
+                                    }}
+                                    required
+                                    className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold focus:outline-none focus:border-emerald-400 cursor-pointer"
+                                >
+                                    <option value="">-- Select Main Category --</option>
+                                    {l1Categories.map(c => {
+                                        const name = typeof c === 'object' ? c.name : c;
+                                        return <option key={name} value={name}>{name}</option>;
+                                    })}
+                                    <option value="NEW_ADD" className="font-bold text-emerald-600">➕ Add New Main Category...</option>
+                                </select>
+
+                                {mainCatSelect === 'NEW_ADD' && (
+                                    <input
+                                        value={newMainCatStr}
+                                        onChange={e => setNewMainCatStr(e.target.value)}
+                                        placeholder="Enter new Main Category name..."
+                                        required
+                                        autoFocus
+                                        className="w-full mt-2 px-4 py-2.5 rounded-xl bg-white border border-emerald-200 text-sm font-bold focus:outline-none focus:border-emerald-500 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200"
+                                    />
+                                )}
                             </div>
 
-                            {level === '2' && (
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Select Parent Category</label>
-                                    <select value={parentCategory} onChange={e => setParentCategory(e.target.value)} required
-                                        className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold focus:outline-none focus:border-emerald-400">
-                                        <option value="">-- Choose Main Category --</option>
-                                        {l1Categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                                    </select>
-                                </div>
-                            )}
-
+                            {/* Sub Category */}
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Category Name</label>
-                                <input value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} required
-                                    placeholder={level === '1' ? "e.g. Mobiles" : "e.g. iPhone"}
-                                    className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold focus:outline-none focus:border-emerald-400" />
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Sub Category (Optional)</label>
+                                <select
+                                    value={subCatSelect}
+                                    onChange={e => setSubCatSelect(e.target.value)}
+                                    className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold focus:outline-none focus:border-emerald-400 cursor-pointer"
+                                >
+                                    <option value="">-- No Sub Category --</option>
+                                    {mainCatSelect && mainCatSelect !== 'NEW_ADD' && (
+                                        (getLevel2Categories(mainCatSelect) || []).map(c => {
+                                            const name = typeof c === 'object' ? c.name : c;
+                                            return <option key={name} value={name}>{name}</option>;
+                                        })
+                                    )}
+                                    <option value="NEW_ADD" className="font-bold text-emerald-600">➕ Add New Sub Category...</option>
+                                </select>
+
+                                {subCatSelect === 'NEW_ADD' && (
+                                    <input
+                                        value={newSubCatStr}
+                                        onChange={e => setNewSubCatStr(e.target.value)}
+                                        placeholder="Enter new Sub Category name..."
+                                        required
+                                        autoFocus
+                                        className="w-full mt-2 px-4 py-2.5 rounded-xl bg-white border border-emerald-200 text-sm font-bold focus:outline-none focus:border-emerald-500 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200"
+                                    />
+                                )}
                             </div>
 
                             <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Image / Icon (Optional)</label>
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block mt-2">Image / Icon (Optional)</label>
                                 <div onClick={() => fileInputRef.current?.click()}
                                     className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 hover:border-emerald-400 transition-all overflow-hidden relative">
                                     {imagePreview ? (
