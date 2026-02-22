@@ -280,7 +280,7 @@ export function InventoryProvider({ children }) {
             notes: txn.notes || '',
             source: txn.source || 'shop',
             quantity: parseInt(txn.quantity || 1),
-            date: txn.date || new Date().toLocaleDateString('en-CA'),
+            date: txn.date || new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
             time: txn.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
             timestamp: txn.timestamp || new Date().toISOString(),
             isFixedExpense: txn.isFixedExpense || false,

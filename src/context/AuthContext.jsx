@@ -251,7 +251,7 @@ export function AuthProvider({ children }) {
                             type: 'expense',
                             category: 'Salary',
                             isFixedExpense: true,
-                            date: ts.toLocaleDateString('en-CA'),
+                            date: ts.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                             time: ts.toLocaleTimeString('en-US', { hour12: false }),
                             timestamp: ts.toISOString(),
                             source: 'payroll-auto',

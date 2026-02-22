@@ -154,7 +154,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             salesmanName: user?.name || 'Unknown',
             soldBy: user?.name || 'Unknown',
             notes: notes,
-            date: new Date().toLocaleDateString('en-CA'),
+            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
             timestamp: new Date().toISOString(),
             type: 'income',
