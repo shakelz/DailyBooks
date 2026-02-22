@@ -157,7 +157,8 @@ function buildProfileInsertPayloads({
         { name: safeName },
         { full_name: safeName },
         { workerName: safeName },
-        { username: loginIdentity },
+        // Avoid relying on optional username column in tenant schemas.
+        { name: loginIdentity },
     ];
     const shopKeyVariants = [
         { shop_id: shopId },
@@ -264,8 +265,7 @@ function buildProfileUpdatePayloads(updates = {}) {
             fieldVariants.push([
                 { name: safeName },
                 { full_name: safeName },
-                { workerName: safeName },
-                { username: safeName }
+                { workerName: safeName }
             ]);
             return;
         }
@@ -500,7 +500,7 @@ export function AuthProvider({ children }) {
 
         let data = null;
         let error = null;
-        const orderCandidates = ['name', 'full_name', 'workerName', 'username'];
+        const orderCandidates = ['name', 'full_name', 'workerName'];
 
         for (const orderByField of orderCandidates) {
             const response = await supabase
@@ -974,7 +974,6 @@ export function AuthProvider({ children }) {
 
                 // Try multiple profile fields to stay compatible with older schemas.
                 profile = await trySelectProfileByField('email', identifier.toLowerCase(), ADMIN_ROLES)
-                    || await trySelectProfileByField('username', identifier, ADMIN_ROLES)
                     || await trySelectProfileByField('name', identifier, ADMIN_ROLES)
                     || await trySelectProfileByField('full_name', identifier, ADMIN_ROLES)
                     || await trySelectProfileByField('workerName', identifier, ADMIN_ROLES);
