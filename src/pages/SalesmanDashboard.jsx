@@ -578,9 +578,19 @@ export default function SalesmanDashboard() {
                                     <p className="text-[10px] text-red-500">{expenseTransactions.length} transactions today</p>
                                 </div>
                             </div>
-                            <div className="px-2 py-1 rounded-lg bg-red-100 text-red-500 text-[10px] font-black uppercase tracking-wider">
-                                Sales Only
-                            </div>
+                            <button
+                                onClick={() => {
+                                    if (!checkAccess()) return;
+                                    setFormMode('purchase');
+                                    setShowInventoryForm(true);
+                                }}
+                                className="w-8 h-8 rounded-xl bg-red-500 text-white flex items-center justify-center hover:bg-red-600 active:scale-90 transition-all shadow-sm shadow-red-500/20 cursor-pointer"
+                                title="Add Purchase Entry"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                </svg>
+                            </button>
                         </div>
                         <div className="p-3">
                             {expenseByCategory.length === 0 ? (
@@ -773,6 +783,35 @@ export default function SalesmanDashboard() {
 
             {/* ═══ FABs ═══ */}
             <div className="fixed bottom-6 right-6 flex flex-col gap-3 z-50">
+                {/* Add Category FAB */}
+                <button
+                    onClick={() => {
+                        if (!checkAccess()) return;
+                        setShowCategoryManager(true);
+                    }}
+                    className="w-12 h-12 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/30 flex items-center justify-center hover:bg-blue-700 active:scale-90 transition-all cursor-pointer"
+                    title="Manage Categories"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M3 12h18M3 17h18" />
+                    </svg>
+                </button>
+
+                {/* Add Inventory FAB */}
+                <button
+                    onClick={() => {
+                        if (!checkAccess()) return;
+                        setFormMode('inventory');
+                        setShowInventoryForm(true);
+                    }}
+                    className="w-12 h-12 rounded-2xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 flex items-center justify-center hover:bg-emerald-600 active:scale-90 transition-all cursor-pointer"
+                    title="Add Product"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                </button>
+
                 {/* Pending Repairs FAB */}
                 <button onClick={() => setShowPendingDrawer(true)}
                     className="relative w-12 h-12 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/30 flex items-center justify-center hover:bg-red-600 active:scale-90 transition-all cursor-pointer"
