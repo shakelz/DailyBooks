@@ -797,21 +797,6 @@ export default function SalesmanDashboard() {
                     </svg>
                 </button>
 
-                {/* Add Inventory FAB */}
-                <button
-                    onClick={() => {
-                        if (!checkAccess()) return;
-                        setFormMode('inventory');
-                        setShowInventoryForm(true);
-                    }}
-                    className="w-12 h-12 rounded-2xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 flex items-center justify-center hover:bg-emerald-600 active:scale-90 transition-all cursor-pointer"
-                    title="Add Product"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                </button>
-
                 {/* Pending Repairs FAB */}
                 <button onClick={() => setShowPendingDrawer(true)}
                     className="relative w-12 h-12 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/30 flex items-center justify-center hover:bg-red-600 active:scale-90 transition-all cursor-pointer"
