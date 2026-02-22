@@ -80,6 +80,24 @@ export function AuthProvider({ children }) {
                 else if (key === 'autoLockEnabled') setAutoLockEnabled(value);
                 else if (key === 'autoLockTimeout') setAutoLockTimeout(value);
             })
+            // Fallback for live attendance punches (bypasses DB Realtime if not configured)
+            .on('broadcast', { event: 'punch_sync' }, (payload) => {
+                const newLog = payload.payload;
+                console.log("Broadcast Attendance sync received:", newLog);
+                setAttendanceLogs(prev => {
+                    if (prev.some(l => String(l.id) === String(newLog.id))) {
+                        // It's an update
+                        return prev.map(l => String(l.id) === String(newLog.id) ? { ...l, ...newLog } : l);
+                    }
+                    // It's an insert
+                    return [newLog, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                });
+            })
+            .on('broadcast', { event: 'punch_delete' }, (payload) => {
+                const deletedLogId = payload.payload.id;
+                console.log("Broadcast Attendance delete received:", deletedLogId);
+                setAttendanceLogs(prev => prev.filter(l => String(l.id) !== String(deletedLogId)));
+            })
             .subscribe();
         return () => supabase.removeChannel(channel);
     }, []);
@@ -185,6 +203,13 @@ export function AuthProvider({ children }) {
         setAttendanceLogs(prev => [uiLog, ...prev]);
         setIsPunchedIn(type === 'IN');
 
+        // Broadcast to other clients instantly
+        supabase.channel('public:settings').send({
+            type: 'broadcast',
+            event: 'punch_sync',
+            payload: uiLog
+        }).catch(err => console.error("Forecast punch broadcast error:", err));
+
         // Supabase DB Update
         const { error } = await supabase.from('attendance').insert([{
             id: uiLog.id,
@@ -280,6 +305,13 @@ export function AuthProvider({ children }) {
                     note: newLog.note
                 }).eq('id', newLog.id).then();
 
+                // Broadcast update
+                supabase.channel('public:settings').send({
+                    type: 'broadcast',
+                    event: 'punch_sync',
+                    payload: newLog
+                }).catch(e => console.error("Broadcast update error:", e));
+
                 return newLog;
             }
             return l;
@@ -288,6 +320,14 @@ export function AuthProvider({ children }) {
 
     const deleteAttendanceLog = useCallback(async (id) => {
         setAttendanceLogs(prev => prev.filter(l => l.id !== id));
+
+        // Broadcast delete
+        supabase.channel('public:settings').send({
+            type: 'broadcast',
+            event: 'punch_delete',
+            payload: { id }
+        }).catch(e => console.error("Broadcast delete error:", e));
+
         await supabase.from('attendance').delete().eq('id', id);
     }, []);
 
