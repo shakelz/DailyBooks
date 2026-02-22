@@ -1,0 +1,410 @@
+import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { useInventory } from '../context/InventoryContext';
+
+// ══════════════════════════════════════════════════════════
+// TransactionDetailModal — v5 Detail View
+// Displays full transaction history data with re-print capability
+// ══════════════════════════════════════════════════════════
+
+export default function TransactionDetailModal({ isOpen, onClose, txn, initialEditMode = false }) {
+    const { user: currentUser, role: currentRole } = useAuth();
+    const { updateTransaction, deleteTransaction } = useInventory();
+
+    const [isEditing, setIsEditing] = useState(initialEditMode);
+    const [editData, setEditData] = useState(null);
+
+    useEffect(() => {
+        if (isOpen && txn) {
+            setEditData({ ...txn });
+            setIsEditing(initialEditMode);
+        }
+    }, [isOpen, txn, initialEditMode]);
+
+    if (!isOpen || !txn || !editData) return null;
+
+    const isAdmin = currentRole === 'admin';
+
+    const isIncome = txn.type === 'income';
+
+    // Financials
+    const amount = parseFloat(txn.amount) || 0;
+    const discountValue = parseFloat(txn.discount) || 0;
+    const unitPrice = parseFloat(txn.unitPrice) || 0;
+    const qty = parseInt(txn.quantity) || 1;
+    const basePrice = parseFloat(txn.stdPriceAtTime) || (unitPrice + discountValue);
+
+    // Tax (19% German standard)
+    const net = txn.taxInfo?.net || (amount / 1.19);
+    const tax = txn.taxInfo?.tax || (amount - net);
+
+    const handlePrint = () => {
+        const receiptHTML = `
+            <html>
+            <head>
+                <title>Receipt ${txn.id}</title>
+                <style>
+                    @page { size: 80mm 200mm; margin: 0; }
+                    body { 
+                        font-family: 'Courier New', Courier, monospace; 
+                        width: 72mm; 
+                        margin: 0 auto; 
+                        padding: 10mm 2mm; 
+                        font-size: 11px; 
+                        line-height: 1.4;
+                        color: #000;
+                    }
+                    .text-center { text-align: center; }
+                    .text-right { text-align: right; }
+                    .bold { font-weight: bold; }
+                    .divider { border-top: 1px dashed #000; margin: 8px 0; }
+                    table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+                    td { vertical-align: top; }
+                    .fs-lg { font-size: 14px; }
+                    .footer-text { font-size: 9px; margin-top: 15px; }
+                </style>
+            </head>
+            <body>
+                <div class="text-center">
+                    <div class="bold fs-lg">DailyBooks</div>
+                    <div>(haftungsbeschränkt)</div>
+                    <div style="margin-top: 4px;">Kurt-Schumacher-Damm 1</div>
+                    <div>13405 Berlin, Deutschland</div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div style="font-size: 10px;">
+                    <div>Datum: ${txn.date} ${txn.time}</div>
+                    <div>Beleg-Nr: ${txn.id}</div>
+                    <div>Verkäufer: ${txn.soldBy || 'Shop'}</div>
+                </div>
+
+                <div class="divider"></div>
+
+                <table>
+                    <tr class="bold">
+                        <td>Artik.</td>
+                        <td class="text-right">Menge</td>
+                        <td class="text-right">Total</td>
+                    </tr>
+                    <tr>
+                        <td>
+                            ${txn.name || txn.desc}<br/>
+                            ${txn.verifiedAttributes ? Object.entries(txn.verifiedAttributes)
+                .filter(([_, v]) => v)
+                .map(([k, v]) => `<span style="font-size: 9px;">${k.toUpperCase()}: ${v}</span>`)
+                .join('<br/>') : ''}
+                        </td>
+                        <td class="text-right">${qty}</td>
+                        <td class="text-right">€${amount.toFixed(2)}</td>
+                    </tr>
+                </table>
+
+                <div class="divider"></div>
+
+                <table class="bold">
+                    <tr>
+                        <td>Zwischensumme</td>
+                        <td class="text-right">€${amount.toFixed(2)}</td>
+                    </tr>
+                </table>
+
+                <table style="font-size: 10px;">
+                    <tr>
+                        <td>Netto (19%)</td>
+                        <td class="text-right">€${net.toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                        <td>USt (19%)</td>
+                        <td class="text-right">€${tax.toFixed(2)}</td>
+                    </tr>
+                </table>
+
+                <table class="bold fs-lg" style="border-top: 1px solid #000; padding-top: 4px; margin-top: 4px;">
+                    <tr>
+                        <td>GESAMTBETRAG</td>
+                        <td class="text-right">€${amount.toFixed(2)}</td>
+                    </tr>
+                </table>
+
+                <div class="divider"></div>
+                
+                <div style="margin-top: 10px; font-size: 9px;">
+                    <div>Zahlart: Receipt Record</div>
+                    <div style="margin-top: 8px; font-style: italic;">
+                        KOPIE DES BELEGS (COPY OF RECEIPT)
+                    </div>
+                </div>
+
+                <div class="text-center footer-text" style="margin-top: 25px;">
+                    <div>Vielen Dank für Ihren Besuch!</div>
+                    <div class="bold">SumUp POS Sync</div>
+                </div>
+            </body>
+            </html>
+        `;
+
+        const win = window.open('', '_blank', 'width=450,height=600');
+        win.document.write(receiptHTML);
+        win.document.close();
+        setTimeout(() => {
+            win.print();
+        }, 500);
+    };
+
+    return (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col border border-slate-200">
+
+                {/* Header */}
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                    <div>
+                        <h2 className="text-lg font-bold text-slate-800">{isEditing ? 'Edit Transaction' : 'Transaction Details'}</h2>
+                        <p className="text-xs font-mono text-slate-400">{txn.id} • {txn.date} {txn.time}</p>
+                    </div>
+                    <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors">✕</button>
+                </div>
+
+                <div className="p-6 overflow-y-auto max-h-[70vh] space-y-6">
+                    {isEditing ? (
+                        <div className="space-y-6">
+                            <section>
+                                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Core Information</h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Description / Product</label>
+                                        <input
+                                            type="text"
+                                            value={editData.name || editData.desc}
+                                            onChange={(e) => setEditData({ ...editData, name: e.target.value, desc: e.target.value })}
+                                            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Amount (€)</label>
+                                            <input
+                                                type="number"
+                                                value={editData.amount}
+                                                onChange={(e) => setEditData({ ...editData, amount: parseFloat(e.target.value) || 0 })}
+                                                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono font-bold focus:ring-2 focus:ring-blue-500/20"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Payment Method</label>
+                                            <select
+                                                value={editData.paymentMethod || 'cash'}
+                                                onChange={(e) => setEditData({ ...editData, paymentMethod: e.target.value })}
+                                                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20"
+                                            >
+                                                <option value="cash">💵 Cash</option>
+                                                <option value="visa">💳 Visa</option>
+                                                <option value="online">🌐 Online</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section>
+                                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Notes</h3>
+                                <textarea
+                                    value={editData.notes || ''}
+                                    onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+                                    rows={3}
+                                    placeholder="Add any internal notes..."
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm italic focus:ring-2 focus:ring-blue-500/20"
+                                />
+                            </section>
+                        </div>
+                    ) : (
+                        <>
+
+                            {/* Product & Category Section */}
+                            <section>
+                                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Item details</h3>
+                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                        <div>
+                                            <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Product Name</p>
+                                            <p className="font-bold text-slate-800">{txn.name || txn.desc || 'Unknown Product'}</p>
+                                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">Barcode: {txn.barcode || 'N/A'}</p>
+                                        </div>
+                                        <div className="space-y-3">
+                                            {txn.category && (
+                                                <div>
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Category</p>
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        {txn.category.level1 && <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-bold">{txn.category.level1}</span>}
+                                                        {txn.category.level2 && <span className="text-slate-300">›</span>}
+                                                        {txn.category.level2 && <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-bold">{txn.category.level2}</span>}
+                                                        {txn.category.level3 && <span className="text-slate-300">›</span>}
+                                                        {txn.category.level3 && <span className="px-2 py-0.5 bg-blue-100 text-blue-600 rounded text-[10px] font-bold">{txn.category.level3}</span>}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="inline-block px-3 py-1 bg-blue-100 text-blue-600 rounded-lg text-xs font-bold">
+                                                Qty: {qty}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Dynamic Attributes Grid */}
+                                    {txn.verifiedAttributes && Object.keys(txn.verifiedAttributes).length > 0 && (
+                                        <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-200/50">
+                                            {Object.entries(txn.verifiedAttributes).map(([key, value]) => (
+                                                <div key={key}>
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase">{key}</p>
+                                                    <p className="text-sm text-slate-700 font-medium">{value || '—'}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+
+                            {/* Financials Section */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <section>
+                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Financial Breakdown</h3>
+                                    <div className="space-y-2 px-1">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-slate-500">Retail Price</span>
+                                            <span className="text-slate-700 font-semibold">€{basePrice.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-slate-500">Discount</span>
+                                            <span className="text-red-500 font-semibold">-€{discountValue.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+                                            <span className="text-sm font-bold text-slate-800">Final Price</span>
+                                            <span className="text-lg font-bold text-emerald-600">€{amount.toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section>
+                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Tax Inclusion (19%)</h3>
+                                    <div className="space-y-2 px-1">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-slate-500">Netto</span>
+                                            <span className="text-slate-700">€{net.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-slate-500">USt (Tax)</span>
+                                            <span className="text-slate-700">€{tax.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between pt-2 border-t border-slate-100">
+                                            <span className="text-sm font-bold text-slate-800">Brutto</span>
+                                            <span className="text-sm font-bold text-slate-800">€{amount.toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+
+                            {/* Customer & Metadata */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                                <section>
+                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Customer Information</h3>
+                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                        <p className="text-sm text-slate-800 font-bold mb-1">{txn.customerInfo?.name || 'Walk-in Customer'}</p>
+                                        <p className="text-sm text-slate-500">{txn.customerInfo?.phone || 'No phone provided'}</p>
+                                        <p className="text-[9px] mt-2 font-bold text-blue-500 uppercase tracking-tight">{txn.customerInfo?.type || 'New'} Customer</p>
+                                    </div>
+                                </section>
+
+                                <section>
+                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Metadata</h3>
+                                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-xs text-slate-500">Sold By</span>
+                                            <span className="text-xs font-bold text-slate-800">{txn.soldBy || 'Unknown'}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-xs text-slate-500">Type</span>
+                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${isIncome ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                                                {txn.type}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+
+                            {/* Notes */}
+                            {txn.notes && (
+                                <section>
+                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Notes</h3>
+                                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 italic text-sm text-slate-600">
+                                        "{txn.notes}"
+                                    </div>
+                                </section>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                {/* Footer Controls */}
+                <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
+                    {isEditing ? (
+                        <>
+                            <button
+                                onClick={() => {
+                                    if (window.confirm('Are you sure you want to delete this transaction record?')) {
+                                        deleteTransaction(txn.id);
+                                        onClose();
+                                    }
+                                }}
+                                className="px-6 py-3 border-2 border-red-100 text-red-500 rounded-xl font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Delete
+                            </button>
+                            <div className="flex-1 flex gap-3">
+                                <button onClick={() => setIsEditing(false)} className="flex-1 py-3 bg-white border-2 border-slate-200 rounded-xl text-slate-600 font-bold hover:bg-slate-100 transition-all">
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        updateTransaction(txn.id, editData);
+                                        setIsEditing(false);
+                                    }}
+                                    className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
+                                >
+                                    Save Changes
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <button onClick={handlePrint} className="flex-1 py-3 bg-white border-2 border-slate-200 rounded-xl text-slate-700 font-bold hover:bg-slate-100 transition-all flex items-center justify-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                </svg>
+                                Re-print Receipt
+                            </button>
+
+                            {isAdmin && (
+                                <button
+                                    onClick={() => setIsEditing(true)}
+                                    className="px-6 py-3 bg-blue-50 text-blue-600 rounded-xl font-bold hover:bg-blue-100 border-2 border-blue-100/50 transition-all flex items-center justify-center gap-2"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                    Edit
+                                </button>
+                            )}
+
+                            <button onClick={onClose} className="px-8 py-3 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 transition-all active:scale-95">
+                                Close
+                            </button>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
