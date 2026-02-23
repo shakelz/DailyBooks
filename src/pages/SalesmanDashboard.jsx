@@ -155,27 +155,23 @@ export default function SalesmanDashboard() {
     const debounceRef = useRef(null);
     const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
 
-    const readLockState = useCallback(() => {
+    const readLastActivityAt = useCallback(() => {
         const storage = getSessionStorageSafe();
-        if (!storage) return { locked: false, lastActivityAt: Date.now() };
+        if (!storage) return Date.now();
         const raw = storage.getItem(lockStateKey);
-        if (!raw) return { locked: false, lastActivityAt: Date.now() };
+        if (!raw) return Date.now();
         try {
             const parsed = JSON.parse(raw);
-            return {
-                locked: Boolean(parsed?.locked),
-                lastActivityAt: Number(parsed?.lastActivityAt) || Date.now()
-            };
+            return Number(parsed?.lastActivityAt) || Date.now();
         } catch {
-            return { locked: false, lastActivityAt: Date.now() };
+            return Date.now();
         }
     }, [lockStateKey]);
 
-    const writeLockState = useCallback((nextLocked, nextLastActivityAt = Date.now()) => {
+    const writeLastActivityAt = useCallback((nextLastActivityAt = Date.now()) => {
         const storage = getSessionStorageSafe();
         if (!storage) return;
         storage.setItem(lockStateKey, JSON.stringify({
-            locked: Boolean(nextLocked),
             lastActivityAt: Number(nextLastActivityAt) || Date.now()
         }));
     }, [lockStateKey]);
@@ -428,22 +424,22 @@ export default function SalesmanDashboard() {
         if (!user?.id) return;
         if (!autoLockEnabled) {
             setIsLocked(false);
-            writeLockState(false, Date.now());
+            writeLastActivityAt(Date.now());
             return;
         }
 
         const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
-        const snapshot = readLockState();
+        const lastActivityAt = readLastActivityAt();
         const now = Date.now();
-        const elapsedMs = now - (snapshot.lastActivityAt || now);
-        const shouldLock = snapshot.locked || elapsedMs >= timeoutMs;
+        const elapsedMs = now - lastActivityAt;
+        const shouldLock = elapsedMs >= timeoutMs;
         setIsLocked(shouldLock);
 
         if (!shouldLock) {
-            // Keep existing idle progress across refresh while normalizing payload.
-            writeLockState(false, snapshot.lastActivityAt || now);
+            // Keep existing idle progress across refresh.
+            writeLastActivityAt(lastActivityAt);
         }
-    }, [autoLockEnabled, autoLockTimeout, readLockState, user?.id, writeLockState]);
+    }, [autoLockEnabled, autoLockTimeout, readLastActivityAt, user?.id, writeLastActivityAt]);
 
     useEffect(() => {
         if (!autoLockEnabled || !user?.id) return;
@@ -451,16 +447,15 @@ export default function SalesmanDashboard() {
         const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
         const lockScreen = () => {
             setIsLocked(true);
-            writeLockState(true, Date.now());
         };
 
         const scheduleFromLastActivity = () => {
             clearTimeout(lockTimerRef.current);
-            const snapshot = readLockState();
+            if (isLocked) return;
             const now = Date.now();
-            const lastActivityAt = snapshot.lastActivityAt || now;
+            const lastActivityAt = readLastActivityAt();
             const remainingMs = timeoutMs - (now - lastActivityAt);
-            if (snapshot.locked || remainingMs <= 0) {
+            if (remainingMs <= 0) {
                 lockScreen();
                 return;
             }
@@ -471,7 +466,7 @@ export default function SalesmanDashboard() {
             if (isLocked) return;
             clearTimeout(debounceRef.current);
             debounceRef.current = setTimeout(() => {
-                writeLockState(false, Date.now());
+                writeLastActivityAt(Date.now());
                 scheduleFromLastActivity();
             }, 150);
         };
@@ -494,7 +489,7 @@ export default function SalesmanDashboard() {
             clearTimeout(lockTimerRef.current);
             clearTimeout(debounceRef.current);
         };
-    }, [autoLockEnabled, autoLockTimeout, isLocked, readLockState, user?.id, writeLockState]);
+    }, [autoLockEnabled, autoLockTimeout, isLocked, readLastActivityAt, user?.id, writeLastActivityAt]);
 
     const handleUnlock = (e) => {
         e?.preventDefault();
@@ -502,7 +497,7 @@ export default function SalesmanDashboard() {
             setIsLocked(false);
             setUnlockPin('');
             setUnlockError(false);
-            writeLockState(false, Date.now());
+            writeLastActivityAt(Date.now());
         } else {
             setUnlockError(true);
             setUnlockPin('');
