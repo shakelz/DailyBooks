@@ -10,6 +10,9 @@ const DEFAULT_SALESMEN = [
 const ADMIN_ROLES = ['superadmin', 'admin'];
 const AUTH_SESSION_KEY = 'dailybooks_auth_session_v1';
 const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
+const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
+const AUTH_SHOP_STATE_KEY = 'dailybooks_auth_shop_v1';
 
 function getSessionStorage() {
     try {
@@ -59,9 +62,34 @@ function clearAuthSession() {
 }
 
 function clearPersistedAuthState() {
+    const storage = getSessionStorage();
+    if (storage) {
+        storage.removeItem(AUTH_ROLE_STATE_KEY);
+        storage.removeItem(AUTH_USER_STATE_KEY);
+        storage.removeItem(AUTH_SHOP_STATE_KEY);
+    }
+
+    // Cleanup legacy keys kept in localStorage by older versions.
     localStorage.removeItem('role');
     localStorage.removeItem('user');
     localStorage.removeItem('activeShopId');
+}
+
+function readAuthState(key, fallback = '') {
+    const storage = getSessionStorage();
+    if (!storage) return fallback;
+    const value = storage.getItem(key);
+    return value ?? fallback;
+}
+
+function writeAuthState(key, value) {
+    const storage = getSessionStorage();
+    if (!storage) return;
+    if (value === null || value === undefined || value === '') {
+        storage.removeItem(key);
+        return;
+    }
+    storage.setItem(key, value);
 }
 
 function safeParseJSON(value, fallback) {
@@ -510,16 +538,16 @@ export function AuthProvider({ children }) {
             clearPersistedAuthState();
             return null;
         }
-        return localStorage.getItem('role');
+        return readAuthState(AUTH_ROLE_STATE_KEY, '') || null;
     }); // superadmin | admin | salesman | null
     const [user, setUser] = useState(() => {
         if (!isAuthSessionValid()) return null;
-        const saved = safeParseJSON(localStorage.getItem('user'), null);
+        const saved = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
         return saved && typeof saved === 'object' ? saved : null;
     });
     const [activeShopId, setActiveShopIdState] = useState(() => {
         if (!isAuthSessionValid()) return '';
-        return localStorage.getItem('activeShopId') || '';
+        return readAuthState(AUTH_SHOP_STATE_KEY, '');
     });
     const [shops, setShops] = useState([]);
     const [authLoading, setAuthLoading] = useState(false);
@@ -561,18 +589,15 @@ export function AuthProvider({ children }) {
     }, [role, user]);
 
     useEffect(() => {
-        if (role) localStorage.setItem('role', role);
-        else localStorage.removeItem('role');
+        writeAuthState(AUTH_ROLE_STATE_KEY, role || '');
     }, [role]);
 
     useEffect(() => {
-        if (user) localStorage.setItem('user', JSON.stringify(user));
-        else localStorage.removeItem('user');
+        writeAuthState(AUTH_USER_STATE_KEY, user ? JSON.stringify(user) : '');
     }, [user]);
 
     useEffect(() => {
-        if (activeShopId) localStorage.setItem('activeShopId', activeShopId);
-        else localStorage.removeItem('activeShopId');
+        writeAuthState(AUTH_SHOP_STATE_KEY, activeShopId || '');
     }, [activeShopId]);
 
     useEffect(() => { localStorage.setItem('adminPassword', adminPassword); }, [adminPassword]);
@@ -584,16 +609,6 @@ export function AuthProvider({ children }) {
     // ── Storage Event Listener for Cross-Tab Sync ──
     useEffect(() => {
         const handleStorageChange = (e) => {
-            const isAuthKey = e.key === 'role' || e.key === 'user' || e.key === 'activeShopId';
-            if (isAuthKey && !isAuthSessionValid()) {
-                setRole(null);
-                setUser(null);
-                setActiveShopIdState('');
-                return;
-            }
-            if (e.key === 'role') setRole(e.newValue || null);
-            if (e.key === 'user') setUser(safeParseJSON(e.newValue, null));
-            if (e.key === 'activeShopId') setActiveShopIdState(e.newValue || '');
             if (e.key === 'salesmen' && e.newValue) {
                 const parsed = safeParseJSON(e.newValue, []);
                 if (Array.isArray(parsed)) setSalesmen(parsed);
@@ -1052,8 +1067,8 @@ export function AuthProvider({ children }) {
             const dObj = new Date(dbLog.timestamp);
             return {
                 ...dbLog,
-                userId: parseInt(dbLog.workerId, 10) || dbLog.workerId,
-                userName: dbLog.workerName,
+                userId: asString(dbLog.workerId || dbLog.userId || dbLog.worker_id || dbLog.user_id),
+                userName: asString(dbLog.workerName || dbLog.userName || dbLog.worker_name || dbLog.user_name),
                 date: dObj.toLocaleDateString('en-PK'),
                 time: dObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
             };
@@ -1072,6 +1087,7 @@ export function AuthProvider({ children }) {
             }
         };
         fetchAttendance();
+        const attendancePollTimer = setInterval(fetchAttendance, 5000);
 
         const isSameShop = (row) => asString(row?.shop_id) === sid;
 
@@ -1097,6 +1113,7 @@ export function AuthProvider({ children }) {
             .subscribe();
 
         return () => {
+            clearInterval(attendancePollTimer);
             supabase.removeChannel(attendanceSubscription);
         };
     }, [activeShopId]);
