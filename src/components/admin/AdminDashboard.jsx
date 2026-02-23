@@ -935,10 +935,7 @@ export default function AdminDashboard() {
                                 <button
                                     onClick={async () => {
                                         try {
-                                            // 1) Update the edited attendance row.
-                                            updateAttendanceLog(editingLog.id, { type: editingLog.type, time: editingLog.time });
-
-                                            // 2) Rebuild timestamp from edited time.
+                                            // 1) Rebuild timestamp from edited time.
                                             let editedTimestamp = editingLog.timestamp;
                                             try {
                                                 const timeMatch = editingLog.time.match(/(\d+):(\d+)(?:\s*(AM|PM))?/i);
@@ -957,6 +954,13 @@ export default function AdminDashboard() {
                                             } catch {
                                                 // Keep original timestamp if parsing fails.
                                             }
+
+                                            // 2) Persist edited attendance row (including resolved timestamp).
+                                            await updateAttendanceLog(editingLog.id, {
+                                                type: editingLog.type,
+                                                time: editingLog.time,
+                                                timestamp: editedTimestamp
+                                            });
 
                                             const editedDayKey = getDayKey(editedTimestamp);
                                             const resolvedLogs = attendanceLogs

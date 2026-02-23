@@ -17,6 +17,17 @@ import RepairModal from '../components/RepairModal';
 import CompleteRepairModal from '../components/admin/CompleteRepairModal';
 import { useRepairs } from '../context/RepairsContext';
 
+const SALESMAN_LOCK_NAMESPACE = 'dailybooks_salesman_lock_v1';
+
+function getSessionStorageSafe() {
+    try {
+        if (typeof window === 'undefined') return null;
+        return window.sessionStorage;
+    } catch {
+        return null;
+    }
+}
+
 // ══════════════════════════════════════════════════════════
 // DailyBooks — Salesman Dashboard
 // Category Containers + Transaction History + FABs
@@ -142,6 +153,32 @@ export default function SalesmanDashboard() {
     const [unlockError, setUnlockError] = useState(false);
     const lockTimerRef = useRef(null);
     const debounceRef = useRef(null);
+    const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
+
+    const readLockState = useCallback(() => {
+        const storage = getSessionStorageSafe();
+        if (!storage) return { locked: false, lastActivityAt: Date.now() };
+        const raw = storage.getItem(lockStateKey);
+        if (!raw) return { locked: false, lastActivityAt: Date.now() };
+        try {
+            const parsed = JSON.parse(raw);
+            return {
+                locked: Boolean(parsed?.locked),
+                lastActivityAt: Number(parsed?.lastActivityAt) || Date.now()
+            };
+        } catch {
+            return { locked: false, lastActivityAt: Date.now() };
+        }
+    }, [lockStateKey]);
+
+    const writeLockState = useCallback((nextLocked, nextLastActivityAt = Date.now()) => {
+        const storage = getSessionStorageSafe();
+        if (!storage) return;
+        storage.setItem(lockStateKey, JSON.stringify({
+            locked: Boolean(nextLocked),
+            lastActivityAt: Number(nextLastActivityAt) || Date.now()
+        }));
+    }, [lockStateKey]);
 
     // ═══════════════════ COMPUTED ═══════════════════
 
@@ -388,31 +425,76 @@ export default function SalesmanDashboard() {
     // ═══════════════════ AUTO-LOCK (INACTIVITY TIMER) ═══════════════════
 
     useEffect(() => {
-        if (!autoLockEnabled) return;
+        if (!user?.id) return;
+        if (!autoLockEnabled) {
+            setIsLocked(false);
+            writeLockState(false, Date.now());
+            return;
+        }
 
-        const resetTimer = () => {
+        const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
+        const snapshot = readLockState();
+        const now = Date.now();
+        const elapsedMs = now - (snapshot.lastActivityAt || now);
+        const shouldLock = snapshot.locked || elapsedMs >= timeoutMs;
+        setIsLocked(shouldLock);
+
+        if (!shouldLock) {
+            // Keep existing idle progress across refresh while normalizing payload.
+            writeLockState(false, snapshot.lastActivityAt || now);
+        }
+    }, [autoLockEnabled, autoLockTimeout, readLockState, user?.id, writeLockState]);
+
+    useEffect(() => {
+        if (!autoLockEnabled || !user?.id) return;
+
+        const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
+        const lockScreen = () => {
+            setIsLocked(true);
+            writeLockState(true, Date.now());
+        };
+
+        const scheduleFromLastActivity = () => {
             clearTimeout(lockTimerRef.current);
-            lockTimerRef.current = setTimeout(() => {
-                setIsLocked(true);
-            }, autoLockTimeout * 1000);
+            const snapshot = readLockState();
+            const now = Date.now();
+            const lastActivityAt = snapshot.lastActivityAt || now;
+            const remainingMs = timeoutMs - (now - lastActivityAt);
+            if (snapshot.locked || remainingMs <= 0) {
+                lockScreen();
+                return;
+            }
+            lockTimerRef.current = setTimeout(lockScreen, remainingMs);
         };
 
         const handleActivity = () => {
-            if (isLocked) return; // don't reset when locked
+            if (isLocked) return;
             clearTimeout(debounceRef.current);
-            debounceRef.current = setTimeout(resetTimer, 300); // 300ms debounce
+            debounceRef.current = setTimeout(() => {
+                writeLockState(false, Date.now());
+                scheduleFromLastActivity();
+            }, 150);
+        };
+
+        const handleVisibilityOrFocus = () => {
+            if (document.visibilityState && document.visibilityState !== 'visible') return;
+            scheduleFromLastActivity();
         };
 
         const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
-        events.forEach(e => window.addEventListener(e, handleActivity, { passive: true }));
-        resetTimer(); // start initial timer
+        events.forEach((eventName) => window.addEventListener(eventName, handleActivity, { passive: true }));
+        window.addEventListener('focus', handleVisibilityOrFocus);
+        document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+        scheduleFromLastActivity();
 
         return () => {
-            events.forEach(e => window.removeEventListener(e, handleActivity));
+            events.forEach((eventName) => window.removeEventListener(eventName, handleActivity));
+            window.removeEventListener('focus', handleVisibilityOrFocus);
+            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
             clearTimeout(lockTimerRef.current);
             clearTimeout(debounceRef.current);
         };
-    }, [autoLockEnabled, autoLockTimeout, isLocked]);
+    }, [autoLockEnabled, autoLockTimeout, isLocked, readLockState, user?.id, writeLockState]);
 
     const handleUnlock = (e) => {
         e?.preventDefault();
@@ -420,6 +502,7 @@ export default function SalesmanDashboard() {
             setIsLocked(false);
             setUnlockPin('');
             setUnlockError(false);
+            writeLockState(false, Date.now());
         } else {
             setUnlockError(true);
             setUnlockPin('');

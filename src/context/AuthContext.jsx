@@ -242,6 +242,27 @@ function dedupePayloads(payloads) {
     });
 }
 
+function buildTimestampFromTime(baseTimestamp, timeValue) {
+    const base = new Date(baseTimestamp);
+    if (Number.isNaN(base.getTime())) return null;
+    const safeTime = asString(timeValue);
+    if (!safeTime) return null;
+    const timeMatch = safeTime.match(/(\d+):(\d+)(?:\s*(AM|PM))?/i);
+    if (!timeMatch) return null;
+
+    let [, hours, minutes, ampm] = timeMatch;
+    hours = parseInt(hours, 10);
+    minutes = parseInt(minutes, 10);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+    if (ampm) {
+        if (ampm.toUpperCase() === 'PM' && hours < 12) hours += 12;
+        if (ampm.toUpperCase() === 'AM' && hours === 12) hours = 0;
+    }
+
+    base.setHours(hours, minutes, 0, 0);
+    return base.toISOString();
+}
+
 function buildShopUpdatePayloads({ name, location, ownerEmail }) {
     const email = ownerEmail === undefined ? undefined : asString(ownerEmail).toLowerCase();
     const safeName = name === undefined ? undefined : asString(name);
@@ -1214,42 +1235,52 @@ export function AuthProvider({ children }) {
     const updateAttendanceLog = useCallback(async (id, updates) => {
         const sid = asString(activeShopId);
         if (!sid) return;
+        const existingLog = attendanceLogs.find((l) => String(l.id) === String(id));
+        if (!existingLog) return;
 
-        setAttendanceLogs(prev => prev.map(l => {
+        const resolvedTimestamp = asString(updates.timestamp)
+            || buildTimestampFromTime(existingLog.timestamp, updates.time)
+            || existingLog.timestamp;
+
+        const resolvedType = updates.type ?? existingLog.type;
+        const resolvedNote = updates.note ?? existingLog.note ?? '';
+        const resolvedDateObj = new Date(resolvedTimestamp);
+        const resolvedTime = updates.time
+            || (Number.isNaN(resolvedDateObj.getTime())
+                ? existingLog.time
+                : resolvedDateObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }));
+
+        setAttendanceLogs(prev => prev.map((l) => {
             if (String(l.id) !== String(id)) return l;
-            const newLog = { ...l, ...updates };
-            if (updates.time) {
-                try {
-                    const timeMatch = newLog.time.match(/(\d+):(\d+)(?:\s*(AM|PM))?/i);
-                    if (timeMatch) {
-                        let [, hours, minutes, ampm] = timeMatch;
-                        hours = parseInt(hours, 10);
-                        minutes = parseInt(minutes, 10);
-                        if (ampm) {
-                            if (ampm.toUpperCase() === 'PM' && hours < 12) hours += 12;
-                            if (ampm.toUpperCase() === 'AM' && hours === 12) hours = 0;
-                        }
-                        const dateObj = new Date(newLog.timestamp);
-                        dateObj.setHours(hours, minutes, 0, 0);
-                        newLog.timestamp = dateObj.toISOString();
-                    }
-                } catch (e) {
-                    console.error('Reconstruct timestamp failed:', e);
-                }
-            }
-            return newLog;
+            return {
+                ...l,
+                ...updates,
+                type: resolvedType,
+                note: resolvedNote,
+                time: resolvedTime,
+                timestamp: resolvedTimestamp,
+                date: Number.isNaN(resolvedDateObj.getTime())
+                    ? l.date
+                    : resolvedDateObj.toLocaleDateString('en-PK')
+            };
         }));
 
-        await supabase
+        const payload = {
+            type: resolvedType,
+            note: resolvedNote,
+            timestamp: resolvedTimestamp
+        };
+
+        const { error } = await supabase
             .from('attendance')
-            .update({
-                type: updates.type,
-                note: updates.note,
-                timestamp: updates.timestamp
-            })
+            .update(payload)
             .eq('id', id)
             .eq('shop_id', sid);
-    }, [activeShopId]);
+
+        if (error) {
+            throw new Error(error.message || 'Failed to update attendance log.');
+        }
+    }, [activeShopId, attendanceLogs]);
 
     const deleteAttendanceLog = useCallback(async (id) => {
         const sid = asString(activeShopId);
