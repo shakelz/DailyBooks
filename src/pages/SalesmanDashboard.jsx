@@ -1038,6 +1038,7 @@ export default function SalesmanDashboard() {
                                                 setIsLocked(false);
                                                 setUnlockPin('');
                                                 setUnlockError(false);
+                                                writeLastActivityAt(Date.now());
                                             } else {
                                                 setUnlockError(true);
                                                 setUnlockPin('');
