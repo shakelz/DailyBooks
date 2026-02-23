@@ -18,7 +18,11 @@ export default function SalesmanProfile({ isOpen, onClose }) {
     };
 
     const handleLogout = () => {
-        logout();
+        const result = logout();
+        if (result?.success === false) {
+            alert(result.message || 'Please Punch OUT before logout.');
+            return;
+        }
         navigate('/');
     };
 
@@ -88,7 +92,14 @@ export default function SalesmanProfile({ isOpen, onClose }) {
 
                     {/* Switch User */}
                     <button
-                        onClick={() => { logout(); navigate('/'); }}
+                        onClick={() => {
+                            const result = logout();
+                            if (result?.success === false) {
+                                alert(result.message || 'Please Punch OUT before switching user.');
+                                return;
+                            }
+                            navigate('/');
+                        }}
                         className="aspect-square rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-4 border-2 bg-slate-50 border-slate-200 text-slate-600 hover:bg-white hover:border-blue-200 hover:text-blue-600 hover:shadow-md"
                     >
                         <span className="text-3xl">🔄</span>

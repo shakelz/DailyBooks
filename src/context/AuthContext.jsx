@@ -13,11 +13,21 @@ const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
 const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
 const AUTH_SHOP_STATE_KEY = 'dailybooks_auth_shop_v1';
+const SALESMAN_STICKY_LOGIN_KEY = 'dailybooks_salesman_sticky_login_v1';
 
 function getSessionStorage() {
     try {
         if (typeof window === 'undefined') return null;
         return window.sessionStorage;
+    } catch {
+        return null;
+    }
+}
+
+function getLocalStorage() {
+    try {
+        if (typeof window === 'undefined') return null;
+        return window.localStorage;
     } catch {
         return null;
     }
@@ -90,6 +100,40 @@ function writeAuthState(key, value) {
         return;
     }
     storage.setItem(key, value);
+}
+
+function readStickySalesmanLogin() {
+    const storage = getLocalStorage();
+    if (!storage) return null;
+    const raw = storage.getItem(SALESMAN_STICKY_LOGIN_KEY);
+    const parsed = safeParseJSON(raw, null);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (asString(parsed.role) !== 'salesman') return null;
+    if (!parsed.user || typeof parsed.user !== 'object') return null;
+    return {
+        role: 'salesman',
+        user: parsed.user,
+        activeShopId: asString(parsed.activeShopId || parsed.user.shop_id),
+        keepOnlineUntilPunchOut: true,
+    };
+}
+
+function writeStickySalesmanLogin(user, activeShopId) {
+    const storage = getLocalStorage();
+    if (!storage || !user) return;
+    storage.setItem(SALESMAN_STICKY_LOGIN_KEY, JSON.stringify({
+        role: 'salesman',
+        user,
+        activeShopId: asString(activeShopId || user?.shop_id),
+        keepOnlineUntilPunchOut: true,
+        updatedAt: Date.now(),
+    }));
+}
+
+function clearStickySalesmanLogin() {
+    const storage = getLocalStorage();
+    if (!storage) return;
+    storage.removeItem(SALESMAN_STICKY_LOGIN_KEY);
 }
 
 function safeParseJSON(value, fallback) {
@@ -554,22 +598,34 @@ async function listSalesmenByPin(pinValue) {
 }
 
 export function AuthProvider({ children }) {
-    const [role, setRole] = useState(() => {
-        if (!isAuthSessionValid()) {
-            clearPersistedAuthState();
-            return null;
+    const initialAuthState = (() => {
+        if (isAuthSessionValid()) {
+            const savedUser = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
+            return {
+                role: readAuthState(AUTH_ROLE_STATE_KEY, '') || null,
+                user: savedUser && typeof savedUser === 'object' ? savedUser : null,
+                activeShopId: readAuthState(AUTH_SHOP_STATE_KEY, ''),
+                fromSticky: false,
+            };
         }
-        return readAuthState(AUTH_ROLE_STATE_KEY, '') || null;
-    }); // superadmin | admin | salesman | null
-    const [user, setUser] = useState(() => {
-        if (!isAuthSessionValid()) return null;
-        const saved = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
-        return saved && typeof saved === 'object' ? saved : null;
-    });
-    const [activeShopId, setActiveShopIdState] = useState(() => {
-        if (!isAuthSessionValid()) return '';
-        return readAuthState(AUTH_SHOP_STATE_KEY, '');
-    });
+
+        const stickySalesman = readStickySalesmanLogin();
+        if (stickySalesman?.user) {
+            return {
+                role: stickySalesman.role,
+                user: stickySalesman.user,
+                activeShopId: stickySalesman.activeShopId,
+                fromSticky: true,
+            };
+        }
+
+        clearPersistedAuthState();
+        return { role: null, user: null, activeShopId: '', fromSticky: false };
+    })();
+
+    const [role, setRole] = useState(() => initialAuthState.role); // superadmin | admin | salesman | null
+    const [user, setUser] = useState(() => initialAuthState.user);
+    const [activeShopId, setActiveShopIdState] = useState(() => initialAuthState.activeShopId);
     const [shops, setShops] = useState([]);
     const [authLoading, setAuthLoading] = useState(false);
 
@@ -594,11 +650,15 @@ export function AuthProvider({ children }) {
 
     useEffect(() => {
         if (isAuthSessionValid()) return;
+        if (role === 'salesman' && user) {
+            persistAuthSession('salesman', user);
+            return;
+        }
         clearPersistedAuthState();
         setRole(null);
         setUser(null);
         setActiveShopIdState('');
-    }, []);
+    }, [role, user]);
 
     // ── Persistence Effects ──
     useEffect(() => {
@@ -1141,10 +1201,9 @@ export function AuthProvider({ children }) {
 
     useEffect(() => {
         if (user && role === 'salesman') {
-            const todayStr = new Date().toLocaleDateString('en-PK');
-            const myLogsToday = attendanceLogs.filter(l => l.date === todayStr && String(l.userId) === String(user.id));
-            if (myLogsToday.length > 0) {
-                const latest = [...myLogsToday].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+            const myLogs = attendanceLogs.filter((l) => String(l.userId) === String(user.id));
+            if (myLogs.length > 0) {
+                const latest = [...myLogs].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
                 setIsPunchedIn(latest.type === 'IN');
             } else {
                 setIsPunchedIn(false);
@@ -1153,6 +1212,17 @@ export function AuthProvider({ children }) {
             setIsPunchedIn(false);
         }
     }, [attendanceLogs, user, role]);
+
+    useEffect(() => {
+        if (role === 'salesman' && user && isPunchedIn) {
+            writeStickySalesmanLogin(user, activeShopId || user.shop_id);
+        }
+    }, [role, user, isPunchedIn, activeShopId]);
+
+    useEffect(() => {
+        if (role === 'salesman' && user) return;
+        clearStickySalesmanLogin();
+    }, [role, user]);
 
     const handlePunch = async (type) => {
         if (!user || !activeShopId) return;
@@ -1188,6 +1258,12 @@ export function AuthProvider({ children }) {
         if (error) {
             console.error('Failed to punch attendance:', error);
             return;
+        }
+
+        if (type === 'IN') {
+            writeStickySalesmanLogin(user, activeShopId);
+        } else if (type === 'OUT') {
+            clearStickySalesmanLogin();
         }
 
         // Auto-save salary transaction on punch OUT
@@ -1383,8 +1459,12 @@ export function AuthProvider({ children }) {
     }, [adminPassword, salesmen, activeShopId]);
 
     const logout = () => {
+        if (role === 'salesman' && isPunchedIn) {
+            return { success: false, message: 'Please Punch OUT before logout.' };
+        }
         clearAuthSession();
         clearPersistedAuthState();
+        clearStickySalesmanLogin();
         setRole(null);
         setUser(null);
         setActiveShopIdState('');
@@ -1392,6 +1472,7 @@ export function AuthProvider({ children }) {
         setIsPunchedIn(false);
         setLowStockAlerts([]);
         setAttendanceLogs([]);
+        return { success: true };
     };
 
     // ── Management Functions ──

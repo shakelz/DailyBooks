@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
     const navigate = useNavigate();
-    const { login } = useAuth();
+    const { login, role: authRole, user: authUser } = useAuth();
 
     // Role selection state (null = role selection screen)
     const [role, setRole] = useState(null);
@@ -20,6 +20,16 @@ export default function LoginPage() {
     const [showPass, setShowPass] = useState(false);
     const [adminError, setAdminError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+
+    useEffect(() => {
+        if (authRole === 'salesman' && authUser) {
+            navigate('/salesman', { replace: true });
+            return;
+        }
+        if ((authRole === 'admin' || authRole === 'superadmin') && authUser) {
+            navigate('/admin/dashboard', { replace: true });
+        }
+    }, [authRole, authUser, navigate]);
 
     // ── Salesman PIN Handlers ──
     const handlePinInput = useCallback(async (digit) => {
