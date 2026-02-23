@@ -13,21 +13,11 @@ const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
 const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
 const AUTH_SHOP_STATE_KEY = 'dailybooks_auth_shop_v1';
-const SALESMAN_STICKY_LOGIN_KEY = 'dailybooks_salesman_sticky_login_v1';
 
 function getSessionStorage() {
     try {
         if (typeof window === 'undefined') return null;
         return window.sessionStorage;
-    } catch {
-        return null;
-    }
-}
-
-function getLocalStorage() {
-    try {
-        if (typeof window === 'undefined') return null;
-        return window.localStorage;
     } catch {
         return null;
     }
@@ -102,40 +92,6 @@ function writeAuthState(key, value) {
     storage.setItem(key, value);
 }
 
-function readStickySalesmanLogin() {
-    const storage = getLocalStorage();
-    if (!storage) return null;
-    const raw = storage.getItem(SALESMAN_STICKY_LOGIN_KEY);
-    const parsed = safeParseJSON(raw, null);
-    if (!parsed || typeof parsed !== 'object') return null;
-    if (asString(parsed.role) !== 'salesman') return null;
-    if (!parsed.user || typeof parsed.user !== 'object') return null;
-    return {
-        role: 'salesman',
-        user: parsed.user,
-        activeShopId: asString(parsed.activeShopId || parsed.user.shop_id),
-        keepOnlineUntilPunchOut: true,
-    };
-}
-
-function writeStickySalesmanLogin(user, activeShopId) {
-    const storage = getLocalStorage();
-    if (!storage || !user) return;
-    storage.setItem(SALESMAN_STICKY_LOGIN_KEY, JSON.stringify({
-        role: 'salesman',
-        user,
-        activeShopId: asString(activeShopId || user?.shop_id),
-        keepOnlineUntilPunchOut: true,
-        updatedAt: Date.now(),
-    }));
-}
-
-function clearStickySalesmanLogin() {
-    const storage = getLocalStorage();
-    if (!storage) return;
-    storage.removeItem(SALESMAN_STICKY_LOGIN_KEY);
-}
-
 function safeParseJSON(value, fallback) {
     if (!value) return fallback;
     try {
@@ -147,6 +103,13 @@ function safeParseJSON(value, fallback) {
 
 function asString(value) {
     return value === null || value === undefined ? '' : String(value).trim();
+}
+
+function asBoolean(value) {
+    if (typeof value === 'boolean') return value;
+    const normalized = asString(value).toLowerCase();
+    if (!normalized) return false;
+    return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'online';
 }
 
 function makeRowId() {
@@ -175,6 +138,7 @@ function normalizeUserFromProfile(profile) {
         photo: asString(profile.photo || profile.avatar_url),
         active: profile.active !== false,
         shop_id: asString(profile.shop_id || profile.shopId),
+        is_online: asBoolean(profile.is_online ?? profile.isOnline ?? profile.online),
     };
 }
 
@@ -191,6 +155,7 @@ function normalizeSalesman(profile) {
         role: user.role,
         email: user.email,
         shop_id: user.shop_id,
+        is_online: asBoolean(user.is_online ?? user.isOnline ?? user.online),
     };
 }
 
@@ -487,6 +452,15 @@ function buildProfileUpdatePayloads(updates = {}) {
             ]);
             return;
         }
+        if (key === 'is_online' || key === 'isOnline' || key === 'online') {
+            const safeOnline = asBoolean(rawValue);
+            fieldVariants.push([
+                { is_online: safeOnline },
+                { isOnline: safeOnline },
+                { online: safeOnline }
+            ]);
+            return;
+        }
 
         staticFields[key] = rawValue;
     });
@@ -597,6 +571,32 @@ async function listSalesmenByPin(pinValue) {
     return data.filter((row) => asString(row.pin || row.passcode || row.pin_code || row.pass_code) === safePin);
 }
 
+async function persistSalesmanOnlineStatus({ userId, shopId, isOnline }) {
+    const uid = asString(userId);
+    const sid = asString(shopId);
+    if (!uid) return false;
+
+    const payloadVariants = [
+        { is_online: asBoolean(isOnline) },
+        { isOnline: asBoolean(isOnline) },
+        { online: asBoolean(isOnline) }
+    ];
+
+    for (const payload of payloadVariants) {
+        let query = supabase.from('profiles').update(payload).eq('id', uid);
+        if (sid) query = query.eq('shop_id', sid);
+        const { error } = await query;
+        if (!error) return true;
+
+        const message = asString(error?.message).toLowerCase();
+        if (message.includes('schema cache') || message.includes('column')) {
+            continue;
+        }
+    }
+
+    return false;
+}
+
 export function AuthProvider({ children }) {
     const initialAuthState = (() => {
         if (isAuthSessionValid()) {
@@ -604,23 +604,12 @@ export function AuthProvider({ children }) {
             return {
                 role: readAuthState(AUTH_ROLE_STATE_KEY, '') || null,
                 user: savedUser && typeof savedUser === 'object' ? savedUser : null,
-                activeShopId: readAuthState(AUTH_SHOP_STATE_KEY, ''),
-                fromSticky: false,
-            };
-        }
-
-        const stickySalesman = readStickySalesmanLogin();
-        if (stickySalesman?.user) {
-            return {
-                role: stickySalesman.role,
-                user: stickySalesman.user,
-                activeShopId: stickySalesman.activeShopId,
-                fromSticky: true,
+                activeShopId: readAuthState(AUTH_SHOP_STATE_KEY, '')
             };
         }
 
         clearPersistedAuthState();
-        return { role: null, user: null, activeShopId: '', fromSticky: false };
+        return { role: null, user: null, activeShopId: '' };
     })();
 
     const [role, setRole] = useState(() => initialAuthState.role); // superadmin | admin | salesman | null
@@ -1206,23 +1195,12 @@ export function AuthProvider({ children }) {
                 const latest = [...myLogs].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
                 setIsPunchedIn(latest.type === 'IN');
             } else {
-                setIsPunchedIn(false);
+                setIsPunchedIn(asBoolean(user.is_online ?? user.isOnline ?? user.online));
             }
         } else {
             setIsPunchedIn(false);
         }
     }, [attendanceLogs, user, role]);
-
-    useEffect(() => {
-        if (role === 'salesman' && user && isPunchedIn) {
-            writeStickySalesmanLogin(user, activeShopId || user.shop_id);
-        }
-    }, [role, user, isPunchedIn, activeShopId]);
-
-    useEffect(() => {
-        if (role === 'salesman' && user) return;
-        clearStickySalesmanLogin();
-    }, [role, user]);
 
     const handlePunch = async (type) => {
         if (!user || !activeShopId) return;
@@ -1260,11 +1238,30 @@ export function AuthProvider({ children }) {
             return;
         }
 
-        if (type === 'IN') {
-            writeStickySalesmanLogin(user, activeShopId);
-        } else if (type === 'OUT') {
-            clearStickySalesmanLogin();
-        }
+        const nextOnline = type === 'IN';
+        setUser((prev) => {
+            if (!prev) return prev;
+            return {
+                ...prev,
+                is_online: nextOnline,
+                isOnline: nextOnline,
+                online: nextOnline
+            };
+        });
+        setSalesmen((prev) => prev.map((staff) => {
+            if (String(staff.id) !== String(user.id)) return staff;
+            return {
+                ...staff,
+                is_online: nextOnline,
+                isOnline: nextOnline,
+                online: nextOnline
+            };
+        }));
+        await persistSalesmanOnlineStatus({
+            userId: user.id,
+            shopId: activeShopId,
+            isOnline: nextOnline
+        });
 
         // Auto-save salary transaction on punch OUT
         if (type === 'OUT') {
@@ -1356,15 +1353,80 @@ export function AuthProvider({ children }) {
         if (error) {
             throw new Error(error.message || 'Failed to update attendance log.');
         }
-    }, [activeShopId, attendanceLogs]);
+        const targetUserId = asString(existingLog.userId || existingLog.workerId);
+        if (!targetUserId) return;
+
+        const nextLogsForUser = attendanceLogs
+            .map((l) => {
+                if (String(l.id) !== String(id)) return l;
+                return {
+                    ...l,
+                    type: resolvedType,
+                    timestamp: resolvedTimestamp
+                };
+            })
+            .filter((l) => asString(l.userId || l.workerId) === targetUserId)
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        const nextOnline = nextLogsForUser.length > 0 ? nextLogsForUser[0].type === 'IN' : false;
+        setSalesmen((prev) => prev.map((staff) => {
+            if (String(staff.id) !== targetUserId) return staff;
+            return {
+                ...staff,
+                is_online: nextOnline,
+                isOnline: nextOnline,
+                online: nextOnline
+            };
+        }));
+        if (role === 'salesman' && String(user?.id) === targetUserId) {
+            setIsPunchedIn(nextOnline);
+            setUser((prev) => prev ? { ...prev, is_online: nextOnline, isOnline: nextOnline, online: nextOnline } : prev);
+        }
+        await persistSalesmanOnlineStatus({
+            userId: targetUserId,
+            shopId: sid,
+            isOnline: nextOnline
+        });
+    }, [activeShopId, attendanceLogs, role, user]);
 
     const deleteAttendanceLog = useCallback(async (id) => {
         const sid = asString(activeShopId);
         if (!sid) return;
+        const existingLog = attendanceLogs.find((l) => String(l.id) === String(id));
+        const targetUserId = asString(existingLog?.userId || existingLog?.workerId);
 
         setAttendanceLogs(prev => prev.filter(l => String(l.id) !== String(id)));
-        await supabase.from('attendance').delete().eq('id', id).eq('shop_id', sid);
-    }, [activeShopId]);
+        const { error } = await supabase.from('attendance').delete().eq('id', id).eq('shop_id', sid);
+        if (error) {
+            throw new Error(error.message || 'Failed to delete attendance log.');
+        }
+
+        if (!targetUserId) return;
+        const nextLogsForUser = attendanceLogs
+            .filter((l) => String(l.id) !== String(id))
+            .filter((l) => asString(l.userId || l.workerId) === targetUserId)
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        const nextOnline = nextLogsForUser.length > 0 ? nextLogsForUser[0].type === 'IN' : false;
+        setSalesmen((prev) => prev.map((staff) => {
+            if (String(staff.id) !== targetUserId) return staff;
+            return {
+                ...staff,
+                is_online: nextOnline,
+                isOnline: nextOnline,
+                online: nextOnline
+            };
+        }));
+        if (role === 'salesman' && String(user?.id) === targetUserId) {
+            setIsPunchedIn(nextOnline);
+            setUser((prev) => prev ? { ...prev, is_online: nextOnline, isOnline: nextOnline, online: nextOnline } : prev);
+        }
+        await persistSalesmanOnlineStatus({
+            userId: targetUserId,
+            shopId: sid,
+            isOnline: nextOnline
+        });
+    }, [activeShopId, attendanceLogs, role, user]);
 
     // ── Auth Logic ──
     const login = useCallback(async (userData) => {
@@ -1430,6 +1492,7 @@ export function AuthProvider({ children }) {
                     setRole('salesman');
                     setUser(normalized);
                     setActiveShopIdState(normalized.shop_id);
+                    setIsPunchedIn(asBoolean(normalized.is_online ?? normalized.isOnline ?? normalized.online));
                     persistAuthSession('salesman', normalized);
                     return { success: true, role: 'salesman' };
                 }
@@ -1445,6 +1508,7 @@ export function AuthProvider({ children }) {
                     setRole('salesman');
                     setUser(salesman);
                     if (salesman.shop_id) setActiveShopIdState(asString(salesman.shop_id));
+                    setIsPunchedIn(asBoolean(salesman.is_online ?? salesman.isOnline ?? salesman.online));
                     persistAuthSession('salesman', salesman);
                     return { success: true, role: 'salesman' };
                 }
@@ -1459,12 +1523,8 @@ export function AuthProvider({ children }) {
     }, [adminPassword, salesmen, activeShopId]);
 
     const logout = () => {
-        if (role === 'salesman' && isPunchedIn) {
-            return { success: false, message: 'Please Punch OUT before logout.' };
-        }
         clearAuthSession();
         clearPersistedAuthState();
-        clearStickySalesmanLogin();
         setRole(null);
         setUser(null);
         setActiveShopIdState('');

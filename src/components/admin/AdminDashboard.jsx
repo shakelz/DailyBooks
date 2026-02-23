@@ -495,7 +495,8 @@ export default function AdminDashboard() {
                                 const liveSalary = stat.liveHours * hourlyRate;
                                 const totalEarnedToday = stat.earning;
                                 const paidToday = paidSalaryByStaffInRange[String(staff.id)] || 0;
-                                const isOnline = stat.isOnline;
+                                const profileOnline = String(staff.is_online ?? staff.isOnline ?? staff.online).toLowerCase() === 'true';
+                                const isOnline = profileOnline || stat.isOnline;
 
                                 return (
                                     <div key={staff.id} className="px-5 py-4 border-b border-slate-50 last:border-none hover:bg-slate-50/50 transition-colors">
