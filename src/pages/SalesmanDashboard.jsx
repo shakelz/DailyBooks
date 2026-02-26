@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, Bell, Calculator, CircleDollarSign, ClipboardList, Menu, Receipt, Scale, Search, ShoppingCart, Sparkles, Wrench, CircleHelp, Wallet } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -775,26 +775,22 @@ export default function SalesmanDashboard() {
             return;
         }
 
-        const qty = Math.max(1, parseInt(form.quantity || '1', 10) || 1);
         const unitAmount = parseFloat(form.amount) || 0;
-        if (!form.name.trim() || unitAmount <= 0) {
-            alert('Name and amount are required');
+        if (!form.category || unitAmount <= 0) {
+            alert('Category and amount are required');
             return;
         }
 
-        const total = qty * unitAmount;
         const type = activeForm === 'purchase' ? 'expense' : 'income';
-        const relatedSummary = compactFieldSummary(form.relatedFields);
-        const mergedNotes = [form.notes, relatedSummary].filter(Boolean).join(' | ');
 
         await addTransaction({
-            desc: form.name.trim(),
-            amount: total,
-            quantity: qty,
+            desc: `${activeForm === 'purchase' ? 'Purchase' : 'Sale'} - ${form.category}`,
+            amount: unitAmount,
+            quantity: 1,
             type,
             category: form.category || 'General',
             paymentMethod: form.paymentMode || 'Cash',
-            notes: mergedNotes,
+            notes: '',
             source: type === 'expense' ? 'purchase' : 'shop',
             salesmanName: user?.name,
             salesmanNumber: user?.salesmanNumber || 0,
@@ -805,7 +801,7 @@ export default function SalesmanDashboard() {
         });
 
         if (type === 'income' && form.productId) {
-            await adjustStock(form.productId, -qty);
+            await adjustStock(form.productId, -1);
         }
 
         setToast(`${type === 'income' ? 'Sales' : 'Purchase'} saved`);
@@ -815,8 +811,8 @@ export default function SalesmanDashboard() {
 
     const handleCalcPress = (key) => {
         if (key === 'C') { setCalcDisplay('0'); setCalcPrev(null); setCalcOp(null); return; }
-        if (key === '⌫') { setCalcDisplay((d) => d.length > 1 ? d.slice(0, -1) : '0'); return; }
-        if (['+', '-', '×', '÷'].includes(key)) {
+        if (key === 'âŒ«') { setCalcDisplay((d) => d.length > 1 ? d.slice(0, -1) : '0'); return; }
+        if (['+', '-', 'Ã—', 'Ã·'].includes(key)) {
             setCalcPrev(parseFloat(calcDisplay));
             setCalcOp(key);
             setCalcDisplay('0');
@@ -828,8 +824,8 @@ export default function SalesmanDashboard() {
                 let result = 0;
                 if (calcOp === '+') result = calcPrev + curr;
                 if (calcOp === '-') result = calcPrev - curr;
-                if (calcOp === '×') result = calcPrev * curr;
-                if (calcOp === '÷') result = curr !== 0 ? calcPrev / curr : 0;
+                if (calcOp === 'Ã—') result = calcPrev * curr;
+                if (calcOp === 'Ã·') result = curr !== 0 ? calcPrev / curr : 0;
                 setCalcDisplay(String(Number(result.toFixed(6))));
                 setCalcPrev(null);
                 setCalcOp(null);
@@ -936,7 +932,7 @@ export default function SalesmanDashboard() {
                                         className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
                                     >
                                         <p className="text-xs font-bold text-slate-700">{resolved.name || 'Unnamed product'}</p>
-                                        <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} • Stock {resolved.stock} • {priceTag(resolved.sellingPrice || 0)}</p>
+                                        <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} â€¢ Stock {resolved.stock} â€¢ {priceTag(resolved.sellingPrice || 0)}</p>
                                     </button>
                                     );
                                 })}
@@ -953,7 +949,7 @@ export default function SalesmanDashboard() {
                             {user?.photo ? (
                                 <img src={user.photo} alt={user?.name || 'Profile'} className="w-full h-full object-cover" />
                             ) : (
-                                <span className="text-sm">👤</span>
+                                <span className="text-sm">ðŸ‘¤</span>
                             )}
                         </button>
                     </div>
@@ -982,13 +978,21 @@ export default function SalesmanDashboard() {
 
                 <section className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     <button
-                        onClick={() => setActiveForm((prev) => (prev === 'sales' ? '' : 'sales'))}
+                        onClick={() => setActiveForm((prev) => {
+                            const next = prev === 'sales' ? '' : 'sales';
+                            if (next) setForm(newCompactForm());
+                            return next;
+                        })}
                         className="erp-big-button"
                     >
                         New Sales Entry
                     </button>
                     <button
-                        onClick={() => setActiveForm((prev) => (prev === 'purchase' ? '' : 'purchase'))}
+                        onClick={() => setActiveForm((prev) => {
+                            const next = prev === 'purchase' ? '' : 'purchase';
+                            if (next) setForm(newCompactForm());
+                            return next;
+                        })}
                         className="erp-big-button erp-big-button--purchase"
                     >
                         New Purchase Entry
@@ -996,164 +1000,71 @@ export default function SalesmanDashboard() {
                 </section>
 
                 {activeForm && (
-                    <form onSubmit={submitCompactForm} className={`rounded-2xl border bg-white/80 p-2.5 space-y-2.5 animate-in slide-in-from-top duration-200 shadow-sm backdrop-blur-sm ${activeForm === 'sales' ? 'border-emerald-200' : 'border-rose-200'}`}>
-                        <div className={`rounded-xl px-2.5 py-1.5 flex items-center justify-between ${activeForm === 'sales' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-                            <div className="flex items-center gap-2">
-                                <Sparkles size={14} />
-                                <p className="text-xs font-semibold">{activeForm === 'sales' ? 'Sales form' : 'Purchase form'}</p>
-                            </div>
-                            <p className="text-xs font-semibold">Premium flow</p>
+                    <form onSubmit={submitCompactForm} className={`rounded-2xl border bg-white/80 p-3 space-y-3 animate-in slide-in-from-top duration-200 shadow-sm backdrop-blur-sm ${activeForm === 'sales' ? 'border-emerald-200' : 'border-rose-200'}`}>
+                        <div className={`rounded-xl px-3 py-2 flex items-center justify-between ${activeForm === 'sales' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                            <p className="text-xs font-semibold">{activeForm === 'sales' ? 'New Sales Entry' : 'New Purchase Entry'}</p>
+                            <p className="text-xs font-semibold">Simple form</p>
                         </div>
 
-                        <div className="rounded-2xl border border-slate-200 bg-white/75 p-2.5">
-                            <p className="text-[11px] font-semibold text-slate-500 mb-2">Step 1 · Category selection</p>
-                            <div className="grid grid-cols-2 gap-1.5">
-                                <select value={form.category} onChange={(e) => applyAddNewCategory(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                            <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Date</label>
+                                <input
+                                    type="text"
+                                    readOnly
+                                    value={new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1.5 text-xs text-slate-700"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Payment Mode</label>
+                                <select
+                                    value={form.paymentMode}
+                                    onChange={(e) => setForm((prev) => ({ ...prev, paymentMode: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                >
+                                    {paymentModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
+                                <select
+                                    value={form.category}
+                                    onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    required
+                                >
                                     <option value="">Select category</option>
                                     {l1Options.map((name) => <option key={name} value={name}>{name}</option>)}
-                                    <option value={ADD_NEW}>+ Add New</option>
                                 </select>
-                                <select
-                                    value={form.subcategory}
-                                    onChange={(e) => applyAddNewSubCategory(e.target.value)}
-                                    disabled={!form.category}
-                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
-                                >
-                                    <option value="">Select sub-category</option>
-                                    {l2Options.map((name) => <option key={name} value={name}>{name}</option>)}
-                                    <option value={ADD_NEW}>+ Add New</option>
-                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Amount</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={form.amount}
+                                    onChange={(e) => setForm((prev) => ({ ...prev, amount: e.target.value }))}
+                                    placeholder="Amount"
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    required
+                                />
                             </div>
                         </div>
 
-                        {form.subcategory && (
-                            <div className="rounded-2xl border border-slate-200 bg-white/85 p-2.5 space-y-2.5 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                                <p className="text-[11px] font-semibold text-slate-500">Step 2 · Main transaction details</p>
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5">
-                                    <div className="relative z-[60]">
-                                        <input
-                                            value={form.barcode}
-                                            onFocus={() => setShowBarcodeMatches(true)}
-                                            onBlur={() => setTimeout(() => setShowBarcodeMatches(false), 140)}
-                                            onChange={(e) => setForm((prev) => ({ ...prev, barcode: e.target.value }))}
-                                            placeholder="Barcode / SKU"
-                                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 w-full"
-                                        />
-
-                                        {showBarcodeMatches && barcodeMatches.length > 0 && (
-                                            <div className="absolute z-[120] mt-1 w-full rounded-xl border border-slate-200 bg-white shadow-lg max-h-52 overflow-y-auto">
-                                                {barcodeMatches.map((product) => {
-                                                    const resolved = resolveProductSnapshot(product);
-                                                    return (
-                                                    <button
-                                                        type="button"
-                                                        key={resolved.id || `${resolved.barcode}-${resolved.name}`}
-                                                        onMouseDown={(e) => {
-                                                            e.preventDefault();
-                                                            openSalesFormWithProduct(product);
-                                                            setShowBarcodeMatches(false);
-                                                        }}
-                                                        className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
-                                                    >
-                                                        <p className="text-xs font-bold text-slate-700">{resolved.name || 'Unnamed product'}</p>
-                                                        <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} • Stock {resolved.stock} • {priceTag(activeForm === 'purchase' ? resolved.purchasePrice || 0 : resolved.sellingPrice || 0)}</p>
-                                                    </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <input
-                                        value={form.name}
-                                        onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                                        placeholder={activeForm === 'sales' ? 'Product name' : 'Purchase item'}
-                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                    />
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={form.amount}
-                                        onChange={(e) => setForm((prev) => ({ ...prev, amount: e.target.value }))}
-                                        placeholder={activeForm === 'sales' ? 'Selling price' : 'Purchase amount'}
-                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                    />
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        value={form.quantity}
-                                        onChange={(e) => setForm((prev) => ({ ...prev, quantity: e.target.value }))}
-                                        placeholder="Qty"
-                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                    />
-                                    <select
-                                        value={form.paymentMode}
-                                        onChange={(e) => applyPaymentMode(e.target.value)}
-                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                    >
-                                        {paymentModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-                                        <option value={ADD_NEW}>+ Add New</option>
-                                    </select>
-                                </div>
-
-                                <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/70 to-sky-50/60 p-2.5 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                                    <p className="text-[11px] font-semibold text-indigo-700 mb-2">Step 3 · Related fields ({form.subcategory})</p>
-
-                                    {selectedProductPreview && (
-                                        <div className="mb-2 rounded-xl border border-blue-100 bg-white/80 px-2.5 py-2 text-[11px] text-slate-600">
-                                            <p className="font-semibold text-blue-700 mb-1">Auto-filled product details</p>
-                                            <p>Name: {selectedProductPreview.name || '-'}</p>
-                                            <p>Barcode: {selectedProductPreview.barcode || '-'}</p>
-                                            <p>Stock: {selectedProductPreview.stock ?? '-'}</p>
-                                            <p>Sell: {priceTag(selectedProductPreview.sellingPrice || 0)} | Buy: {priceTag(selectedProductPreview.purchasePrice || 0)}</p>
-                                        </div>
-                                    )}
-
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
-                                        {relatedFieldSchema.map((field) => (
-                                            <div key={field.key} className="space-y-1">
-                                                <label className="text-[11px] font-semibold text-slate-600">{field.label}</label>
-                                                {field.type === 'select' ? (
-                                                    <select
-                                                        value={form.relatedFields?.[field.key] || ''}
-                                                        onChange={(e) => setRelatedFieldValue(field.key, e.target.value)}
-                                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                                    >
-                                                        <option value="">Select {field.label}</option>
-                                                        {(field.options || []).map((opt) => (
-                                                            <option key={opt} value={opt}>{opt}</option>
-                                                        ))}
-                                                    </select>
-                                                ) : (
-                                                    <input
-                                                        type={field.type || 'text'}
-                                                        value={form.relatedFields?.[field.key] || ''}
-                                                        onChange={(e) => setRelatedFieldValue(field.key, e.target.value)}
-                                                        placeholder={field.placeholder || field.label}
-                                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                                    />
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <input
-                                    value={form.notes}
-                                    onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
-                                    placeholder={activeForm === 'sales' ? 'Customer / order notes' : 'Vendor / invoice notes'}
-                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 w-full"
-                                />
-
-                                <div className="flex items-center justify-end gap-2">
-                                    <button type="button" onClick={printSlip} className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Print</button>
-                                    <button type="submit" className={`rounded-xl text-white px-4 py-2 text-sm font-semibold ${activeForm === 'sales' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>Submit</button>
-                                </div>
-                            </div>
-                        )}
+                        <div className="flex items-center justify-end">
+                            <button type="submit" className={`rounded-xl text-white px-4 py-2 text-sm font-semibold ${activeForm === 'sales' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
+                                Save Entry
+                            </button>
+                        </div>
                     </form>
                 )}
 
-                <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-3"> 
                     <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 overflow-hidden">
                         <div className="px-4 py-3 bg-gradient-to-r from-emerald-50 to-emerald-100/30 border-b border-emerald-100 flex items-center gap-2">
                             <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center">
@@ -1169,7 +1080,7 @@ export default function SalesmanDashboard() {
                         <div className="p-3">
                             {salesByCategory.length === 0 ? (
                                 <div className="text-center py-6 text-slate-300">
-                                    <p className="text-2xl mb-1">📊</p>
+                                    <p className="text-2xl mb-1">ðŸ“Š</p>
                                     <p className="text-[10px]">No sales yet</p>
                                 </div>
                             ) : (
@@ -1182,7 +1093,7 @@ export default function SalesmanDashboard() {
                                                         {getCategoryImage(item.name) ? (
                                                             <img src={getCategoryImage(item.name)} alt={item.name} className="w-full h-full object-cover" />
                                                         ) : (
-                                                            <span className="text-xs">📊</span>
+                                                            <span className="text-xs">ðŸ“Š</span>
                                                         )}
                                                     </div>
                                                     <div>
@@ -1218,7 +1129,7 @@ export default function SalesmanDashboard() {
                         <div className="p-3">
                             {expensesByCategory.length === 0 ? (
                                 <div className="text-center py-6 text-slate-300">
-                                    <p className="text-2xl mb-1">📊</p>
+                                    <p className="text-2xl mb-1">ðŸ“Š</p>
                                     <p className="text-[10px]">No purchases yet</p>
                                 </div>
                             ) : (
@@ -1230,7 +1141,7 @@ export default function SalesmanDashboard() {
                                                     {getCategoryImage(item.name) ? (
                                                         <img src={getCategoryImage(item.name)} alt={item.name} className="w-full h-full object-cover" />
                                                     ) : (
-                                                        <span className="text-xs">📉</span>
+                                                        <span className="text-xs">ðŸ“‰</span>
                                                     )}
                                                 </div>
                                                 <div>
@@ -1297,7 +1208,7 @@ export default function SalesmanDashboard() {
                                 <h3 className="text-sm font-black text-slate-800">Quick Sales Transaction</h3>
                                 <p className="text-[11px] text-slate-500">From barcode suggestion</p>
                             </div>
-                            <button onClick={() => setShowQuickSaleModal(false)} className="text-slate-500 hover:text-slate-700">✕</button>
+                            <button onClick={() => setShowQuickSaleModal(false)} className="text-slate-500 hover:text-slate-700">âœ•</button>
                         </div>
 
                         <div className="p-4 space-y-3">
@@ -1355,18 +1266,18 @@ export default function SalesmanDashboard() {
                 <div className="fixed top-16 right-3 z-50 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden">
                     <div className="px-3 py-2 bg-slate-800 text-white flex items-center justify-between">
                         <p className="text-xs font-semibold">Calculator</p>
-                        <button onClick={() => setShowCalc(false)} className="text-xs text-slate-300 hover:text-white">✕</button>
+                        <button onClick={() => setShowCalc(false)} className="text-xs text-slate-300 hover:text-white">âœ•</button>
                     </div>
                     <div className="p-3 bg-slate-900 text-right">
                         {calcOp && <p className="text-slate-500 text-[10px] font-mono">{calcPrev} {calcOp}</p>}
                         <p className="text-white text-2xl font-bold font-mono">{calcDisplay}</p>
                     </div>
                     <div className="grid grid-cols-4 gap-px bg-slate-200 p-px">
-                        {['C', '⌫', '÷', '×', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
+                        {['C', 'âŒ«', 'Ã·', 'Ã—', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
                             <button
                                 key={key}
                                 onClick={() => handleCalcPress(key)}
-                                className={`h-11 text-sm font-bold ${key === '=' ? 'bg-blue-600 text-white row-span-2 hover:bg-blue-700' : key === '0' ? 'col-span-2 bg-white hover:bg-slate-50' : ['+', '-', '×', '÷'].includes(key) ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : ['C', '⌫'].includes(key) ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-white text-slate-800 hover:bg-slate-50'}`}
+                                className={`h-11 text-sm font-bold ${key === '=' ? 'bg-blue-600 text-white row-span-2 hover:bg-blue-700' : key === '0' ? 'col-span-2 bg-white hover:bg-slate-50' : ['+', '-', 'Ã—', 'Ã·'].includes(key) ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : ['C', 'âŒ«'].includes(key) ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-white text-slate-800 hover:bg-slate-50'}`}
                             >
                                 {key}
                             </button>
@@ -1384,7 +1295,7 @@ export default function SalesmanDashboard() {
                                 <h2 className="text-lg font-bold text-white">Pending Center</h2>
                                 <p className="text-xs text-rose-100">Orders + online tracking</p>
                             </div>
-                            <button onClick={() => setShowPendingOrders(false)} className="text-white text-lg">✕</button>
+                            <button onClick={() => setShowPendingOrders(false)} className="text-white text-lg">âœ•</button>
                         </div>
 
                         <div className="px-4 pt-3">
@@ -1409,7 +1320,7 @@ export default function SalesmanDashboard() {
                                 <>
                                     {pendingOrders.length === 0 ? (
                                         <div className="text-center py-12">
-                                            <p className="text-4xl">✅</p>
+                                            <p className="text-4xl">âœ…</p>
                                             <p className="text-sm text-slate-500 mt-2">No pending orders</p>
                                         </div>
                                     ) : pendingOrders.map((job) => (
@@ -1481,7 +1392,7 @@ export default function SalesmanDashboard() {
 
                                     {onlineOrders.length === 0 ? (
                                         <div className="text-center py-10">
-                                            <p className="text-3xl">🛒</p>
+                                            <p className="text-3xl">ðŸ›’</p>
                                             <p className="text-sm text-slate-500 mt-2">No online orders yet</p>
                                         </div>
                                     ) : (
@@ -1492,7 +1403,7 @@ export default function SalesmanDashboard() {
                                                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${order.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{order.status}</span>
                                                 </div>
                                                 <p className="text-sm font-bold text-slate-800 mt-1">{order.itemName}</p>
-                                                <p className="text-xs text-slate-500">{order.platform || 'Online'} � Qty {order.quantity} � {priceTag(order.amount || 0)} � Color {order.color || '-'}</p>
+                                                <p className="text-xs text-slate-500">{order.platform || 'Online'} • Qty {order.quantity} • {priceTag(order.amount || 0)} • Color {order.color || '-'}</p>
                                                 <p className="text-xs text-slate-400">Ordered: {order.orderDate || 'N/A'}</p>
                                                 {order.notes ? <p className="text-xs text-slate-400 mt-1">{order.notes}</p> : null}
                                                 {order.status !== 'received' && (
@@ -1516,5 +1427,6 @@ export default function SalesmanDashboard() {
         </div>
     );
 }
+
 
 
