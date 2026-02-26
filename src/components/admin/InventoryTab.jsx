@@ -24,6 +24,8 @@ import {
     XCircle
 } from 'lucide-react';
 
+const PURCHASE_LINKS_STORAGE_KEY = 'dailybooks_purchase_links_v1';
+
 export default function InventoryTab() {
     const {
         products,
@@ -35,7 +37,7 @@ export default function InventoryTab() {
         lookupBarcode,
         getProductDetails
     } = useInventory();
-    const { slowMovingDays } = useAuth();
+    const { slowMovingDays, activeShopId } = useAuth();
 
     // ── States ──
     const [searchTerm, setSearchTerm] = useState('');
@@ -61,6 +63,10 @@ export default function InventoryTab() {
     const [showAuditMode, setShowAuditMode] = useState(false);
     const [auditScans, setAuditScans] = useState(new Set());
     const [lastScanned, setLastScanned] = useState(null);
+    const [importantLinks, setImportantLinks] = useState([]);
+    const [linkName, setLinkName] = useState('');
+    const [linkUrl, setLinkUrl] = useState('');
+    const [editingLinkId, setEditingLinkId] = useState('');
 
     const getProductCategoryL1 = useCallback((product) => {
         if (!product) return '';
@@ -308,6 +314,79 @@ export default function InventoryTab() {
             }
         }
     }, [searchTerm, showAuditMode, products]);
+
+    const linksStorageKey = `${PURCHASE_LINKS_STORAGE_KEY}:${String(activeShopId || '')}`;
+
+    useEffect(() => {
+        try {
+            if (!activeShopId) {
+                setImportantLinks([]);
+                return;
+            }
+            const raw = localStorage.getItem(linksStorageKey);
+            const parsed = raw ? JSON.parse(raw) : [];
+            setImportantLinks(Array.isArray(parsed) ? parsed : []);
+        } catch {
+            setImportantLinks([]);
+        }
+    }, [activeShopId, linksStorageKey]);
+
+    useEffect(() => {
+        if (!activeShopId) return;
+        try {
+            localStorage.setItem(linksStorageKey, JSON.stringify(importantLinks));
+        } catch {
+            // Ignore storage write errors.
+        }
+    }, [importantLinks, activeShopId, linksStorageKey]);
+
+    const normalizeLinkUrl = useCallback((url) => {
+        const raw = String(url || '').trim();
+        if (!raw) return '';
+        if (/^https?:\/\//i.test(raw)) return raw;
+        return `https://${raw}`;
+    }, []);
+
+    const handleSaveImportantLink = useCallback(() => {
+        const name = String(linkName || '').trim();
+        const url = normalizeLinkUrl(linkUrl);
+        if (!name || !url) {
+            alert('Please enter link title and URL.');
+            return;
+        }
+
+        if (editingLinkId) {
+            setImportantLinks((prev) => prev.map((row) => (
+                String(row.id) === String(editingLinkId)
+                    ? { ...row, name, url }
+                    : row
+            )));
+        } else {
+            setImportantLinks((prev) => ([
+                { id: `link-${Date.now()}`, name, url, createdAt: new Date().toISOString() },
+                ...prev
+            ]));
+        }
+        setEditingLinkId('');
+        setLinkName('');
+        setLinkUrl('');
+    }, [linkName, linkUrl, editingLinkId, normalizeLinkUrl]);
+
+    const startEditImportantLink = useCallback((row) => {
+        setEditingLinkId(String(row?.id || ''));
+        setLinkName(String(row?.name || ''));
+        setLinkUrl(String(row?.url || ''));
+    }, []);
+
+    const deleteImportantLink = useCallback((id) => {
+        if (!window.confirm('Delete this purchase link?')) return;
+        setImportantLinks((prev) => prev.filter((row) => String(row.id) !== String(id)));
+        if (String(editingLinkId) === String(id)) {
+            setEditingLinkId('');
+            setLinkName('');
+            setLinkUrl('');
+        }
+    }, [editingLinkId]);
 
 
     return (
@@ -684,6 +763,90 @@ export default function InventoryTab() {
 
                 {/* ── Right: Analysis & Insights ── */}
                 <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                        <div className="flex items-center justify-between gap-2 mb-4">
+                            <div>
+                                <h3 className="font-bold text-slate-800">Important Purchase Links</h3>
+                                <p className="text-[11px] text-slate-400">Add supplier websites for quick stock purchases.</p>
+                            </div>
+                            <ExternalLink size={18} className="text-blue-500" />
+                        </div>
+
+                        <div className="space-y-2 mb-3">
+                            <input
+                                value={linkName}
+                                onChange={(e) => setLinkName(e.target.value)}
+                                placeholder="Link title"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                            />
+                            <input
+                                value={linkUrl}
+                                onChange={(e) => setLinkUrl(e.target.value)}
+                                placeholder="https://supplier.com"
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                            />
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleSaveImportantLink}
+                                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
+                                >
+                                    {editingLinkId ? 'Update Link' : 'Add Link'}
+                                </button>
+                                {editingLinkId && (
+                                    <button
+                                        type="button"
+                                        onClick={() => { setEditingLinkId(''); setLinkName(''); setLinkUrl(''); }}
+                                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                                    >
+                                        Cancel Edit
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            {importantLinks.length === 0 ? (
+                                <p className="text-xs text-slate-400 italic">No links yet. Add your supplier URLs above.</p>
+                            ) : importantLinks.map((row) => (
+                                <div key={row.id} className="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold text-slate-700 truncate">{row.name}</p>
+                                            <p className="text-[10px] text-slate-400 truncate">{row.url}</p>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => window.open(row.url, '_blank', 'noopener,noreferrer')}
+                                                className="rounded-md border border-blue-200 bg-blue-50 p-1.5 text-blue-600 hover:bg-blue-100"
+                                                title="Open link"
+                                            >
+                                                <ExternalLink size={13} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => startEditImportantLink(row)}
+                                                className="rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 hover:bg-slate-100"
+                                                title="Edit link"
+                                            >
+                                                <Edit2 size={13} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => deleteImportantLink(row.id)}
+                                                className="rounded-md border border-red-200 bg-red-50 p-1.5 text-red-600 hover:bg-red-100"
+                                                title="Delete link"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Supplier Insights */}
                     <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
                         <div className="flex items-center gap-2 mb-4">

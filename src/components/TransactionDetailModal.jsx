@@ -8,7 +8,7 @@ import { useInventory } from '../context/InventoryContext';
 // ══════════════════════════════════════════════════════════
 
 export default function TransactionDetailModal({ isOpen, onClose, txn, initialEditMode = false }) {
-    const { isAdminLike } = useAuth();
+    const { isAdminLike, activeShop, billShowTax, salesmen } = useAuth();
     const { updateTransaction, deleteTransaction, products } = useInventory();
 
     const [isEditing, setIsEditing] = useState(initialEditMode);
@@ -26,17 +26,39 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
     const isAdmin = isAdminLike;
 
     const isIncome = txn.type === 'income';
+    const groupedItems = Array.isArray(txn.groupedItems) && txn.groupedItems.length > 0 ? txn.groupedItems : [txn];
+    const groupCount = groupedItems.length;
 
     // Financials
-    const amount = parseFloat(txn.amount) || 0;
+    const amount = groupedItems.reduce((sum, item) => sum + (parseFloat(item?.amount) || 0), 0);
     const discountValue = parseFloat(txn.discount) || 0;
     const unitPrice = parseFloat(txn.unitPrice) || 0;
     const qty = parseInt(txn.quantity) || 1;
     const basePrice = parseFloat(txn.stdPriceAtTime) || (unitPrice + discountValue);
 
     // Tax (19% German standard)
-    const net = txn.taxInfo?.net || (amount / 1.19);
-    const tax = txn.taxInfo?.tax || (amount - net);
+    const net = groupedItems.reduce((sum, item) => {
+        if (item?.taxInfo?.net !== undefined && item?.taxInfo?.net !== null) {
+            return sum + (parseFloat(item.taxInfo.net) || 0);
+        }
+        const lineAmount = parseFloat(item?.amount) || 0;
+        return sum + (lineAmount / 1.19);
+    }, 0);
+    const tax = groupedItems.reduce((sum, item) => {
+        if (item?.taxInfo?.tax !== undefined && item?.taxInfo?.tax !== null) {
+            return sum + (parseFloat(item.taxInfo.tax) || 0);
+        }
+        const lineAmount = parseFloat(item?.amount) || 0;
+        return sum + (lineAmount - (lineAmount / 1.19));
+    }, 0);
+    const showTax = billShowTax !== false;
+    const receiptShopName = activeShop?.name || 'Shop';
+    const receiptShopAddress = activeShop?.address || activeShop?.location || '';
+    const workerRef = String(txn?.workerId || txn?.salesmanId || '');
+    const worker = salesmen.find((row) => String(row.id) === workerRef);
+    const salesmanLabel = worker?.salesmanNumber
+        ? `#${worker.salesmanNumber}`
+        : (workerRef && workerRef !== 'admin' ? `#${workerRef}` : 'Shop');
 
     const currentProduct = txn.productId
         ? products.find(p => String(p.id) === String(txn.productId))
@@ -69,19 +91,59 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
         return String(value).trim().length > 0;
     });
 
-    const handlePrint = () => {
+        const handlePrint = () => {
+        const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => (
+            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+        ));
+
+        const printRows = groupedItems.map((item) => {
+            const lineQty = parseInt(item?.quantity || 1, 10) || 1;
+            const lineAmount = parseFloat(item?.amount) || 0;
+            const attrs = item?.verifiedAttributes
+                ? Object.entries(item.verifiedAttributes)
+                    .filter(([, value]) => String(value || '').trim())
+                    .map(([key, value]) => `<span style="font-size: 9px;">${esc(String(key).toUpperCase())}: ${esc(value)}</span>`)
+                    .join('<br/>')
+                : '';
+            return `
+                <tr>
+                    <td>
+                        ${esc(item?.name || item?.desc || 'Artikel')}
+                        ${attrs ? `<br/>${attrs}` : ''}
+                    </td>
+                    <td class="text-right">${lineQty}</td>
+                    <td class="text-right">EUR ${lineAmount.toFixed(2)}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const taxRows = showTax
+            ? `
+                <table style="font-size: 10px;">
+                    <tr>
+                        <td>Netto (19%)</td>
+                        <td class="text-right">EUR ${net.toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                        <td>USt (19%)</td>
+                        <td class="text-right">EUR ${tax.toFixed(2)}</td>
+                    </tr>
+                </table>
+            `
+            : '';
+
         const receiptHTML = `
             <html>
             <head>
-                <title>Receipt ${txn.id}</title>
+                <title>Beleg ${esc(txn.transactionId || txn.id)}</title>
                 <style>
                     @page { size: 80mm 200mm; margin: 0; }
-                    body { 
-                        font-family: 'Courier New', Courier, monospace; 
-                        width: 72mm; 
-                        margin: 0 auto; 
-                        padding: 10mm 2mm; 
-                        font-size: 11px; 
+                    body {
+                        font-family: 'Courier New', Courier, monospace;
+                        width: 72mm;
+                        margin: 0 auto;
+                        padding: 10mm 2mm;
+                        font-size: 11px;
                         line-height: 1.4;
                         color: #000;
                     }
@@ -97,39 +159,27 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
             </head>
             <body>
                 <div class="text-center">
-                    <div class="bold fs-lg">DailyBooks</div>
-                    <div>(haftungsbeschränkt)</div>
-                    <div style="margin-top: 4px;">Kurt-Schumacher-Damm 1</div>
-                    <div>13405 Berlin, Deutschland</div>
+                    <div class="bold fs-lg">${esc(receiptShopName)}</div>
+                    ${receiptShopAddress ? `<div style="margin-top: 4px;">${esc(receiptShopAddress)}</div>` : ''}
                 </div>
 
                 <div class="divider"></div>
 
                 <div style="font-size: 10px;">
-                    <div>Datum: ${txn.date} ${txn.time}</div>
-                    <div>Beleg-Nr: ${txn.id}</div>
-                    <div>Verkäufer: ${txn.soldBy || 'Shop'}</div>
+                    <div>Datum: ${esc(txn.date)} ${esc(txn.time)}</div>
+                    <div>Beleg-Nr: ${esc(txn.transactionId || txn.id)}</div>
+                    ${groupCount > 1 ? `<div>Positionen: ${groupCount}</div>` : ''}
                 </div>
 
                 <div class="divider"></div>
 
                 <table>
                     <tr class="bold">
-                        <td>Artik.</td>
+                        <td>Artikel</td>
                         <td class="text-right">Menge</td>
-                        <td class="text-right">Total</td>
+                        <td class="text-right">Betrag</td>
                     </tr>
-                    <tr>
-                        <td>
-                            ${txn.name || txn.desc}<br/>
-                            ${txn.verifiedAttributes ? Object.entries(txn.verifiedAttributes)
-                .filter(([_, v]) => v)
-                .map(([k, v]) => `<span style="font-size: 9px;">${k.toUpperCase()}: ${v}</span>`)
-                .join('<br/>') : ''}
-                        </td>
-                        <td class="text-right">${qty}</td>
-                        <td class="text-right">€${amount.toFixed(2)}</td>
-                    </tr>
+                    ${printRows}
                 </table>
 
                 <div class="divider"></div>
@@ -137,40 +187,31 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                 <table class="bold">
                     <tr>
                         <td>Zwischensumme</td>
-                        <td class="text-right">€${amount.toFixed(2)}</td>
+                        <td class="text-right">EUR ${amount.toFixed(2)}</td>
                     </tr>
                 </table>
 
-                <table style="font-size: 10px;">
-                    <tr>
-                        <td>Netto (19%)</td>
-                        <td class="text-right">€${net.toFixed(2)}</td>
-                    </tr>
-                    <tr>
-                        <td>USt (19%)</td>
-                        <td class="text-right">€${tax.toFixed(2)}</td>
-                    </tr>
-                </table>
+                ${taxRows}
 
                 <table class="bold fs-lg" style="border-top: 1px solid #000; padding-top: 4px; margin-top: 4px;">
                     <tr>
                         <td>GESAMTBETRAG</td>
-                        <td class="text-right">€${amount.toFixed(2)}</td>
+                        <td class="text-right">EUR ${amount.toFixed(2)}</td>
                     </tr>
                 </table>
 
                 <div class="divider"></div>
-                
+
                 <div style="margin-top: 10px; font-size: 9px;">
-                    <div>Zahlart: Receipt Record</div>
-                    <div style="margin-top: 8px; font-style: italic;">
-                        KOPIE DES BELEGS (COPY OF RECEIPT)
+                    <div>Zahlungsart: ${esc(txn.paymentMethod || 'Bar')}</div>
+                    <div style="margin-top: 8px;">
+                        Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.
                     </div>
                 </div>
 
                 <div class="text-center footer-text" style="margin-top: 25px;">
-                    <div>Vielen Dank für Ihren Besuch!</div>
-                    <div class="bold">SumUp POS Sync</div>
+                    <div>Vielen Dank fuer Ihren Einkauf!</div>
+                    <div class="bold">${esc(receiptShopName)}</div>
                 </div>
             </body>
             </html>
@@ -349,25 +390,25 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                             <span className="text-lg font-bold text-emerald-600">€{amount.toFixed(2)}</span>
                                         </div>
                                     </div>
-                                </section>
-
-                                <section>
-                                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Tax Inclusion (19%)</h3>
-                                    <div className="space-y-2 px-1">
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-slate-500">Netto</span>
-                                            <span className="text-slate-700">€{net.toFixed(2)}</span>
+                                </section>                                {showTax && (
+                                    <section>
+                                        <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Tax Inclusion (19%)</h3>
+                                        <div className="space-y-2 px-1">
+                                            <div className="flex justify-between text-sm">
+                                                <span className="text-slate-500">Netto</span>
+                                                <span className="text-slate-700">€{net.toFixed(2)}</span>
+                                            </div>
+                                            <div className="flex justify-between text-sm">
+                                                <span className="text-slate-500">USt (Tax)</span>
+                                                <span className="text-slate-700">€{tax.toFixed(2)}</span>
+                                            </div>
+                                            <div className="flex justify-between pt-2 border-t border-slate-100">
+                                                <span className="text-sm font-bold text-slate-800">Brutto</span>
+                                                <span className="text-sm font-bold text-slate-800">€{amount.toFixed(2)}</span>
+                                            </div>
                                         </div>
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-slate-500">USt (Tax)</span>
-                                            <span className="text-slate-700">€{tax.toFixed(2)}</span>
-                                        </div>
-                                        <div className="flex justify-between pt-2 border-t border-slate-100">
-                                            <span className="text-sm font-bold text-slate-800">Brutto</span>
-                                            <span className="text-sm font-bold text-slate-800">€{amount.toFixed(2)}</span>
-                                        </div>
-                                    </div>
-                                </section>
+                                    </section>
+                                )}
                             </div>
 
                             {/* Customer & Metadata */}
@@ -385,8 +426,8 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                     <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Metadata</h3>
                                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                         <div className="flex justify-between items-center mb-2">
-                                            <span className="text-xs text-slate-500">Sold By</span>
-                                            <span className="text-xs font-bold text-slate-800">{txn.soldBy || 'Unknown'}</span>
+                                            <span className="text-xs text-slate-500">Salesman No.</span>
+                                            <span className="text-xs font-bold text-slate-800">{salesmanLabel}</span>
                                         </div>
                                         {displayPurchaseFrom && (
                                             <div className="flex justify-between items-center mb-2">
@@ -485,3 +526,5 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
         </div>
     );
 }
+
+

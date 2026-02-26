@@ -4,7 +4,11 @@ export default function TotalBar({
     totalIncome = 0, totalExpense = 0, netAmount = 0,
     incomeCount = 0, expenseCount = 0,
     incomeBreakdown = { cash: 0, visa: 0, online: 0 },
-    expenseBreakdown = { cash: 0, visa: 0, online: 0 }
+    expenseBreakdown = { cash: 0, visa: 0, online: 0 },
+    incomeLabel = "Today's Sale",
+    expenseLabel = 'Total Purchase',
+    netLabel = 'Net Amount',
+    netSubLabel = null
 }) {
     const toAmount = (value) => parseFloat(value) || 0;
 
@@ -33,6 +37,7 @@ export default function TotalBar({
         visa: normalizedIncomeBreakdown.visa - normalizedExpenseBreakdown.visa,
         online: normalizedIncomeBreakdown.online - normalizedExpenseBreakdown.online,
     };
+    const resolvedNetSubLabel = netSubLabel || `${netAmount >= 0 ? 'Profit' : 'Loss'} for selected period`;
 
     const Tooltip = ({ data, title }) => {
         const total = toAmount(data.cash) + toAmount(data.visa) + toAmount(data.online);
@@ -77,7 +82,7 @@ export default function TotalBar({
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M7 11l5-5m0 0l5 5m-5-5v12" />
                                 </svg>
                             </div>
-                            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Today's Sale</span>
+                            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">{incomeLabel}</span>
                         </div>
                         <p className="text-xl sm:text-2xl font-black text-emerald-700">{priceTag(totalIncome)}</p>
                         <p className="text-[10px] text-emerald-500 mt-0.5">{incomeCount} transactions</p>
@@ -95,7 +100,7 @@ export default function TotalBar({
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M17 13l-5 5m0 0l-5-5m5 5V6" />
                                 </svg>
                             </div>
-                            <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Total Purchase</span>
+                            <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider">{expenseLabel}</span>
                         </div>
                         <p className="text-xl sm:text-2xl font-black text-red-700">{priceTag(totalExpense)}</p>
                         <p className="text-[10px] text-red-500 mt-0.5">{expenseCount} transactions</p>
@@ -117,14 +122,14 @@ export default function TotalBar({
                                 </svg>
                             </div>
                             <span className={`text-[10px] font-bold uppercase tracking-wider ${netAmount >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-                                Net Amount
+                                {netLabel}
                             </span>
                         </div>
                         <p className={`text-xl sm:text-2xl font-black ${netAmount >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
                             {priceTag(netAmount)}
                         </p>
                         <p className={`text-[10px] mt-0.5 ${netAmount >= 0 ? 'text-blue-500' : 'text-orange-500'}`}>
-                            {netAmount >= 0 ? 'Profit' : 'Loss'} today
+                            {resolvedNetSubLabel}
                         </p>
                     </div>
                 </div>

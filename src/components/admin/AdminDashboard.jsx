@@ -121,6 +121,21 @@ export default function AdminDashboard() {
     const formattedStartDate = targetDateStart.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
     const formattedEndDate = targetDateEnd.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
     const formattedDisplayDate = formattedStartDate === formattedEndDate ? formattedStartDate : `${formattedStartDate} - ${formattedEndDate}`;
+    const todayKey = new Date().toDateString();
+    const isSingleDaySelection = targetDateStart.toDateString() === targetDateEnd.toDateString();
+    const isTodaySelection = isSingleDaySelection && targetDateStart.toDateString() === todayKey;
+    const selectedRangeDays = Math.max(1, Math.floor((targetDateEnd.getTime() - targetDateStart.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    const isMonthSelection = targetDateStart.getDate() === 1
+        && targetDateEnd.getDate() === new Date(targetDateEnd.getFullYear(), targetDateEnd.getMonth() + 1, 0).getDate()
+        && targetDateStart.getMonth() === targetDateEnd.getMonth()
+        && targetDateStart.getFullYear() === targetDateEnd.getFullYear();
+    const kpiPeriodLabel = isTodaySelection
+        ? 'Today'
+        : (isSingleDaySelection
+            ? formattedStartDate
+            : (isMonthSelection
+                ? targetDateStart.toLocaleDateString('en-PK', { month: 'long', year: 'numeric' })
+                : (selectedRangeDays === 7 ? `Week ${formattedDisplayDate}` : formattedDisplayDate)));
 
     const allAttendanceLogs = useMemo(() => {
         return attendanceLogs
@@ -287,6 +302,9 @@ export default function AdminDashboard() {
     const totalIncome = incomeTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
     const totalExpense = expenseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
     const netAmount = totalIncome - totalExpense;
+    const kpiSalesLabel = isTodaySelection ? "Today's Sale" : `Sales (${kpiPeriodLabel})`;
+    const kpiPurchaseLabel = isTodaySelection ? 'Total Purchase' : `Purchases (${kpiPeriodLabel})`;
+    const kpiNetSubLabel = `${netAmount >= 0 ? 'Profit' : 'Loss'} (${kpiPeriodLabel})`;
 
     // ── Category Aggregation ──
     const aggregateByCategory = (txns) => {
@@ -456,6 +474,9 @@ export default function AdminDashboard() {
                 expenseCount={expenseTransactions.length}
                 incomeBreakdown={incomeBreakdown}
                 expenseBreakdown={expenseBreakdown}
+                incomeLabel={kpiSalesLabel}
+                expenseLabel={kpiPurchaseLabel}
+                netSubLabel={kpiNetSubLabel}
             />
 
             {/* ═══ MAIN CONTENT SCROLL ═══ */}
@@ -514,7 +535,7 @@ export default function AdminDashboard() {
                                             </div>
                                             <div className="text-right">
                                                 <p className="font-mono font-bold text-slate-800 text-sm">{hours}h {minutes}m</p>
-                                                <p className="text-[10px] text-slate-400">Today's Production</p>
+                                                <p className="text-[10px] text-slate-400">Production ({kpiPeriodLabel})</p>
                                             </div>
                                         </div>
                                         {/* Live Salary Row */}
@@ -528,7 +549,7 @@ export default function AdminDashboard() {
                                             ) : null}
                                             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-100 rounded-xl" title={`${stat.totalHours.toFixed(2)}h × €${hourlyRate}/hr`}>
                                                 <span className="text-xs font-bold text-violet-700 font-mono">€{totalEarnedToday.toFixed(2)}</span>
-                                                <span className="text-[9px] text-violet-500">today ({stat.totalHours.toFixed(1)}h)</span>
+                                                <span className="text-[9px] text-violet-500">{kpiPeriodLabel} ({stat.totalHours.toFixed(1)}h)</span>
                                             </div>
                                             {paidToday > 0 && (
                                                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-xl">
@@ -712,9 +733,9 @@ export default function AdminDashboard() {
                                     <p className="text-[10px]">No sales yet</p>
                                 </div>
                             ) : (
-                                <div className="space-y-1.5 max-h-[210px] overflow-y-auto pr-1 custom-scrollbar">
-                                    {incomeByCategory.map(([cat, data]) => (
-                                        <div key={cat} className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100/50 hover:bg-emerald-50 transition-colors">
+                                <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                                    {incomeByCategory.slice(0, 10).map(([cat, data]) => (
+                                        <div key={cat} className="min-w-[220px] flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100/50 hover:bg-emerald-50 transition-colors">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-8 h-8 rounded-lg bg-white border border-emerald-100 flex items-center justify-center overflow-hidden flex-shrink-0">
                                                     {getCategoryImage(cat) ? (
@@ -767,9 +788,9 @@ export default function AdminDashboard() {
                                     <p className="text-[10px]">No purchases yet</p>
                                 </div>
                             ) : (
-                                <div className="space-y-1.5 max-h-[210px] overflow-y-auto pr-1 custom-scrollbar">
-                                    {expenseByCategory.map(([cat, data]) => (
-                                        <div key={cat} className="flex items-center justify-between p-2.5 rounded-xl bg-red-50/50 border border-red-100/50 hover:bg-red-50 transition-colors">
+                                <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                                    {expenseByCategory.slice(0, 10).map(([cat, data]) => (
+                                        <div key={cat} className="min-w-[220px] flex items-center justify-between p-2.5 rounded-xl bg-red-50/50 border border-red-100/50 hover:bg-red-50 transition-colors">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-8 h-8 rounded-lg bg-white border border-red-100 flex items-center justify-center overflow-hidden flex-shrink-0">
                                                     {getCategoryImage(cat) ? (
@@ -1106,3 +1127,4 @@ export default function AdminDashboard() {
         </div>
     );
 }
+

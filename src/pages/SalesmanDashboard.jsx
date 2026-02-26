@@ -1,332 +1,821 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Draggable from 'react-draggable';
+import { BarChart3, Bell, Calculator, CircleDollarSign, ClipboardList, Menu, Receipt, Scale, Search, ShoppingCart, Sparkles, Wrench, CircleHelp, Wallet } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
-import { useCart } from '../context/CartContext';
-import TotalBar from '../components/TotalBar';
-import TransactionList from '../components/TransactionList';
-import TransactionModal from '../components/TransactionModal';
-import CartSidebar from '../components/CartSidebar';
-import SalesmanProfile from '../components/SalesmanProfile';
-import SmartCategoryForm from '../components/SmartCategoryForm';
-import CategoryManagerModal from '../components/CategoryManagerModal';
-import { generateId } from '../data/inventoryStore';
 import { priceTag } from '../utils/currency';
+import { resolveRelatedFields } from '../data/transactionFieldConfig';
+import SalesmanProfile from '../components/SalesmanProfile';
+import CategoryManagerModal from '../components/CategoryManagerModal';
 import RepairModal from '../components/RepairModal';
-import CompleteRepairModal from '../components/admin/CompleteRepairModal';
 import { useRepairs } from '../context/RepairsContext';
 
-const SALESMAN_LOCK_NAMESPACE = 'dailybooks_salesman_lock_v1';
+const ADD_NEW = '__add_new__';
+const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
+const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
 
-function getSessionStorageSafe() {
-    try {
-        if (typeof window === 'undefined') return null;
-        return window.sessionStorage;
-    } catch {
-        return null;
-    }
+const newCompactForm = () => ({
+    barcode: '',
+    name: '',
+    amount: '',
+    quantity: '1',
+    category: '',
+    subcategory: '',
+    paymentMode: 'Cash',
+    notes: '',
+    productId: '',
+    relatedFields: {},
+});
+
+const newQuickSaleItem = () => ({
+    productId: '',
+    barcode: '',
+    name: '',
+    category: '',
+    quantity: '1',
+    amount: '',
+    paymentMode: 'Cash',
+    notes: '',
+});
+
+
+function compactFieldSummary(fields) {
+    return Object.entries(fields || {})
+        .filter(([, value]) => String(value || '').trim() !== '')
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(' | ');
 }
 
-// ══════════════════════════════════════════════════════════
-// DailyBooks — Salesman Dashboard
-// Category Containers + Transaction History + FABs
-// ══════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════
+function normalizePaymentKey(value) {
+    const raw = String(value || 'cash').trim().toLowerCase();
+    if (!raw) return 'cash';
+    if (raw.includes('sumup')) return 'sumup';
+    if (raw.includes('cash')) return 'cash';
+    return raw;
+}
+
+function buildPaymentBreakdown(transactions = []) {
+    return transactions.reduce((acc, txn) => {
+        const key = normalizePaymentKey(txn.paymentMethod);
+        const amount = parseFloat(txn.amount) || 0;
+        acc[key] = (acc[key] || 0) + amount;
+        return acc;
+    }, {});
+}
+
+function toBreakdownRows(map = {}) {
+    const rows = Object.entries(map)
+        .map(([key, total]) => ({
+            key,
+            label: key === 'sumup' ? 'SumUp' : key.charAt(0).toUpperCase() + key.slice(1),
+            total,
+        }))
+        .sort((a, b) => b.total - a.total);
+    return rows.length ? rows : [{ key: 'cash', label: 'Cash', total: 0 }];
+}
+
+function onlineOrderStorageKey(user) {
+    return `dailybooks_online_orders_v1:${String(user?.shop_id || '')}:${String(user?.id || '')}`;
+}
+
+function todayIsoDate() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function randomOnlineOrderId() {
+    return `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
+}
+
+function newOnlineOrderForm() {
+    return {
+        orderId: randomOnlineOrderId(),
+        platform: '',
+        itemName: '',
+        category: '',
+        color: '',
+        customColor: '',
+        quantity: '1',
+        amount: '',
+        orderDate: todayIsoDate(),
+        paymentStatus: 'Paid',
+        notes: '',
+    };
+}
+
+function extractCategoryName(category) {
+    if (!category) return '';
+    if (typeof category === 'string') return category;
+    return category.level1 || '';
+}
+
+function resolveProductSnapshot(product = {}) {
+    const categoryRaw = product.category || product.productCategory || product.cat || '';
+    const sellingPrice = Number(
+        product.sellingPrice ?? product.salePrice ?? product.price ?? product.selling_price ?? 0
+    ) || 0;
+    const purchasePrice = Number(
+        product.purchasePrice ?? product.costPrice ?? product.buyPrice ?? product.purchase_price ?? 0
+    ) || 0;
+
+    return {
+        id: String(product.id ?? product.productId ?? product.product_id ?? ''),
+        name: String(product.name || product.productName || product.title || product.desc || '').trim(),
+        barcode: String(product.barcode || product.barCode || product.sku || product.code || '').trim(),
+        category: extractCategoryName(categoryRaw) || String(product.categoryName || 'General'),
+        subCategory: typeof categoryRaw === 'object' ? String(categoryRaw.level2 || '') : '',
+        stock: Number(product.stock ?? product.qty ?? product.quantity ?? 0) || 0,
+        sellingPrice,
+        purchasePrice,
+        raw: product,
+    };
+}
+
+function categoryTotals(transactions) {
+    const map = new Map();
+    transactions.forEach((txn) => {
+        const cat = extractCategoryName(txn.category) || 'General';
+        const current = map.get(cat) || { total: 0, count: 0 };
+        current.total += (parseFloat(txn.amount) || 0);
+        current.count += 1;
+        map.set(cat, current);
+    });
+
+    return Array.from(map.entries())
+        .map(([name, value]) => ({ name, total: Number(value.total.toFixed(2)), count: value.count }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 8);
+}
+
+function MiniDonut({ items }) {
+    const [hoveredSlice, setHoveredSlice] = useState(-1);
+    const source = (items || []).slice(0, 5);
+    const total = source.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+    const activeIndex = hoveredSlice >= 0 ? hoveredSlice : 0;
+
+    if (!source.length || total <= 0) {
+        return <div className="h-40 w-40 rounded-full border border-white/15 bg-slate-900/60" />;
+    }
+
+    const radius = 60;
+    const stroke = 18;
+    const circumference = 2 * Math.PI * radius;
+    const colors = ['#8EE9DF', '#47C6AA', '#609AF8', '#FF7A85', '#9CA3AF'];
+
+    let offsetProgress = 0;
+    const segments = source.map((row, index) => {
+        const ratio = (Number(row.total) || 0) / total;
+        const dash = ratio * circumference;
+        const segment = {
+            index,
+            name: row.name,
+            total: row.total,
+            count: row.count,
+            color: colors[index % colors.length],
+            dash,
+            offset: -offsetProgress,
+        };
+        offsetProgress += dash;
+        return segment;
+    });
+
+    return (
+        <div className="relative h-40 w-40">
+            <svg viewBox="0 0 160 160" className="h-40 w-40 -rotate-90">
+                <circle cx="80" cy="80" r={radius} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
+                {segments.map((seg) => (
+                    <circle
+                        key={seg.index}
+                        cx="80"
+                        cy="80"
+                        r={radius}
+                        fill="none"
+                        stroke={seg.color}
+                        strokeWidth={hoveredSlice === seg.index ? stroke + 5 : stroke}
+                        strokeDasharray={`${seg.dash} ${circumference - seg.dash}`}
+                        strokeDashoffset={seg.offset}
+                        strokeLinecap="butt"
+                        className="cursor-pointer transition-all duration-200"
+                        style={{
+                            opacity: hoveredSlice === -1 || hoveredSlice === seg.index ? 1 : 0.35,
+                            filter: hoveredSlice === seg.index ? 'drop-shadow(0 0 6px rgba(14,165,233,0.45))' : 'none',
+                        }}
+                        onMouseEnter={() => setHoveredSlice(seg.index)}
+                        onMouseLeave={() => setHoveredSlice(-1)}
+                    />
+                ))}
+            </svg>
+
+            <div className={`absolute inset-0 flex flex-col items-center justify-center rounded-full pointer-events-none transition-transform duration-200 ${hoveredSlice >= 0 ? 'scale-[1.06]' : 'scale-100'}`}>
+                <p className="text-[10px] font-semibold text-slate-500">{segments[activeIndex]?.name || 'Category'}</p>
+                <p className="text-xs font-bold text-slate-700">{priceTag(segments[activeIndex]?.total || 0)}</p>
+                <p className="text-[10px] text-slate-400">{segments[activeIndex]?.count || 0} items</p>
+            </div>
+        </div>
+    );
+}
+
+function CompactTrendCard({ label, value, colorClass }) {
+    const iconMap = {
+        'Total Revenue': <CircleDollarSign size={16} />,
+        'Total Expenses': <Receipt size={16} />,
+        'Total Income': <Wallet size={16} />,
+    };
+
+    return (
+        <div
+            className={`kpi-animate-card relative rounded-2xl border px-3 py-3 bg-white shadow-sm ${colorClass}`}
+        >
+            <div className="flex items-center gap-2 text-slate-500">
+                {iconMap[label] || <BarChart3 size={16} />}
+                <p className="text-[11px] font-semibold">{label}</p>
+            </div>
+            <p className={`text-lg font-black mt-1 ${
+                label === 'Total Revenue' ? 'text-emerald-700' :
+                    label === 'Total Expenses' ? 'text-rose-700' :
+                        'text-blue-800'
+                }`}>{priceTag(value)}</p>
+
+            <div className="absolute right-3 top-3 opacity-70">
+                {label === 'Total Revenue' ? (
+                    <svg width="84" height="28" viewBox="0 0 84 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M2 22C9 22 12 22 16 18C20 14 24 8 31 10C38 12 38 20 45 20C52 20 53 10 60 10C67 10 70 16 77 16C80 16 82 14 82 14" stroke="#B6F7EE" strokeWidth="2.5" strokeLinecap="round" />
+                    </svg>
+                ) : label === 'Total Income' ? (
+                    <Scale size={26} className="text-blue-200" />
+                ) : (
+                    <Receipt size={24} className="text-rose-400" />
+                )}
+            </div>
+
+        </div>
+    );
+}
 
 export default function SalesmanDashboard() {
     const navigate = useNavigate();
+    const { role, user, isPunchedIn, activeShop, billShowTax } = useAuth();
     const {
-        products, transactions, addTransaction, lookupBarcode,
-        searchProducts, getLowStockProducts, addProduct,
-        adjustStock, getCategoryImage
+        transactions,
+        lookupBarcode,
+        searchProducts,
+        addTransaction,
+        adjustStock,
+        getCategoryImage,
+        getLevel1Categories,
+        getLevel2Categories,
+        addLevel1Category,
+        addLevel2Category,
     } = useInventory();
-    const { role, user, logout: authLogout, lowStockAlerts, clearAlert, clearAllAlerts, attendanceLogs, isPunchedIn, autoLockEnabled, autoLockTimeout } = useAuth();
+    const { repairJobs } = useRepairs();
+    const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
 
-    // ── Auth Check ──
-    useEffect(() => {
-        if (!user || role !== 'salesman') {
-            navigate('/');
-        }
-    }, [user, role, navigate]);
-
-
-    // ── Attendance Log Logic ──
-    // const isPunchedIn = ... // logic moved to AuthContext
-
-
-    // ── Profile Modal ──
     const [showProfileModal, setShowProfileModal] = useState(false);
+    const [showCategoryModal, setShowCategoryModal] = useState(false);
     const [showRepairModal, setShowRepairModal] = useState(false);
-    const [showPendingDrawer, setShowPendingDrawer] = useState(false);
-    const [searchTerm, setSearchTerm] = useState(''); // Lifted search state
-
-    // Modal State for Complete Repair
-    const [completingJob, setCompletingJob] = useState(null);
-
-    // ── Repairs ──
-    const { repairJobs, updateRepairStatus } = useRepairs();
-    const { cart, addToCart, setEditingCartItem } = useCart();
-    const pendingRepairs = repairJobs.filter(j => j.status === 'pending');
-
-    // Cart edit state
-    const [editingCartItemData, setEditingCartItemData] = useState(null);
-    const [showCartToast, setShowCartToast] = useState(false);
-
-    const handleCompleteRepair = (job) => {
-        setCompletingJob(job);
-        // We close the pending drawer so modal is prominent
-        setShowPendingDrawer(false);
-    };
-
-    const handleConfirmComplete = (completionData) => {
-        const { finalAmount, partsUsed, totalPartsCost } = completionData;
-        const job = completingJob;
-
-        // 1. Dispatch custom event for cross-context stock deduction
-        window.dispatchEvent(new CustomEvent('update-inventory-stock', { detail: { partsUsed } }));
-
-        // 2. Update Repair Job
-        updateRepairStatus(job.id, 'completed', {
-            finalAmount,
-            partsUsed,
-            partsCost: totalPartsCost
-        });
-
-        // 3. Add Transaction
-        addTransaction({
-            id: Date.now(),
-            desc: `Repair Service: ${job.deviceModel} (${job.refId})`,
-            amount: finalAmount,
-            type: 'income',
-            category: 'Repair Service',
-            notes: `Customer: ${job.customerName} | ${job.problem} | Parts Cost: €${totalPartsCost.toFixed(2)}`,
-            source: 'repair',
-            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            timestamp: new Date().toISOString(),
-        });
-
-        setCompletingJob(null);
-    };
-
-    // ── Access Control ──
-    const checkAccess = () => {
-        if (!isPunchedIn) {
-            alert("⚠️ Usage Restricted\n\nPlease 'Punch In' to perform transactions or access inventory.");
-            setShowProfileModal(true); // Open profile to let them punch in
-            return false;
-        }
-        return true;
-    };
-
-    // ── Search + Product Modal ──
-    const [searchQuery, setSearchQuery] = useState('');
-    const [suggestions, setSuggestions] = useState([]);
-    const [showTransactionModal, setShowTransactionModal] = useState(false);
-    const [selectedProduct, setSelectedProduct] = useState(null);
-
-    // ── Inventory Form Mode ──
-    const [formMode, setFormMode] = useState('inventory'); // 'inventory' | 'purchase'
-
-    // ── Inventory Form & Calc ──
-    const [showInventoryForm, setShowInventoryForm] = useState(false);
-    const [showCategoryManager, setShowCategoryManager] = useState(false);
+    const [activeForm, setActiveForm] = useState('');
+    const [toast, setToast] = useState('');
+    const [paymentModes, setPaymentModes] = useState(DEFAULT_PAYMENT_MODES);
+    const [form, setForm] = useState(newCompactForm());
+    const [realtimeStats, setRealtimeStats] = useState(null);
+    const [showPendingOrders, setShowPendingOrders] = useState(false);
+    const [pendingTab, setPendingTab] = useState('orders');
+    const [onlineOrders, setOnlineOrders] = useState([]);
+    const [showOnlineOrderForm, setShowOnlineOrderForm] = useState(false);
+    const [onlineOrderForm, setOnlineOrderForm] = useState(newOnlineOrderForm());
+    const [barcodeMatches, setBarcodeMatches] = useState([]);
+    const [showBarcodeMatches, setShowBarcodeMatches] = useState(false);
+    const [selectedProductPreview, setSelectedProductPreview] = useState(null);
+    const [topBarcodeQuery, setTopBarcodeQuery] = useState('');
+    const [topBarcodeMatches, setTopBarcodeMatches] = useState([]);
+    const [showTopBarcodeMatches, setShowTopBarcodeMatches] = useState(false);
     const [showCalc, setShowCalc] = useState(false);
     const [calcDisplay, setCalcDisplay] = useState('0');
-    const [showSuccess, setShowSuccess] = useState(false);
     const [calcPrev, setCalcPrev] = useState(null);
     const [calcOp, setCalcOp] = useState(null);
-    const calcNodeRef = useRef(null);
-    const searchInputRef = useRef(null); // ADDED FOR AUTO-FOCUS
+    const [showQuickSaleModal, setShowQuickSaleModal] = useState(false);
+    const [quickSaleForm, setQuickSaleForm] = useState(newQuickSaleItem());
+    const [quickSaleCart, setQuickSaleCart] = useState([]);
 
-    // ── Scanner Buffer ──
-    const scanBufferRef = useRef('');
-    const lastKeyTimeRef = useRef(0);
-    const scanTimeoutRef = useRef(null);
-    const SCAN_SPEED_THRESHOLD = 80;
+    useEffect(() => {
+        if (!user || role !== 'salesman') navigate('/');
+    }, [navigate, role, user]);
 
-    // ═══════════════════ AUTO-LOCK (INACTIVITY TIMER) STATES ═══════════════════
 
-    const [isLocked, setIsLocked] = useState(false);
-    const [unlockPin, setUnlockPin] = useState('');
-    const [unlockError, setUnlockError] = useState(false);
-    const lockTimerRef = useRef(null);
-    const debounceRef = useRef(null);
-    const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
+    const dayStart = useMemo(() => {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        return d;
+    }, [transactions]);
 
-    const readLastActivityAt = useCallback(() => {
-        const storage = getSessionStorageSafe();
-        if (!storage) return Date.now();
-        const raw = storage.getItem(lockStateKey);
-        if (!raw) return Date.now();
-        try {
-            const parsed = JSON.parse(raw);
-            return Number(parsed?.lastActivityAt) || Date.now();
-        } catch {
-            return Date.now();
-        }
-    }, [lockStateKey]);
+    const todayTransactions = useMemo(
+        () => transactions.filter((txn) => {
+            const dt = txn?.timestamp ? new Date(txn.timestamp) : null;
+            return dt && !Number.isNaN(dt.getTime()) && dt >= dayStart;
+        }),
+        [transactions, dayStart]
+    );
 
-    const writeLastActivityAt = useCallback((nextLastActivityAt = Date.now()) => {
-        const storage = getSessionStorageSafe();
-        if (!storage) return;
-        storage.setItem(lockStateKey, JSON.stringify({
-            lastActivityAt: Number(nextLastActivityAt) || Date.now()
-        }));
-    }, [lockStateKey]);
+    const revenueTransactions = useMemo(
+        () => todayTransactions.filter((txn) => txn.type === 'income'),
+        [todayTransactions]
+    );
+    const purchaseTransactions = useMemo(
+        () => todayTransactions.filter((txn) => txn.type === 'expense' && (txn.source === 'purchase' || String(txn.desc || '').toLowerCase().includes('purchase'))),
+        [todayTransactions]
+    );
 
-    // ═══════════════════ COMPUTED ═══════════════════
+    const fallbackStats = useMemo(() => {
+        const totalRevenue = revenueTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+        const totalExpenses = purchaseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+        return {
+            totals: {
+                revenue: totalRevenue,
+                expenses: totalExpenses,
+                income: totalRevenue - totalExpenses,
+            },
+        };
+    }, [purchaseTransactions, revenueTransactions]);
 
-    const todayDate = new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
-    const currentTime = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
-
-    // Filter out salary transactions — salesmen shouldn't see their own salary info
-    const visibleTransactions = transactions.filter(t => t.category !== 'Salary');
-
-    const todayTransactions = visibleTransactions.filter(t => t.date === todayDate);
-    const incomeTransactions = todayTransactions.filter(t => t.type === 'income');
-    const expenseTransactions = todayTransactions.filter(t => t.type === 'expense');
-    const totalIncome = incomeTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const totalExpense = expenseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const netAmount = totalIncome - totalExpense;
-
-    const getBreakdown = (txns) => {
-        return txns.reduce((acc, t) => {
-            const method = String(t.paymentMethod || 'cash').toLowerCase();
-            const amt = parseFloat(t.amount) || 0;
-            if (acc[method] !== undefined) {
-                acc[method] += amt;
-            } else {
-                acc.cash += amt;
-            }
-            return acc;
-        }, { cash: 0, visa: 0, online: 0 });
-    };
-
-    const incomeBreakdown = getBreakdown(incomeTransactions);
-    const expenseBreakdown = getBreakdown(expenseTransactions);
-
-    // ── Category Aggregation ──
-    const aggregateByCategory = (txns) => {
-        const map = {};
-        txns.forEach(t => {
-            const cat = typeof t.category === 'object' ? (t.category?.level1 || 'General') : (t.category || 'General');
-            if (!map[cat]) map[cat] = { total: 0, count: 0 };
-            map[cat].total += parseFloat(t.amount) || 0;
-            map[cat].count += 1;
+    const revenueBreakdown = useMemo(() => buildPaymentBreakdown(revenueTransactions), [revenueTransactions]);
+    const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(purchaseTransactions), [purchaseTransactions]);
+    const incomeBreakdown = useMemo(() => {
+        const keys = new Set([...Object.keys(revenueBreakdown), ...Object.keys(purchaseBreakdown)]);
+        const combined = {};
+        keys.forEach((key) => {
+            combined[key] = (revenueBreakdown[key] || 0) - (purchaseBreakdown[key] || 0);
         });
-        return Object.entries(map).sort((a, b) => b[1].total - a[1].total);
+        return combined;
+    }, [purchaseBreakdown, revenueBreakdown]);
+
+    useEffect(() => {
+        const endpoint = import.meta.env.VITE_CF_DO_STATS_URL;
+        if (!endpoint) {
+            setRealtimeStats(null);
+            return undefined;
+        }
+
+        let cancelled = false;
+        const pull = async () => {
+            try {
+                const res = await fetch(endpoint, { cache: 'no-store' });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (cancelled || !data || !data.totals || !data.trend) return;
+                setRealtimeStats(data);
+            } catch {
+                setRealtimeStats(null);
+            }
+        };
+
+        pull();
+        const id = setInterval(pull, 15000);
+        return () => {
+            cancelled = true;
+            clearInterval(id);
+        };
+    }, []);
+
+    const activeStats = realtimeStats || fallbackStats;
+
+    const l1OptionsRaw = getLevel1Categories() || [];
+    const l1Options = l1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+    const l2OptionsRaw = form.category ? (getLevel2Categories(form.category) || []) : [];
+    const l2Options = l2OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+    const relatedFieldSchema = useMemo(
+        () => form.subcategory ? resolveRelatedFields(activeForm, form.category, form.subcategory) : [],
+        [activeForm, form.category, form.subcategory]
+    );
+
+    const applySelectedProduct = (product, mode = activeForm) => {
+        if (!product) return;
+        const resolved = resolveProductSnapshot(product);
+        const mainCategory = resolved.category;
+        const subCategory = resolved.subCategory;
+        const autoDetails = {
+            dbName: resolved.name || '',
+            dbBarcode: resolved.barcode || '',
+            dbStock: String(resolved.stock ?? ''),
+            dbSellingPrice: String(resolved.sellingPrice ?? ''),
+            dbPurchasePrice: String(resolved.purchasePrice ?? ''),
+            dbCategory: mainCategory || '',
+            dbSubCategory: subCategory || '',
+        };
+
+        setSelectedProductPreview(resolved.raw || product);
+        setForm((prev) => ({
+            ...prev,
+            productId: resolved.id || prev.productId,
+            barcode: resolved.barcode || prev.barcode,
+            name: resolved.name || prev.name,
+            amount: String(mode === 'purchase'
+                ? (resolved.purchasePrice || prev.amount || '')
+                : (resolved.sellingPrice || prev.amount || '')),
+            category: mainCategory || prev.category,
+            subcategory: subCategory || prev.subcategory,
+            relatedFields: {
+                ...(prev.relatedFields || {}),
+                ...autoDetails,
+            },
+        }));
     };
-    const incomeByCategory = aggregateByCategory(incomeTransactions);
-    const expenseByCategory = aggregateByCategory(expenseTransactions);
 
-    // ═══════════════════ SEARCH ═══════════════════
-
-    const handleSearchChange = (val) => {
-        setSearchQuery(val);
-        if (!val.trim()) { setSuggestions([]); return; }
-        setSuggestions(searchProducts(val.trim()).slice(0, 6));
+    const openSalesFormWithProduct = (product) => {
+        if (!product) return;
+        const resolved = resolveProductSnapshot(product);
+        setQuickSaleForm({
+            productId: resolved.id,
+            barcode: resolved.barcode,
+            name: resolved.name,
+            category: resolved.category || 'General',
+            quantity: '1',
+            amount: String(resolved.sellingPrice || ''),
+            paymentMode: 'Cash',
+            notes: resolved.stock ? `Stock: ${resolved.stock}` : '',
+        });
+        setQuickSaleCart([]);
+        setShowQuickSaleModal(true);
+        setActiveForm('');
+        setShowTopBarcodeMatches(false);
+        setShowBarcodeMatches(false);
     };
 
-    const handleSearchSubmit = (e) => {
-        e.preventDefault();
-        if (!searchQuery.trim()) return;
-
-        // Try barcode first
-        const barcodeResult = lookupBarcode(searchQuery.trim());
-        if (barcodeResult) {
-            handleSmartScan(barcodeResult);
-            setSearchQuery('');
-            setSuggestions([]);
+    const addQuickSaleToCart = () => {
+        const qty = Math.max(1, parseInt(quickSaleForm.quantity || '1', 10) || 1);
+        const unit = parseFloat(quickSaleForm.amount || '0') || 0;
+        if (!quickSaleForm.name.trim() || unit <= 0) {
+            alert('Product name and amount are required');
             return;
         }
 
-        // Then text search
-        const results = searchProducts(searchQuery.trim());
-        if (results.length > 0) {
-            handleSmartScan(results[0]);
-            setSearchQuery('');
-            setSuggestions([]);
+        const line = {
+            id: `${Date.now()}-${Math.random().toString(16).slice(2, 7)}`,
+            productId: quickSaleForm.productId,
+            barcode: quickSaleForm.barcode,
+            name: quickSaleForm.name.trim(),
+            category: quickSaleForm.category || 'General',
+            quantity: qty,
+            amount: unit,
+            total: qty * unit,
+            paymentMode: quickSaleForm.paymentMode || 'Cash',
+            notes: quickSaleForm.notes || '',
+        };
+
+        setQuickSaleCart((prev) => [line, ...prev]);
+        setQuickSaleForm((prev) => ({ ...prev, quantity: '1', notes: '' }));
+    };
+
+    const printQuickSaleSlip = () => {
+        const lines = quickSaleCart.length
+            ? quickSaleCart
+            : (() => {
+                const qty = Math.max(1, parseInt(quickSaleForm.quantity || '1', 10) || 1);
+                const unit = parseFloat(quickSaleForm.amount || '0') || 0;
+                if (!quickSaleForm.name.trim() || unit <= 0) return [];
+                return [{ name: quickSaleForm.name.trim(), quantity: qty, amount: unit, total: qty * unit }];
+            })();
+
+        if (!lines.length) {
+            alert('No sale item to print');
+            return;
         }
+
+        const grandTotal = lines.reduce((sum, line) => sum + (line.total || 0), 0);
+        const netTotal = grandTotal / 1.19;
+        const taxTotal = grandTotal - netTotal;
+        const shopName = activeShop?.name || 'Shop';
+        const shopAddress = activeShop?.address || activeShop?.location || '';
+        const popup = window.open('', 'quick-sale-receipt', 'width=420,height=760');
+        if (!popup) return;
+
+        popup.document.write(`
+            <html>
+                <head>
+                    <title>Kassenbeleg</title>
+                    <style>
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
+                        h2,p { margin: 0; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
+                        .line { border-top:1px dashed #000; margin:8px 0; }
+                    </style>
+                </head>
+                <body>
+                    <h2>${shopName}</h2>
+                    ${shopAddress ? `<p>${shopAddress}</p>` : ''}
+                    <p>${new Date().toLocaleString('de-DE')}</p>
+                    <div class="line"></div>
+                    ${lines.map((line) => `<div class="row"><span>${line.name}</span><span>${line.quantity} x ${line.amount.toFixed(2)}</span><strong>EUR ${line.total.toFixed(2)}</strong></div>`).join('')}
+                    <div class="line"></div>
+                    <div class="row"><strong>Zwischensumme</strong><strong>EUR ${grandTotal.toFixed(2)}</strong></div>
+                    ${billShowTax ? `<div class="row"><span>Netto (19%)</span><span>EUR ${netTotal.toFixed(2)}</span></div>
+                    <div class="row"><span>USt (19%)</span><span>EUR ${taxTotal.toFixed(2)}</span></div>` : ''}
+                    <div class="row"><strong>GESAMTBETRAG</strong><strong>EUR ${grandTotal.toFixed(2)}</strong></div>
+                    <div class="line"></div>
+                    <p style="font-size:10px">Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.</p>
+                </body>
+            </html>
+        `);
+        popup.document.close();
+        popup.focus();
+        popup.print();
     };
 
-    const selectSuggestion = (product) => {
-        handleSmartScan(product);
-        setSearchQuery('');
-        setSuggestions([]);
-    };
+    const completeQuickSale = async () => {
+        if (!isPunchedIn) {
+            alert('Please punch in first');
+            setShowProfileModal(true);
+            return;
+        }
 
-    // ═══════════════════ ADD TO BILL (from TransactionModal) ═══════════════════
+        const fallbackLine = (() => {
+            const qty = Math.max(1, parseInt(quickSaleForm.quantity || '1', 10) || 1);
+            const unit = parseFloat(quickSaleForm.amount || '0') || 0;
+            if (!quickSaleForm.name.trim() || unit <= 0) return null;
+            return {
+                id: 'direct',
+                productId: quickSaleForm.productId,
+                barcode: quickSaleForm.barcode,
+                name: quickSaleForm.name.trim(),
+                category: quickSaleForm.category || 'General',
+                quantity: qty,
+                amount: unit,
+                total: qty * unit,
+                paymentMode: quickSaleForm.paymentMode || 'Cash',
+                notes: quickSaleForm.notes || '',
+            };
+        })();
 
-    const handleAddToBill = (productWithQty) => {
-        addTransaction(productWithQty);
+        const lines = quickSaleCart.length ? quickSaleCart : (fallbackLine ? [fallbackLine] : []);
+        if (!lines.length) {
+            alert('Add at least one item to complete sale');
+            return;
+        }
 
-        // Decrease Stock
-        adjustStock(productWithQty.productId || productWithQty.id, -productWithQty.quantity);
-
-        // Show Success Popup
-        setShowSuccess(true);
-        setTimeout(() => setShowSuccess(false), 2000);
-
-        setShowTransactionModal(false);
-        setSelectedProduct(null);
-        setEditingCartItemData(null);
-    };
-
-    // ── Cart Edit Handler (called from CartSidebar pencil icon) ──
-    const handleEditCartItem = (item) => {
-        setEditingCartItemData(item);
-        setEditingCartItem(item.cartItemId);
-        setShowTransactionModal(true);
-    };
-
-    // ── Smart Scan: auto-add accessories to cart ──
-    const handleSmartScan = (product) => {
-        if (!checkAccess()) return;
-        const cat = typeof product.category === 'object' ? product.category?.level1 : product.category;
-        const isAccessory = cat && ['Accessories', 'Cable', 'Charger', 'Case', 'Screen Protector'].some(
-            a => cat.toLowerCase().includes(a.toLowerCase())
-        );
-
-        if (isAccessory) {
-            // Auto-add to cart with defaults
-            addToCart({
-                ...product,
-                productId: product.id,
-                name: product.name,
-                transactionId: generateId('TXN'),
-                quantity: 1,
-                unitPrice: parseFloat(product.sellingPrice) || 0,
-                stdPriceAtTime: parseFloat(product.sellingPrice) || 0,
-                purchasePriceAtTime: parseFloat(product.purchasePrice) || 0,
-                profit: (parseFloat(product.sellingPrice) || 0) - (parseFloat(product.purchasePrice) || 0),
-                amount: parseFloat(product.sellingPrice) || 0,
-                discount: 0,
-                taxInfo: {
-                    net: (parseFloat(product.sellingPrice) || 0) / 1.19,
-                    tax: (parseFloat(product.sellingPrice) || 0) - (parseFloat(product.sellingPrice) || 0) / 1.19,
-                    rate: 0.19
-                },
-                verifiedAttributes: {},
-                customerInfo: { name: 'Walk-in', phone: '', type: 'New' },
-                paymentMethod: 'Cash',
-                notes: '',
+        for (const line of lines) {
+            await addTransaction({
+                desc: line.name,
+                amount: line.total,
+                quantity: line.quantity,
+                type: 'income',
+                category: line.category || 'General',
+                paymentMethod: line.paymentMode || 'Cash',
+                notes: line.notes || '',
+                source: 'shop',
+                salesmanName: user?.name,
+                salesmanNumber: user?.salesmanNumber || 0,
+                workerId: String(user?.id || ''),
+                timestamp: new Date().toISOString(),
+                date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
             });
-            setShowCartToast(true);
-            setTimeout(() => setShowCartToast(false), 1500);
-        } else {
-            // Open modal for phones/electronics
-            setSelectedProduct(product);
-            setShowTransactionModal(true);
+
+            if (line.productId) {
+                await adjustStock(line.productId, -line.quantity);
+            }
+        }
+
+        setToast('Sale completed');
+        setTimeout(() => setToast(''), 1800);
+        setQuickSaleCart([]);
+        setQuickSaleForm(newQuickSaleItem());
+        setShowQuickSaleModal(false);
+    };
+
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem(onlineOrderStorageKey(user));
+            const parsed = raw ? JSON.parse(raw) : [];
+            setOnlineOrders(Array.isArray(parsed) ? parsed : []);
+        } catch {
+            setOnlineOrders([]);
+        }
+    }, [user]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(onlineOrderStorageKey(user), JSON.stringify(onlineOrders));
+        } catch {
+            // Ignore localStorage quota errors for non-critical UI state.
+        }
+    }, [onlineOrders, user]);
+
+    useEffect(() => {
+        if (!activeForm) return;
+        const barcode = form.barcode.trim();
+        if (!barcode) {
+            setForm((prev) => ({ ...prev, productId: '' }));
+            setSelectedProductPreview(null);
+            setBarcodeMatches([]);
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            const found = lookupBarcode(barcode);
+            if (found) {
+                applySelectedProduct(found);
+                setBarcodeMatches([found]);
+                return;
+            }
+
+            const matches = searchProducts(barcode).slice(0, 6);
+            setBarcodeMatches(matches);
+            if (!matches.length) {
+                setForm((prev) => ({ ...prev, productId: '' }));
+                setSelectedProductPreview(null);
+            }
+        }, 220);
+
+        return () => clearTimeout(timer);
+    }, [activeForm, form.barcode, lookupBarcode, searchProducts]);
+
+    useEffect(() => {
+        const query = topBarcodeQuery.trim();
+        if (!query) {
+            setTopBarcodeMatches([]);
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            const exact = lookupBarcode(query);
+            if (exact) {
+                const exactResolved = resolveProductSnapshot(exact);
+                if (String(exactResolved.barcode || '').toLowerCase() === query.toLowerCase()) {
+                    openSalesFormWithProduct(exact);
+                    setTopBarcodeQuery('');
+                    return;
+                }
+                setTopBarcodeMatches([exact]);
+                return;
+            }
+            setTopBarcodeMatches(searchProducts(query).slice(0, 8));
+        }, 140);
+
+        return () => clearTimeout(timer);
+    }, [topBarcodeQuery, lookupBarcode, searchProducts]);
+
+    const handleTopBarcodeSubmit = (e) => {
+        e.preventDefault();
+        const query = topBarcodeQuery.trim();
+        if (!query) return;
+
+        const exact = lookupBarcode(query);
+        if (exact) {
+            openSalesFormWithProduct(exact);
+            setTopBarcodeQuery('');
+            return;
+        }
+
+        const first = searchProducts(query)[0];
+        if (first) {
+            openSalesFormWithProduct(first);
+            setTopBarcodeQuery('');
         }
     };
 
-    // ═══════════════════ CALCULATOR ═══════════════════
+    const applyAddNewCategory = async (value) => {
+        if (value !== ADD_NEW) {
+            setForm((prev) => ({ ...prev, category: value, subcategory: '', relatedFields: {} }));
+            return;
+        }
 
-    const handleCalcPress = useCallback((key) => {
+        const next = window.prompt('Enter new category');
+        if (!next || !next.trim()) return;
+        await addLevel1Category(next.trim());
+        setForm((prev) => ({ ...prev, category: next.trim(), subcategory: '', relatedFields: {} }));
+    };
+
+    const applyAddNewSubCategory = async (value) => {
+        if (value !== ADD_NEW) {
+            setForm((prev) => ({ ...prev, subcategory: value, relatedFields: {} }));
+            return;
+        }
+
+        if (!form.category) {
+            alert('Select category first');
+            return;
+        }
+        const next = window.prompt('Enter new sub-category');
+        if (!next || !next.trim()) return;
+        await addLevel2Category(form.category, next.trim());
+        setForm((prev) => ({ ...prev, subcategory: next.trim(), relatedFields: {} }));
+    };
+
+    const setRelatedFieldValue = (fieldKey, value) => {
+        setForm((prev) => ({
+            ...prev,
+            relatedFields: {
+                ...(prev.relatedFields || {}),
+                [fieldKey]: value,
+            },
+        }));
+    };
+
+    const applyPaymentMode = (value) => {
+        if (value !== ADD_NEW) {
+            setForm((prev) => ({ ...prev, paymentMode: value }));
+            return;
+        }
+        const next = window.prompt('Enter new payment mode');
+        if (!next || !next.trim()) return;
+        if (!paymentModes.includes(next.trim())) {
+            setPaymentModes((prev) => [...prev, next.trim()]);
+        }
+        setForm((prev) => ({ ...prev, paymentMode: next.trim() }));
+    };
+
+    const printSlip = () => {
+        const qty = Math.max(1, parseInt(form.quantity || '1', 10) || 1);
+        const unit = parseFloat(form.amount) || 0;
+        const total = qty * unit;
+        const netTotal = total / 1.19;
+        const taxTotal = total - netTotal;
+        const shopName = activeShop?.name || 'Shop';
+        const shopAddress = activeShop?.address || activeShop?.location || '';
+        const popup = window.open('', 'receipt', 'width=420,height=700');
+        if (!popup) return;
+        popup.document.write(`
+            <html>
+                <head>
+                    <title>Beleg</title>
+                    <style>
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
+                        h2,p { margin: 0; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; }
+                        .line { border-top:1px dashed #000; margin:8px 0; }
+                    </style>
+                </head>
+                <body>
+                    <h2>${shopName}</h2>
+                    ${shopAddress ? `<p>${shopAddress}</p>` : ''}
+                    <p>${new Date().toLocaleString('de-DE')}</p>
+                    <div class="line"></div>
+                    <div class="row"><span>Typ</span><span>${activeForm === 'sales' ? 'Verkauf' : 'Einkauf'}</span></div>
+                    <div class="row"><span>Artikel</span><span>${form.name || '-'}</span></div>
+                    <div class="row"><span>Menge x Preis</span><span>${qty} x ${unit.toFixed(2)}</span></div>
+                    <div class="row"><span>Zahlung</span><span>${form.paymentMode}</span></div>
+                    <div class="line"></div>
+                    <div class="row"><strong>Zwischensumme</strong><strong>EUR ${total.toFixed(2)}</strong></div>
+                    ${billShowTax ? `<div class="row"><span>Netto (19%)</span><span>EUR ${netTotal.toFixed(2)}</span></div>
+                    <div class="row"><span>USt (19%)</span><span>EUR ${taxTotal.toFixed(2)}</span></div>` : ''}
+                    <div class="row"><strong>GESAMTBETRAG</strong><strong>EUR ${total.toFixed(2)}</strong></div>
+                    <div class="line"></div>
+                    <p style="font-size:10px">Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.</p>
+                </body>
+            </html>
+        `);
+        popup.document.close();
+        popup.focus();
+        popup.print();
+    };
+
+    const submitCompactForm = async (e) => {
+        e.preventDefault();
+        if (!isPunchedIn) {
+            alert('Please punch in first');
+            setShowProfileModal(true);
+            return;
+        }
+
+        const qty = Math.max(1, parseInt(form.quantity || '1', 10) || 1);
+        const unitAmount = parseFloat(form.amount) || 0;
+        if (!form.name.trim() || unitAmount <= 0) {
+            alert('Name and amount are required');
+            return;
+        }
+
+        const total = qty * unitAmount;
+        const type = activeForm === 'purchase' ? 'expense' : 'income';
+        const relatedSummary = compactFieldSummary(form.relatedFields);
+        const mergedNotes = [form.notes, relatedSummary].filter(Boolean).join(' | ');
+
+        await addTransaction({
+            desc: form.name.trim(),
+            amount: total,
+            quantity: qty,
+            type,
+            category: form.category || 'General',
+            paymentMethod: form.paymentMode || 'Cash',
+            notes: mergedNotes,
+            source: type === 'expense' ? 'purchase' : 'shop',
+            salesmanName: user?.name,
+            salesmanNumber: user?.salesmanNumber || 0,
+            workerId: String(user?.id || ''),
+            timestamp: new Date().toISOString(),
+            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+        });
+
+        if (type === 'income' && form.productId) {
+            await adjustStock(form.productId, -qty);
+        }
+
+        setToast(`${type === 'income' ? 'Sales' : 'Purchase'} saved`);
+        setTimeout(() => setToast(''), 1800);
+        setForm(newCompactForm());
+    };
+
+    const handleCalcPress = (key) => {
         if (key === 'C') { setCalcDisplay('0'); setCalcPrev(null); setCalcOp(null); return; }
-        if (key === '⌫') { setCalcDisplay(d => d.length > 1 ? d.slice(0, -1) : '0'); return; }
+        if (key === '⌫') { setCalcDisplay((d) => d.length > 1 ? d.slice(0, -1) : '0'); return; }
         if (['+', '-', '×', '÷'].includes(key)) {
             setCalcPrev(parseFloat(calcDisplay));
             setCalcOp(key);
@@ -336,269 +825,335 @@ export default function SalesmanDashboard() {
         if (key === '=') {
             if (calcPrev !== null && calcOp) {
                 const curr = parseFloat(calcDisplay);
-                let result;
+                let result = 0;
                 if (calcOp === '+') result = calcPrev + curr;
-                else if (calcOp === '-') result = calcPrev - curr;
-                else if (calcOp === '×') result = calcPrev * curr;
-                else if (calcOp === '÷') result = curr !== 0 ? calcPrev / curr : 0;
-                setCalcDisplay(String(parseFloat(result.toFixed(6))));
-                setCalcPrev(null); setCalcOp(null);
+                if (calcOp === '-') result = calcPrev - curr;
+                if (calcOp === '×') result = calcPrev * curr;
+                if (calcOp === '÷') result = curr !== 0 ? calcPrev / curr : 0;
+                setCalcDisplay(String(Number(result.toFixed(6))));
+                setCalcPrev(null);
+                setCalcOp(null);
             }
             return;
         }
         if (key === '.' && calcDisplay.includes('.')) return;
-        setCalcDisplay(d => d === '0' && key !== '.' ? key : d + key);
-    }, [calcDisplay, calcPrev, calcOp]);
+        setCalcDisplay((d) => d === '0' && key !== '.' ? key : d + key);
+    };
 
-    // ═══════════════════ KEYBOARD SCANNER & AUTO-FOCUS ═══════════════════
-
-    // Auto-Focus Logic
-    useEffect(() => {
-        const focusInput = () => {
-            if (!showInventoryForm && !showCalc && !showTransactionModal && !showRepairModal && !showPendingDrawer && !showProfileModal && !showCategoryManager && !completingJob && !isLocked) {
-                if (searchInputRef.current) {
-                    // Don't steal focus if user is intentionally inside another input/textarea
-                    const activeTag = document.activeElement?.tagName;
-                    if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA' && activeTag !== 'SELECT') {
-                        searchInputRef.current.focus();
-                    }
-                }
-            }
-        };
-
-        focusInput();
-        const handleWindowClick = () => setTimeout(focusInput, 50);
-        window.addEventListener('click', handleWindowClick);
-        return () => window.removeEventListener('click', handleWindowClick);
-    }, [showInventoryForm, showCalc, showTransactionModal, showRepairModal, showPendingDrawer, showProfileModal, showCategoryManager, completingJob, isLocked]);
-
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (showInventoryForm || showCalc || showTransactionModal) return;
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-
-            const now = Date.now();
-            const timeDiff = now - lastKeyTimeRef.current;
-            lastKeyTimeRef.current = now;
-
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                if (scanBufferRef.current.length >= 3) {
-                    if (!checkAccess()) return; // Access Check
-                    const code = scanBufferRef.current;
-                    const product = lookupBarcode(code);
-                    if (product) {
-                        handleSmartScan(product);
-                    }
-                }
-                scanBufferRef.current = '';
-                return;
-            }
-
-            if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                if (timeDiff > 500) scanBufferRef.current = '';
-                if (timeDiff < SCAN_SPEED_THRESHOLD || scanBufferRef.current.length === 0) {
-                    scanBufferRef.current += e.key;
-                }
-                clearTimeout(scanTimeoutRef.current);
-                scanTimeoutRef.current = setTimeout(() => {
-                    if (scanBufferRef.current.length >= 8) {
-                        if (!checkAccess()) return; // Access Check
-                        const product = lookupBarcode(scanBufferRef.current);
-                        if (product) {
-                            handleSmartScan(product);
-                        }
-                    }
-                    scanBufferRef.current = '';
-                }, 200);
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    });
-
-    // ═══════════════════ AUTO-LOCK (INACTIVITY TIMER) ═══════════════════
-
-    useEffect(() => {
-        if (!user?.id) return;
-        if (!autoLockEnabled) {
-            setIsLocked(false);
-            writeLastActivityAt(Date.now());
+    const saveOnlineOrder = async (e) => {
+        e.preventDefault();
+        if (!onlineOrderForm.orderId.trim() || !onlineOrderForm.itemName.trim()) {
+            alert('Order ID and item name are required');
+            return;
+        }
+        const resolvedColor = onlineOrderForm.color === 'Custom'
+            ? String(onlineOrderForm.customColor || '').trim()
+            : String(onlineOrderForm.color || '').trim();
+        if (onlineOrderForm.color === 'Custom' && !resolvedColor) {
+            alert('Please enter a custom color');
             return;
         }
 
-        const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
-        const lastActivityAt = readLastActivityAt();
-        const now = Date.now();
-        const elapsedMs = now - lastActivityAt;
-        const shouldLock = elapsedMs >= timeoutMs;
-        setIsLocked(shouldLock);
-
-        if (!shouldLock) {
-            // Keep existing idle progress across refresh.
-            writeLastActivityAt(lastActivityAt);
-        }
-    }, [autoLockEnabled, autoLockTimeout, readLastActivityAt, user?.id, writeLastActivityAt]);
-
-    useEffect(() => {
-        if (!autoLockEnabled || !user?.id) return;
-
-        const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
-        const lockScreen = () => {
-            setIsLocked(true);
+        const row = {
+            id: String(Date.now()),
+            ...onlineOrderForm,
+            color: resolvedColor,
+            quantity: Math.max(1, parseInt(onlineOrderForm.quantity || '1', 10) || 1),
+            amount: parseFloat(onlineOrderForm.amount || '0') || 0,
+            status: 'ordered',
+            createdAt: new Date().toISOString(),
         };
+        setOnlineOrders((prev) => [row, ...prev]);
 
-        const scheduleFromLastActivity = () => {
-            clearTimeout(lockTimerRef.current);
-            if (isLocked) return;
-            const now = Date.now();
-            const lastActivityAt = readLastActivityAt();
-            const remainingMs = timeoutMs - (now - lastActivityAt);
-            if (remainingMs <= 0) {
-                lockScreen();
-                return;
-            }
-            lockTimerRef.current = setTimeout(lockScreen, remainingMs);
-        };
+        await addTransaction({
+            desc: `Online Purchase: ${row.itemName}`,
+            amount: row.amount * row.quantity,
+            quantity: row.quantity,
+            type: 'expense',
+            category: row.category || 'Online Purchase',
+            paymentMethod: row.paymentStatus === 'Credit' ? 'Credit' : 'Online',
+            notes: `OrderId: ${row.orderId} | Platform: ${row.platform || '-'} | Ordered: ${row.orderDate || '-'} | Color: ${row.color || '-'} | Status: ${row.paymentStatus}`,
+            source: 'purchase',
+            salesmanName: user?.name,
+            salesmanNumber: user?.salesmanNumber || 0,
+            workerId: String(user?.id || ''),
+            timestamp: new Date().toISOString(),
+            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+        });
 
-        const handleActivity = () => {
-            if (isLocked) return;
-            clearTimeout(debounceRef.current);
-            debounceRef.current = setTimeout(() => {
-                writeLastActivityAt(Date.now());
-                scheduleFromLastActivity();
-            }, 150);
-        };
-
-        const handleVisibilityOrFocus = () => {
-            if (document.visibilityState && document.visibilityState !== 'visible') return;
-            scheduleFromLastActivity();
-        };
-
-        const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
-        events.forEach((eventName) => window.addEventListener(eventName, handleActivity, { passive: true }));
-        window.addEventListener('focus', handleVisibilityOrFocus);
-        document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-        scheduleFromLastActivity();
-
-        return () => {
-            events.forEach((eventName) => window.removeEventListener(eventName, handleActivity));
-            window.removeEventListener('focus', handleVisibilityOrFocus);
-            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-            clearTimeout(lockTimerRef.current);
-            clearTimeout(debounceRef.current);
-        };
-    }, [autoLockEnabled, autoLockTimeout, isLocked, readLastActivityAt, user?.id, writeLastActivityAt]);
-
-    const handleUnlock = (e) => {
-        e?.preventDefault();
-        if (unlockPin === user?.pin) {
-            setIsLocked(false);
-            setUnlockPin('');
-            setUnlockError(false);
-            writeLastActivityAt(Date.now());
-        } else {
-            setUnlockError(true);
-            setUnlockPin('');
-            setTimeout(() => setUnlockError(false), 1500);
-        }
+        setOnlineOrderForm(newOnlineOrderForm());
+        setShowOnlineOrderForm(false);
+        setPendingTab('online');
     };
 
-    // ═══════════════════ RENDER ═══════════════════
+    const markOnlineOrderReceived = (id) => {
+        setOnlineOrders((prev) => prev.map((order) => order.id === id ? { ...order, status: 'received' } : order));
+    };
 
+    const salesByCategory = useMemo(() => categoryTotals(revenueTransactions), [revenueTransactions]);
+    const expensesByCategory = useMemo(() => categoryTotals(purchaseTransactions), [purchaseTransactions]);
     return (
-        <div className="h-screen flex flex-col bg-slate-100 overflow-hidden">
+        <div className="min-h-screen bg-slate-100 text-slate-800">
+            <header className="relative z-40 border-b border-blue-300/40 bg-gradient-to-r from-slate-900 via-blue-900 to-blue-700 px-3 py-2 shadow-md">
+                <div className="max-w-7xl mx-auto flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <div className="h-9 w-9 rounded-xl bg-white/15 text-white flex items-center justify-center border border-white/20">
+                            <BarChart3 size={18} />
+                        </div>
+                        <div>
+                            <h1 className="text-sm sm:text-base font-black text-white">Salesman Dashboard</h1>
+                            <p className="text-[11px] text-blue-100">Hello, {user?.name || 'Salesman'}</p>
+                        </div>
+                    </div>
 
-            {/* ═══ HEADER ═══ */}
-            <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-sm">
-                <div>
-                    <h1 className="text-2xl sm:text-3xl font-black tracking-tight bg-gradient-to-r from-blue-700 via-indigo-600 to-cyan-500 bg-clip-text text-transparent">
-                        DailyBooks
-                    </h1>
-                    <p className="text-sm sm:text-base text-slate-500 font-semibold">
-                        Hello, <span className="text-slate-800 font-black">{user?.name || 'Salesman'}</span>
-                    </p>
-                </div>
-                <button
-                    onClick={() => setShowProfileModal(true)}
-                    className="flex items-center gap-3 hover:bg-slate-50 p-2 rounded-xl transition-all cursor-pointer group"
-                >
-                    <div className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-sm overflow-hidden relative">
-                        {user?.photo ? (
-                            <img src={user.photo} alt={user.name} className="w-full h-full object-cover" />
-                        ) : (
-                            <div className="flex items-center justify-center w-full h-full text-slate-400">👤</div>
+                    <div className="relative z-[80] flex-1 max-w-3xl ml-2">
+                        <form onSubmit={handleTopBarcodeSubmit}>
+                            <input
+                                value={topBarcodeQuery}
+                                onFocus={() => setShowTopBarcodeMatches(true)}
+                                onBlur={() => setTimeout(() => setShowTopBarcodeMatches(false), 160)}
+                                onChange={(e) => setTopBarcodeQuery(e.target.value)}
+                                placeholder="Scan with bullet scanner or search product..."
+                                className="w-full rounded-xl border border-white/30 bg-slate-900/25 px-3 py-2 text-sm text-white placeholder:text-blue-100/70 focus:bg-slate-900/35 focus:outline-none focus:ring-2 focus:ring-blue-200/60"
+                            />
+                            <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-100/90 pointer-events-none" />
+                        </form>
+
+                        {showTopBarcodeMatches && topBarcodeMatches.length > 0 && (
+                            <div className="absolute z-[120] mt-1 w-full rounded-xl border border-slate-200 bg-white shadow-lg max-h-60 overflow-y-auto">
+                                {topBarcodeMatches.map((product) => {
+                                    const resolved = resolveProductSnapshot(product);
+                                    return (
+                                    <button
+                                        type="button"
+                                        key={resolved.id || `${resolved.barcode}-${resolved.name}`}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            openSalesFormWithProduct(product);
+                                            setTopBarcodeQuery('');
+                                        }}
+                                        className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
+                                    >
+                                        <p className="text-xs font-bold text-slate-700">{resolved.name || 'Unnamed product'}</p>
+                                        <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} • Stock {resolved.stock} • {priceTag(resolved.sellingPrice || 0)}</p>
+                                    </button>
+                                    );
+                                })}
+                            </div>
                         )}
-                        {/* Status Dot */}
-                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${isPunchedIn ? 'bg-green-500' : 'bg-red-500'}`} />
                     </div>
-                    <div className="text-left hidden sm:block">
-                        <p className="text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors">{user?.name || 'Salesman'}</p>
-                        <p className={`text-[10px] font-bold ${isPunchedIn ? 'text-green-600' : 'text-red-500'}`}>
-                            {isPunchedIn ? 'Online' : 'Offline'}
-                        </p>
+
+                    <div className="flex items-center gap-2.5 text-slate-300">
+                        <button onClick={() => setShowPendingOrders(true)} title="Pending Jobs" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Pending Jobs</span></button>
+                        <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
+                        <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
+                        <button onClick={() => setShowRepairModal(true)} title="Repair Job" className="fab-animated" style={{ '--fab-i': '#f59e0b', '--fab-j': '#ef4444' }}><span className="fab-icon"><Wrench size={14} /></span><span className="fab-title">Repair Job</span></button>
+                        <button onClick={() => setShowProfileModal(true)} className="h-8 w-8 rounded-lg border border-white/25 bg-white/20 text-white overflow-hidden flex items-center justify-center" title={user?.name || 'Profile'}>
+                            {user?.photo ? (
+                                <img src={user.photo} alt={user?.name || 'Profile'} className="w-full h-full object-cover" />
+                            ) : (
+                                <span className="text-sm">👤</span>
+                            )}
+                        </button>
                     </div>
-                </button>
+                </div>
             </header>
 
-            {/* ═══ TOTAL BAR ═══ */}
-            <TotalBar
-                totalIncome={totalIncome}
-                totalExpense={totalExpense}
-                netAmount={netAmount}
-                incomeCount={incomeTransactions.length}
-                expenseCount={expenseTransactions.length}
-                incomeBreakdown={incomeBreakdown}
-                expenseBreakdown={expenseBreakdown}
-            />
+            <main className="max-w-7xl mx-auto px-3 pt-4 pb-6 space-y-3">
 
-            {/* ═══ MAIN CONTENT ═══ */}
-            <div className="flex-1 overflow-y-auto p-4 sm:px-6 space-y-4">
+                <section className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <CompactTrendCard
+                        label="Total Revenue"
+                        value={activeStats.totals.revenue}
+                        colorClass="border-emerald-200 bg-gradient-to-br from-emerald-100 to-cyan-50"
+                    />
+                    <CompactTrendCard
+                        label="Total Expenses"
+                        value={activeStats.totals.expenses}
+                        colorClass="border-rose-200 bg-gradient-to-br from-rose-100 to-pink-50"
+                    />
+                    <CompactTrendCard
+                        label="Total Income"
+                        value={activeStats.totals.income}
+                        colorClass="border-blue-200 bg-gradient-to-br from-blue-100 to-indigo-50"
+                    />
+                </section>
 
-                {/* Search Bar */}
-                <div className="relative">
-                    <form onSubmit={handleSearchSubmit} className="relative">
-                        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <button
+                        onClick={() => setActiveForm((prev) => (prev === 'sales' ? '' : 'sales'))}
+                        className="erp-big-button"
+                    >
+                        New Sales Entry
+                    </button>
+                    <button
+                        onClick={() => setActiveForm((prev) => (prev === 'purchase' ? '' : 'purchase'))}
+                        className="erp-big-button erp-big-button--purchase"
+                    >
+                        New Purchase Entry
+                    </button>
+                </section>
+
+                {activeForm && (
+                    <form onSubmit={submitCompactForm} className={`rounded-2xl border bg-white/80 p-2.5 space-y-2.5 animate-in slide-in-from-top duration-200 shadow-sm backdrop-blur-sm ${activeForm === 'sales' ? 'border-emerald-200' : 'border-rose-200'}`}>
+                        <div className={`rounded-xl px-2.5 py-1.5 flex items-center justify-between ${activeForm === 'sales' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                            <div className="flex items-center gap-2">
+                                <Sparkles size={14} />
+                                <p className="text-xs font-semibold">{activeForm === 'sales' ? 'Sales form' : 'Purchase form'}</p>
+                            </div>
+                            <p className="text-xs font-semibold">Premium flow</p>
                         </div>
-                        <input
-                            ref={searchInputRef}
-                            value={searchQuery}
-                            onChange={(e) => handleSearchChange(e.target.value)}
-                            placeholder="🔍 Scan barcode or search product..."
-                            className="w-full pl-10 pr-4 py-3 rounded-2xl bg-white border border-slate-200 text-sm font-medium placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-300 shadow-sm transition-all"
-                        />
-                    </form>
 
-                    {/* Search Suggestions */}
-                    {suggestions.length > 0 && searchQuery.trim() && (
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden z-50">
-                            <div className="max-h-60 overflow-y-auto">
-                                {suggestions.map((p, index) => (
-                                    <div key={`${p.id}-${index}`} onClick={() => selectSuggestion(p)}
-                                        className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-none flex items-center justify-between transition-colors">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-500 text-sm">📦</div>
-                                            <div>
-                                                <p className="text-sm font-bold text-slate-700">{p.name}</p>
-                                                <p className="text-[10px] text-slate-400">{p.barcode || 'No barcode'} • Stock: {p.stock}</p>
-                                            </div>
-                                        </div>
-                                        <p className="text-sm font-bold text-emerald-600">{priceTag(p.sellingPrice || 0)}</p>
-                                    </div>
-                                ))}
+                        <div className="rounded-2xl border border-slate-200 bg-white/75 p-2.5">
+                            <p className="text-[11px] font-semibold text-slate-500 mb-2">Step 1 · Category selection</p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                <select value={form.category} onChange={(e) => applyAddNewCategory(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700">
+                                    <option value="">Select category</option>
+                                    {l1Options.map((name) => <option key={name} value={name}>{name}</option>)}
+                                    <option value={ADD_NEW}>+ Add New</option>
+                                </select>
+                                <select
+                                    value={form.subcategory}
+                                    onChange={(e) => applyAddNewSubCategory(e.target.value)}
+                                    disabled={!form.category}
+                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
+                                >
+                                    <option value="">Select sub-category</option>
+                                    {l2Options.map((name) => <option key={name} value={name}>{name}</option>)}
+                                    <option value={ADD_NEW}>+ Add New</option>
+                                </select>
                             </div>
                         </div>
-                    )}
-                </div>
 
-                {/* ── Category Containers (Side by Side) ── */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {form.subcategory && (
+                            <div className="rounded-2xl border border-slate-200 bg-white/85 p-2.5 space-y-2.5 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                                <p className="text-[11px] font-semibold text-slate-500">Step 2 · Main transaction details</p>
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5">
+                                    <div className="relative z-[60]">
+                                        <input
+                                            value={form.barcode}
+                                            onFocus={() => setShowBarcodeMatches(true)}
+                                            onBlur={() => setTimeout(() => setShowBarcodeMatches(false), 140)}
+                                            onChange={(e) => setForm((prev) => ({ ...prev, barcode: e.target.value }))}
+                                            placeholder="Barcode / SKU"
+                                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 w-full"
+                                        />
 
-                    {/* Sales by Category */}
+                                        {showBarcodeMatches && barcodeMatches.length > 0 && (
+                                            <div className="absolute z-[120] mt-1 w-full rounded-xl border border-slate-200 bg-white shadow-lg max-h-52 overflow-y-auto">
+                                                {barcodeMatches.map((product) => {
+                                                    const resolved = resolveProductSnapshot(product);
+                                                    return (
+                                                    <button
+                                                        type="button"
+                                                        key={resolved.id || `${resolved.barcode}-${resolved.name}`}
+                                                        onMouseDown={(e) => {
+                                                            e.preventDefault();
+                                                            openSalesFormWithProduct(product);
+                                                            setShowBarcodeMatches(false);
+                                                        }}
+                                                        className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
+                                                    >
+                                                        <p className="text-xs font-bold text-slate-700">{resolved.name || 'Unnamed product'}</p>
+                                                        <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} • Stock {resolved.stock} • {priceTag(activeForm === 'purchase' ? resolved.purchasePrice || 0 : resolved.sellingPrice || 0)}</p>
+                                                    </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <input
+                                        value={form.name}
+                                        onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                                        placeholder={activeForm === 'sales' ? 'Product name' : 'Purchase item'}
+                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    />
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={form.amount}
+                                        onChange={(e) => setForm((prev) => ({ ...prev, amount: e.target.value }))}
+                                        placeholder={activeForm === 'sales' ? 'Selling price' : 'Purchase amount'}
+                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    />
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={form.quantity}
+                                        onChange={(e) => setForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                                        placeholder="Qty"
+                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    />
+                                    <select
+                                        value={form.paymentMode}
+                                        onChange={(e) => applyPaymentMode(e.target.value)}
+                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    >
+                                        {paymentModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+                                        <option value={ADD_NEW}>+ Add New</option>
+                                    </select>
+                                </div>
+
+                                <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/70 to-sky-50/60 p-2.5 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                                    <p className="text-[11px] font-semibold text-indigo-700 mb-2">Step 3 · Related fields ({form.subcategory})</p>
+
+                                    {selectedProductPreview && (
+                                        <div className="mb-2 rounded-xl border border-blue-100 bg-white/80 px-2.5 py-2 text-[11px] text-slate-600">
+                                            <p className="font-semibold text-blue-700 mb-1">Auto-filled product details</p>
+                                            <p>Name: {selectedProductPreview.name || '-'}</p>
+                                            <p>Barcode: {selectedProductPreview.barcode || '-'}</p>
+                                            <p>Stock: {selectedProductPreview.stock ?? '-'}</p>
+                                            <p>Sell: {priceTag(selectedProductPreview.sellingPrice || 0)} | Buy: {priceTag(selectedProductPreview.purchasePrice || 0)}</p>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+                                        {relatedFieldSchema.map((field) => (
+                                            <div key={field.key} className="space-y-1">
+                                                <label className="text-[11px] font-semibold text-slate-600">{field.label}</label>
+                                                {field.type === 'select' ? (
+                                                    <select
+                                                        value={form.relatedFields?.[field.key] || ''}
+                                                        onChange={(e) => setRelatedFieldValue(field.key, e.target.value)}
+                                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                                    >
+                                                        <option value="">Select {field.label}</option>
+                                                        {(field.options || []).map((opt) => (
+                                                            <option key={opt} value={opt}>{opt}</option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <input
+                                                        type={field.type || 'text'}
+                                                        value={form.relatedFields?.[field.key] || ''}
+                                                        onChange={(e) => setRelatedFieldValue(field.key, e.target.value)}
+                                                        placeholder={field.placeholder || field.label}
+                                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                                    />
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <input
+                                    value={form.notes}
+                                    onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+                                    placeholder={activeForm === 'sales' ? 'Customer / order notes' : 'Vendor / invoice notes'}
+                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 w-full"
+                                />
+
+                                <div className="flex items-center justify-end gap-2">
+                                    <button type="button" onClick={printSlip} className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Print</button>
+                                    <button type="submit" className={`rounded-xl text-white px-4 py-2 text-sm font-semibold ${activeForm === 'sales' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>Submit</button>
+                                </div>
+                            </div>
+                        )}
+                    </form>
+                )}
+
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 overflow-hidden">
                         <div className="px-4 py-3 bg-gradient-to-r from-emerald-50 to-emerald-100/30 border-b border-emerald-100 flex items-center gap-2">
                             <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center">
@@ -607,477 +1162,359 @@ export default function SalesmanDashboard() {
                                 </svg>
                             </div>
                             <div>
-                                <h3 className="text-sm font-bold text-slate-800">Sales by Category</h3>
-                                <p className="text-[10px] text-emerald-500">{incomeTransactions.length} transactions today</p>
+                                <h3 className="text-sm font-bold text-slate-800">Sales by Category Overview</h3>
+                                <p className="text-[10px] text-emerald-500">{revenueTransactions.length} transactions today</p>
                             </div>
                         </div>
                         <div className="p-3">
-                            {incomeByCategory.length === 0 ? (
+                            {salesByCategory.length === 0 ? (
                                 <div className="text-center py-6 text-slate-300">
                                     <p className="text-2xl mb-1">📊</p>
                                     <p className="text-[10px]">No sales yet</p>
                                 </div>
                             ) : (
-                                <div className="space-y-1.5 max-h-[210px] overflow-y-auto pr-1 custom-scrollbar">
-                                    {incomeByCategory.map(([cat, data]) => (
-                                        <div key={cat} className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100/50 hover:bg-emerald-50 transition-colors">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-lg bg-white border border-emerald-100 flex items-center justify-center overflow-hidden flex-shrink-0">
-                                                    {getCategoryImage(cat) ? (
-                                                        <img src={getCategoryImage(cat)} alt={cat} className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <span className="text-xs">📊</span>
-                                                    )}
+                                <div className="grid grid-cols-[1.2fr_.9fr] gap-2 items-center">
+                                    <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                                        {salesByCategory.slice(0, 10).map((item) => (
+                                            <div key={item.name} className="min-w-[220px] flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100/50 hover:bg-emerald-50 transition-colors">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-8 h-8 rounded-lg bg-white border border-emerald-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                        {getCategoryImage(item.name) ? (
+                                                            <img src={getCategoryImage(item.name)} alt={item.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <span className="text-xs">📊</span>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-bold text-slate-700">{item.name}</p>
+                                                        <p className="text-[9px] text-slate-400">{item.count} item{item.count === 1 ? '' : 's'}</p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-xs font-bold text-slate-700">{cat}</p>
-                                                    <p className="text-[9px] text-slate-400">{data.count} items</p>
-                                                </div>
+                                                <p className="text-sm font-bold text-emerald-600">{priceTag(item.total)}</p>
                                             </div>
-                                            <p className="text-sm font-bold text-emerald-600">{priceTag(data.total)}</p>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
+
+                                    <div className="flex items-center justify-center">
+                                        <MiniDonut items={salesByCategory} />
+                                    </div>
                                 </div>
                             )}
                         </div>
                     </div>
 
-                    {/* Purchases by Category */}
                     <div className="bg-white rounded-2xl shadow-sm border border-red-100 overflow-hidden">
-                        <div className="px-4 py-3 bg-gradient-to-r from-red-50 to-red-100/30 border-b border-red-100 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-red-500 flex items-center justify-center">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M17 13l-5 5m0 0l-5-5m5 5V6" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-bold text-slate-800">Purchases by Category</h3>
-                                    <p className="text-[10px] text-red-500">{expenseTransactions.length} transactions today</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => {
-                                    if (!checkAccess()) return;
-                                    setFormMode('purchase');
-                                    setShowInventoryForm(true);
-                                }}
-                                className="w-8 h-8 rounded-xl bg-red-500 text-white flex items-center justify-center hover:bg-red-600 active:scale-90 transition-all shadow-sm shadow-red-500/20 cursor-pointer"
-                                title="Add Purchase Entry"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                        <div className="px-4 py-3 bg-gradient-to-r from-red-50 to-red-100/30 border-b border-red-100 flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-red-500 flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 13l-5 5m0 0l-5-5m5 5V6" />
                                 </svg>
-                            </button>
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-bold text-slate-800">Sales by Purchase Type</h3>
+                                <p className="text-[10px] text-red-500">{purchaseTransactions.length} transactions today</p>
+                            </div>
                         </div>
                         <div className="p-3">
-                            {expenseByCategory.length === 0 ? (
+                            {expensesByCategory.length === 0 ? (
                                 <div className="text-center py-6 text-slate-300">
                                     <p className="text-2xl mb-1">📊</p>
                                     <p className="text-[10px]">No purchases yet</p>
                                 </div>
                             ) : (
-                                <div className="space-y-1.5 max-h-[210px] overflow-y-auto pr-1 custom-scrollbar">
-                                    {expenseByCategory.map(([cat, data]) => (
-                                        <div key={cat} className="flex items-center justify-between p-2.5 rounded-xl bg-red-50/50 border border-red-100/50 hover:bg-red-50 transition-colors">
+                                <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                                    {expensesByCategory.slice(0, 10).map((item) => (
+                                        <div key={item.name} className="min-w-[220px] flex items-center justify-between p-2.5 rounded-xl bg-red-50/50 border border-red-100/50 hover:bg-red-50 transition-colors">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-8 h-8 rounded-lg bg-white border border-red-100 flex items-center justify-center overflow-hidden flex-shrink-0">
-                                                    {getCategoryImage(cat) ? (
-                                                        <img src={getCategoryImage(cat)} alt={cat} className="w-full h-full object-cover" />
+                                                    {getCategoryImage(item.name) ? (
+                                                        <img src={getCategoryImage(item.name)} alt={item.name} className="w-full h-full object-cover" />
                                                     ) : (
                                                         <span className="text-xs">📉</span>
                                                     )}
                                                 </div>
                                                 <div>
-                                                    <p className="text-xs font-bold text-slate-700">{cat}</p>
-                                                    <p className="text-[9px] text-slate-400">{data.count} items</p>
+                                                    <p className="text-xs font-bold text-slate-700">{item.name}</p>
+                                                    <p className="text-[9px] text-slate-400">{item.count} item{item.count === 1 ? '' : 's'}</p>
                                                 </div>
                                             </div>
-                                            <p className="text-sm font-bold text-red-600">{priceTag(data.total)}</p>
+                                            <p className="text-sm font-bold text-red-600">{priceTag(item.total)}</p>
                                         </div>
                                     ))}
                                 </div>
                             )}
                         </div>
                     </div>
-                </div>
+                </section>
 
-                {/* ── Transaction History ── */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-2 whitespace-nowrap">
-                            <span className="text-base">📋</span>
-                            <h3 className="text-sm font-bold text-slate-800">Recent Transactions</h3>
-                        </div>
-
-                        {/* Inline Search Bar */}
-                        <div className="flex-1 max-w-sm relative group">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                            </span>
-                            <input
-                                type="text"
-                                placeholder="Search by Product, ID, Customer..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-9 pr-8 py-1.5 rounded-xl bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 focus:outline-none transition-all text-xs font-medium shadow-sm"
-                            />
-                            {searchTerm && (
-                                <button
-                                    onClick={() => setSearchTerm('')}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors"
-                                >
-                                    ✕
-                                </button>
-                            )}
-                        </div>
-
-                        <span className="hidden sm:inline text-[10px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 font-bold whitespace-nowrap">{todayTransactions.length} today</span>
-                    </div>
-                    <div className="p-3">
-                        <TransactionList transactions={todayTransactions} searchTerm={searchTerm} />
-                    </div>
-                </div>
-            </div>
-
-            {/* ═══ SUCCESS POPUP ═══ */}
-            {showSuccess && (
-                <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[70] bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3 animate-bounce">
-                    <span className="text-xl">✅</span>
-                    <span className="font-bold">Transaction Successful!</span>
-                </div>
-            )}
-
-            {/* ═══ MODALS ═══ */}
-            <SalesmanProfile
-                isOpen={showProfileModal}
-                onClose={() => setShowProfileModal(false)}
-            />
-
-            <SmartCategoryForm
-                isOpen={showInventoryForm}
-                onClose={() => setShowInventoryForm(false)}
-                onSubmit={(entry) => {
-                    // SmartCategoryForm already calls addProduct internally.
-                    // We only handle transaction logic here if purchase mode.
-
-                    // 2. If purchase mode, also record expense and ADD stock
-                    if (formMode === 'purchase') {
-                        const cost = (parseFloat(entry.purchasePrice) || 0) * (parseInt(entry.stock) || 1);
-                        addTransaction({
-                            id: generateId('PUR'),
-                            desc: `Stock Purchase: ${entry.name}`,
-                            amount: cost,
-                            category: entry.category?.level1 || 'Inventory',
-                            notes: `Added ${entry.stock} units via Purchase Entry. ${entry.notes || ''}`,
-                            type: 'expense',
-                            paymentMethod: entry.paymentMode || 'Cash',
-                            source: 'shop',
-                            purchaseFrom: entry.purchaseFrom || '',
-                            quantity: parseInt(entry.stock) || 1,
-                            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-                            salesmanName: user?.name,
-                            workerId: String(user?.id)
-                        });
-                    }
-                    setShowInventoryForm(false);
-                }}
-            />
-
-            <CategoryManagerModal
-                isOpen={showCategoryManager}
-                onClose={() => setShowCategoryManager(false)}
-            />
-
-            <TransactionModal
-                isOpen={showTransactionModal}
-                onClose={() => { setShowTransactionModal(false); setSelectedProduct(null); setEditingCartItemData(null); setEditingCartItem(null); }}
-                onAddToBill={handleAddToBill}
-                initialProduct={selectedProduct}
-                editingItem={editingCartItemData}
-            />
-
-            {/* Cart Sidebar */}
-            <CartSidebar
-                onEditItem={handleEditCartItem}
-                onFinalized={() => { setShowSuccess(true); setTimeout(() => setShowSuccess(false), 2500); }}
-            />
-
-            {/* Cart Auto-Add Toast */}
-            {showCartToast && (
-                <div className="fixed top-4 right-24 bg-emerald-500 text-white px-4 py-2 rounded-xl shadow-lg z-[70] text-sm font-bold animate-in slide-in-from-right duration-200">
-                    🛒 Added to cart!
-                </div>
-            )}
-
-            <RepairModal
-                isOpen={showRepairModal}
-                onClose={() => setShowRepairModal(false)}
-            />
-
-            <CompleteRepairModal
-                isOpen={!!completingJob}
-                onClose={() => setCompletingJob(null)}
-                job={completingJob}
-                onComplete={handleConfirmComplete}
-            />
-
-            {/* ═══ CALCULATOR FAB ═══ */}
-            {showCalc && (
-                <Draggable nodeRef={calcNodeRef} handle=".calc-handle" bounds="parent">
-                    <div
-                        ref={calcNodeRef}
-                        className="fixed bottom-32 right-6 w-[23rem] h-[30rem] min-w-[20rem] min-h-[27rem] resize overflow-hidden bg-white rounded-3xl shadow-2xl border border-slate-200 z-[60] flex flex-col"
-                    >
-                        <div className="calc-handle bg-slate-800 px-4 py-2 flex items-center justify-between cursor-grab active:cursor-grabbing">
-                            <span className="text-white font-bold text-xs">🧮 Calculator</span>
-                            <button onClick={() => setShowCalc(false)} className="text-slate-400 hover:text-white text-xs cursor-pointer">✕</button>
-                        </div>
-
-                        <div className="p-3 bg-slate-900 text-right">
-                            {calcOp && <p className="text-slate-500 text-[10px] font-mono">{calcPrev} {calcOp}</p>}
-                            <p className="text-white text-2xl font-bold font-mono tracking-tight">{calcDisplay}</p>
-                        </div>
-
-                        <div className="flex-1 grid grid-cols-4 grid-rows-5 gap-px bg-slate-200 p-px">
-                            {['C', '⌫', '÷', '×', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
-                                <button key={key} onClick={() => handleCalcPress(key)}
-                                    className={`h-full text-sm font-bold transition-all active:scale-95 cursor-pointer
-                                                ${key === '=' ? 'col-span-1 row-span-2 bg-blue-500 text-white hover:bg-blue-600'
-                                            : key === '0' ? 'col-span-2 bg-white hover:bg-slate-50 text-slate-800'
-                                                : ['C', '⌫'].includes(key) ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                    : ['+', '-', '×', '÷'].includes(key) ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                                                        : 'bg-white text-slate-800 hover:bg-slate-50'}`}>
-                                    {key}
-                                </button>
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm">
+                        <h3 className="text-sm font-black text-emerald-700 mb-2">Revenue Transactions</h3>
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                            {revenueTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries today</p> : revenueTransactions.map((txn) => (
+                                <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto] items-center gap-2">
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Revenue'}</p>
+                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'}</p>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.time || '--:--'}</p>
+                                    <p className="text-sm font-black text-emerald-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
+                                </div>
                             ))}
                         </div>
                     </div>
-                </Draggable>
+
+                    <div className="rounded-2xl border border-rose-100 bg-white p-3 shadow-sm">
+                        <h3 className="text-sm font-black text-rose-700 mb-2">Purchase Transactions History</h3>
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                            {purchaseTransactions.length === 0 ? <p className="text-xs text-slate-400">No purchase transactions yet</p> : purchaseTransactions.map((txn) => (
+                                <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto] items-center gap-2">
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Purchase'}</p>
+                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'}</p>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.time || '--:--'}</p>
+                                    <p className="text-sm font-black text-rose-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+            </main>
+
+            {toast && (
+                <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-xl bg-slate-900 text-white px-3 py-2 text-xs font-semibold z-50">
+                    {toast}
+                </div>
             )}
 
-            {/* ═══ FABs ═══ */}
-            <div className="fixed bottom-6 right-6 flex flex-col gap-3 z-50">
-                {/* Add Category FAB */}
-                <button
-                    onClick={() => {
-                        if (!checkAccess()) return;
-                        setShowCategoryManager(true);
-                    }}
-                    className="w-12 h-12 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/30 flex items-center justify-center hover:bg-blue-700 active:scale-90 transition-all cursor-pointer"
-                    title="Manage Categories"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M3 12h18M3 17h18" />
-                    </svg>
-                </button>
-
-                {/* Pending Repairs FAB */}
-                <button onClick={() => setShowPendingDrawer(true)}
-                    className="relative w-12 h-12 rounded-2xl bg-red-500 text-white shadow-lg shadow-red-500/30 flex items-center justify-center hover:bg-red-600 active:scale-90 transition-all cursor-pointer"
-                    title="Pending Repairs">
-                    <span className="text-lg">📋</span>
-                    {pendingRepairs.length > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white text-red-600 text-[10px] font-black rounded-full flex items-center justify-center shadow-sm border border-red-200">
-                            {pendingRepairs.length}
-                        </span>
-                    )}
-                </button>
-
-                {/* Repair FAB */}
-                <button onClick={() => {
-                    if (checkAccess()) setShowRepairModal(true);
-                }}
-                    className="w-12 h-12 rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/30 flex items-center justify-center hover:bg-amber-600 active:scale-90 transition-all cursor-pointer"
-                    title="New Repair Job">
-                    <span className="text-lg">🔧</span>
-                </button>
-
-                {/* Calculator FAB */}
-                <button onClick={() => setShowCalc(c => !c)}
-                    className="w-12 h-12 rounded-2xl bg-slate-800 text-white shadow-lg shadow-slate-800/30 flex items-center justify-center hover:bg-slate-700 active:scale-90 transition-all cursor-pointer">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <rect x="4" y="2" width="16" height="20" rx="2" />
-                        <line x1="8" y1="6" x2="16" y2="6" />
-                        <line x1="8" y1="10" x2="8" y2="10.01" />
-                        <line x1="12" y1="10" x2="12" y2="10.01" />
-                        <line x1="16" y1="10" x2="16" y2="10.01" />
-                        <line x1="8" y1="14" x2="8" y2="14.01" />
-                        <line x1="12" y1="14" x2="12" y2="14.01" />
-                        <line x1="16" y1="14" x2="16" y2="14.01" />
-                        <line x1="8" y1="18" x2="12" y2="18" />
-                    </svg>
-                </button>
-
-            </div>
-
-            {/* ═══ PENDING REPAIRS DRAWER ═══ */}
-            {showPendingDrawer && (
-                <div className="fixed inset-0 z-[80]" onClick={() => setShowPendingDrawer(false)}>
-                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-                    <div
-                        className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        {/* Drawer Header */}
-                        <div className="bg-gradient-to-r from-red-500 to-orange-500 p-5 flex items-center justify-between flex-shrink-0">
+            {showQuickSaleModal && (
+                <div className="fixed inset-0 z-[85]" onClick={() => setShowQuickSaleModal(false)}>
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-16 mx-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
                             <div>
-                                <h2 className="text-lg font-bold text-white flex items-center gap-2">📋 Pending Repairs</h2>
-                                <p className="text-xs text-red-100">{pendingRepairs.length} job{pendingRepairs.length !== 1 ? 's' : ''} awaiting completion</p>
+                                <h3 className="text-sm font-black text-slate-800">Quick Sales Transaction</h3>
+                                <p className="text-[11px] text-slate-500">From barcode suggestion</p>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <button onClick={() => setShowQuickSaleModal(false)} className="text-slate-500 hover:text-slate-700">✕</button>
+                        </div>
+
+                        <div className="p-4 space-y-3">
+                            <div className="grid grid-cols-2 md:grid-cols-6 gap-1.5">
+                                <input value={quickSaleForm.barcode} readOnly placeholder="Barcode" className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
+                                <input value={quickSaleForm.name} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Product" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
+                                <input type="number" min="1" value={quickSaleForm.quantity} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, quantity: e.target.value }))} placeholder="Qty" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700" />
+                                <input type="number" step="0.01" value={quickSaleForm.amount} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700" />
+                                <input value={quickSaleForm.category} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, category: e.target.value }))} placeholder="Category" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
+                                <select value={quickSaleForm.paymentMode} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, paymentMode: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2">
+                                    {paymentModes.map((mode) => <option key={`quick-${mode}`} value={mode}>{mode}</option>)}
+                                </select>
+                                <input value={quickSaleForm.notes} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-semibold text-slate-600">Cart Items: {quickSaleCart.length}</p>
+                                <p className="text-xs font-black text-slate-700">Total: {priceTag(quickSaleCart.reduce((sum, row) => sum + (row.total || 0), 0))}</p>
+                            </div>
+
+                            {quickSaleCart.length > 0 && (
+                                <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/70 p-2 space-y-1.5">
+                                    {quickSaleCart.map((item) => (
+                                        <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 flex items-center justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-bold text-slate-700 truncate">{item.name}</p>
+                                                <p className="text-[10px] text-slate-500">{item.quantity} x {priceTag(item.amount)}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-xs font-black text-slate-800">{priceTag(item.total)}</p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setQuickSaleCart((prev) => prev.filter((row) => row.id !== item.id))}
+                                                    className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-600"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                <button type="button" onClick={addQuickSaleToCart} className="rounded-xl bg-amber-500 text-white py-2 text-sm font-semibold hover:bg-amber-600 transition-colors">Add to Cart</button>
+                                <button type="button" onClick={completeQuickSale} className="rounded-xl bg-emerald-600 text-white py-2 text-sm font-semibold hover:bg-emerald-700 transition-colors">Complete Sale</button>
+                                <button type="button" onClick={printQuickSaleSlip} className="rounded-xl border border-slate-300 bg-white py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">Print</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showCalc && (
+                <div className="fixed top-16 right-3 z-50 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-800 text-white flex items-center justify-between">
+                        <p className="text-xs font-semibold">Calculator</p>
+                        <button onClick={() => setShowCalc(false)} className="text-xs text-slate-300 hover:text-white">✕</button>
+                    </div>
+                    <div className="p-3 bg-slate-900 text-right">
+                        {calcOp && <p className="text-slate-500 text-[10px] font-mono">{calcPrev} {calcOp}</p>}
+                        <p className="text-white text-2xl font-bold font-mono">{calcDisplay}</p>
+                    </div>
+                    <div className="grid grid-cols-4 gap-px bg-slate-200 p-px">
+                        {['C', '⌫', '÷', '×', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
+                            <button
+                                key={key}
+                                onClick={() => handleCalcPress(key)}
+                                className={`h-11 text-sm font-bold ${key === '=' ? 'bg-blue-600 text-white row-span-2 hover:bg-blue-700' : key === '0' ? 'col-span-2 bg-white hover:bg-slate-50' : ['+', '-', '×', '÷'].includes(key) ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : ['C', '⌫'].includes(key) ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-white text-slate-800 hover:bg-slate-50'}`}
+                            >
+                                {key}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {showPendingOrders && (
+                <div className="fixed inset-0 z-[80]" onClick={() => setShowPendingOrders(false)}>
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+                    <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="bg-gradient-to-r from-rose-500 to-orange-500 p-5 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold text-white">Pending Center</h2>
+                                <p className="text-xs text-rose-100">Orders + online tracking</p>
+                            </div>
+                            <button onClick={() => setShowPendingOrders(false)} className="text-white text-lg">✕</button>
+                        </div>
+
+                        <div className="px-4 pt-3">
+                            <div className="rounded-xl bg-slate-100 p-1 grid grid-cols-2 gap-1">
                                 <button
-                                    onClick={() => { setShowPendingDrawer(false); setShowRepairModal(true); }}
-                                    className="px-3 py-1.5 bg-white/20 text-white text-xs font-bold rounded-lg hover:bg-white/30 transition-colors"
+                                    onClick={() => setPendingTab('orders')}
+                                    className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
                                 >
-                                    + New Repair
+                                    Pending Orders
                                 </button>
-                                <button onClick={() => setShowPendingDrawer(false)} className="p-2 hover:bg-white/20 rounded-lg transition-colors text-white text-lg">
-                                    ✕
+                                <button
+                                    onClick={() => setPendingTab('online')}
+                                    className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'online' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                                >
+                                    Online Orders
                                 </button>
                             </div>
                         </div>
 
-                        {/* Drawer Body */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                            {pendingRepairs.length === 0 ? (
-                                <div className="text-center py-16">
-                                    <span className="text-4xl mb-3 block">✅</span>
-                                    <p className="text-slate-400 font-medium">No pending repairs!</p>
-                                    <p className="text-slate-300 text-xs mt-1">All caught up — great work.</p>
-                                </div>
-                            ) : (
-                                pendingRepairs.map(job => {
-                                    const deliveryDate = job.deliveryDate ? new Date(job.deliveryDate).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }) : '—';
-                                    const isOverdue = job.deliveryDate && new Date(job.deliveryDate) < new Date();
-                                    return (
-                                        <div key={job.id} className={`p-4 rounded-2xl border transition-all ${isOverdue ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-slate-50'}`}>
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="text-xs font-black text-blue-600 font-mono">{job.refId}</span>
-                                                        {isOverdue && <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[8px] font-bold uppercase">OVERDUE</span>}
-                                                    </div>
-                                                    <p className="text-sm font-bold text-slate-800">{job.customerName}</p>
-                                                    <p className="text-xs text-slate-500">📱 {job.deviceModel}</p>
-                                                    <p className="text-[11px] text-slate-400 mt-1 bg-white px-2 py-1 rounded-lg border border-slate-100">{job.problem}</p>
-                                                    <div className="flex flex-wrap gap-2 mt-2">
-                                                        <span className={`inline-flex items-center px-2 py-1 rounded-lg border text-[10px] font-bold ${isOverdue
-                                                            ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                                            : 'bg-amber-50 text-amber-700 border-amber-200'
-                                                            }`}>
-                                                            Due: {deliveryDate}
-                                                        </span>
-                                                        <span className="inline-flex items-center px-2 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-bold">
-                                                            Est: {priceTag(job.estimatedCost)}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                <button
-                                                    onClick={() => handleCompleteRepair(job)}
-                                                    className="px-3 py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 active:scale-95 transition-all shadow-sm flex items-center gap-1.5 flex-shrink-0"
-                                                >
-                                                    ✅ Complete
-                                                </button>
-                                            </div>
+                            {pendingTab === 'orders' && (
+                                <>
+                                    {pendingOrders.length === 0 ? (
+                                        <div className="text-center py-12">
+                                            <p className="text-4xl">✅</p>
+                                            <p className="text-sm text-slate-500 mt-2">No pending orders</p>
                                         </div>
-                                    );
-                                })
+                                    ) : pendingOrders.map((job) => (
+                                        <div key={job.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                                            <p className="text-xs font-black text-blue-600">{job.refId}</p>
+                                            <p className="text-sm font-bold text-slate-800">{job.customerName}</p>
+                                            <p className="text-xs text-slate-500">{job.deviceModel}</p>
+                                            <p className="text-xs mt-1 text-slate-400">{job.problem}</p>
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+
+                            {pendingTab === 'online' && (
+                                <>
+                                    <button
+                                        onClick={() => setShowOnlineOrderForm((prev) => !prev)}
+                                        className="w-full rounded-xl bg-blue-600 text-white py-2 text-sm font-semibold hover:bg-blue-700 transition-colors"
+                                    >
+                                        {showOnlineOrderForm ? 'Hide Online Order Form' : '+ Add Online Order'}
+                                    </button>
+
+                                    {showOnlineOrderForm && (
+                                        <form onSubmit={saveOnlineOrder} className="rounded-xl border border-blue-200 bg-blue-50/40 p-3 space-y-2 animate-in fade-in-0 slide-in-from-top-2 duration-300">
+                                            <div className="grid grid-cols-2 gap-1.5">
+                                                <div className="col-span-2 grid grid-cols-[1fr_auto] gap-1.5">
+                                                    <input value={onlineOrderForm.orderId} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, orderId: e.target.value }))} placeholder="Order ID" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                    <button type="button" onClick={() => setOnlineOrderForm((prev) => ({ ...prev, orderId: randomOnlineOrderId() }))} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600">Random</button>
+                                                </div>
+                                                <input value={onlineOrderForm.platform} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, platform: e.target.value }))} placeholder="Platform" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                <input value={onlineOrderForm.itemName} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, itemName: e.target.value }))} placeholder="Item Name" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                <select value={onlineOrderForm.category} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, category: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs">
+                                                    <option value="">Select category</option>
+                                                    {l1Options.map((name) => <option key={`online-${name}`} value={name}>{name}</option>)}
+                                                </select>
+                                                <select
+                                                    value={onlineOrderForm.color}
+                                                    onChange={(e) => setOnlineOrderForm((prev) => ({
+                                                        ...prev,
+                                                        color: e.target.value,
+                                                        customColor: e.target.value === 'Custom' ? prev.customColor : ''
+                                                    }))}
+                                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                                                >
+                                                    <option value="">Select color</option>
+                                                    {ONLINE_ORDER_COLORS.map((name) => <option key={`online-color-${name}`} value={name}>{name}</option>)}
+                                                </select>
+                                                {onlineOrderForm.color === 'Custom' && (
+                                                    <input
+                                                        value={onlineOrderForm.customColor}
+                                                        onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, customColor: e.target.value }))}
+                                                        placeholder="Custom color"
+                                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                                                    />
+                                                )}
+                                                <input type="number" min="1" value={onlineOrderForm.quantity} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, quantity: e.target.value }))} placeholder="Qty" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                <input type="number" step="0.01" value={onlineOrderForm.amount} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                <input type="date" value={onlineOrderForm.orderDate} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, orderDate: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                <select value={onlineOrderForm.paymentStatus} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, paymentStatus: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs">
+                                                    <option value="Paid">Paid</option>
+                                                    <option value="Partial">Partial</option>
+                                                    <option value="Credit">Credit</option>
+                                                </select>
+                                                <textarea value={onlineOrderForm.notes} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Order notes" rows={2} className="col-span-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                <button type="submit" className="col-span-2 rounded-lg bg-emerald-600 text-white py-2 text-sm font-semibold hover:bg-emerald-700 transition-colors">Save Online Order</button>
+                                            </div>
+                                        </form>
+                                    )}
+
+                                    {onlineOrders.length === 0 ? (
+                                        <div className="text-center py-10">
+                                            <p className="text-3xl">🛒</p>
+                                            <p className="text-sm text-slate-500 mt-2">No online orders yet</p>
+                                        </div>
+                                    ) : (
+                                        onlineOrders.map((order) => (
+                                            <div key={order.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <p className="text-xs font-black text-blue-600">{order.orderId}</p>
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${order.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{order.status}</span>
+                                                </div>
+                                                <p className="text-sm font-bold text-slate-800 mt-1">{order.itemName}</p>
+                                                <p className="text-xs text-slate-500">{order.platform || 'Online'} � Qty {order.quantity} � {priceTag(order.amount || 0)} � Color {order.color || '-'}</p>
+                                                <p className="text-xs text-slate-400">Ordered: {order.orderDate || 'N/A'}</p>
+                                                {order.notes ? <p className="text-xs text-slate-400 mt-1">{order.notes}</p> : null}
+                                                {order.status !== 'received' && (
+                                                    <button onClick={() => markOnlineOrderReceived(order.id)} className="mt-2 rounded-lg bg-emerald-600 text-white px-3 py-1 text-xs font-semibold hover:bg-emerald-700 transition-colors">
+                                                        Mark Received
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* ═══ LOCK SCREEN OVERLAY ═══ */}
-            {isLocked && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center">
-                    {/* Blur backdrop */}
-                    <div className="absolute inset-0 backdrop-blur-2xl bg-slate-900/70" />
-
-                    {/* Lock Card */}
-                    <div className={`relative z-10 w-full max-w-xs mx-4 ${unlockError ? 'animate-shake' : ''}`}>
-                        <div className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl p-8 text-center border border-white/20">
-                            {/* Lock Icon */}
-                            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                                </svg>
-                            </div>
-
-                            <h2 className="text-xl font-black text-slate-800 mb-1">Screen Locked</h2>
-                            <p className="text-xs text-slate-400 mb-6">Enter your PIN to unlock</p>
-
-                            {/* PIN Input */}
-                            <form onSubmit={handleUnlock}>
-                                <div className="flex justify-center gap-3 mb-4">
-                                    {[0, 1, 2, 3].map(i => (
-                                        <div
-                                            key={i}
-                                            className={`w-4 h-4 rounded-full transition-all duration-200 ${i < unlockPin.length
-                                                ? unlockError ? 'bg-red-500 scale-110' : 'bg-violet-500 scale-110'
-                                                : 'bg-slate-200'
-                                                }`}
-                                        />
-                                    ))}
-                                </div>
-                                <input
-                                    type="password"
-                                    inputMode="numeric"
-                                    maxLength={4}
-                                    value={unlockPin}
-                                    onChange={e => {
-                                        const val = e.target.value.replace(/\D/g, '').slice(0, 4);
-                                        setUnlockPin(val);
-                                        if (val.length === 4) {
-                                            if (val === user?.pin) {
-                                                setIsLocked(false);
-                                                setUnlockPin('');
-                                                setUnlockError(false);
-                                                writeLastActivityAt(Date.now());
-                                            } else {
-                                                setUnlockError(true);
-                                                setUnlockPin('');
-                                                setTimeout(() => setUnlockError(false), 1500);
-                                            }
-                                        }
-                                    }}
-                                    autoFocus
-                                    className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-violet-500 focus:outline-none text-center text-2xl font-mono font-bold tracking-[0.5em] bg-slate-50 transition-colors"
-                                    placeholder="• • • •"
-                                />
-
-                                {unlockError && (
-                                    <p className="text-red-500 text-xs font-bold mt-2">❌ Wrong PIN. Try again.</p>
-                                )}
-
-                                <button
-                                    type="submit"
-                                    className="w-full mt-4 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold rounded-xl hover:from-violet-700 hover:to-indigo-700 active:scale-[0.98] transition-all shadow-lg shadow-violet-600/20"
-                                >
-                                    🔓 Unlock
-                                </button>
-                            </form>
-
-                            <p className="text-[10px] text-slate-300 mt-4">{user?.name || 'Salesman'} • Auto-locked after {autoLockTimeout}s</p>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Shake Animation */}
-            <style>{`
-                @keyframes shake {
-                    0%, 100% { transform: translateX(0); }
-                    10%, 30%, 50%, 70%, 90% { transform: translateX(-6px); }
-                    20%, 40%, 60%, 80% { transform: translateX(6px); }
-                }
-                .animate-shake { animation: shake 0.5s ease-in-out; }
-            `}</style>
+            <SalesmanProfile isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
+            <CategoryManagerModal isOpen={showCategoryModal} onClose={() => setShowCategoryModal(false)} />
+            <RepairModal isOpen={showRepairModal} onClose={() => setShowRepairModal(false)} />
         </div>
     );
 }
+
+

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus } from 'lucide-react';
+import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash } from 'lucide-react';
 
 export default function AdminSettings() {
     const {
         isAdminLike, isSuperAdmin, activeShopId, shops, refreshShops, createShop, updateShop, deleteShop,
         updateAdminPassword,
         salesmen, addSalesman, deleteSalesman, updateSalesman,
+        activeShop, billShowTax, setBillShowTax,
         slowMovingDays, setSlowMovingDays,
         autoLockEnabled, setAutoLockEnabled,
         autoLockTimeout, setAutoLockTimeout
@@ -22,6 +23,9 @@ export default function AdminSettings() {
     const [showAddSalesman, setShowAddSalesman] = useState(false);
     const [salesmanName, setSalesmanName] = useState('');
     const [salesmanPin, setSalesmanPin] = useState('');
+    const [salesmanNumber, setSalesmanNumber] = useState('');
+    const [salesmanCanEditTransactions, setSalesmanCanEditTransactions] = useState(false);
+    const [salesmanCanBulkEdit, setSalesmanCanBulkEdit] = useState(false);
     const [salesmanRate, setSalesmanRate] = useState('12.50');
     const [salesmanError, setSalesmanError] = useState('');
 
@@ -30,11 +34,15 @@ export default function AdminSettings() {
     const [editName, setEditName] = useState('');
     const [editPin, setEditPin] = useState('');
     const [editPhoto, setEditPhoto] = useState('');
+    const [editSalesmanNumber, setEditSalesmanNumber] = useState('');
+    const [editCanEditTransactions, setEditCanEditTransactions] = useState(false);
+    const [editCanBulkEdit, setEditCanBulkEdit] = useState(false);
     const [editRate, setEditRate] = useState('');
 
     // ── Shops State ──
     const [shopName, setShopName] = useState('');
     const [shopLocation, setShopLocation] = useState('');
+    const [shopAddress, setShopAddress] = useState('');
     const [shopOwnerEmail, setShopOwnerEmail] = useState('');
     const [shopError, setShopError] = useState('');
     const [shopMessage, setShopMessage] = useState('');
@@ -43,6 +51,7 @@ export default function AdminSettings() {
     const [editingShopId, setEditingShopId] = useState('');
     const [editingShopName, setEditingShopName] = useState('');
     const [editingShopLocation, setEditingShopLocation] = useState('');
+    const [editingShopAddress, setEditingShopAddress] = useState('');
     const [editingShopOwnerEmail, setEditingShopOwnerEmail] = useState('');
     const [editingShopOwnerPassword, setEditingShopOwnerPassword] = useState('');
     const [showEditingShopOwnerPassword, setShowEditingShopOwnerPassword] = useState(false);
@@ -85,11 +94,18 @@ export default function AdminSettings() {
             return;
         }
 
-        const created = await addSalesman(salesmanName, salesmanPin);
+        const created = await addSalesman(salesmanName, salesmanPin, {
+            salesmanNumber: parseInt(salesmanNumber, 10) || 0,
+            canEditTransactions: salesmanCanEditTransactions,
+            canBulkEdit: salesmanCanBulkEdit
+        });
         if (created?.id) {
             await updateSalesman(created.id, { hourlyRate: parseFloat(salesmanRate) || 12.50 });
         }
         setSalesmanName(''); setSalesmanPin(''); setSalesmanRate('12.50');
+        setSalesmanNumber('');
+        setSalesmanCanEditTransactions(false);
+        setSalesmanCanBulkEdit(false);
         setShowAddSalesman(false);
         setSalesmanError('');
     };
@@ -100,6 +116,9 @@ export default function AdminSettings() {
         setEditPin(s.pin);
         setEditPhoto(s.photo || '');
         setEditRate(String(s.hourlyRate || 12.50));
+        setEditSalesmanNumber(String(s.salesmanNumber || ''));
+        setEditCanEditTransactions(Boolean(s.canEditTransactions));
+        setEditCanBulkEdit(Boolean(s.canBulkEdit));
         setShowAddSalesman(false); // Close add form if open
     };
 
@@ -119,7 +138,10 @@ export default function AdminSettings() {
             name: editName,
             pin: editPin,
             photo: editPhoto,
-            hourlyRate: parseFloat(editRate) || 12.50
+            hourlyRate: parseFloat(editRate) || 12.50,
+            salesmanNumber: parseInt(editSalesmanNumber, 10) || 0,
+            canEditTransactions: editCanEditTransactions,
+            canBulkEdit: editCanBulkEdit
         });
         setEditingId(null);
     };
@@ -144,10 +166,12 @@ export default function AdminSettings() {
             const result = await createShop({
                 shopName,
                 location: shopLocation,
+                address: shopAddress,
                 ownerEmail: shopOwnerEmail
             });
             setShopName('');
             setShopLocation('');
+            setShopAddress('');
             setShopOwnerEmail('');
             setCreatedManager(result?.credentials || null);
             setEditingShopId('');
@@ -167,6 +191,7 @@ export default function AdminSettings() {
         setEditingShopId(shop.id);
         setEditingShopName(shop.name || '');
         setEditingShopLocation(shop.location || '');
+        setEditingShopAddress(shop.address || shop.location || '');
         setEditingShopOwnerEmail(shop.owner_email || '');
         setEditingShopOwnerPassword('');
         setShowEditingShopOwnerPassword(false);
@@ -176,6 +201,7 @@ export default function AdminSettings() {
         setEditingShopId('');
         setEditingShopName('');
         setEditingShopLocation('');
+        setEditingShopAddress('');
         setEditingShopOwnerEmail('');
         setEditingShopOwnerPassword('');
         setShowEditingShopOwnerPassword(false);
@@ -195,6 +221,7 @@ export default function AdminSettings() {
             const payload = {
                 name: editingShopName,
                 location: editingShopLocation,
+                address: editingShopAddress,
                 ownerEmail: editingShopOwnerEmail
             };
             if (editingShopOwnerPassword.trim()) {
@@ -254,6 +281,30 @@ export default function AdminSettings() {
             </div>
 
             {/* ── Admin: Manage Shops ── */}
+            {isAdminLike && activeShop && (
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                    <div className="flex items-center justify-between gap-4">
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-800">Bill Settings</h2>
+                            <p className="text-xs text-slate-400">
+                                Shop: {activeShop.name} ({activeShop.address || activeShop.location || 'No address'})
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setBillShowTax(!billShowTax)}
+                            className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${billShowTax ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                            title="Enable tax lines on bills"
+                        >
+                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${billShowTax ? 'translate-x-6' : 'translate-x-0'}`} />
+                        </button>
+                    </div>
+                    <p className="text-sm text-slate-600 mt-3">
+                        Tax lines on bills are currently <span className="font-bold">{billShowTax ? 'Enabled' : 'Disabled'}</span>.
+                    </p>
+                </div>
+            )}
+
             {isSuperAdmin && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-5">
                     <div className="flex items-center gap-3">
@@ -266,7 +317,7 @@ export default function AdminSettings() {
                         </div>
                     </div>
 
-                    <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                    <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                         <div className="md:col-span-1">
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Shop Name</label>
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
@@ -288,6 +339,18 @@ export default function AdminSettings() {
                                     onChange={(e) => setShopLocation(e.target.value)}
                                     className="w-full bg-transparent outline-none text-sm font-medium"
                                     placeholder="City / Address"
+                                />
+                            </div>
+                        </div>
+                        <div className="md:col-span-1">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Address</label>
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                <MapPin size={14} className="text-slate-400" />
+                                <input
+                                    value={shopAddress}
+                                    onChange={(e) => setShopAddress(e.target.value)}
+                                    className="w-full bg-transparent outline-none text-sm font-medium"
+                                    placeholder="Street, postal code, city"
                                 />
                             </div>
                         </div>
@@ -337,7 +400,7 @@ export default function AdminSettings() {
                                 shops.map((shop) => (
                                     <div key={shop.id} className="px-3 py-2 rounded-xl border border-slate-100 bg-slate-50 space-y-3">
                                         {editingShopId === shop.id ? (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
                                                 <div>
                                                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Shop Name</label>
                                                     <input
@@ -351,6 +414,14 @@ export default function AdminSettings() {
                                                     <input
                                                         value={editingShopLocation}
                                                         onChange={(e) => setEditingShopLocation(e.target.value)}
+                                                        className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Address</label>
+                                                    <input
+                                                        value={editingShopAddress}
+                                                        onChange={(e) => setEditingShopAddress(e.target.value)}
                                                         className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
                                                     />
                                                 </div>
@@ -409,6 +480,7 @@ export default function AdminSettings() {
                                                 <div>
                                                     <p className="text-sm font-bold text-slate-800">{shop.name}</p>
                                                     <p className="text-xs text-slate-500">{shop.location || 'Location not set'}</p>
+                                                    <p className="text-xs text-slate-500">{shop.address || 'Address not set'}</p>
                                                 </div>
                                                 <div className="flex items-center gap-3">
                                                     <div className="text-right">
@@ -532,8 +604,8 @@ export default function AdminSettings() {
                 {showAddSalesman && !editingId && (
                     <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200 animate-in fade-in slide-in-from-top-2">
                         <h3 className="text-sm font-bold text-slate-700 mb-3">Add New Salesman</h3>
-                        <form onSubmit={handleAddSalesman} className="flex flex-col md:flex-row gap-3 items-end">
-                            <div className="flex-1 w-full">
+                        <form onSubmit={handleAddSalesman} className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+                            <div className="md:col-span-2">
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Name</label>
                                 <input
                                     value={salesmanName}
@@ -542,7 +614,7 @@ export default function AdminSettings() {
                                     placeholder="e.g. Ali"
                                 />
                             </div>
-                            <div className="w-full md:w-32">
+                            <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">4-Digit PIN</label>
                                 <input
                                     value={salesmanPin}
@@ -554,7 +626,18 @@ export default function AdminSettings() {
                                     placeholder="0000"
                                 />
                             </div>
-                            <div className="w-full md:w-32">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Salesman No.</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={salesmanNumber}
+                                    onChange={(e) => setSalesmanNumber(e.target.value.replace(/[^\d]/g, ''))}
+                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-center font-mono"
+                                    placeholder="Auto"
+                                />
+                            </div>
+                            <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">€/Hour</label>
                                 <input
                                     type="number"
@@ -566,7 +649,28 @@ export default function AdminSettings() {
                                     placeholder="12.50"
                                 />
                             </div>
-                            <button type="submit" className="w-full md:w-auto px-6 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors">
+                            <div className="md:col-span-2 rounded-lg border border-slate-200 bg-white p-2 space-y-2">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase">Special Authorities</p>
+                                <label className="flex items-center justify-between gap-2 text-xs text-slate-600">
+                                    <span>Edit transaction history</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={salesmanCanEditTransactions}
+                                        onChange={(e) => setSalesmanCanEditTransactions(e.target.checked)}
+                                        className="h-4 w-4"
+                                    />
+                                </label>
+                                <label className="flex items-center justify-between gap-2 text-xs text-slate-600">
+                                    <span>Bulk edit option</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={salesmanCanBulkEdit}
+                                        onChange={(e) => setSalesmanCanBulkEdit(e.target.checked)}
+                                        className="h-4 w-4"
+                                    />
+                                </label>
+                            </div>
+                            <button type="submit" className="md:col-span-6 w-full md:w-auto px-6 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors">
                                 Add User
                             </button>
                         </form>
@@ -583,7 +687,7 @@ export default function AdminSettings() {
                                 <X size={12} /> Cancel
                             </button>
                         </div>
-                        <form onSubmit={handleSaveEdit} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <form onSubmit={handleSaveEdit} className="grid grid-cols-1 md:grid-cols-6 gap-3">
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Name</label>
                                 <input
@@ -612,6 +716,17 @@ export default function AdminSettings() {
                                 />
                             </div>
                             <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Salesman No.</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={editSalesmanNumber}
+                                    onChange={(e) => setEditSalesmanNumber(e.target.value.replace(/[^\d]/g, ''))}
+                                    className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                                    placeholder="Auto"
+                                />
+                            </div>
+                            <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Photo URL</label>
                                 <input
                                     value={editPhoto}
@@ -620,7 +735,28 @@ export default function AdminSettings() {
                                     placeholder="https://..."
                                 />
                             </div>
-                            <div className="md:col-span-4">
+                            <div className="md:col-span-2 rounded-lg border border-blue-200 bg-white p-2 space-y-2">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase">Special Authorities</p>
+                                <label className="flex items-center justify-between gap-2 text-xs text-slate-600">
+                                    <span>Edit transaction history</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={editCanEditTransactions}
+                                        onChange={(e) => setEditCanEditTransactions(e.target.checked)}
+                                        className="h-4 w-4"
+                                    />
+                                </label>
+                                <label className="flex items-center justify-between gap-2 text-xs text-slate-600">
+                                    <span>Bulk edit option</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={editCanBulkEdit}
+                                        onChange={(e) => setEditCanBulkEdit(e.target.checked)}
+                                        className="h-4 w-4"
+                                    />
+                                </label>
+                            </div>
+                            <div className="md:col-span-6">
                                 <button type="submit" className="w-full px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
                                     <Save size={16} /> Update Salesman
                                 </button>
@@ -648,11 +784,26 @@ export default function AdminSettings() {
                                         <p className="font-bold text-slate-800">{s.name}</p>
                                         <div className="flex items-center gap-3 text-xs text-slate-400">
                                             <span className="flex items-center gap-1 font-mono"><Key size={12} /> PIN: {s.pin}</span>
+                                            <span className="flex items-center gap-1 font-mono text-blue-600"><Hash size={12} /> No: {s.salesmanNumber || '-'}</span>
                                             <span className="flex items-center gap-1 font-mono text-emerald-500"><Clock size={12} /> {s.hourlyRate || 12.50} €/hr</span>
                                         </div>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => updateSalesman(s.id, { canEditTransactions: !s.canEditTransactions })}
+                                        className={`px-2 py-1 rounded text-[10px] font-bold border transition-colors ${s.canEditTransactions ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}
+                                        title="Allow transaction history editing"
+                                    >
+                                        Edit Txn: {s.canEditTransactions ? 'On' : 'Off'}
+                                    </button>
+                                    <button
+                                        onClick={() => updateSalesman(s.id, { canBulkEdit: !s.canBulkEdit })}
+                                        className={`px-2 py-1 rounded text-[10px] font-bold border transition-colors ${s.canBulkEdit ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-500'}`}
+                                        title="Allow bulk edit option"
+                                    >
+                                        Bulk: {s.canBulkEdit ? 'On' : 'Off'}
+                                    </button>
                                     <button
                                         onClick={() => startEdit(s)}
                                         className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"

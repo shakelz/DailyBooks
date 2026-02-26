@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
@@ -13,6 +13,13 @@ const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
 const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
 const AUTH_SHOP_STATE_KEY = 'dailybooks_auth_shop_v1';
+const SALESMAN_META_STORAGE_KEY = 'dailybooks_salesman_meta_v1';
+const SHOP_META_STORAGE_KEY = 'dailybooks_shop_meta_v1';
+
+const DEFAULT_SALESMAN_PERMISSIONS = {
+    canEditTransactions: false,
+    canBulkEdit: false
+};
 
 function getSessionStorage() {
     try {
@@ -112,6 +119,88 @@ function asBoolean(value) {
     return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'online';
 }
 
+function asNumber(value, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readLocalJSON(key, fallback) {
+    try {
+        const raw = localStorage.getItem(key);
+        const parsed = safeParseJSON(raw, fallback);
+        return parsed && typeof parsed === 'object' ? parsed : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function sanitizeSalesmanMeta(meta = {}) {
+    const numberRaw = asNumber(meta.salesmanNumber, NaN);
+    return {
+        salesmanNumber: Number.isFinite(numberRaw) && numberRaw > 0 ? Math.floor(numberRaw) : 0,
+        canEditTransactions: asBoolean(meta.canEditTransactions),
+        canBulkEdit: asBoolean(meta.canBulkEdit)
+    };
+}
+
+function getSalesmanMeta(metaMap = {}, shopId = '', salesmanId = '') {
+    const sid = asString(shopId);
+    const uid = asString(salesmanId);
+    if (!sid || !uid) {
+        return { salesmanNumber: 0, ...DEFAULT_SALESMAN_PERMISSIONS };
+    }
+    const raw = metaMap?.[sid]?.[uid] || {};
+    return {
+        ...DEFAULT_SALESMAN_PERMISSIONS,
+        ...sanitizeSalesmanMeta(raw)
+    };
+}
+
+function mergeSalesmanMeta(profile = {}, metaMap = {}) {
+    if (!profile || typeof profile !== 'object') return profile;
+    const meta = getSalesmanMeta(metaMap, profile.shop_id, profile.id);
+    return {
+        ...profile,
+        salesmanNumber: meta.salesmanNumber || profile.salesmanNumber || 0,
+        canEditTransactions: meta.canEditTransactions,
+        canBulkEdit: meta.canBulkEdit
+    };
+}
+
+function getNextSalesmanNumber(existingSalesmen = [], metaMap = {}, shopId = '') {
+    const sid = asString(shopId);
+    if (!sid) return 1;
+    const existingNumbers = (Array.isArray(existingSalesmen) ? existingSalesmen : [])
+        .map((salesman) => {
+            const direct = asNumber(salesman?.salesmanNumber, NaN);
+            if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
+            const meta = getSalesmanMeta(metaMap, sid, salesman?.id);
+            return asNumber(meta.salesmanNumber, 0);
+        })
+        .filter((value) => Number.isFinite(value) && value > 0);
+
+    const max = existingNumbers.length ? Math.max(...existingNumbers) : 0;
+    return max + 1;
+}
+
+function getShopMeta(metaMap = {}, shopId = '') {
+    const sid = asString(shopId);
+    if (!sid) return {};
+    return metaMap?.[sid] && typeof metaMap[sid] === 'object' ? metaMap[sid] : {};
+}
+
+function mergeShopMeta(shop = {}, metaMap = {}) {
+    if (!shop || typeof shop !== 'object') return shop;
+    const meta = getShopMeta(metaMap, shop.id);
+    const resolvedAddress = asString(meta.address || shop.address || shop.location || '');
+    const showTax = meta.billShowTax === undefined ? true : asBoolean(meta.billShowTax);
+    return {
+        ...shop,
+        address: resolvedAddress,
+        billShowTax: showTax
+    };
+}
+
 function makeRowId() {
     if (typeof globalThis !== 'undefined' && globalThis.crypto?.randomUUID) {
         return globalThis.crypto.randomUUID();
@@ -166,6 +255,7 @@ function normalizeShop(shop) {
         id: asString(shop.id || shop.shop_id),
         name: asString(shop.name || shop.shop_name || 'Shop'),
         location: asString(shop.location || shop.address || ''),
+        address: asString(shop.address || shop.location || ''),
         owner_email: asString(shop.owner_email || shop.ownerEmail || ''),
     };
 }
@@ -212,20 +302,29 @@ async function attachShopOwnerCredentials(shopList = []) {
     });
 }
 
-function buildShopInsertPayloads({ name, location, ownerEmail }) {
+function buildShopInsertPayloads({ name, location, address, ownerEmail }) {
     const safeName = asString(name);
     const safeLocation = asString(location);
+    const safeAddress = asString(address);
     const safeOwnerEmail = asString(ownerEmail).toLowerCase();
 
     const nameVariants = safeName ? [{ name: safeName }, { shop_name: safeName }] : [];
-    const locationVariants = safeLocation ? [{ location: safeLocation }, { address: safeLocation }, {}] : [{}];
+    const locationVariants = safeLocation ? [{ location: safeLocation }, {}] : [{}];
+    const addressVariants = safeAddress ? [{ address: safeAddress }, { location: safeAddress }, {}] : [{}];
     const ownerVariants = safeOwnerEmail ? [{ owner_email: safeOwnerEmail }, { ownerEmail: safeOwnerEmail }, {}] : [{}];
 
     const payloads = [];
     nameVariants.forEach((namePayload) => {
         locationVariants.forEach((locationPayload) => {
-            ownerVariants.forEach((ownerPayload) => {
-                payloads.push(cleanPayload({ ...namePayload, ...locationPayload, ...ownerPayload }));
+            addressVariants.forEach((addressPayload) => {
+                ownerVariants.forEach((ownerPayload) => {
+                    payloads.push(cleanPayload({
+                        ...namePayload,
+                        ...locationPayload,
+                        ...addressPayload,
+                        ...ownerPayload
+                    }));
+                });
             });
         });
     });
@@ -272,20 +371,29 @@ function buildTimestampFromTime(baseTimestamp, timeValue) {
     return base.toISOString();
 }
 
-function buildShopUpdatePayloads({ name, location, ownerEmail }) {
+function buildShopUpdatePayloads({ name, location, address, ownerEmail }) {
     const email = ownerEmail === undefined ? undefined : asString(ownerEmail).toLowerCase();
     const safeName = name === undefined ? undefined : asString(name);
     const safeLocation = location === undefined ? undefined : asString(location);
+    const safeAddress = address === undefined ? undefined : asString(address);
 
     const nameVariants = safeName === undefined ? [{}] : [{ name: safeName }, { shop_name: safeName }];
-    const locationVariants = safeLocation === undefined ? [{}] : [{ location: safeLocation }, { address: safeLocation }, {}];
+    const locationVariants = safeLocation === undefined ? [{}] : [{ location: safeLocation }, {}];
+    const addressVariants = safeAddress === undefined ? [{}] : [{ address: safeAddress }, { location: safeAddress }, {}];
     const ownerVariants = email === undefined ? [{}] : [{ owner_email: email }, { ownerEmail: email }, {}];
 
     const candidates = [];
     nameVariants.forEach((namePayload) => {
         locationVariants.forEach((locationPayload) => {
-            ownerVariants.forEach((ownerPayload) => {
-                candidates.push(cleanPayload({ ...namePayload, ...locationPayload, ...ownerPayload }));
+            addressVariants.forEach((addressPayload) => {
+                ownerVariants.forEach((ownerPayload) => {
+                    candidates.push(cleanPayload({
+                        ...namePayload,
+                        ...locationPayload,
+                        ...addressPayload,
+                        ...ownerPayload
+                    }));
+                });
             });
         });
     });
@@ -619,6 +727,8 @@ export function AuthProvider({ children }) {
     const [authLoading, setAuthLoading] = useState(false);
 
     const [lowStockAlerts, setLowStockAlerts] = useState([]);
+    const [salesmanMetaMap, setSalesmanMetaMap] = useState(() => readLocalJSON(SALESMAN_META_STORAGE_KEY, {}));
+    const [shopMetaMap, setShopMetaMap] = useState(() => readLocalJSON(SHOP_META_STORAGE_KEY, {}));
 
     // ── Persistent Config Data ──
     const [adminPassword, setAdminPassword] = useState(() => localStorage.getItem('adminPassword') || 'admin123');
@@ -636,6 +746,44 @@ export function AuthProvider({ children }) {
 
     const isSuperAdmin = role === 'superadmin';
     const isAdminLike = role === 'superadmin' || role === 'admin';
+    const activeShopMeta = useMemo(() => getShopMeta(shopMetaMap, activeShopId), [shopMetaMap, activeShopId]);
+    const billShowTax = activeShopMeta.billShowTax === undefined ? true : asBoolean(activeShopMeta.billShowTax);
+
+    const patchSalesmanMeta = useCallback((shopId, salesmanId, patch = {}) => {
+        const sid = asString(shopId);
+        const uid = asString(salesmanId);
+        if (!sid || !uid) return;
+        setSalesmanMetaMap((prev) => {
+            const byShop = prev?.[sid] && typeof prev[sid] === 'object' ? prev[sid] : {};
+            const current = byShop?.[uid] && typeof byShop[uid] === 'object' ? byShop[uid] : {};
+            const nextMeta = {
+                ...current,
+                ...sanitizeSalesmanMeta({ ...current, ...patch })
+            };
+            return {
+                ...prev,
+                [sid]: {
+                    ...byShop,
+                    [uid]: nextMeta
+                }
+            };
+        });
+    }, []);
+
+    const patchShopMeta = useCallback((shopId, patch = {}) => {
+        const sid = asString(shopId);
+        if (!sid) return;
+        setShopMetaMap((prev) => {
+            const current = prev?.[sid] && typeof prev[sid] === 'object' ? prev[sid] : {};
+            return {
+                ...prev,
+                [sid]: {
+                    ...current,
+                    ...patch
+                }
+            };
+        });
+    }, []);
 
     useEffect(() => {
         if (isAuthSessionValid()) return;
@@ -675,6 +823,8 @@ export function AuthProvider({ children }) {
     useEffect(() => { localStorage.setItem('autoLockEnabled', String(autoLockEnabled)); }, [autoLockEnabled]);
     useEffect(() => { localStorage.setItem('autoLockTimeout', String(autoLockTimeout)); }, [autoLockTimeout]);
     useEffect(() => { localStorage.setItem('salesmen', JSON.stringify(salesmen)); }, [salesmen]);
+    useEffect(() => { localStorage.setItem(SALESMAN_META_STORAGE_KEY, JSON.stringify(salesmanMetaMap)); }, [salesmanMetaMap]);
+    useEffect(() => { localStorage.setItem(SHOP_META_STORAGE_KEY, JSON.stringify(shopMetaMap)); }, [shopMetaMap]);
 
     // ── Storage Event Listener for Cross-Tab Sync ──
     useEffect(() => {
@@ -682,6 +832,14 @@ export function AuthProvider({ children }) {
             if (e.key === 'salesmen' && e.newValue) {
                 const parsed = safeParseJSON(e.newValue, []);
                 if (Array.isArray(parsed)) setSalesmen(parsed);
+            }
+            if (e.key === SALESMAN_META_STORAGE_KEY && e.newValue) {
+                const parsed = safeParseJSON(e.newValue, {});
+                if (parsed && typeof parsed === 'object') setSalesmanMetaMap(parsed);
+            }
+            if (e.key === SHOP_META_STORAGE_KEY && e.newValue) {
+                const parsed = safeParseJSON(e.newValue, {});
+                if (parsed && typeof parsed === 'object') setShopMetaMap(parsed);
             }
             if (e.key === 'adminPassword' && e.newValue) setAdminPassword(e.newValue);
         };
@@ -727,18 +885,19 @@ export function AuthProvider({ children }) {
 
             const normalized = data.map(normalizeShop).filter(Boolean);
             const enriched = await attachShopOwnerCredentials(normalized);
-            setShops(enriched);
+            const merged = enriched.map((shop) => mergeShopMeta(shop, shopMetaMap));
+            setShops(merged);
 
             const preferred = asString(preferredShopId || activeShopId || user.shop_id);
-            const preferredExists = preferred && enriched.some(s => s.id === preferred);
+            const preferredExists = preferred && merged.some(s => s.id === preferred);
             if (preferredExists) {
                 setActiveShopIdState(preferred);
-            } else if (enriched.length > 0) {
-                setActiveShopIdState(enriched[0].id);
+            } else if (merged.length > 0) {
+                setActiveShopIdState(merged[0].id);
             } else {
                 setActiveShopIdState('');
             }
-            return enriched;
+            return merged;
         }
 
         const sid = asString(preferredShopId || user.shop_id || activeShopId);
@@ -749,7 +908,7 @@ export function AuthProvider({ children }) {
 
         const { data, error } = await supabase.from('shops').select('*').eq('id', sid).maybeSingle();
         if (error || !data) {
-            const fallback = [{ id: sid, name: user.shopName || 'My Shop', location: '', owner_email: '' }];
+            const fallback = [mergeShopMeta({ id: sid, name: user.shopName || 'My Shop', location: '', owner_email: '' }, shopMetaMap)];
             setShops(fallback);
             setActiveShopIdState(sid);
             return fallback;
@@ -757,10 +916,11 @@ export function AuthProvider({ children }) {
 
         const normalized = normalizeShop(data);
         const enriched = normalized ? await attachShopOwnerCredentials([normalized]) : [];
-        setShops(enriched);
+        const merged = enriched.map((shop) => mergeShopMeta(shop, shopMetaMap));
+        setShops(merged);
         setActiveShopIdState(sid);
-        return enriched;
-    }, [role, user, activeShopId]);
+        return merged;
+    }, [role, user, activeShopId, shopMetaMap]);
 
     const loadSalesmenForShop = useCallback(async (shopIdParam = '') => {
         const sid = asString(shopIdParam || activeShopId);
@@ -809,10 +969,13 @@ export function AuthProvider({ children }) {
             return [];
         }
 
-        const mapped = data.map(normalizeSalesman).filter(Boolean);
+        const mapped = data
+            .map(normalizeSalesman)
+            .filter(Boolean)
+            .map((salesman) => mergeSalesmanMeta(salesman, salesmanMetaMap));
         setSalesmen(mapped);
         return mapped;
-    }, [activeShopId]);
+    }, [activeShopId, salesmanMetaMap]);
 
     useEffect(() => {
         if (!role || !user) {
@@ -830,6 +993,21 @@ export function AuthProvider({ children }) {
         loadSalesmenForShop(activeShopId);
     }, [activeShopId, loadSalesmenForShop]);
 
+    useEffect(() => {
+        if (role !== 'salesman' || !user) return;
+        const merged = mergeSalesmanMeta(user, salesmanMetaMap);
+        const numberChanged = asNumber(merged?.salesmanNumber, 0) !== asNumber(user?.salesmanNumber, 0);
+        const editChanged = asBoolean(merged?.canEditTransactions) !== asBoolean(user?.canEditTransactions);
+        const bulkChanged = asBoolean(merged?.canBulkEdit) !== asBoolean(user?.canBulkEdit);
+        if (!numberChanged && !editChanged && !bulkChanged) return;
+        setUser((prev) => prev ? {
+            ...prev,
+            salesmanNumber: merged.salesmanNumber,
+            canEditTransactions: merged.canEditTransactions,
+            canBulkEdit: merged.canBulkEdit
+        } : prev);
+    }, [role, user, salesmanMetaMap]);
+
     const setActiveShopId = useCallback((shopId) => {
         const sid = asString(shopId);
         if (isSuperAdmin) {
@@ -842,13 +1020,14 @@ export function AuthProvider({ children }) {
         setActiveShopIdState(lockedShopId || sid);
     }, [isSuperAdmin, user, activeShopId]);
 
-    const createShop = useCallback(async ({ shopName, location, ownerEmail }) => {
+    const createShop = useCallback(async ({ shopName, location, address, ownerEmail }) => {
         if (role !== 'superadmin') {
             throw new Error('Only superadmin can create shops.');
         }
 
         const name = asString(shopName);
         const shopLocation = asString(location);
+        const shopAddress = asString(address);
         const email = asString(ownerEmail).toLowerCase();
 
         if (!name) throw new Error('Shop name is required.');
@@ -856,7 +1035,12 @@ export function AuthProvider({ children }) {
 
         let createdShop = null;
         let shopError = null;
-        const shopPayloads = buildShopInsertPayloads({ name, location: shopLocation, ownerEmail: email });
+        const shopPayloads = buildShopInsertPayloads({
+            name,
+            location: shopLocation,
+            address: shopAddress,
+            ownerEmail: email
+        });
 
         for (const payload of shopPayloads) {
             const { data, error } = await supabase.from('shops').insert([payload]).select().single();
@@ -907,9 +1091,22 @@ export function AuthProvider({ children }) {
             owner_password: getProfilePassword(createdProfile) || tempPassword,
             owner_profile_id: asString(createdProfile.id),
         };
+        const resolvedAddress = asString(shopAddress || createdShopWithCredentials.address || createdShopWithCredentials.location);
+        patchShopMeta(shopId, { address: resolvedAddress, billShowTax: true });
+        const createdShopWithMeta = mergeShopMeta({
+            ...createdShopWithCredentials,
+            address: resolvedAddress
+        }, {
+            ...shopMetaMap,
+            [shopId]: {
+                ...(shopMetaMap?.[shopId] || {}),
+                address: resolvedAddress,
+                billShowTax: true
+            }
+        });
 
         setShops(prev => {
-            const merged = [...prev, createdShopWithCredentials]
+            const merged = [...prev, createdShopWithMeta]
                 .filter((s, idx, arr) => s && arr.findIndex(x => x.id === s.id) === idx)
                 .sort((a, b) => a.name.localeCompare(b.name));
             return merged;
@@ -920,7 +1117,7 @@ export function AuthProvider({ children }) {
         }
 
         return {
-            shop: createdShopWithCredentials,
+            shop: createdShopWithMeta,
             admin: createdProfile,
             credentials: {
                 email,
@@ -928,7 +1125,7 @@ export function AuthProvider({ children }) {
                 password: getProfilePassword(createdProfile) || tempPassword
             }
         };
-    }, [role, activeShopId]);
+    }, [role, activeShopId, patchShopMeta, shopMetaMap]);
 
     const updateShop = useCallback(async (shopId, updates = {}) => {
         if (role !== 'superadmin') {
@@ -940,21 +1137,22 @@ export function AuthProvider({ children }) {
         const currentShop = (Array.isArray(shops) ? shops : []).find((shop) => shop.id === sid) || null;
 
         const hasName = Object.prototype.hasOwnProperty.call(updates, 'name');
-        const hasLocation = Object.prototype.hasOwnProperty.call(updates, 'location')
-            || Object.prototype.hasOwnProperty.call(updates, 'address');
+        const hasLocation = Object.prototype.hasOwnProperty.call(updates, 'location');
+        const hasAddress = Object.prototype.hasOwnProperty.call(updates, 'address');
         const hasOwner = Object.prototype.hasOwnProperty.call(updates, 'ownerEmail')
             || Object.prototype.hasOwnProperty.call(updates, 'owner_email');
         const hasOwnerPassword = Object.prototype.hasOwnProperty.call(updates, 'ownerPassword')
             || Object.prototype.hasOwnProperty.call(updates, 'owner_password');
 
         const nextName = hasName ? asString(updates.name) : undefined;
-        const nextLocation = hasLocation ? asString(updates.location ?? updates.address) : undefined;
+        const nextLocation = hasLocation ? asString(updates.location) : undefined;
+        const nextAddress = hasAddress ? asString(updates.address) : undefined;
         const nextOwnerEmail = hasOwner ? asString(updates.ownerEmail ?? updates.owner_email) : undefined;
         const nextOwnerPassword = hasOwnerPassword
             ? asString(updates.ownerPassword ?? updates.owner_password)
             : undefined;
         const shouldUpdateOwnerPassword = hasOwnerPassword && !!nextOwnerPassword;
-        const shouldUpdateShopTable = hasName || hasLocation || hasOwner;
+        const shouldUpdateShopTable = hasName || hasLocation || hasAddress || hasOwner;
         const shouldUpdateOwnerProfile = hasOwner || shouldUpdateOwnerPassword;
 
         if (hasName && !nextName) {
@@ -971,6 +1169,7 @@ export function AuthProvider({ children }) {
             const payloads = buildShopUpdatePayloads({
                 name: nextName,
                 location: nextLocation,
+                address: nextAddress,
                 ownerEmail: nextOwnerEmail
             });
 
@@ -1059,25 +1258,40 @@ export function AuthProvider({ children }) {
             owner_password: shouldUpdateOwnerPassword
                 ? nextOwnerPassword
                 : asString(getProfilePassword(updatedOwnerProfile) || updatedShop?.owner_password || currentShop?.owner_password),
+            address: hasAddress
+                ? nextAddress
+                : asString(updatedShop?.address || currentShop?.address || updatedShop?.location || currentShop?.location),
         };
+
+        if (hasAddress) {
+            patchShopMeta(sid, { address: nextAddress });
+        }
+
+        const mergedShopWithMeta = mergeShopMeta(mergedShop, {
+            ...shopMetaMap,
+            [sid]: {
+                ...(shopMetaMap?.[sid] || {}),
+                ...(hasAddress ? { address: nextAddress } : {})
+            }
+        });
 
         setShops((prev) => prev.map((shop) => (
             shop.id === sid
-                ? { ...shop, ...mergedShop }
+                ? { ...shop, ...mergedShopWithMeta }
                 : shop
         )));
 
         if (user && asString(user.shop_id) === sid) {
             setUser((prev) => prev ? {
                 ...prev,
-                shopName: mergedShop.name || prev.shopName,
-                shop_id: mergedShop.id || prev.shop_id,
+                shopName: mergedShopWithMeta.name || prev.shopName,
+                shop_id: mergedShopWithMeta.id || prev.shop_id,
                 email: asString(updatedOwnerProfile?.email || prev.email)
             } : prev);
         }
 
-        return mergedShop;
-    }, [role, user, shops]);
+        return mergedShopWithMeta;
+    }, [role, user, shops, patchShopMeta, shopMetaMap]);
 
     const deleteShop = useCallback(async (shopId) => {
         if (role !== 'superadmin') {
@@ -1107,6 +1321,16 @@ export function AuthProvider({ children }) {
 
         const nextShops = currentShops.filter((shop) => shop.id !== sid);
         setShops(nextShops);
+        setSalesmanMetaMap((prev) => {
+            const next = { ...(prev || {}) };
+            delete next[sid];
+            return next;
+        });
+        setShopMetaMap((prev) => {
+            const next = { ...(prev || {}) };
+            delete next[sid];
+            return next;
+        });
 
         if (activeShopId === sid) {
             setActiveShopIdState(nextShops[0]?.id || '');
@@ -1485,7 +1709,7 @@ export function AuthProvider({ children }) {
 
                 const profile = await trySelectSalesmanByPin(pin);
                 if (profile) {
-                    const normalized = normalizeUserFromProfile(profile);
+                    const normalized = mergeSalesmanMeta(normalizeUserFromProfile(profile), salesmanMetaMap);
                     if (normalized.active === false) {
                         return { success: false, message: 'User disabled' };
                     }
@@ -1505,11 +1729,12 @@ export function AuthProvider({ children }) {
                 // Legacy fallback
                 const salesman = salesmen.find(s => String(s.pin) === pin);
                 if (salesman) {
+                    const withMeta = mergeSalesmanMeta(salesman, salesmanMetaMap);
                     setRole('salesman');
-                    setUser(salesman);
-                    if (salesman.shop_id) setActiveShopIdState(asString(salesman.shop_id));
-                    setIsPunchedIn(asBoolean(salesman.is_online ?? salesman.isOnline ?? salesman.online));
-                    persistAuthSession('salesman', salesman);
+                    setUser(withMeta);
+                    if (withMeta.shop_id) setActiveShopIdState(asString(withMeta.shop_id));
+                    setIsPunchedIn(asBoolean(withMeta.is_online ?? withMeta.isOnline ?? withMeta.online));
+                    persistAuthSession('salesman', withMeta);
                     return { success: true, role: 'salesman' };
                 }
 
@@ -1520,7 +1745,7 @@ export function AuthProvider({ children }) {
         } finally {
             setAuthLoading(false);
         }
-    }, [adminPassword, salesmen, activeShopId]);
+    }, [adminPassword, salesmen, activeShopId, salesmanMetaMap]);
 
     const logout = () => {
         clearAuthSession();
@@ -1541,22 +1766,31 @@ export function AuthProvider({ children }) {
         broadcastSetting('adminPassword', newPass);
     };
 
-    const addSalesman = async (name, pin) => {
+    const addSalesman = async (name, pin, extra = {}) => {
         const trimmedName = asString(name);
         const trimmedPin = asString(pin);
-        if (!trimmedName || !trimmedPin || !activeShopId) return;
+        const sid = asString(activeShopId);
+        if (!trimmedName || !trimmedPin || !sid) return;
 
         const existingPins = await listSalesmenByPin(trimmedPin);
         if (existingPins.length > 0) {
             throw new Error('PIN already used in another shop. Please use a unique PIN.');
         }
+        const explicitNumber = asNumber(extra?.salesmanNumber, 0);
+        const assignedNumber = explicitNumber > 0
+            ? Math.floor(explicitNumber)
+            : getNextSalesmanNumber(salesmen, salesmanMetaMap, sid);
+        const permissionPatch = {
+            canEditTransactions: asBoolean(extra?.canEditTransactions),
+            canBulkEdit: asBoolean(extra?.canBulkEdit)
+        };
 
         let createdProfile = null;
         let insertError = null;
         const payloadVariants = buildSalesmanInsertPayloads({
             name: trimmedName,
             pin: trimmedPin,
-            shopId: activeShopId,
+            shopId: sid,
             hourlyRate: 12.5
         });
 
@@ -1570,8 +1804,17 @@ export function AuthProvider({ children }) {
         }
 
         if (createdProfile) {
-            setSalesmen(prev => [...prev, createdProfile]);
-            return createdProfile;
+            const withMeta = {
+                ...createdProfile,
+                salesmanNumber: assignedNumber,
+                ...permissionPatch
+            };
+            patchSalesmanMeta(sid, createdProfile.id, {
+                salesmanNumber: assignedNumber,
+                ...permissionPatch
+            });
+            setSalesmen(prev => [...prev, withMeta]);
+            return withMeta;
         }
 
         if (insertError) {
@@ -1579,7 +1822,21 @@ export function AuthProvider({ children }) {
         }
 
         // Legacy fallback
-        const newSalesman = { id: Date.now(), name: trimmedName, pin: trimmedPin, active: true, hourlyRate: 12.5, role: 'salesman', shop_id: activeShopId };
+        const newSalesman = {
+            id: Date.now(),
+            name: trimmedName,
+            pin: trimmedPin,
+            active: true,
+            hourlyRate: 12.5,
+            role: 'salesman',
+            shop_id: sid,
+            salesmanNumber: assignedNumber,
+            ...permissionPatch
+        };
+        patchSalesmanMeta(sid, newSalesman.id, {
+            salesmanNumber: assignedNumber,
+            ...permissionPatch
+        });
         setSalesmen(prev => {
             const next = [...prev, newSalesman];
             broadcastSetting('salesmen', next);
@@ -1593,6 +1850,14 @@ export function AuthProvider({ children }) {
         if (sid) {
             await supabase.from('profiles').delete().eq('id', id).eq('shop_id', sid);
         }
+        setSalesmanMetaMap((prev) => {
+            const byShop = prev?.[sid] && typeof prev[sid] === 'object' ? { ...prev[sid] } : {};
+            delete byShop[asString(id)];
+            return {
+                ...prev,
+                [sid]: byShop
+            };
+        });
         setSalesmen(prev => {
             const next = prev.filter(s => String(s.id) !== String(id));
             broadcastSetting('salesmen', next);
@@ -1604,6 +1869,38 @@ export function AuthProvider({ children }) {
         const sid = asString(activeShopId);
         const normalizedId = asString(id);
         const nextPin = asString(updates?.pin);
+        const permissionUpdates = updates?.permissions && typeof updates.permissions === 'object'
+            ? updates.permissions
+            : {};
+        const hasSalesmanNumber = Object.prototype.hasOwnProperty.call(updates || {}, 'salesmanNumber');
+        const hasCanEditTransactions = Object.prototype.hasOwnProperty.call(updates || {}, 'canEditTransactions')
+            || Object.prototype.hasOwnProperty.call(permissionUpdates, 'canEditTransactions');
+        const hasCanBulkEdit = Object.prototype.hasOwnProperty.call(updates || {}, 'canBulkEdit')
+            || Object.prototype.hasOwnProperty.call(permissionUpdates, 'canBulkEdit');
+        const localMetaPatch = {};
+        if (hasSalesmanNumber) {
+            localMetaPatch.salesmanNumber = Math.max(0, Math.floor(asNumber(updates.salesmanNumber, 0)));
+        }
+        if (hasCanEditTransactions) {
+            localMetaPatch.canEditTransactions = asBoolean(
+                Object.prototype.hasOwnProperty.call(permissionUpdates, 'canEditTransactions')
+                    ? permissionUpdates.canEditTransactions
+                    : updates.canEditTransactions
+            );
+        }
+        if (hasCanBulkEdit) {
+            localMetaPatch.canBulkEdit = asBoolean(
+                Object.prototype.hasOwnProperty.call(permissionUpdates, 'canBulkEdit')
+                    ? permissionUpdates.canBulkEdit
+                    : updates.canBulkEdit
+            );
+        }
+
+        const dbUpdates = { ...(updates || {}) };
+        delete dbUpdates.salesmanNumber;
+        delete dbUpdates.canEditTransactions;
+        delete dbUpdates.canBulkEdit;
+        delete dbUpdates.permissions;
 
         if (nextPin) {
             const conflicts = await listSalesmenByPin(nextPin);
@@ -1613,9 +1910,9 @@ export function AuthProvider({ children }) {
             }
         }
 
-        if (sid) {
+        if (sid && Object.keys(dbUpdates).length > 0) {
             let updatedOnDB = false;
-            const candidates = buildProfileUpdatePayloads(updates);
+            const candidates = buildProfileUpdatePayloads(dbUpdates);
 
             for (const payload of candidates) {
                 const { error } = await supabase.from('profiles').update(payload).eq('id', id).eq('shop_id', sid);
@@ -1630,13 +1927,44 @@ export function AuthProvider({ children }) {
             }
         }
 
+        if (sid && Object.keys(localMetaPatch).length > 0) {
+            patchSalesmanMeta(sid, normalizedId, localMetaPatch);
+        }
+
         setSalesmen(prev => {
-            const next = prev.map(s => String(s.id) === String(id) ? { ...s, ...updates } : s);
+            const next = prev.map(s => {
+                if (String(s.id) !== String(id)) return s;
+                return {
+                    ...s,
+                    ...dbUpdates,
+                    ...(Object.prototype.hasOwnProperty.call(localMetaPatch, 'salesmanNumber')
+                        ? { salesmanNumber: localMetaPatch.salesmanNumber }
+                        : {}),
+                    ...(Object.prototype.hasOwnProperty.call(localMetaPatch, 'canEditTransactions')
+                        ? { canEditTransactions: localMetaPatch.canEditTransactions }
+                        : {}),
+                    ...(Object.prototype.hasOwnProperty.call(localMetaPatch, 'canBulkEdit')
+                        ? { canBulkEdit: localMetaPatch.canBulkEdit }
+                        : {})
+                };
+            });
             broadcastSetting('salesmen', next);
             return next;
         });
         if (user && String(user.id) === String(id)) {
-            setUser(prev => ({ ...prev, ...updates }));
+            setUser(prev => ({
+                ...prev,
+                ...dbUpdates,
+                ...(Object.prototype.hasOwnProperty.call(localMetaPatch, 'salesmanNumber')
+                    ? { salesmanNumber: localMetaPatch.salesmanNumber }
+                    : {}),
+                ...(Object.prototype.hasOwnProperty.call(localMetaPatch, 'canEditTransactions')
+                    ? { canEditTransactions: localMetaPatch.canEditTransactions }
+                    : {}),
+                ...(Object.prototype.hasOwnProperty.call(localMetaPatch, 'canBulkEdit')
+                    ? { canBulkEdit: localMetaPatch.canBulkEdit }
+                    : {})
+            }));
         }
     };
 
@@ -1658,6 +1986,18 @@ export function AuthProvider({ children }) {
         broadcastSetting('autoLockTimeout', newVal);
     };
 
+    const setBillShowTax = useCallback((enabled) => {
+        const sid = asString(activeShopId);
+        if (!sid) return;
+        const nextEnabled = asBoolean(enabled);
+        patchShopMeta(sid, { billShowTax: nextEnabled });
+        setShops((prev) => prev.map((shop) => (
+            shop.id === sid
+                ? { ...shop, billShowTax: nextEnabled }
+                : shop
+        )));
+    }, [activeShopId, patchShopMeta]);
+
     // ── Alert Logic ──
     const addLowStockAlert = (product) => {
         setLowStockAlerts((prev) => {
@@ -1667,6 +2007,10 @@ export function AuthProvider({ children }) {
     };
     const clearAlert = (barcode) => setLowStockAlerts((prev) => prev.filter((a) => a.barcode !== barcode));
     const clearAllAlerts = () => setLowStockAlerts([]);
+    const activeShop = useMemo(
+        () => (Array.isArray(shops) ? shops.find((shop) => shop.id === asString(activeShopId)) : null) || null,
+        [shops, activeShopId]
+    );
 
     const value = {
         role,
@@ -1680,10 +2024,13 @@ export function AuthProvider({ children }) {
         activeShopId,
         setActiveShopId,
         shops,
+        activeShop,
         refreshShops,
         createShop,
         updateShop,
         deleteShop,
+        billShowTax,
+        setBillShowTax,
 
         salesmen,
         addSalesman,

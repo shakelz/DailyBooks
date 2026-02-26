@@ -69,6 +69,8 @@ export default function CartSidebar({ onEditItem, onFinalized }) {
                 soldBy: user?.name || 'Unknown',
                 userName: user?.name || 'Unknown',
                 userId: user?.id,
+                workerId: String(user?.id || ''),
+                salesmanNumber: user?.salesmanNumber || 0,
                 customerInfo: item.customerInfo || cart[0]?.customerInfo || { name: 'Walk-in', phone: '', type: 'New' },
                 paymentMethod: item.paymentMethod || cart[0]?.paymentMethod || 'Cash',
                 notes: itemNotes ? `${itemNotes} | Part of multi-item sale ${masterTransactionId}` : `Part of multi-item sale ${masterTransactionId}`,

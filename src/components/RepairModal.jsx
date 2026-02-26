@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useRepairs } from '../context/RepairsContext';
+import { useAuth } from '../context/AuthContext';
 import { X, Printer, Save, Wrench, Phone, User, Smartphone, Hash, FileText, Calendar, DollarSign } from 'lucide-react';
 
 export default function RepairModal({ isOpen, onClose }) {
     const { addRepair } = useRepairs();
+    const { activeShop } = useAuth();
 
     const [form, setForm] = useState({
         customerName: '',
@@ -78,6 +80,8 @@ export default function RepairModal({ isOpen, onClose }) {
         const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => (
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
         ));
+        const receiptShopName = String(activeShop?.name || 'Shop').trim() || 'Shop';
+        const receiptShopAddress = String(activeShop?.address || activeShop?.location || '').trim();
         const parsedDelivery = job?.deliveryDate ? new Date(job.deliveryDate) : null;
         const deliveryFormatted = parsedDelivery && !Number.isNaN(parsedDelivery.getTime())
             ? parsedDelivery.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -90,7 +94,7 @@ export default function RepairModal({ isOpen, onClose }) {
         return `<!DOCTYPE html>
 <html>
 <head>
-    <title>Repair Labels - ${esc(job.refId)}</title>
+    <title>Reparaturbeleg - ${esc(job.refId)}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Courier New', monospace; width: 80mm; }
@@ -110,32 +114,32 @@ export default function RepairModal({ isOpen, onClose }) {
 <body>
     <!-- CUSTOMER COPY -->
     <div class="label">
-        <div class="title">— Customer Copy —</div>
-        <div class="shop-name">DailyBooks</div>
-        <div class="shop-addr">Kurt-Schumacher-Damm 1</div>
+        <div class="title">— Kundenbeleg —</div>
+        <div class="shop-name">${esc(receiptShopName)}</div>
+        ${receiptShopAddress ? `<div class="shop-addr">${esc(receiptShopAddress)}</div>` : ''}
         <div class="divider"></div>
         <div class="ref-id">${esc(job.refId)}</div>
         <div class="divider"></div>
         <div class="row"><span class="label-text">Name:</span><span>${esc(job.customerName)}</span></div>
-        <div class="row"><span class="label-text">Phone:</span><span>${esc(job.phone)}</span></div>
-        <div class="row"><span class="label-text">Device:</span><span>${esc(job.deviceModel)}</span></div>
+        <div class="row"><span class="label-text">Telefon:</span><span>${esc(job.phone)}</span></div>
+        <div class="row"><span class="label-text">Geraet:</span><span>${esc(job.deviceModel)}</span></div>
         ${job.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(job.imei)}</span></div>` : ''}
         <div class="divider"></div>
-        <div class="problem"><strong>Problem:</strong> ${problemNote}</div>
-        <div class="row"><span class="label-text">Est. Cost:</span><span>€${estimatedCost.toFixed(2)}</span></div>
-        <div class="row"><span class="label-text">Delivery:</span><span>${deliveryFormatted}</span></div>
+        <div class="problem"><strong>Fehler:</strong> ${problemNote}</div>
+        <div class="row"><span class="label-text">Geschaetzte Kosten:</span><span>€${estimatedCost.toFixed(2)}</span></div>
+        <div class="row"><span class="label-text">Abholung:</span><span>${deliveryFormatted}</span></div>
         <div class="divider"></div>
-        <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Thank you for choosing DailyBooks!</div>
+        <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
     </div>
 
     <!-- SHOP LABEL (stick on phone) -->
     <div class="label">
-        <div class="title">— Shop Label —</div>
+        <div class="title">— Ladenbeleg —</div>
         <div class="ref-id" style="font-size:22px;">${esc(job.refId)}</div>
         <div class="divider"></div>
-        <div class="problem"><strong>Problem Note:</strong> ${problemNote}</div>
-        <div class="row"><span class="label-text">Device:</span><span>${esc(job.deviceModel)}</span></div>
-        <div class="row"><span class="label-text">Delivery Date:</span><span>${deliveryFormatted}</span></div>
+        <div class="problem"><strong>Fehlernotiz:</strong> ${problemNote}</div>
+        <div class="row"><span class="label-text">Geraet:</span><span>${esc(job.deviceModel)}</span></div>
+        <div class="row"><span class="label-text">Abholdatum:</span><span>${deliveryFormatted}</span></div>
     </div>
 </body>
 </html>`;

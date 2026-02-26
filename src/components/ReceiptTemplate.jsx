@@ -1,135 +1,139 @@
 import React, { forwardRef } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { priceTag } from '../utils/currency';
 
-// ══════════════════════════════════════════════════════════
-// DailyBooks — German POS Thermal Receipt (80mm)
-// ══════════════════════════════════════════════════════════
+function asNumber(value) {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
 
-const ReceiptTemplate = forwardRef(({ items, transactionId, salesmanName, paymentMethod, date, time }, ref) => {
-    // 1. Calculate Exact Totals (Brutto determines everything to avoid penny mismatch)
-    const bruttoTotal = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-    const nettoTotal = bruttoTotal / 1.19;
-    const taxTotal = bruttoTotal - nettoTotal;
+const ReceiptTemplate = forwardRef(({
+    items,
+    transactionId,
+    paymentMethod,
+    date,
+    time,
+    showTax,
+    shopName,
+    shopAddress
+}, ref) => {
+    const { activeShop, billShowTax } = useAuth();
+    const lineItems = Array.isArray(items) ? items : [];
+    const grossTotal = lineItems.reduce((sum, item) => sum + asNumber(item?.amount), 0);
+    const netTotal = grossTotal / 1.19;
+    const taxTotal = grossTotal - netTotal;
+    const shouldShowTax = showTax === undefined ? billShowTax : Boolean(showTax);
+    const receiptShopName = String(shopName || activeShop?.name || 'Shop').trim() || 'Shop';
+    const receiptShopAddress = String(shopAddress || activeShop?.address || activeShop?.location || '').trim();
 
-    // Helper: Safely get IMEI if product is a phone
     const renderIMEI = (item) => {
-        const cat = typeof item.category === 'object' ? item.category?.level1 : item.category;
-        const isPhone = cat && ['Phone', 'Smartphone', 'Handy'].some(c => cat.toLowerCase().includes(c.toLowerCase()));
-
-        if (isPhone && item.verifiedAttributes?.IMEI) {
-            return (
-                <div style={{ fontSize: '10px', color: '#333', marginTop: '2px' }}>
-                    IMEI: {item.verifiedAttributes.IMEI}
-                </div>
-            );
-        }
-        return null;
+        const category = typeof item?.category === 'object' ? item.category?.level1 : item?.category;
+        const isPhoneCategory = category && ['phone', 'smartphone', 'handy'].some((token) => String(category).toLowerCase().includes(token));
+        if (!isPhoneCategory || !item?.verifiedAttributes?.IMEI) return null;
+        return (
+            <div style={{ fontSize: '10px', color: '#333', marginTop: '2px' }}>
+                IMEI: {item.verifiedAttributes.IMEI}
+            </div>
+        );
     };
 
     return (
-        <div ref={ref} style={{
-            width: '80mm',
-            padding: '10mm 4mm',
-            fontFamily: '"Courier New", Courier, monospace',
-            fontSize: '12px',
-            lineHeight: '1.4',
-            color: '#000',
-            backgroundColor: '#fff',
-            margin: '0 auto'
-        }}>
-            {/* ── HEADER ── */}
+        <div
+            ref={ref}
+            style={{
+                width: '80mm',
+                padding: '10mm 4mm',
+                fontFamily: '"Courier New", Courier, monospace',
+                fontSize: '12px',
+                lineHeight: '1.4',
+                color: '#000',
+                backgroundColor: '#fff',
+                margin: '0 auto'
+            }}
+        >
             <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                <div style={{ fontWeight: 'bold', fontSize: '16px' }}>CareFone UG</div>
-                <div style={{ fontSize: '12px' }}>(haftungsbeschränkt)</div>
-                <div style={{ marginTop: '4px' }}>Kurt-Schumacher-Damm 1</div>
-                <div>13405 Berlin, Deutschland</div>
+                <div style={{ fontWeight: 'bold', fontSize: '16px' }}>{receiptShopName}</div>
+                {receiptShopAddress && <div style={{ marginTop: '4px' }}>{receiptShopAddress}</div>}
             </div>
 
-            <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }}></div>
+            <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
 
-            {/* ── METADATA ── */}
             <div style={{ fontSize: '11px', marginBottom: '8px' }}>
                 <div><strong>Datum:</strong> {date || new Date().toLocaleDateString('de-DE')} {time || new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
                 <div><strong>Beleg-Nr:</strong> {transactionId || 'N/A'}</div>
-                <div><strong>Verkäufer:</strong> {salesmanName || 'Shop'}</div>
             </div>
 
-            <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }}></div>
+            <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
 
-            {/* ── ITEMS TABLE ── */}
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px', fontSize: '12px' }}>
                 <thead>
                     <tr style={{ fontWeight: 'bold', borderBottom: '1px solid #000' }}>
-                        <td style={{ paddingBottom: '4px', width: '15%' }}>Mng</td>
+                        <td style={{ paddingBottom: '4px', width: '15%' }}>Menge</td>
                         <td style={{ paddingBottom: '4px', width: '55%' }}>Artikel</td>
                         <td style={{ paddingBottom: '4px', width: '30%', textAlign: 'right' }}>Betrag</td>
                     </tr>
                 </thead>
                 <tbody>
-                    {items.map((item, idx) => (
+                    {lineItems.map((item, idx) => (
                         <tr key={idx}>
+                            <td style={{ verticalAlign: 'top', paddingTop: '6px' }}>{item?.quantity || 1}x</td>
                             <td style={{ verticalAlign: 'top', paddingTop: '6px' }}>
-                                {item.quantity || 1}x
-                            </td>
-                            <td style={{ verticalAlign: 'top', paddingTop: '6px' }}>
-                                <div>{item.name || item.productName || 'Item'}</div>
+                                <div>{item?.name || item?.productName || 'Artikel'}</div>
                                 {renderIMEI(item)}
                             </td>
                             <td style={{ verticalAlign: 'top', paddingTop: '6px', textAlign: 'right' }}>
-                                {priceTag(parseFloat(item.amount) || 0)}
+                                {priceTag(asNumber(item?.amount))}
                             </td>
                         </tr>
                     ))}
                 </tbody>
             </table>
 
-            <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }}></div>
+            <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
 
-            {/* ── TAX BREAKDOWN (SumUp Style) ── */}
             <table style={{ width: '100%', fontSize: '11px', marginBottom: '8px' }}>
                 <tbody>
                     <tr>
                         <td>Zwischensumme</td>
-                        <td style={{ textAlign: 'right' }}>{priceTag(bruttoTotal)}</td>
+                        <td style={{ textAlign: 'right' }}>{priceTag(grossTotal)}</td>
                     </tr>
-                    <tr>
-                        <td>Netto (19%)</td>
-                        <td style={{ textAlign: 'right' }}>{priceTag(nettoTotal)}</td>
-                    </tr>
-                    <tr>
-                        <td>USt. (19%)</td>
-                        <td style={{ textAlign: 'right' }}>{priceTag(taxTotal)}</td>
-                    </tr>
+                    {shouldShowTax && (
+                        <>
+                            <tr>
+                                <td>Netto (19%)</td>
+                                <td style={{ textAlign: 'right' }}>{priceTag(netTotal)}</td>
+                            </tr>
+                            <tr>
+                                <td>USt. (19%)</td>
+                                <td style={{ textAlign: 'right' }}>{priceTag(taxTotal)}</td>
+                            </tr>
+                        </>
+                    )}
                 </tbody>
             </table>
 
-            {/* ── GRAND TOTAL ── */}
             <table style={{ width: '100%', fontWeight: 'bold', fontSize: '16px', borderTop: '2px solid #000', paddingTop: '4px', marginTop: '4px' }}>
                 <tbody>
                     <tr>
                         <td>GESAMTBETRAG</td>
-                        <td style={{ textAlign: 'right' }}>{priceTag(bruttoTotal)}</td>
+                        <td style={{ textAlign: 'right' }}>{priceTag(grossTotal)}</td>
                     </tr>
                 </tbody>
             </table>
 
-            <div style={{ borderTop: '1px dashed #000', margin: '16px 0 8px 0' }}></div>
+            <div style={{ borderTop: '1px dashed #000', margin: '16px 0 8px 0' }} />
 
-            {/* ── FOOTER ── */}
             <div style={{ fontSize: '10px', textAlign: 'center', marginTop: '16px' }}>
                 <div style={{ marginBottom: '8px' }}>
-                    <strong>Zahlart:</strong> {paymentMethod || 'Cash / Bar'}
+                    <strong>Zahlungsart:</strong> {paymentMethod || 'Bar'}
                 </div>
 
-                <div style={{ marginTop: '24px', fontStyle: 'italic', fontSize: '9px', lineHeight: '1.2' }}>
-                    ICH BESTÄTIGE DEN OBEN GENANNTEN GESAMTBETRAG ZU ZAHLEN (UNTERSCHRIFT DES KUNDEN)
+                <div style={{ marginTop: '12px', fontSize: '9px', lineHeight: '1.3' }}>
+                    Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.
                 </div>
 
-                <div style={{ borderTop: '1px solid #000', width: '80%', margin: '32px auto 8px auto' }}></div>
-                <div style={{ fontSize: '9px' }}>Unterschrift</div>
-
-                <div style={{ marginTop: '24px' }}>Vielen Dank für Ihren Einkauf!</div>
-                <div style={{ fontWeight: 'bold', marginTop: '4px' }}>Powered by SumUp</div>
+                <div style={{ marginTop: '18px' }}>Vielen Dank fuer Ihren Einkauf!</div>
+                <div style={{ fontWeight: 'bold', marginTop: '4px' }}>{receiptShopName}</div>
             </div>
         </div>
     );

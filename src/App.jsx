@@ -6,6 +6,7 @@ import { CartProvider } from './context/CartContext'
 import LoginPage from './pages/LoginPage'
 // import Dashboard from './pages/Dashboard' // Replaced by AdminPanel components
 import SalesmanDashboard from './pages/SalesmanDashboard'
+import LatestDashboard from './pages/LatestDashboard'
 import InventoryManager from './pages/InventoryManager'
 import ComingSoonPage from './pages/ComingSoonPage'
 import AdminPanel from './pages/AdminPanel'
@@ -44,6 +45,7 @@ function App() {
 
                 {/* Salesman Dashboard */}
                 <Route path="/salesman" element={<SalesmanDashboard />} />
+                <Route path="/salesman/latest-dashboard" element={<LatestDashboard />} />
 
                 {/* Catch-all 404 */}
                 <Route path="*" element={<ComingSoonPage title="Page Not Found" icon="🔍" />} />

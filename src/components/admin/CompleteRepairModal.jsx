@@ -1,10 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
+import { useAuth } from '../../context/AuthContext';
 import { X, Search, Plus, Minus, Package, DollarSign, CheckCircle2, Printer } from 'lucide-react';
 import { priceTag } from '../../utils/currency';
 
 export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }) {
     const { products } = useInventory();
+    const { activeShop } = useAuth();
 
     const [finalAmount, setFinalAmount] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -118,11 +120,13 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         const partsCost = parseFloat(printData.totalPartsCost) || 0;
         const netEarning = serviceAmount - partsCost;
         const completedAt = printData.completedAt || new Date().toISOString();
+        const receiptShopName = String(activeShop?.name || 'Shop').trim() || 'Shop';
+        const receiptShopAddress = String(activeShop?.address || activeShop?.location || '').trim();
 
         return `<!DOCTYPE html>
 <html>
 <head>
-    <title>Repair Invoice - ${esc(printData.refId)}</title>
+    <title>Reparaturrechnung - ${esc(printData.refId)}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Courier New', monospace; width: 80mm; }
@@ -144,24 +148,24 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
 </head>
 <body>
     <div class="slip">
-        <div class="title">— Repair Completion Invoice —</div>
-        <div class="shop-name">DailyBooks</div>
-        <div class="shop-addr">Kurt-Schumacher-Damm 1</div>
+        <div class="title">— Reparaturabschluss —</div>
+        <div class="shop-name">${esc(receiptShopName)}</div>
+        ${receiptShopAddress ? `<div class="shop-addr">${esc(receiptShopAddress)}</div>` : ''}
         <div class="divider"></div>
         <div class="ref-id">${esc(printData.refId)}</div>
         <div class="divider"></div>
-        <div class="row"><span class="label-text">Completed:</span><span>${toDate(completedAt, true)}</span></div>
-        <div class="row"><span class="label-text">Delivery Date:</span><span>${toDate(printData.deliveryDate)}</span></div>
+        <div class="row"><span class="label-text">Fertiggestellt:</span><span>${toDate(completedAt, true)}</span></div>
+        <div class="row"><span class="label-text">Abholdatum:</span><span>${toDate(printData.deliveryDate)}</span></div>
         <div class="divider"></div>
         <div class="row"><span class="label-text">Name:</span><span>${esc(printData.customerName)}</span></div>
-        <div class="row"><span class="label-text">Phone:</span><span>${esc(printData.phone)}</span></div>
-        <div class="row"><span class="label-text">Device:</span><span>${esc(printData.deviceModel)}</span></div>
+        <div class="row"><span class="label-text">Telefon:</span><span>${esc(printData.phone)}</span></div>
+        <div class="row"><span class="label-text">Geraet:</span><span>${esc(printData.deviceModel)}</span></div>
         ${printData.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(printData.imei)}</span></div>` : ''}
-        <div class="problem"><strong>Issue:</strong> ${esc(printData.problem || 'N/A')}</div>
+        <div class="problem"><strong>Fehler:</strong> ${esc(printData.problem || 'N/A')}</div>
         <div class="divider"></div>
-        <div class="row" style="font-size:13px;"><span class="label-text">Final Amount:</span><span><strong>${toAmount(serviceAmount)}</strong></span></div>
+        <div class="row" style="font-size:13px;"><span class="label-text">Endbetrag:</span><span><strong>${toAmount(serviceAmount)}</strong></span></div>
         <div class="divider"></div>
-        <div class="title" style="text-align:left; margin-bottom:1mm;">Parts Used</div>
+        <div class="title" style="text-align:left; margin-bottom:1mm;">Verwendete Teile</div>
         <table>
             <thead>
                 <tr><th>Qty</th><th>Part</th><th style="text-align:right">Amount</th></tr>
@@ -170,23 +174,23 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
                 ${partsRows}
             </tbody>
         </table>
-        <div class="row"><span class="label-text">Parts Cost:</span><span>${toAmount(partsCost)}</span></div>
+        <div class="row"><span class="label-text">Teilekosten:</span><span>${toAmount(partsCost)}</span></div>
         <div class="divider"></div>
-        <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Thank you for choosing DailyBooks!</div>
+        <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
     </div>
 
     <div class="slip">
-        <div class="title">— Shop Copy —</div>
+        <div class="title">— Ladenkopie —</div>
         <div class="ref-id">${esc(printData.refId)}</div>
         <div class="divider"></div>
-        <div class="row"><span class="label-text">Customer:</span><span>${esc(printData.customerName)}</span></div>
-        <div class="row"><span class="label-text">Device:</span><span>${esc(printData.deviceModel)}</span></div>
-        <div class="row"><span class="label-text">Completed:</span><span>${toDate(completedAt, true)}</span></div>
-        <div class="problem"><strong>Issue:</strong> ${esc(printData.problem || 'N/A')}</div>
+        <div class="row"><span class="label-text">Kunde:</span><span>${esc(printData.customerName)}</span></div>
+        <div class="row"><span class="label-text">Geraet:</span><span>${esc(printData.deviceModel)}</span></div>
+        <div class="row"><span class="label-text">Fertiggestellt:</span><span>${toDate(completedAt, true)}</span></div>
+        <div class="problem"><strong>Fehler:</strong> ${esc(printData.problem || 'N/A')}</div>
         <div class="divider"></div>
-        <div class="row"><span class="label-text">Service Amount:</span><span>${toAmount(serviceAmount)}</span></div>
-        <div class="row"><span class="label-text">Parts Cost:</span><span>${toAmount(partsCost)}</span></div>
-        <div class="row" style="font-size:13px;"><span class="label-text">Net Earning:</span><span><strong>${toAmount(netEarning)}</strong></span></div>
+        <div class="row"><span class="label-text">Servicebetrag:</span><span>${toAmount(serviceAmount)}</span></div>
+        <div class="row"><span class="label-text">Teilekosten:</span><span>${toAmount(partsCost)}</span></div>
+        <div class="row" style="font-size:13px;"><span class="label-text">Nettoertrag:</span><span><strong>${toAmount(netEarning)}</strong></span></div>
     </div>
 </body>
 </html>`;

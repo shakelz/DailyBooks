@@ -19,3 +19,189 @@
     background: #cbd5e1;
     /* slate-300 */
 }
+
+.fab-animated {
+    --fab-i: #0ea5e9;
+    --fab-j: #2563eb;
+    position: relative;
+    width: 38px;
+    height: 32px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: pointer;
+    transition: width 0.45s ease, box-shadow 0.45s ease, background 0.45s ease;
+}
+
+.fab-animated::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: linear-gradient(45deg, var(--fab-i), var(--fab-j));
+    opacity: 0;
+    transition: opacity 0.45s ease;
+}
+
+.fab-animated::after {
+    content: "";
+    position: absolute;
+    inset: 8px 0 -8px 0;
+    border-radius: 999px;
+    background: linear-gradient(45deg, var(--fab-i), var(--fab-j));
+    filter: blur(12px);
+    opacity: 0;
+    z-index: -1;
+    transition: opacity 0.45s ease;
+}
+
+.fab-animated:hover {
+    width: 118px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.fab-animated:hover::before {
+    opacity: 1;
+}
+
+.fab-animated:hover::after {
+    opacity: 0.65;
+}
+
+.fab-icon,
+.fab-title {
+    position: absolute;
+    z-index: 1;
+    transition: transform 0.45s ease, opacity 0.45s ease;
+}
+
+.fab-icon {
+    transform: scale(1);
+    opacity: 1;
+}
+
+.fab-title {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    transform: scale(0.2);
+    opacity: 0;
+}
+
+.fab-animated:hover .fab-icon {
+    transform: scale(0.1);
+    opacity: 0;
+}
+
+.fab-animated:hover .fab-title {
+    transform: scale(1);
+    opacity: 1;
+}
+
+.kpi-animate-card {
+    overflow: hidden;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.kpi-animate-card::before {
+    content: "";
+    position: absolute;
+    top: -60%;
+    left: -45%;
+    width: 55%;
+    height: 220%;
+    transform: rotate(24deg);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.kpi-animate-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px rgba(2, 6, 23, 0.12);
+}
+
+.kpi-animate-card:hover::before {
+    opacity: 1;
+    animation: kpiShine 0.85s ease;
+}
+
+@keyframes kpiShine {
+    0% { left: -45%; }
+    100% { left: 125%; }
+}
+
+.erp-big-button {
+    --btnShadeA: rgb(21, 128, 61);
+    --btnShadeB: rgb(22, 163, 74);
+    --btnShadeC: rgb(74, 222, 128);
+    --btnShadeD: rgb(134, 239, 172);
+    --btnShadeE: rgb(220, 252, 231);
+    position: relative;
+    display: inline-block;
+    width: 100%;
+    cursor: pointer;
+    outline: none;
+    border: 2px solid var(--btnShadeA);
+    border-radius: 1em;
+    background: var(--btnShadeE);
+    color: var(--btnShadeA);
+    font-size: 1rem;
+    line-height: 1.2;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.8em 1.2em;
+    transform-style: preserve-3d;
+    transition: all 175ms cubic-bezier(0, 0, 1, 1);
+}
+
+.erp-big-button::before {
+    position: absolute;
+    content: "";
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--btnShadeC);
+    border-radius: inherit;
+    box-shadow: 0 0 0 2px var(--btnShadeB), 0 0.62em 0 0 var(--btnShadeA);
+    transform: translate3d(0, 0.62em, -1em);
+    transition: all 175ms cubic-bezier(0, 0, 1, 1);
+    z-index: -1;
+}
+
+.erp-big-button:hover {
+    background: var(--btnShadeD);
+    transform: translate(0, 0.3em);
+}
+
+.erp-big-button:hover::before {
+    transform: translate3d(0, 0.62em, -1em);
+}
+
+.erp-big-button:active {
+    transform: translate(0, 0.62em);
+}
+
+.erp-big-button:active::before {
+    transform: translate3d(0, 0, -1em);
+    box-shadow: 0 0 0 2px var(--btnShadeB), 0 0.24em 0 0 var(--btnShadeB);
+}
+
+.erp-big-button--purchase {
+    --btnShadeA: rgb(190, 24, 93);
+    --btnShadeB: rgb(225, 29, 72);
+    --btnShadeC: rgb(251, 113, 133);
+    --btnShadeD: rgb(253, 164, 175);
+    --btnShadeE: rgb(255, 228, 230);
+}

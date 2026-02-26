@@ -172,6 +172,8 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             desc: product.name || '',
             category: product.category?.level1 || (typeof product.category === 'string' ? product.category : '') || '',
             salesmanName: user?.name || 'Unknown',
+            salesmanNumber: user?.salesmanNumber || 0,
+            workerId: String(user?.id || ''),
             soldBy: user?.name || 'Unknown',
             paymentMethod,
             notes: notes,
@@ -234,6 +236,9 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             customerInfo: { name: customerName || 'Walk-in', phone: customerPhone, type: customerType },
             paymentMethod,
             notes,
+            salesmanName: user?.name || 'Unknown',
+            salesmanNumber: user?.salesmanNumber || 0,
+            workerId: String(user?.id || ''),
         };
 
         if (isEditMode && editingItem) {

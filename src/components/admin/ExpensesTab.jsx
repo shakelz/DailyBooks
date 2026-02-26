@@ -1,26 +1,31 @@
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
-import { useAuth } from '../../context/AuthContext';
 import { priceTag } from '../../utils/currency';
-import { Plus, Trash2, Calendar, FileText } from 'lucide-react';
 import DateRangeFilter from './DateRangeFilter';
 
+function nowLocalInputValue() {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+}
+
+function parseTxnDate(txn) {
+    const raw = txn?.timestamp || `${txn?.date || ''} ${txn?.time || ''}`;
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isCashbookEntry(txn) {
+    const type = String(txn?.type || '').toLowerCase();
+    if (type !== 'income' && type !== 'expense') return false;
+    if (txn?.isFixedExpense) return true;
+    const source = String(txn?.source || '').toLowerCase();
+    return source === 'admin' || source === 'admin-income' || source === 'admin-expense' || source === 'cashbook';
+}
+
 export default function ExpensesTab() {
-    const { transactions, addTransaction, deleteTransaction } = useInventory();
-    const { role } = useAuth();
+    const { transactions, addTransaction, updateTransaction, deleteTransaction } = useInventory();
 
-    // States for Form
-    const [title, setTitle] = useState('');
-    const [amount, setAmount] = useState('');
-    const [category, setCategory] = useState('Rent');
-    const [date, setDate] = useState(() => {
-        const now = new Date();
-        // Format as datetime-local value: YYYY-MM-DDTHH:MM
-        return now.toISOString().slice(0, 16);
-    });
-    const [showForm, setShowForm] = useState(false);
-
-    // ── Date Range State ──
     const [dateSelection, setDateSelection] = useState([
         {
             startDate: new Date(new Date().setDate(new Date().getDate() - 90)),
@@ -29,219 +34,218 @@ export default function ExpensesTab() {
         }
     ]);
 
+    const [showForm, setShowForm] = useState(false);
+    const [entryType, setEntryType] = useState('expense');
+    const [desc, setDesc] = useState('');
+    const [amount, setAmount] = useState('');
+    const [category, setCategory] = useState('General');
+    const [paymentMethod, setPaymentMethod] = useState('Cash');
+    const [when, setWhen] = useState(nowLocalInputValue());
 
+    const [editingId, setEditingId] = useState('');
+    const [editType, setEditType] = useState('expense');
+    const [editDesc, setEditDesc] = useState('');
+    const [editAmount, setEditAmount] = useState('');
+    const [editCategory, setEditCategory] = useState('General');
+    const [editPaymentMethod, setEditPaymentMethod] = useState('Cash');
+    const [editWhen, setEditWhen] = useState(nowLocalInputValue());
 
-    // Filter fixed expenses by date range
-    const fixedExpenses = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
+    const rangeStart = useMemo(() => {
+        const d = new Date(dateSelection[0].startDate);
+        d.setHours(0, 0, 0, 0);
+        return d;
+    }, [dateSelection]);
 
+    const rangeEnd = useMemo(() => {
+        const d = new Date(dateSelection[0].endDate);
+        d.setHours(23, 59, 59, 999);
+        return d;
+    }, [dateSelection]);
+
+    const rows = useMemo(() => {
         return transactions
-            .filter(t => {
-                if (t.type !== 'expense' || !t.isFixedExpense) return false;
-                if (!t.timestamp) return true; // show if no timestamp
-                const tDate = new Date(t.timestamp);
-                return tDate >= rangeStart && tDate <= rangeEnd;
+            .filter((txn) => isCashbookEntry(txn))
+            .filter((txn) => {
+                const d = parseTxnDate(txn);
+                return d && d >= rangeStart && d <= rangeEnd;
             })
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    }, [transactions, dateSelection]);
+            .sort((a, b) => (parseTxnDate(b)?.getTime() || 0) - (parseTxnDate(a)?.getTime() || 0));
+    }, [transactions, rangeStart, rangeEnd]);
 
-    const totalFiltered = useMemo(() => {
-        return fixedExpenses.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    }, [fixedExpenses]);
+    const totals = useMemo(() => {
+        return rows.reduce((acc, txn) => {
+            const value = parseFloat(txn.amount) || 0;
+            if (txn.type === 'income') acc.income += value;
+            else acc.expense += value;
+            return acc;
+        }, { income: 0, expense: 0 });
+    }, [rows]);
 
-    const totalLifetime = useMemo(() => {
-        return transactions
-            .filter(t => t.type === 'expense' && t.isFixedExpense)
-            .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    }, [transactions]);
-
-    const handleAddExpense = (e) => {
-        e.preventDefault();
-        if (!title || !amount) return;
-
-        addTransaction({
-            id: Date.now(),
-            desc: `Fixed Expense: ${title}`,
-            amount: parseFloat(amount),
-            type: 'expense',
-            category: category,
-            isFixedExpense: true,
-            date: new Date(date).toLocaleDateString('en-CA'),
-            time: new Date(date).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            timestamp: new Date(date).toISOString(),
-            source: 'admin'
-        });
-
-        setTitle('');
+    const resetForm = () => {
+        setDesc('');
         setAmount('');
-        setShowForm(false);
+        setCategory('General');
+        setPaymentMethod('Cash');
+        setWhen(nowLocalInputValue());
     };
 
+    const submitEntry = async (e) => {
+        e.preventDefault();
+        const value = parseFloat(amount);
+        const dt = new Date(when);
+        if (!desc.trim() || !Number.isFinite(value) || value <= 0 || Number.isNaN(dt.getTime())) {
+            alert('Please fill valid description, amount and date/time.');
+            return;
+        }
+        try {
+            await addTransaction({
+                desc: `${entryType === 'income' ? 'Income' : 'Expense'}: ${desc.trim()}`,
+                amount: value,
+                type: entryType,
+                category: category.trim() || 'General',
+                paymentMethod,
+                source: entryType === 'income' ? 'admin-income' : 'admin-expense',
+                date: dt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: dt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                timestamp: dt.toISOString(),
+            });
+            setShowForm(false);
+            resetForm();
+        } catch (error) {
+            alert(error?.message || 'Failed to add entry.');
+        }
+    };
+
+    const beginEdit = (txn) => {
+        const dt = parseTxnDate(txn) || new Date();
+        const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000);
+        setEditingId(String(txn.id));
+        setEditType(txn.type === 'income' ? 'income' : 'expense');
+        setEditDesc(String(txn.desc || '').replace(/^Income:\s*/i, '').replace(/^Expense:\s*/i, ''));
+        setEditAmount(String(parseFloat(txn.amount) || 0));
+        setEditCategory(String(txn.category || 'General'));
+        setEditPaymentMethod(String(txn.paymentMethod || 'Cash'));
+        setEditWhen(local.toISOString().slice(0, 16));
+    };
+
+    const saveEdit = async (txnId) => {
+        const value = parseFloat(editAmount);
+        const dt = new Date(editWhen);
+        if (!editDesc.trim() || !Number.isFinite(value) || value <= 0 || Number.isNaN(dt.getTime())) {
+            alert('Please fill valid description, amount and date/time.');
+            return;
+        }
+        try {
+            await updateTransaction(txnId, {
+                desc: `${editType === 'income' ? 'Income' : 'Expense'}: ${editDesc.trim()}`,
+                amount: value,
+                type: editType,
+                category: editCategory.trim() || 'General',
+                paymentMethod: editPaymentMethod,
+                source: editType === 'income' ? 'admin-income' : 'admin-expense',
+                date: dt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: dt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                timestamp: dt.toISOString(),
+            });
+            setEditingId('');
+        } catch (error) {
+            alert(error?.message || 'Failed to update entry.');
+        }
+    };
+
+    const net = totals.income - totals.expense;
+
     return (
-        <div className="space-y-6 animate-in fade-in duration-500 pb-10">
+        <div className="space-y-6 pb-10">
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Fixed Expenses</h1>
-                    <p className="text-slate-500 text-sm font-medium">Manage Rent, Electricity, Salaries & other operational costs.</p>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Expenses & Income</h1>
+                    <p className="text-slate-500 text-sm font-medium">Editable ledger with red expense and green income amounts.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
-                    <button
-                        onClick={() => setShowForm(!showForm)}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/30 hover:bg-blue-700 active:scale-95 transition-all text-sm font-bold"
-                    >
-                        {showForm ? 'Cancel' : <><Plus size={18} /> Add Expense</>}
+                    <button onClick={() => setShowForm((v) => !v)} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
+                        {showForm ? 'Cancel' : 'Add Expense / Income'}
                     </button>
                 </div>
             </div>
 
-            {/* Form */}
-            {showForm && (
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-blue-100 animate-in slide-in-from-top-4 duration-300">
-                    <form onSubmit={handleAddExpense} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
-                        <div className="md:col-span-1">
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Category</label>
-                            <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold" value={category} onChange={e => setCategory(e.target.value)}>
-                                <option value="Rent">Rent</option>
-                                <option value="Electricity">Electricity</option>
-                                <option value="Internet">Internet</option>
-                                <option value="Salary">Salary</option>
-                                <option value="Marketing">Marketing</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
-                        <div className="md:col-span-2">
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Description</label>
-                            <input required type="text" placeholder="e.g. Shop Rent Feb 2026" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium" value={title} onChange={e => setTitle(e.target.value)} />
-                        </div>
-                        <div className="md:col-span-1">
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Amount (€)</label>
-                            <input required type="number" min="0" step="0.01" placeholder="0.00" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium" value={amount} onChange={e => setAmount(e.target.value)} />
-                        </div>
-                        <div className="md:col-span-1">
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Date & Time</label>
-                            <input type="datetime-local" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium" value={date} onChange={e => setDate(e.target.value)} />
-                        </div>
-                        <div className="md:col-span-1">
-                            <button type="submit" className="w-full p-3 bg-indigo-600 text-white rounded-xl shadow shadow-indigo-500/30 hover:bg-indigo-700 active:scale-95 transition-all text-sm font-bold">
-                                Save Expense
-                            </button>
-                        </div>
-                    </form>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="rounded-2xl border border-red-100 bg-white p-4">
+                    <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Expense</p>
+                    <p className="text-2xl font-black text-red-600">{priceTag(totals.expense)}</p>
                 </div>
+                <div className="rounded-2xl border border-emerald-100 bg-white p-4">
+                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider">Income</p>
+                    <p className="text-2xl font-black text-emerald-600">{priceTag(totals.income)}</p>
+                </div>
+                <div className={`rounded-2xl border bg-white p-4 ${net >= 0 ? 'border-blue-100' : 'border-orange-100'}`}>
+                    <p className={`text-[10px] font-bold uppercase tracking-wider ${net >= 0 ? 'text-blue-500' : 'text-orange-500'}`}>Net</p>
+                    <p className={`text-2xl font-black ${net >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>{priceTag(net)}</p>
+                </div>
+            </div>
+
+            {showForm && (
+                <form onSubmit={submitEntry} className="rounded-2xl border border-blue-100 bg-white p-4 grid grid-cols-1 md:grid-cols-7 gap-2 items-end">
+                    <div className="md:col-span-1">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Type</label>
+                        <div className="grid grid-cols-2 gap-1">
+                            <button type="button" onClick={() => setEntryType('expense')} className={`text-xs font-bold rounded-lg border px-2 py-1.5 ${entryType === 'expense' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-200 text-slate-500'}`}>Expense</button>
+                            <button type="button" onClick={() => setEntryType('income')} className={`text-xs font-bold rounded-lg border px-2 py-1.5 ${entryType === 'income' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-500'}`}>Income</button>
+                        </div>
+                    </div>
+                    <div className="md:col-span-2"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Description</label><input value={desc} onChange={(e) => setDesc(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Amount</label><input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Category</label><input value={category} onChange={(e) => setCategory(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Payment</label><select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option>Cash</option><option>Visa</option><option>Online</option><option>Bank Transfer</option></select></div>
+                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Date & Time</label><input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                    <div className="md:col-span-7"><button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">Save Entry</button></div>
+                </form>
             )}
 
-
-
-            {/* List */}
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden min-h-[400px]">
-                <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                    <div>
-                        <h3 className="text-sm font-bold text-slate-800">Expense History</h3>
-                        <p className="text-xs text-slate-400">Filtered operational costs for selected period</p>
-                    </div>
-                    <div className="text-right flex items-center gap-6">
-                        <div>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Period Total</p>
-                            <p className="text-xl font-black text-red-600">{priceTag(totalFiltered)}</p>
-                        </div>
-                        <div className="h-8 w-px bg-slate-200"></div>
-                        <div>
-                            <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Lifetime</p>
-                            <p className="text-lg font-bold text-slate-400">{priceTag(totalLifetime)}</p>
-                        </div>
-                    </div>
-                </div>
-                <div className="md:hidden p-4 space-y-3">
-                    {fixedExpenses.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-400 font-medium">
-                            No fixed expenses recorded yet.
-                        </div>
-                    ) : fixedExpenses.map((txn) => (
-                        <div key={`mobile-exp-${txn.id}`} className="rounded-2xl border border-slate-100 bg-white p-4 space-y-3">
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <div className="w-9 h-9 rounded-lg bg-red-100 text-red-500 flex items-center justify-center shrink-0">
-                                        <FileText size={16} />
-                                    </div>
+            <div className="rounded-2xl border border-slate-100 bg-white p-3 space-y-2 min-h-[280px]">
+                {rows.length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-10">No entries in selected range.</p>
+                ) : rows.map((txn) => {
+                    const isIncome = txn.type === 'income';
+                    const active = editingId === String(txn.id);
+                    return (
+                        <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                            {!active ? (
+                                <div className="flex items-center justify-between gap-3">
                                     <div className="min-w-0">
                                         <p className="text-sm font-bold text-slate-800 truncate">{txn.desc}</p>
-                                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded inline-block mt-1">{txn.category}</p>
+                                        <p className="text-[11px] text-slate-500">{txn.date} {txn.time} · {txn.category || 'General'} · {txn.paymentMethod || 'Cash'}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <p className={`text-sm font-black ${isIncome ? 'text-emerald-600' : 'text-red-600'}`}>{isIncome ? '+' : '-'}{priceTag(txn.amount)}</p>
+                                        <button onClick={() => beginEdit(txn)} className="px-2 py-1 text-xs rounded border border-blue-200 bg-blue-50 text-blue-700">Edit</button>
+                                        <button onClick={() => { if (window.confirm('Delete entry?')) deleteTransaction(txn.id); }} className="px-2 py-1 text-xs rounded border border-red-200 bg-red-50 text-red-700">Delete</button>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={() => { if (window.confirm('Delete expense?')) deleteTransaction(txn.id); }}
-                                    className="p-2 text-slate-300 hover:bg-red-50 hover:text-red-500 rounded-lg transition-all"
-                                    title="Delete Expense"
-                                >
-                                    <Trash2 size={16} />
-                                </button>
-                            </div>
-                            <div className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2 text-slate-500">
-                                    <Calendar size={14} className="text-slate-400" />
-                                    <span>{txn.date}</span>
-                                    {txn.time && <span className="text-slate-400">{txn.time}</span>}
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-7 gap-2 items-end">
+                                    <div className="md:col-span-1">
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Type</label>
+                                        <div className="grid grid-cols-2 gap-1">
+                                            <button type="button" onClick={() => setEditType('expense')} className={`text-xs font-bold rounded-lg border px-2 py-1.5 ${editType === 'expense' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-200 text-slate-500'}`}>Expense</button>
+                                            <button type="button" onClick={() => setEditType('income')} className={`text-xs font-bold rounded-lg border px-2 py-1.5 ${editType === 'income' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-500'}`}>Income</button>
+                                        </div>
+                                    </div>
+                                    <div className="md:col-span-2"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Description</label><input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Amount</label><input type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Category</label><input value={editCategory} onChange={(e) => setEditCategory(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Payment</label><select value={editPaymentMethod} onChange={(e) => setEditPaymentMethod(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option>Cash</option><option>Visa</option><option>Online</option><option>Bank Transfer</option></select></div>
+                                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Date & Time</label><input type="datetime-local" value={editWhen} onChange={(e) => setEditWhen(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                                    <div className="md:col-span-7 flex items-center justify-end gap-2">
+                                        <button type="button" onClick={() => setEditingId('')} className="px-3 py-1.5 rounded border border-slate-200 text-xs font-bold text-slate-600">Cancel</button>
+                                        <button type="button" onClick={() => saveEdit(txn.id)} className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-bold">Save</button>
+                                    </div>
                                 </div>
-                                <span className="text-red-500 font-bold text-base">{priceTag(txn.amount)}</span>
-                            </div>
+                            )}
                         </div>
-                    ))}
-                </div>
-
-                <div className="hidden md:block p-0 overflow-x-auto">
-                    <table className="w-full text-left border-collapse min-w-[600px]">
-                        <thead className="bg-slate-50 border-b border-slate-100">
-                            <tr>
-                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
-                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Details</th>
-                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
-                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {fixedExpenses.length === 0 ? (
-                                <tr>
-                                    <td colSpan="4" className="px-6 py-12 text-center text-slate-400 text-sm font-medium">No fixed expenses recorded yet.</td>
-                                </tr>
-                            ) : fixedExpenses.map(txn => (
-                                <tr key={txn.id} className="hover:bg-slate-50/50 transition-colors group">
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <Calendar size={14} className="text-slate-400" />
-                                            <div>
-                                                <span className="text-sm font-medium text-slate-600">{txn.date}</span>
-                                                {txn.time && <span className="text-xs text-slate-400 ml-2">{txn.time}</span>}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-red-100 text-red-500 flex items-center justify-center">
-                                                <FileText size={16} />
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-bold text-slate-800">{txn.desc}</p>
-                                                <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded inline-block mt-1">{txn.category}</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="text-red-500 font-bold">{priceTag(txn.amount)}</span>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <button onClick={() => { if (window.confirm('Delete expense?')) deleteTransaction(txn.id); }} className="p-2 text-slate-300 hover:bg-red-50 hover:text-red-500 rounded-lg transition-all opacity-0 group-hover:opacity-100" title="Delete Expense">
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                    );
+                })}
             </div>
         </div>
     );

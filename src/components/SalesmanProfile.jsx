@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function SalesmanProfile({ isOpen, onClose }) {
     const { user, isPunchedIn, handlePunch, logout, attendanceLogs } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
+    const isOnLatestDashboard = location.pathname.includes('/salesman/latest-dashboard');
 
     // Get last punch time for display
     const todayStr = new Date().toLocaleDateString('en-PK');
@@ -62,13 +63,12 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                     </div>
                 </div>
 
-                {/* ── 4 Big Buttons ── */}
-                <div className="p-6 grid grid-cols-2 gap-4">
+                <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {/* Punch In */}
                     <button
                         onClick={() => onPunchCommand('IN')}
                         disabled={isPunchedIn}
-                        className={`aspect-square rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-4 border-2 ${isPunchedIn
+                        className={`h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 ${isPunchedIn
                             ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
                             : 'bg-green-50 border-green-100 text-green-600 hover:bg-green-100 hover:scale-105 shadow-sm'
                             }`}
@@ -81,7 +81,7 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                     <button
                         onClick={() => onPunchCommand('OUT')}
                         disabled={!isPunchedIn}
-                        className={`aspect-square rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-4 border-2 ${!isPunchedIn
+                        className={`h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 ${!isPunchedIn
                             ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
                             : 'bg-red-50 border-red-100 text-red-600 hover:bg-red-100 hover:scale-105 shadow-sm'
                             }`}
@@ -100,16 +100,27 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                             }
                             navigate('/');
                         }}
-                        className="aspect-square rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-4 border-2 bg-slate-50 border-slate-200 text-slate-600 hover:bg-white hover:border-blue-200 hover:text-blue-600 hover:shadow-md"
+                        className="h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 bg-slate-50 border-slate-200 text-slate-600 hover:bg-white hover:border-blue-200 hover:text-blue-600 hover:shadow-md"
                     >
                         <span className="text-3xl">🔄</span>
                         <span className="font-bold text-sm">Switch User</span>
                     </button>
 
+                    <button
+                        onClick={() => {
+                            navigate(isOnLatestDashboard ? '/salesman' : '/salesman/latest-dashboard');
+                            onClose?.();
+                        }}
+                        className="h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100 hover:scale-105 shadow-sm"
+                    >
+                        <span className="text-3xl">{isOnLatestDashboard ? '✨' : '🕘'}</span>
+                        <span className="font-bold text-sm">{isOnLatestDashboard ? 'New Dashboard' : 'Old Dashboard'}</span>
+                    </button>
+
                     {/* Logout */}
                     <button
                         onClick={handleLogout}
-                        className="aspect-square rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-4 border-2 bg-red-50 border-red-100 text-red-600 hover:bg-red-100 hover:scale-105 shadow-sm"
+                        className="h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 bg-red-50 border-red-100 text-red-600 hover:bg-red-100 hover:scale-105 shadow-sm"
                     >
                         <span className="text-3xl">🚪</span>
                         <span className="font-bold text-sm">Logout</span>

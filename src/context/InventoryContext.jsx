@@ -250,6 +250,7 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
         soldBy: txn.soldBy || snapshot.soldBy || '',
         purchaseFrom: txn.purchaseFrom || snapshot.purchaseFrom || snapshot?.productSnapshot?.purchaseFrom || '',
         salesmanName: txn.salesmanName || snapshot.salesmanName || txn.userName || '',
+        salesmanNumber: Number(txn.salesmanNumber ?? snapshot.salesmanNumber ?? 0) || 0,
         transactionId: txn.transactionId || snapshot.transactionId || '',
         productSnapshot: txn.productSnapshot || snapshot.productSnapshot || null,
     };
@@ -310,6 +311,7 @@ function buildTransactionSnapshot(txn) {
         soldBy: txn?.soldBy || txn?.salesmanName || '',
         purchaseFrom: txn?.purchaseFrom || txn?.productSnapshot?.purchaseFrom || '',
         salesmanName: txn?.salesmanName || txn?.soldBy || '',
+        salesmanNumber: Number(txn?.salesmanNumber || 0) || 0,
         productSnapshot: txn?.productSnapshot || {
             id: txn?.productId || null,
             name: txn?.name || txn?.desc || '',
