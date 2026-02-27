@@ -1,31 +1,16 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CircleDollarSign, ClipboardList, Menu, Receipt, Scale, Search, ShoppingCart, Sparkles, Wrench, CircleHelp, Wallet } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Menu, Receipt, Scale, Search, ShoppingCart, Sparkles, Wrench, CircleHelp, Wallet } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { priceTag } from '../utils/currency';
-import { resolveRelatedFields } from '../data/transactionFieldConfig';
 import SalesmanProfile from '../components/SalesmanProfile';
 import CategoryManagerModal from '../components/CategoryManagerModal';
 import RepairModal from '../components/RepairModal';
 import { useRepairs } from '../context/RepairsContext';
 
-const ADD_NEW = '__add_new__';
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
-
-const newCompactForm = () => ({
-    barcode: '',
-    name: '',
-    amount: '',
-    quantity: '1',
-    category: '',
-    subcategory: '',
-    paymentMode: 'Cash',
-    notes: '',
-    productId: '',
-    relatedFields: {},
-});
 
 const newQuickSaleItem = () => ({
     productId: '',
@@ -37,14 +22,6 @@ const newQuickSaleItem = () => ({
     paymentMode: 'Cash',
     notes: '',
 });
-
-
-function compactFieldSummary(fields) {
-    return Object.entries(fields || {})
-        .filter(([, value]) => String(value || '').trim() !== '')
-        .map(([key, value]) => `${key}: ${value}`)
-        .join(' | ');
-}
 
 function normalizePaymentKey(value) {
     const raw = String(value || 'cash').trim().toLowerCase();
@@ -80,6 +57,15 @@ function onlineOrderStorageKey(user) {
 
 function todayIsoDate() {
     return new Date().toISOString().slice(0, 10);
+}
+
+function newSimpleEntryForm() {
+    return {
+        date: todayIsoDate(),
+        paymentMode: 'Cash',
+        category: '',
+        amount: '',
+    };
 }
 
 function randomOnlineOrderId() {
@@ -262,9 +248,6 @@ export default function SalesmanDashboard() {
         adjustStock,
         getCategoryImage,
         getLevel1Categories,
-        getLevel2Categories,
-        addLevel1Category,
-        addLevel2Category,
     } = useInventory();
     const { repairJobs } = useRepairs();
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
@@ -272,19 +255,16 @@ export default function SalesmanDashboard() {
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showCategoryModal, setShowCategoryModal] = useState(false);
     const [showRepairModal, setShowRepairModal] = useState(false);
-    const [activeForm, setActiveForm] = useState('');
     const [toast, setToast] = useState('');
-    const [paymentModes, setPaymentModes] = useState(DEFAULT_PAYMENT_MODES);
-    const [form, setForm] = useState(newCompactForm());
+    const paymentModes = DEFAULT_PAYMENT_MODES;
+    const [salesEntry, setSalesEntry] = useState(newSimpleEntryForm());
+    const [purchaseEntry, setPurchaseEntry] = useState(newSimpleEntryForm());
     const [realtimeStats, setRealtimeStats] = useState(null);
     const [showPendingOrders, setShowPendingOrders] = useState(false);
     const [pendingTab, setPendingTab] = useState('orders');
     const [onlineOrders, setOnlineOrders] = useState([]);
     const [showOnlineOrderForm, setShowOnlineOrderForm] = useState(false);
     const [onlineOrderForm, setOnlineOrderForm] = useState(newOnlineOrderForm());
-    const [barcodeMatches, setBarcodeMatches] = useState([]);
-    const [showBarcodeMatches, setShowBarcodeMatches] = useState(false);
-    const [selectedProductPreview, setSelectedProductPreview] = useState(null);
     const [topBarcodeQuery, setTopBarcodeQuery] = useState('');
     const [topBarcodeMatches, setTopBarcodeMatches] = useState([]);
     const [showTopBarcodeMatches, setShowTopBarcodeMatches] = useState(false);
@@ -295,6 +275,8 @@ export default function SalesmanDashboard() {
     const [showQuickSaleModal, setShowQuickSaleModal] = useState(false);
     const [quickSaleForm, setQuickSaleForm] = useState(newQuickSaleItem());
     const [quickSaleCart, setQuickSaleCart] = useState([]);
+    const salesDateInputRef = useRef(null);
+    const purchaseDateInputRef = useRef(null);
 
     useEffect(() => {
         if (!user || role !== 'salesman') navigate('/');
@@ -379,49 +361,73 @@ export default function SalesmanDashboard() {
 
     const l1OptionsRaw = getLevel1Categories() || [];
     const l1Options = l1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
-    const l2OptionsRaw = form.category ? (getLevel2Categories(form.category) || []) : [];
-    const l2Options = l2OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
-    const relatedFieldSchema = useMemo(
-        () => form.subcategory ? resolveRelatedFields(activeForm, form.category, form.subcategory) : [],
-        [activeForm, form.category, form.subcategory]
-    );
 
-    const applySelectedProduct = (product, mode = activeForm) => {
-        if (!product) return;
-        const resolved = resolveProductSnapshot(product);
-        const mainCategory = resolved.category;
-        const subCategory = resolved.subCategory;
-        const autoDetails = {
-            dbName: resolved.name || '',
-            dbBarcode: resolved.barcode || '',
-            dbStock: String(resolved.stock ?? ''),
-            dbSellingPrice: String(resolved.sellingPrice ?? ''),
-            dbPurchasePrice: String(resolved.purchasePrice ?? ''),
-            dbCategory: mainCategory || '',
-            dbSubCategory: subCategory || '',
-        };
+    const buildSelectedDate = (dateValue) => {
+        const selected = new Date(`${dateValue}T00:00:00`);
+        if (Number.isNaN(selected.getTime())) return new Date();
+        const now = new Date();
+        selected.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+        return selected;
+    };
 
-        setSelectedProductPreview(resolved.raw || product);
-        setForm((prev) => ({
-            ...prev,
-            productId: resolved.id || prev.productId,
-            barcode: resolved.barcode || prev.barcode,
-            name: resolved.name || prev.name,
-            amount: String(mode === 'purchase'
-                ? (resolved.purchasePrice || prev.amount || '')
-                : (resolved.sellingPrice || prev.amount || '')),
-            category: mainCategory || prev.category,
-            subcategory: subCategory || prev.subcategory,
-            relatedFields: {
-                ...(prev.relatedFields || {}),
-                ...autoDetails,
-            },
-        }));
+    const openDatePicker = (inputRef) => {
+        const input = inputRef?.current;
+        if (!input) return;
+        if (typeof input.showPicker === 'function') {
+            input.showPicker();
+            return;
+        }
+        input.focus();
+    };
+
+    const submitSimpleEntry = async (mode = 'sales') => {
+        if (!isPunchedIn) {
+            alert('Please punch in first');
+            setShowProfileModal(true);
+            return;
+        }
+
+        const entry = mode === 'sales' ? salesEntry : purchaseEntry;
+        const amountValue = parseFloat(entry.amount) || 0;
+        if (!entry.category || amountValue <= 0) {
+            alert('Category and amount are required');
+            return;
+        }
+
+        const selectedDate = buildSelectedDate(entry.date || todayIsoDate());
+        const type = mode === 'sales' ? 'income' : 'expense';
+
+        await addTransaction({
+            desc: `${mode === 'sales' ? 'Sale' : 'Purchase'} - ${entry.category}`,
+            amount: amountValue,
+            quantity: 1,
+            type,
+            category: entry.category,
+            paymentMethod: entry.paymentMode || 'Cash',
+            notes: '',
+            source: type === 'expense' ? 'purchase' : 'shop',
+            salesmanName: user?.name,
+            salesmanNumber: user?.salesmanNumber || 0,
+            workerId: String(user?.id || ''),
+            timestamp: selectedDate.toISOString(),
+            date: selectedDate.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+            time: selectedDate.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+        });
+
+        setToast(`${mode === 'sales' ? 'Sales' : 'Purchase'} saved`);
+        setTimeout(() => setToast(''), 1800);
+        if (mode === 'sales') setSalesEntry(newSimpleEntryForm());
+        else setPurchaseEntry(newSimpleEntryForm());
     };
 
     const openSalesFormWithProduct = (product) => {
         if (!product) return;
         const resolved = resolveProductSnapshot(product);
+        setSalesEntry((prev) => ({
+            ...prev,
+            category: resolved.category || prev.category,
+            amount: String(resolved.sellingPrice || prev.amount || ''),
+        }));
         setQuickSaleForm({
             productId: resolved.id,
             barcode: resolved.barcode,
@@ -434,9 +440,7 @@ export default function SalesmanDashboard() {
         });
         setQuickSaleCart([]);
         setShowQuickSaleModal(true);
-        setActiveForm('');
         setShowTopBarcodeMatches(false);
-        setShowBarcodeMatches(false);
     };
 
     const addQuickSaleToCart = () => {
@@ -599,35 +603,6 @@ export default function SalesmanDashboard() {
     }, [onlineOrders, user]);
 
     useEffect(() => {
-        if (!activeForm) return;
-        const barcode = form.barcode.trim();
-        if (!barcode) {
-            setForm((prev) => ({ ...prev, productId: '' }));
-            setSelectedProductPreview(null);
-            setBarcodeMatches([]);
-            return;
-        }
-
-        const timer = setTimeout(() => {
-            const found = lookupBarcode(barcode);
-            if (found) {
-                applySelectedProduct(found);
-                setBarcodeMatches([found]);
-                return;
-            }
-
-            const matches = searchProducts(barcode).slice(0, 6);
-            setBarcodeMatches(matches);
-            if (!matches.length) {
-                setForm((prev) => ({ ...prev, productId: '' }));
-                setSelectedProductPreview(null);
-            }
-        }, 220);
-
-        return () => clearTimeout(timer);
-    }, [activeForm, form.barcode, lookupBarcode, searchProducts]);
-
-    useEffect(() => {
         const query = topBarcodeQuery.trim();
         if (!query) {
             setTopBarcodeMatches([]);
@@ -669,144 +644,6 @@ export default function SalesmanDashboard() {
             openSalesFormWithProduct(first);
             setTopBarcodeQuery('');
         }
-    };
-
-    const applyAddNewCategory = async (value) => {
-        if (value !== ADD_NEW) {
-            setForm((prev) => ({ ...prev, category: value, subcategory: '', relatedFields: {} }));
-            return;
-        }
-
-        const next = window.prompt('Enter new category');
-        if (!next || !next.trim()) return;
-        await addLevel1Category(next.trim());
-        setForm((prev) => ({ ...prev, category: next.trim(), subcategory: '', relatedFields: {} }));
-    };
-
-    const applyAddNewSubCategory = async (value) => {
-        if (value !== ADD_NEW) {
-            setForm((prev) => ({ ...prev, subcategory: value, relatedFields: {} }));
-            return;
-        }
-
-        if (!form.category) {
-            alert('Select category first');
-            return;
-        }
-        const next = window.prompt('Enter new sub-category');
-        if (!next || !next.trim()) return;
-        await addLevel2Category(form.category, next.trim());
-        setForm((prev) => ({ ...prev, subcategory: next.trim(), relatedFields: {} }));
-    };
-
-    const setRelatedFieldValue = (fieldKey, value) => {
-        setForm((prev) => ({
-            ...prev,
-            relatedFields: {
-                ...(prev.relatedFields || {}),
-                [fieldKey]: value,
-            },
-        }));
-    };
-
-    const applyPaymentMode = (value) => {
-        if (value !== ADD_NEW) {
-            setForm((prev) => ({ ...prev, paymentMode: value }));
-            return;
-        }
-        const next = window.prompt('Enter new payment mode');
-        if (!next || !next.trim()) return;
-        if (!paymentModes.includes(next.trim())) {
-            setPaymentModes((prev) => [...prev, next.trim()]);
-        }
-        setForm((prev) => ({ ...prev, paymentMode: next.trim() }));
-    };
-
-    const printSlip = () => {
-        const qty = Math.max(1, parseInt(form.quantity || '1', 10) || 1);
-        const unit = parseFloat(form.amount) || 0;
-        const total = qty * unit;
-        const netTotal = total / 1.19;
-        const taxTotal = total - netTotal;
-        const shopName = activeShop?.name || 'Shop';
-        const shopAddress = activeShop?.address || activeShop?.location || '';
-        const popup = window.open('', 'receipt', 'width=420,height=700');
-        if (!popup) return;
-        popup.document.write(`
-            <html>
-                <head>
-                    <title>Beleg</title>
-                    <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
-                        h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; }
-                        .line { border-top:1px dashed #000; margin:8px 0; }
-                    </style>
-                </head>
-                <body>
-                    <h2>${shopName}</h2>
-                    ${shopAddress ? `<p>${shopAddress}</p>` : ''}
-                    <p>${new Date().toLocaleString('de-DE')}</p>
-                    <div class="line"></div>
-                    <div class="row"><span>Typ</span><span>${activeForm === 'sales' ? 'Verkauf' : 'Einkauf'}</span></div>
-                    <div class="row"><span>Artikel</span><span>${form.name || '-'}</span></div>
-                    <div class="row"><span>Menge x Preis</span><span>${qty} x ${unit.toFixed(2)}</span></div>
-                    <div class="row"><span>Zahlung</span><span>${form.paymentMode}</span></div>
-                    <div class="line"></div>
-                    <div class="row"><strong>Zwischensumme</strong><strong>EUR ${total.toFixed(2)}</strong></div>
-                    ${billShowTax ? `<div class="row"><span>Netto (19%)</span><span>EUR ${netTotal.toFixed(2)}</span></div>
-                    <div class="row"><span>USt (19%)</span><span>EUR ${taxTotal.toFixed(2)}</span></div>` : ''}
-                    <div class="row"><strong>GESAMTBETRAG</strong><strong>EUR ${total.toFixed(2)}</strong></div>
-                    <div class="line"></div>
-                    <p style="font-size:10px">Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.</p>
-                </body>
-            </html>
-        `);
-        popup.document.close();
-        popup.focus();
-        popup.print();
-    };
-
-    const submitCompactForm = async (e) => {
-        e.preventDefault();
-        if (!isPunchedIn) {
-            alert('Please punch in first');
-            setShowProfileModal(true);
-            return;
-        }
-
-        const unitAmount = parseFloat(form.amount) || 0;
-        if (!form.category || unitAmount <= 0) {
-            alert('Category and amount are required');
-            return;
-        }
-
-        const type = activeForm === 'purchase' ? 'expense' : 'income';
-
-        await addTransaction({
-            desc: `${activeForm === 'purchase' ? 'Purchase' : 'Sale'} - ${form.category}`,
-            amount: unitAmount,
-            quantity: 1,
-            type,
-            category: form.category || 'General',
-            paymentMethod: form.paymentMode || 'Cash',
-            notes: '',
-            source: type === 'expense' ? 'purchase' : 'shop',
-            salesmanName: user?.name,
-            salesmanNumber: user?.salesmanNumber || 0,
-            workerId: String(user?.id || ''),
-            timestamp: new Date().toISOString(),
-            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-        });
-
-        if (type === 'income' && form.productId) {
-            await adjustStock(form.productId, -1);
-        }
-
-        setToast(`${type === 'income' ? 'Sales' : 'Purchase'} saved`);
-        setTimeout(() => setToast(''), 1800);
-        setForm(newCompactForm());
     };
 
     const handleCalcPress = (key) => {
@@ -976,68 +813,42 @@ export default function SalesmanDashboard() {
                     />
                 </section>
 
-                <section className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <button
-                        onClick={() => setActiveForm((prev) => {
-                            const next = prev === 'sales' ? '' : 'sales';
-                            if (next) setForm(newCompactForm());
-                            return next;
-                        })}
-                        className="erp-big-button"
-                    >
-                        New Sales Entry
-                    </button>
-                    <button
-                        onClick={() => setActiveForm((prev) => {
-                            const next = prev === 'purchase' ? '' : 'purchase';
-                            if (next) setForm(newCompactForm());
-                            return next;
-                        })}
-                        className="erp-big-button erp-big-button--purchase"
-                    >
-                        New Purchase Entry
-                    </button>
-                </section>
-
-                {activeForm && (
-                    <form onSubmit={submitCompactForm} className={`rounded-2xl border bg-white/80 p-3 space-y-3 animate-in slide-in-from-top duration-200 shadow-sm backdrop-blur-sm ${activeForm === 'sales' ? 'border-emerald-200' : 'border-rose-200'}`}>
-                        <div className={`rounded-xl px-3 py-2 flex items-center justify-between ${activeForm === 'sales' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-                            <p className="text-xs font-semibold">{activeForm === 'sales' ? 'New Sales Entry' : 'New Purchase Entry'}</p>
+                <section className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                    <form onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('sales'); }} className="rounded-2xl border border-emerald-200 bg-white/90 p-3 space-y-3 shadow-sm backdrop-blur-sm">
+                        <div className="rounded-xl px-3 py-2 flex items-center justify-between bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <p className="text-xs font-semibold">New Sales Entry</p>
                             <p className="text-xs font-semibold">Simple form</p>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-                            <div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <div className="relative">
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Date</label>
                                 <input
-                                    type="text"
-                                    readOnly
-                                    value={new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                    className="w-full rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1.5 text-xs text-slate-700"
+                                    ref={salesDateInputRef}
+                                    type="date"
+                                    value={salesEntry.date}
+                                    onChange={(e) => setSalesEntry((prev) => ({ ...prev, date: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 pr-8 text-xs text-slate-700"
+                                    required
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => openDatePicker(salesDateInputRef)}
+                                    className="absolute right-2 top-[27px] text-slate-500 hover:text-emerald-700"
+                                    aria-label="Select sales date"
+                                >
+                                    <CalendarDays size={14} />
+                                </button>
                             </div>
 
                             <div>
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Payment Mode</label>
                                 <select
-                                    value={form.paymentMode}
-                                    onChange={(e) => setForm((prev) => ({ ...prev, paymentMode: e.target.value }))}
+                                    value={salesEntry.paymentMode}
+                                    onChange={(e) => setSalesEntry((prev) => ({ ...prev, paymentMode: e.target.value }))}
                                     className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
                                 >
-                                    {paymentModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
-                                <select
-                                    value={form.category}
-                                    onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                    required
-                                >
-                                    <option value="">Select category</option>
-                                    {l1Options.map((name) => <option key={name} value={name}>{name}</option>)}
+                                    {paymentModes.map((mode) => <option key={`sales-pay-${mode}`} value={mode}>{mode}</option>)}
                                 </select>
                             </div>
 
@@ -1047,8 +858,8 @@ export default function SalesmanDashboard() {
                                     type="number"
                                     step="0.01"
                                     min="0"
-                                    value={form.amount}
-                                    onChange={(e) => setForm((prev) => ({ ...prev, amount: e.target.value }))}
+                                    value={salesEntry.amount}
+                                    onChange={(e) => setSalesEntry((prev) => ({ ...prev, amount: e.target.value }))}
                                     placeholder="Amount"
                                     className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
                                     required
@@ -1056,15 +867,115 @@ export default function SalesmanDashboard() {
                             </div>
                         </div>
 
+                        <div>
+                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Category</p>
+                            {l1Options.length === 0 ? (
+                                <p className="text-xs text-slate-400">No categories available</p>
+                            ) : (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {l1Options.map((name) => (
+                                        <button
+                                            key={`sales-chip-${name}`}
+                                            type="button"
+                                            onClick={() => setSalesEntry((prev) => ({ ...prev, category: name }))}
+                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${salesEntry.category === name ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
+                                        >
+                                            {name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
                         <div className="flex items-center justify-end">
-                            <button type="submit" className={`rounded-xl text-white px-4 py-2 text-sm font-semibold ${activeForm === 'sales' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
-                                Save Entry
+                            <button type="submit" className="rounded-xl text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-sm font-semibold">
+                                Save Sales Entry
                             </button>
                         </div>
                     </form>
-                )}
 
-                <section className="grid grid-cols-1 md:grid-cols-2 gap-3"> 
+                    <form onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('purchase'); }} className="rounded-2xl border border-rose-200 bg-white/90 p-3 space-y-3 shadow-sm backdrop-blur-sm">
+                        <div className="rounded-xl px-3 py-2 flex items-center justify-between bg-rose-50 text-rose-700 border border-rose-200">
+                            <p className="text-xs font-semibold">New Purchase Entry</p>
+                            <p className="text-xs font-semibold">Simple form</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <div className="relative">
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Date</label>
+                                <input
+                                    ref={purchaseDateInputRef}
+                                    type="date"
+                                    value={purchaseEntry.date}
+                                    onChange={(e) => setPurchaseEntry((prev) => ({ ...prev, date: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 pr-8 text-xs text-slate-700"
+                                    required
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => openDatePicker(purchaseDateInputRef)}
+                                    className="absolute right-2 top-[27px] text-slate-500 hover:text-rose-700"
+                                    aria-label="Select purchase date"
+                                >
+                                    <CalendarDays size={14} />
+                                </button>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Payment Mode</label>
+                                <select
+                                    value={purchaseEntry.paymentMode}
+                                    onChange={(e) => setPurchaseEntry((prev) => ({ ...prev, paymentMode: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                >
+                                    {paymentModes.map((mode) => <option key={`purchase-pay-${mode}`} value={mode}>{mode}</option>)}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Amount</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={purchaseEntry.amount}
+                                    onChange={(e) => setPurchaseEntry((prev) => ({ ...prev, amount: e.target.value }))}
+                                    placeholder="Amount"
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Category</p>
+                            {l1Options.length === 0 ? (
+                                <p className="text-xs text-slate-400">No categories available</p>
+                            ) : (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {l1Options.map((name) => (
+                                        <button
+                                            key={`purchase-chip-${name}`}
+                                            type="button"
+                                            onClick={() => setPurchaseEntry((prev) => ({ ...prev, category: name }))}
+                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${purchaseEntry.category === name ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
+                                        >
+                                            {name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex items-center justify-end">
+                            <button type="submit" className="rounded-xl text-white bg-rose-600 hover:bg-rose-700 px-4 py-2 text-sm font-semibold">
+                                Save Purchase Entry
+                            </button>
+                        </div>
+                    </form>
+                </section>
+
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 overflow-hidden">
                         <div className="px-4 py-3 bg-gradient-to-r from-emerald-50 to-emerald-100/30 border-b border-emerald-100 flex items-center gap-2">
                             <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center">
