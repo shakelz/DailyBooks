@@ -246,7 +246,6 @@ export default function SalesmanDashboard() {
         searchProducts,
         addTransaction,
         adjustStock,
-        getCategoryImage,
         getLevel1Categories,
     } = useInventory();
     const { repairJobs } = useRepairs();
@@ -259,6 +258,8 @@ export default function SalesmanDashboard() {
     const paymentModes = DEFAULT_PAYMENT_MODES;
     const [salesEntry, setSalesEntry] = useState(newSimpleEntryForm());
     const [purchaseEntry, setPurchaseEntry] = useState(newSimpleEntryForm());
+    const [salesEntryErrors, setSalesEntryErrors] = useState({});
+    const [purchaseEntryErrors, setPurchaseEntryErrors] = useState({});
     const [realtimeStats, setRealtimeStats] = useState(null);
     const [showPendingOrders, setShowPendingOrders] = useState(false);
     const [pendingTab, setPendingTab] = useState('orders');
@@ -380,6 +381,19 @@ export default function SalesmanDashboard() {
         input.focus();
     };
 
+    const validateSimpleEntry = (entry) => {
+        const nextErrors = {};
+        const parsedDate = new Date(`${entry?.date || ''}T00:00:00`);
+        const amountValue = Number(entry?.amount);
+
+        if (!entry?.date || Number.isNaN(parsedDate.getTime())) nextErrors.date = 'Select a valid date';
+        if (!String(entry?.paymentMode || '').trim()) nextErrors.paymentMode = 'Select payment mode';
+        if (!String(entry?.category || '').trim()) nextErrors.category = 'Select category';
+        if (!Number.isFinite(amountValue) || amountValue <= 0) nextErrors.amount = 'Enter valid amount';
+
+        return nextErrors;
+    };
+
     const submitSimpleEntry = async (mode = 'sales') => {
         if (!isPunchedIn) {
             alert('Please punch in first');
@@ -388,13 +402,18 @@ export default function SalesmanDashboard() {
         }
 
         const entry = mode === 'sales' ? salesEntry : purchaseEntry;
-        const amountValue = parseFloat(entry.amount) || 0;
-        if (!entry.category || amountValue <= 0) {
-            alert('Category and amount are required');
+        const nextErrors = validateSimpleEntry(entry);
+        if (Object.keys(nextErrors).length > 0) {
+            if (mode === 'sales') setSalesEntryErrors(nextErrors);
+            else setPurchaseEntryErrors(nextErrors);
+            alert('Please fix form errors');
             return;
         }
+        if (mode === 'sales') setSalesEntryErrors({});
+        else setPurchaseEntryErrors({});
 
-        const selectedDate = buildSelectedDate(entry.date || todayIsoDate());
+        const amountValue = parseFloat(entry.amount) || 0;
+        const selectedDate = buildSelectedDate(entry.date);
         const type = mode === 'sales' ? 'income' : 'expense';
 
         await addTransaction({
@@ -416,8 +435,68 @@ export default function SalesmanDashboard() {
 
         setToast(`${mode === 'sales' ? 'Sales' : 'Purchase'} saved`);
         setTimeout(() => setToast(''), 1800);
-        if (mode === 'sales') setSalesEntry(newSimpleEntryForm());
-        else setPurchaseEntry(newSimpleEntryForm());
+        if (mode === 'sales') {
+            setSalesEntry(newSimpleEntryForm());
+            setSalesEntryErrors({});
+        } else {
+            setPurchaseEntry(newSimpleEntryForm());
+            setPurchaseEntryErrors({});
+        }
+    };
+
+    const printRecentTransaction = (txn) => {
+        if (!txn) return;
+
+        const amountValue = parseFloat(txn.amount) || 0;
+        const isSale = txn.type === 'income';
+        const netTotal = amountValue / 1.19;
+        const taxTotal = amountValue - netTotal;
+        const shopName = activeShop?.name || 'Shop';
+        const shopAddress = activeShop?.address || activeShop?.location || '';
+        const txnDate = txn.timestamp ? new Date(txn.timestamp) : new Date();
+        const popup = window.open('', 'recent-transaction-receipt', 'width=420,height=760');
+        if (!popup) return;
+
+        const escapeHtml = (value) => String(value || '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll('\'', '&#39;');
+
+        popup.document.write(`
+            <html>
+                <head>
+                    <title>Beleg</title>
+                    <style>
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
+                        h2,p { margin: 0; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
+                        .line { border-top:1px dashed #000; margin:8px 0; }
+                    </style>
+                </head>
+                <body>
+                    <h2>${escapeHtml(shopName)}</h2>
+                    ${shopAddress ? `<p>${escapeHtml(shopAddress)}</p>` : ''}
+                    <p>${txnDate.toLocaleString('de-DE')}</p>
+                    <div class="line"></div>
+                    <div class="row"><span>Typ</span><span>${isSale ? 'Verkauf' : 'Einkauf'}</span></div>
+                    <div class="row"><span>Position</span><span>${escapeHtml(txn.desc || 'Transaktion')}</span></div>
+                    <div class="row"><span>Kategorie</span><span>${escapeHtml(extractCategoryName(txn.category) || '-')}</span></div>
+                    <div class="row"><span>Zahlung</span><span>${escapeHtml(txn.paymentMethod || 'Cash')}</span></div>
+                    <div class="line"></div>
+                    <div class="row"><strong>Zwischensumme</strong><strong>EUR ${amountValue.toFixed(2)}</strong></div>
+                    ${billShowTax ? `<div class="row"><span>Netto (19%)</span><span>EUR ${netTotal.toFixed(2)}</span></div>
+                    <div class="row"><span>USt (19%)</span><span>EUR ${taxTotal.toFixed(2)}</span></div>` : ''}
+                    <div class="row"><strong>GESAMTBETRAG</strong><strong>EUR ${amountValue.toFixed(2)}</strong></div>
+                    <div class="line"></div>
+                    <p style="font-size:10px">Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.</p>
+                </body>
+            </html>
+        `);
+        popup.document.close();
+        popup.focus();
+        popup.print();
     };
 
     const openSalesFormWithProduct = (product) => {
@@ -795,7 +874,12 @@ export default function SalesmanDashboard() {
 
             <main className="max-w-7xl mx-auto px-3 pt-4 pb-6 space-y-3">
 
-                <section className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <section className="grid grid-cols-1 md:grid-cols-[0.72fr_1fr_1fr] gap-2">
+                    <CompactTrendCard
+                        label="Total Income"
+                        value={activeStats.totals.income}
+                        colorClass="border-blue-200 bg-gradient-to-br from-blue-100 to-indigo-50"
+                    />
                     <CompactTrendCard
                         label="Total Revenue"
                         value={activeStats.totals.revenue}
@@ -805,11 +889,6 @@ export default function SalesmanDashboard() {
                         label="Total Expenses"
                         value={activeStats.totals.expenses}
                         colorClass="border-rose-200 bg-gradient-to-br from-rose-100 to-pink-50"
-                    />
-                    <CompactTrendCard
-                        label="Total Income"
-                        value={activeStats.totals.income}
-                        colorClass="border-blue-200 bg-gradient-to-br from-blue-100 to-indigo-50"
                     />
                 </section>
 
@@ -827,8 +906,12 @@ export default function SalesmanDashboard() {
                                     ref={salesDateInputRef}
                                     type="date"
                                     value={salesEntry.date}
-                                    onChange={(e) => setSalesEntry((prev) => ({ ...prev, date: e.target.value }))}
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 pr-8 text-xs text-slate-700"
+                                    onChange={(e) => {
+                                        setSalesEntry((prev) => ({ ...prev, date: e.target.value }));
+                                        setSalesEntryErrors((prev) => ({ ...prev, date: '' }));
+                                    }}
+                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 pr-8 text-xs text-slate-700 ${salesEntryErrors.date ? 'border-rose-300' : 'border-slate-200'}`}
+                                    aria-invalid={Boolean(salesEntryErrors.date)}
                                     required
                                 />
                                 <button
@@ -839,17 +922,23 @@ export default function SalesmanDashboard() {
                                 >
                                     <CalendarDays size={14} />
                                 </button>
+                                {salesEntryErrors.date && <p className="mt-1 text-[10px] text-rose-600">{salesEntryErrors.date}</p>}
                             </div>
 
                             <div>
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Payment Mode</label>
                                 <select
                                     value={salesEntry.paymentMode}
-                                    onChange={(e) => setSalesEntry((prev) => ({ ...prev, paymentMode: e.target.value }))}
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    onChange={(e) => {
+                                        setSalesEntry((prev) => ({ ...prev, paymentMode: e.target.value }));
+                                        setSalesEntryErrors((prev) => ({ ...prev, paymentMode: '' }));
+                                    }}
+                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-slate-700 ${salesEntryErrors.paymentMode ? 'border-rose-300' : 'border-slate-200'}`}
+                                    aria-invalid={Boolean(salesEntryErrors.paymentMode)}
                                 >
                                     {paymentModes.map((mode) => <option key={`sales-pay-${mode}`} value={mode}>{mode}</option>)}
                                 </select>
+                                {salesEntryErrors.paymentMode && <p className="mt-1 text-[10px] text-rose-600">{salesEntryErrors.paymentMode}</p>}
                             </div>
 
                             <div>
@@ -859,11 +948,16 @@ export default function SalesmanDashboard() {
                                     step="0.01"
                                     min="0"
                                     value={salesEntry.amount}
-                                    onChange={(e) => setSalesEntry((prev) => ({ ...prev, amount: e.target.value }))}
+                                    onChange={(e) => {
+                                        setSalesEntry((prev) => ({ ...prev, amount: e.target.value }));
+                                        setSalesEntryErrors((prev) => ({ ...prev, amount: '' }));
+                                    }}
                                     placeholder="Amount"
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-slate-700 ${salesEntryErrors.amount ? 'border-rose-300' : 'border-slate-200'}`}
+                                    aria-invalid={Boolean(salesEntryErrors.amount)}
                                     required
                                 />
+                                {salesEntryErrors.amount && <p className="mt-1 text-[10px] text-rose-600">{salesEntryErrors.amount}</p>}
                             </div>
                         </div>
 
@@ -877,7 +971,10 @@ export default function SalesmanDashboard() {
                                         <button
                                             key={`sales-chip-${name}`}
                                             type="button"
-                                            onClick={() => setSalesEntry((prev) => ({ ...prev, category: name }))}
+                                            onClick={() => {
+                                                setSalesEntry((prev) => ({ ...prev, category: name }));
+                                                setSalesEntryErrors((prev) => ({ ...prev, category: '' }));
+                                            }}
                                             className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${salesEntry.category === name ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
                                         >
                                             {name}
@@ -885,6 +982,7 @@ export default function SalesmanDashboard() {
                                     ))}
                                 </div>
                             )}
+                            {salesEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{salesEntryErrors.category}</p>}
                         </div>
 
                         <div className="flex items-center justify-end">
@@ -907,8 +1005,12 @@ export default function SalesmanDashboard() {
                                     ref={purchaseDateInputRef}
                                     type="date"
                                     value={purchaseEntry.date}
-                                    onChange={(e) => setPurchaseEntry((prev) => ({ ...prev, date: e.target.value }))}
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 pr-8 text-xs text-slate-700"
+                                    onChange={(e) => {
+                                        setPurchaseEntry((prev) => ({ ...prev, date: e.target.value }));
+                                        setPurchaseEntryErrors((prev) => ({ ...prev, date: '' }));
+                                    }}
+                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 pr-8 text-xs text-slate-700 ${purchaseEntryErrors.date ? 'border-rose-300' : 'border-slate-200'}`}
+                                    aria-invalid={Boolean(purchaseEntryErrors.date)}
                                     required
                                 />
                                 <button
@@ -919,17 +1021,23 @@ export default function SalesmanDashboard() {
                                 >
                                     <CalendarDays size={14} />
                                 </button>
+                                {purchaseEntryErrors.date && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.date}</p>}
                             </div>
 
                             <div>
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Payment Mode</label>
                                 <select
                                     value={purchaseEntry.paymentMode}
-                                    onChange={(e) => setPurchaseEntry((prev) => ({ ...prev, paymentMode: e.target.value }))}
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    onChange={(e) => {
+                                        setPurchaseEntry((prev) => ({ ...prev, paymentMode: e.target.value }));
+                                        setPurchaseEntryErrors((prev) => ({ ...prev, paymentMode: '' }));
+                                    }}
+                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-slate-700 ${purchaseEntryErrors.paymentMode ? 'border-rose-300' : 'border-slate-200'}`}
+                                    aria-invalid={Boolean(purchaseEntryErrors.paymentMode)}
                                 >
                                     {paymentModes.map((mode) => <option key={`purchase-pay-${mode}`} value={mode}>{mode}</option>)}
                                 </select>
+                                {purchaseEntryErrors.paymentMode && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.paymentMode}</p>}
                             </div>
 
                             <div>
@@ -939,11 +1047,16 @@ export default function SalesmanDashboard() {
                                     step="0.01"
                                     min="0"
                                     value={purchaseEntry.amount}
-                                    onChange={(e) => setPurchaseEntry((prev) => ({ ...prev, amount: e.target.value }))}
+                                    onChange={(e) => {
+                                        setPurchaseEntry((prev) => ({ ...prev, amount: e.target.value }));
+                                        setPurchaseEntryErrors((prev) => ({ ...prev, amount: '' }));
+                                    }}
                                     placeholder="Amount"
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-slate-700 ${purchaseEntryErrors.amount ? 'border-rose-300' : 'border-slate-200'}`}
+                                    aria-invalid={Boolean(purchaseEntryErrors.amount)}
                                     required
                                 />
+                                {purchaseEntryErrors.amount && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.amount}</p>}
                             </div>
                         </div>
 
@@ -957,7 +1070,10 @@ export default function SalesmanDashboard() {
                                         <button
                                             key={`purchase-chip-${name}`}
                                             type="button"
-                                            onClick={() => setPurchaseEntry((prev) => ({ ...prev, category: name }))}
+                                            onClick={() => {
+                                                setPurchaseEntry((prev) => ({ ...prev, category: name }));
+                                                setPurchaseEntryErrors((prev) => ({ ...prev, category: '' }));
+                                            }}
                                             className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${purchaseEntry.category === name ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
                                         >
                                             {name}
@@ -965,6 +1081,7 @@ export default function SalesmanDashboard() {
                                     ))}
                                 </div>
                             )}
+                            {purchaseEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.category}</p>}
                         </div>
 
                         <div className="flex items-center justify-end">
@@ -974,113 +1091,25 @@ export default function SalesmanDashboard() {
                         </div>
                     </form>
                 </section>
-
-                <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 overflow-hidden">
-                        <div className="px-4 py-3 bg-gradient-to-r from-emerald-50 to-emerald-100/30 border-b border-emerald-100 flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 11l5-5m0 0l5 5m-5-5v12" />
-                                </svg>
-                            </div>
-                            <div>
-                                <h3 className="text-sm font-bold text-slate-800">Sales by Category Overview</h3>
-                                <p className="text-[10px] text-emerald-500">{revenueTransactions.length} transactions today</p>
-                            </div>
-                        </div>
-                        <div className="p-3">
-                            {salesByCategory.length === 0 ? (
-                                <div className="text-center py-6 text-slate-300">
-                                    <p className="text-2xl mb-1">ðŸ“Š</p>
-                                    <p className="text-[10px]">No sales yet</p>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-[1.2fr_.9fr] gap-2 items-center">
-                                    <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
-                                        {salesByCategory.slice(0, 10).map((item) => (
-                                            <div key={item.name} className="min-w-[220px] flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100/50 hover:bg-emerald-50 transition-colors">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="w-8 h-8 rounded-lg bg-white border border-emerald-100 flex items-center justify-center overflow-hidden flex-shrink-0">
-                                                        {getCategoryImage(item.name) ? (
-                                                            <img src={getCategoryImage(item.name)} alt={item.name} className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <span className="text-xs">ðŸ“Š</span>
-                                                        )}
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-xs font-bold text-slate-700">{item.name}</p>
-                                                        <p className="text-[9px] text-slate-400">{item.count} item{item.count === 1 ? '' : 's'}</p>
-                                                    </div>
-                                                </div>
-                                                <p className="text-sm font-bold text-emerald-600">{priceTag(item.total)}</p>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    <div className="flex items-center justify-center">
-                                        <MiniDonut items={salesByCategory} />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-2xl shadow-sm border border-red-100 overflow-hidden">
-                        <div className="px-4 py-3 bg-gradient-to-r from-red-50 to-red-100/30 border-b border-red-100 flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-red-500 flex items-center justify-center">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 13l-5 5m0 0l-5-5m5 5V6" />
-                                </svg>
-                            </div>
-                            <div>
-                                <h3 className="text-sm font-bold text-slate-800">Sales by Purchase Type</h3>
-                                <p className="text-[10px] text-red-500">{purchaseTransactions.length} transactions today</p>
-                            </div>
-                        </div>
-                        <div className="p-3">
-                            {expensesByCategory.length === 0 ? (
-                                <div className="text-center py-6 text-slate-300">
-                                    <p className="text-2xl mb-1">ðŸ“Š</p>
-                                    <p className="text-[10px]">No purchases yet</p>
-                                </div>
-                            ) : (
-                                <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
-                                    {expensesByCategory.slice(0, 10).map((item) => (
-                                        <div key={item.name} className="min-w-[220px] flex items-center justify-between p-2.5 rounded-xl bg-red-50/50 border border-red-100/50 hover:bg-red-50 transition-colors">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-lg bg-white border border-red-100 flex items-center justify-center overflow-hidden flex-shrink-0">
-                                                    {getCategoryImage(item.name) ? (
-                                                        <img src={getCategoryImage(item.name)} alt={item.name} className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <span className="text-xs">ðŸ“‰</span>
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-bold text-slate-700">{item.name}</p>
-                                                    <p className="text-[9px] text-slate-400">{item.count} item{item.count === 1 ? '' : 's'}</p>
-                                                </div>
-                                            </div>
-                                            <p className="text-sm font-bold text-red-600">{priceTag(item.total)}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </section>
-
                 <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm">
                         <h3 className="text-sm font-black text-emerald-700 mb-2">Revenue Transactions</h3>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {revenueTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries today</p> : revenueTransactions.map((txn) => (
-                                <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto] items-center gap-2">
+                                <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2">
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Revenue'}</p>
                                         <p className="text-[11px] text-slate-400">{txn.time || '--:--'}</p>
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.time || '--:--'}</p>
                                     <p className="text-sm font-black text-emerald-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => printRecentTransaction(txn)}
+                                        className="text-[11px] font-semibold text-slate-600 border-l border-slate-200 pl-3 hover:text-emerald-700"
+                                    >
+                                        Print
+                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -1090,15 +1119,46 @@ export default function SalesmanDashboard() {
                         <h3 className="text-sm font-black text-rose-700 mb-2">Purchase Transactions History</h3>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {purchaseTransactions.length === 0 ? <p className="text-xs text-slate-400">No purchase transactions yet</p> : purchaseTransactions.map((txn) => (
-                                <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto] items-center gap-2">
+                                <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2">
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Purchase'}</p>
                                         <p className="text-[11px] text-slate-400">{txn.time || '--:--'}</p>
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.time || '--:--'}</p>
                                     <p className="text-sm font-black text-rose-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => printRecentTransaction(txn)}
+                                        className="text-[11px] font-semibold text-slate-600 border-l border-slate-200 pl-3 hover:text-rose-700"
+                                    >
+                                        Print
+                                    </button>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                </section>
+
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm">
+                        <h3 className="text-sm font-black text-emerald-700 mb-2">Sales by Category</h3>
+                        <div className="min-h-44 flex items-center justify-center">
+                            {salesByCategory.length === 0 ? (
+                                <p className="text-xs text-slate-400">No sales yet</p>
+                            ) : (
+                                <MiniDonut items={salesByCategory} />
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-rose-100 bg-white p-3 shadow-sm">
+                        <h3 className="text-sm font-black text-rose-700 mb-2">Purchase by Category</h3>
+                        <div className="min-h-44 flex items-center justify-center">
+                            {expensesByCategory.length === 0 ? (
+                                <p className="text-xs text-slate-400">No purchases yet</p>
+                            ) : (
+                                <MiniDonut items={expensesByCategory} />
+                            )}
                         </div>
                     </div>
                 </section>
