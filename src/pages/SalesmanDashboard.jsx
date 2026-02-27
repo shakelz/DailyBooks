@@ -7,6 +7,8 @@ import { priceTag } from '../utils/currency';
 import SalesmanProfile from '../components/SalesmanProfile';
 import CategoryManagerModal from '../components/CategoryManagerModal';
 import RepairModal from '../components/RepairModal';
+import SmartCategoryForm from '../components/SmartCategoryForm';
+import TransactionModal from '../components/TransactionModal';
 import { useRepairs } from '../context/RepairsContext';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
@@ -20,16 +22,6 @@ const newQuickSaleItem = () => ({
     quantity: '1',
     amount: '',
     paymentMode: 'Cash',
-    notes: '',
-});
-
-const newMobileInventoryForm = () => ({
-    name: '',
-    model: '',
-    barcode: '',
-    stock: '1',
-    purchasePrice: '',
-    sellingPrice: '',
     notes: '',
 });
 
@@ -74,6 +66,9 @@ function newSimpleEntryForm() {
         date: todayIsoDate(),
         paymentMode: 'Cash',
         category: '',
+        subCategory: '',
+        productName: '',
+        productId: '',
         amount: '',
     };
 }
@@ -266,11 +261,11 @@ export default function SalesmanDashboard() {
         transactions,
         lookupBarcode,
         searchProducts,
-        addProduct,
         addTransaction,
         updateTransaction,
         adjustStock,
         getLevel1Categories,
+        getLevel2Categories,
     } = useInventory();
     const { repairJobs } = useRepairs();
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
@@ -300,11 +295,15 @@ export default function SalesmanDashboard() {
     const [showQuickSaleModal, setShowQuickSaleModal] = useState(false);
     const [quickSaleForm, setQuickSaleForm] = useState(newQuickSaleItem());
     const [quickSaleCart, setQuickSaleCart] = useState([]);
-    const [showAddMobileModal, setShowAddMobileModal] = useState(false);
+    const [showInventoryForm, setShowInventoryForm] = useState(false);
+    const [formMode, setFormMode] = useState('inventory');
+    const [showTransactionModal, setShowTransactionModal] = useState(false);
+    const [selectedProduct, setSelectedProduct] = useState(null);
+    const [showSuccess, setShowSuccess] = useState(false);
     const [showMobileInventoryModal, setShowMobileInventoryModal] = useState(false);
     const [mobileInventorySearch, setMobileInventorySearch] = useState('');
-    const [mobileInventoryError, setMobileInventoryError] = useState('');
-    const [mobileForm, setMobileForm] = useState(newMobileInventoryForm());
+    const [showSalesProductSuggestions, setShowSalesProductSuggestions] = useState(false);
+    const [showPurchaseProductSuggestions, setShowPurchaseProductSuggestions] = useState(false);
     const [showTransactionDetailModal, setShowTransactionDetailModal] = useState(false);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [transactionDraft, setTransactionDraft] = useState(null);
@@ -397,6 +396,33 @@ export default function SalesmanDashboard() {
 
     const l1OptionsRaw = getLevel1Categories() || [];
     const l1Options = l1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+    const salesSubCategoryOptionsRaw = salesEntry.category ? (getLevel2Categories(salesEntry.category) || []) : [];
+    const salesSubCategoryOptions = salesSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+    const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category) || []) : [];
+    const purchaseSubCategoryOptions = purchaseSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+
+    const resolveProductSuggestions = (query, level1, level2) => {
+        const trimmed = String(query || '').trim();
+        if (!trimmed) return [];
+        return searchProducts(trimmed)
+            .map((product) => ({ raw: product, snapshot: resolveProductSnapshot(product) }))
+            .filter(({ snapshot }) => {
+                const sameLevel1 = !level1 || String(snapshot.category || '').toLowerCase() === String(level1).toLowerCase();
+                const sameLevel2 = !level2 || String(snapshot.subCategory || '').toLowerCase() === String(level2).toLowerCase();
+                return sameLevel1 && sameLevel2;
+            })
+            .slice(0, 8);
+    };
+
+    const salesProductSuggestions = useMemo(
+        () => resolveProductSuggestions(salesEntry.productName, salesEntry.category, salesEntry.subCategory),
+        [salesEntry.productName, salesEntry.category, salesEntry.subCategory, searchProducts]
+    );
+    const purchaseProductSuggestions = useMemo(
+        () => resolveProductSuggestions(purchaseEntry.productName, purchaseEntry.category, purchaseEntry.subCategory),
+        [purchaseEntry.productName, purchaseEntry.category, purchaseEntry.subCategory, searchProducts]
+    );
+
     const mobileInventoryProducts = useMemo(() => {
         const query = String(mobileInventorySearch || '').trim().toLowerCase();
         const isMobileLike = (snapshot) => {
@@ -442,6 +468,53 @@ export default function SalesmanDashboard() {
         input.focus();
     };
 
+    const applyEntryProduct = (mode, product) => {
+        const resolved = resolveProductSnapshot(product);
+        const nextAmount = mode === 'purchase'
+            ? (resolved.purchasePrice || resolved.sellingPrice || 0)
+            : (resolved.sellingPrice || 0);
+        const patch = {
+            productId: resolved.id || '',
+            productName: resolved.name || '',
+            category: resolved.category || '',
+            subCategory: resolved.subCategory || '',
+            amount: nextAmount > 0 ? String(nextAmount) : '',
+        };
+        if (mode === 'sales') {
+            setSalesEntry((prev) => ({ ...prev, ...patch }));
+            setSalesEntryErrors((prev) => ({ ...prev, category: '', amount: '' }));
+            setShowSalesProductSuggestions(false);
+        } else {
+            setPurchaseEntry((prev) => ({ ...prev, ...patch }));
+            setPurchaseEntryErrors((prev) => ({ ...prev, category: '', amount: '' }));
+            setShowPurchaseProductSuggestions(false);
+        }
+    };
+
+    const handleEntryProductQueryChange = (mode, value) => {
+        const nextValue = String(value || '');
+        if (mode === 'sales') {
+            setSalesEntry((prev) => ({ ...prev, productName: nextValue, productId: '' }));
+            setShowSalesProductSuggestions(true);
+        } else {
+            setPurchaseEntry((prev) => ({ ...prev, productName: nextValue, productId: '' }));
+            setShowPurchaseProductSuggestions(true);
+        }
+
+        const trimmed = nextValue.trim();
+        if (!trimmed) {
+            if (mode === 'sales') setShowSalesProductSuggestions(false);
+            else setShowPurchaseProductSuggestions(false);
+            return;
+        }
+        const exact = lookupBarcode(trimmed);
+        if (!exact) return;
+        const exactResolved = resolveProductSnapshot(exact);
+        if (String(exactResolved.barcode || '').toLowerCase() === trimmed.toLowerCase()) {
+            applyEntryProduct(mode, exact);
+        }
+    };
+
     const validateSimpleEntry = (entry) => {
         const nextErrors = {};
         const parsedDate = new Date(`${entry?.date || ''}T00:00:00`);
@@ -476,23 +549,32 @@ export default function SalesmanDashboard() {
         const amountValue = parseFloat(entry.amount) || 0;
         const selectedDate = buildSelectedDate(entry.date);
         const type = mode === 'sales' ? 'income' : 'expense';
+        const productLabel = String(entry.productName || '').trim();
+        const descLabel = productLabel
+            ? `${mode === 'sales' ? 'Sale' : 'Purchase'} - ${productLabel}`
+            : `${mode === 'sales' ? 'Sale' : 'Purchase'} - ${entry.category}`;
 
         await addTransaction({
-            desc: `${mode === 'sales' ? 'Sale' : 'Purchase'} - ${entry.category}`,
+            desc: descLabel,
             amount: amountValue,
             quantity: 1,
             type,
             category: entry.category,
             paymentMethod: entry.paymentMode || 'Cash',
-            notes: '',
+            notes: entry.subCategory ? `SubCategory: ${entry.subCategory}` : '',
             source: type === 'expense' ? 'purchase' : 'shop',
             salesmanName: user?.name,
             salesmanNumber: user?.salesmanNumber || 0,
             workerId: String(user?.id || ''),
+            productId: entry.productId || undefined,
             timestamp: selectedDate.toISOString(),
             date: selectedDate.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
             time: selectedDate.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
         });
+
+        if (type === 'income' && entry.productId) {
+            await adjustStock(entry.productId, -1);
+        }
 
         setToast(`${mode === 'sales' ? 'Sales' : 'Purchase'} saved`);
         setTimeout(() => setToast(''), 1800);
@@ -626,55 +708,74 @@ export default function SalesmanDashboard() {
         });
     };
 
-    const handleAddMobileInventory = async (e) => {
-        e.preventDefault();
-        const nextName = String(mobileForm.name || '').trim();
-        const nextModel = String(mobileForm.model || '').trim();
-        const nextBarcode = String(mobileForm.barcode || '').trim();
-        const nextStock = Math.max(0, parseInt(mobileForm.stock || '0', 10) || 0);
-        const nextPurchasePrice = parseFloat(mobileForm.purchasePrice) || 0;
-        const nextSellingPrice = parseFloat(mobileForm.sellingPrice);
-        if (!nextName) {
-            setMobileInventoryError('Mobile name is required.');
-            return;
-        }
-        if (nextStock <= 0) {
-            setMobileInventoryError('Stock must be greater than 0.');
-            return;
-        }
-        if (!Number.isFinite(nextSellingPrice) || nextSellingPrice <= 0) {
-            setMobileInventoryError('Selling price must be greater than 0.');
-            return;
-        }
-        if (nextBarcode && lookupBarcode(nextBarcode)) {
-            setMobileInventoryError('Barcode already exists in inventory.');
-            return;
-        }
+    const printPendingRepairBill = (job) => {
+        if (!job) return;
+        const shopName = activeShop?.name || 'Shop';
+        const shopAddress = activeShop?.address || activeShop?.location || '';
+        const popup = window.open('', 'pending-repair-bill', 'width=420,height=760');
+        if (!popup) return;
 
-        try {
-            await addProduct({
-                name: nextName,
-                model: nextModel,
-                barcode: nextBarcode || null,
-                category: { level1: 'Mobiles', level2: nextModel || '' },
-                stock: nextStock,
-                purchasePrice: nextPurchasePrice,
-                sellingPrice: nextSellingPrice,
-                notes: mobileForm.notes || '',
-            });
-            setShowAddMobileModal(false);
-            setMobileForm(newMobileInventoryForm());
-            setMobileInventoryError('');
-            setToast('Mobile added to inventory');
-            setTimeout(() => setToast(''), 1800);
-        } catch (error) {
-            setMobileInventoryError(error?.message || 'Failed to add mobile');
-        }
+        const toSafe = (value) => String(value || '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll('\'', '&#39;');
+
+        const createdAt = job.createdAt ? new Date(job.createdAt) : new Date();
+        popup.document.write(`
+            <html>
+                <head>
+                    <title>Reparaturbeleg</title>
+                    <style>
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
+                        h2,p { margin: 0; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
+                        .line { border-top:1px dashed #000; margin:8px 0; }
+                    </style>
+                </head>
+                <body>
+                    <h2>${toSafe(shopName)}</h2>
+                    ${shopAddress ? `<p>${toSafe(shopAddress)}</p>` : ''}
+                    <p>${createdAt.toLocaleString('de-DE')}</p>
+                    <div class="line"></div>
+                    <div class="row"><span>Auftrag</span><span>${toSafe(job.refId || job.id || '-')}</span></div>
+                    <div class="row"><span>Kunde</span><span>${toSafe(job.customerName || '-')}</span></div>
+                    <div class="row"><span>Telefon</span><span>${toSafe(job.customerPhone || '-')}</span></div>
+                    <div class="row"><span>Geraet</span><span>${toSafe(job.deviceModel || '-')}</span></div>
+                    <div class="row"><span>Problem</span><span>${toSafe(job.problem || job.issueType || '-')}</span></div>
+                    <div class="row"><span>Status</span><span>Ausstehend</span></div>
+                    <div class="line"></div>
+                    <div class="row"><span>Kostenvoranschlag</span><span>EUR ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Anzahlung</span><span>EUR ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Lieferdatum</span><span>${toSafe(job.deliveryDate || '-')}</span></div>
+                    <div class="line"></div>
+                    <p style="font-size:10px">Bitte Beleg zur Abholung mitbringen.</p>
+                </body>
+            </html>
+        `);
+        popup.document.close();
+        popup.focus();
+        popup.print();
     };
 
     const sellMobileFromInventory = (product) => {
-        openSalesFormWithProduct(product);
+        setSelectedProduct(product);
+        setShowTransactionModal(true);
         setShowMobileInventoryModal(false);
+    };
+
+    const handleAddToBill = async (productWithQty) => {
+        try {
+            await addTransaction(productWithQty);
+            await adjustStock(productWithQty.productId || productWithQty.id, -(parseInt(productWithQty.quantity || 1, 10) || 1));
+            setShowSuccess(true);
+            setTimeout(() => setShowSuccess(false), 1800);
+            setShowTransactionModal(false);
+            setSelectedProduct(null);
+        } catch (error) {
+            alert(error?.message || 'Failed to complete sale');
+        }
     };
 
     const openSalesFormWithProduct = (product) => {
@@ -682,7 +783,10 @@ export default function SalesmanDashboard() {
         const resolved = resolveProductSnapshot(product);
         setSalesEntry((prev) => ({
             ...prev,
+            productId: resolved.id || '',
+            productName: resolved.name || '',
             category: resolved.category || prev.category,
+            subCategory: resolved.subCategory || '',
             amount: String(resolved.sellingPrice || prev.amount || ''),
         }));
         setQuickSaleForm({
@@ -905,8 +1009,8 @@ export default function SalesmanDashboard() {
 
     const handleCalcPress = (key) => {
         if (key === 'C') { setCalcDisplay('0'); setCalcPrev(null); setCalcOp(null); return; }
-        if (key === 'âŒ«') { setCalcDisplay((d) => d.length > 1 ? d.slice(0, -1) : '0'); return; }
-        if (['+', '-', 'Ã—', 'Ã·'].includes(key)) {
+        if (key === 'BACK') { setCalcDisplay((d) => d.length > 1 ? d.slice(0, -1) : '0'); return; }
+        if (['+', '-', '*', '/'].includes(key)) {
             setCalcPrev(parseFloat(calcDisplay));
             setCalcOp(key);
             setCalcDisplay('0');
@@ -918,8 +1022,8 @@ export default function SalesmanDashboard() {
                 let result = 0;
                 if (calcOp === '+') result = calcPrev + curr;
                 if (calcOp === '-') result = calcPrev - curr;
-                if (calcOp === 'Ã—') result = calcPrev * curr;
-                if (calcOp === 'Ã·') result = curr !== 0 ? calcPrev / curr : 0;
+                if (calcOp === '*') result = calcPrev * curr;
+                if (calcOp === '/') result = curr !== 0 ? calcPrev / curr : 0;
                 setCalcDisplay(String(Number(result.toFixed(6))));
                 setCalcPrev(null);
                 setCalcOp(null);
@@ -1029,7 +1133,7 @@ export default function SalesmanDashboard() {
                                         className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
                                     >
                                         <p className="text-xs font-bold text-slate-700">{resolved.name || 'Unnamed product'}</p>
-                                        <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} â€¢ Stock {resolved.stock} â€¢ {priceTag(resolved.sellingPrice || 0)}</p>
+                                        <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} | Stock {resolved.stock} | {priceTag(resolved.sellingPrice || 0)}</p>
                                     </button>
                                     );
                                 })}
@@ -1038,7 +1142,7 @@ export default function SalesmanDashboard() {
                     </div>
 
                     <div className="flex items-center gap-2.5 text-slate-300">
-                        <button onClick={() => { setMobileInventoryError(''); setShowAddMobileModal(true); }} title="Add Mobile" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Mobile</span></button>
+                        <button onClick={() => { setFormMode('inventory'); setShowInventoryForm(true); }} title="Add Mobile" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Mobile</span></button>
                         <button onClick={() => setShowMobileInventoryModal(true)} title="Mobile Inventory" className="fab-animated" style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobiles</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Pending Jobs" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Pending Jobs</span></button>
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
@@ -1048,7 +1152,7 @@ export default function SalesmanDashboard() {
                             {user?.photo ? (
                                 <img src={user.photo} alt={user?.name || 'Profile'} className="w-full h-full object-cover" />
                             ) : (
-                                <span className="text-sm">ðŸ‘¤</span>
+                                <span className="text-sm font-semibold">{String(user?.name || 'U').charAt(0).toUpperCase()}</span>
                             )}
                         </button>
                     </div>
@@ -1144,6 +1248,42 @@ export default function SalesmanDashboard() {
                             </div>
                         </div>
 
+                        <div className="relative">
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
+                            <input
+                                value={salesEntry.productName}
+                                onFocus={() => setShowSalesProductSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowSalesProductSuggestions(false), 160)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && salesProductSuggestions.length > 0) {
+                                        e.preventDefault();
+                                        applyEntryProduct('sales', salesProductSuggestions[0].raw);
+                                    }
+                                }}
+                                onChange={(e) => handleEntryProductQueryChange('sales', e.target.value)}
+                                placeholder="Type product name or scan bullet barcode"
+                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                            />
+                            {showSalesProductSuggestions && salesProductSuggestions.length > 0 && (
+                                <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-44 overflow-y-auto">
+                                    {salesProductSuggestions.map((row) => (
+                                        <button
+                                            key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
+                                            type="button"
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                applyEntryProduct('sales', row.raw);
+                                            }}
+                                            className="w-full text-left px-2.5 py-2 hover:bg-emerald-50 border-b border-slate-100 last:border-b-0"
+                                        >
+                                            <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
+                                            <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.sellingPrice || 0)}</p>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
                         <div>
                             <p className="text-[11px] font-semibold text-slate-600 mb-1">Category</p>
                             {l1Options.length === 0 ? (
@@ -1155,7 +1295,7 @@ export default function SalesmanDashboard() {
                                             key={`sales-chip-${name}`}
                                             type="button"
                                             onClick={() => {
-                                                setSalesEntry((prev) => ({ ...prev, category: name }));
+                                                setSalesEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
                                                 setSalesEntryErrors((prev) => ({ ...prev, category: '' }));
                                             }}
                                             className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${salesEntry.category === name ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
@@ -1166,6 +1306,28 @@ export default function SalesmanDashboard() {
                                 </div>
                             )}
                             {salesEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{salesEntryErrors.category}</p>}
+                        </div>
+
+                        <div>
+                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Sub Category</p>
+                            {!salesEntry.category ? (
+                                <p className="text-xs text-slate-400">Select category first</p>
+                            ) : salesSubCategoryOptions.length === 0 ? (
+                                <p className="text-xs text-slate-400">No sub category available for this category</p>
+                            ) : (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {salesSubCategoryOptions.map((name) => (
+                                        <button
+                                            key={`sales-sub-chip-${name}`}
+                                            type="button"
+                                            onClick={() => setSalesEntry((prev) => ({ ...prev, subCategory: name }))}
+                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${salesEntry.subCategory === name ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
+                                        >
+                                            {name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex items-center justify-end">
@@ -1243,6 +1405,42 @@ export default function SalesmanDashboard() {
                             </div>
                         </div>
 
+                        <div className="relative">
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
+                            <input
+                                value={purchaseEntry.productName}
+                                onFocus={() => setShowPurchaseProductSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowPurchaseProductSuggestions(false), 160)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && purchaseProductSuggestions.length > 0) {
+                                        e.preventDefault();
+                                        applyEntryProduct('purchase', purchaseProductSuggestions[0].raw);
+                                    }
+                                }}
+                                onChange={(e) => handleEntryProductQueryChange('purchase', e.target.value)}
+                                placeholder="Type product name or scan bullet barcode"
+                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                            />
+                            {showPurchaseProductSuggestions && purchaseProductSuggestions.length > 0 && (
+                                <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-44 overflow-y-auto">
+                                    {purchaseProductSuggestions.map((row) => (
+                                        <button
+                                            key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
+                                            type="button"
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                applyEntryProduct('purchase', row.raw);
+                                            }}
+                                            className="w-full text-left px-2.5 py-2 hover:bg-rose-50 border-b border-slate-100 last:border-b-0"
+                                        >
+                                            <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
+                                            <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.purchasePrice || row.snapshot.sellingPrice || 0)}</p>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
                         <div>
                             <p className="text-[11px] font-semibold text-slate-600 mb-1">Category</p>
                             {l1Options.length === 0 ? (
@@ -1254,7 +1452,7 @@ export default function SalesmanDashboard() {
                                             key={`purchase-chip-${name}`}
                                             type="button"
                                             onClick={() => {
-                                                setPurchaseEntry((prev) => ({ ...prev, category: name }));
+                                                setPurchaseEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
                                                 setPurchaseEntryErrors((prev) => ({ ...prev, category: '' }));
                                             }}
                                             className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${purchaseEntry.category === name ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
@@ -1265,6 +1463,28 @@ export default function SalesmanDashboard() {
                                 </div>
                             )}
                             {purchaseEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.category}</p>}
+                        </div>
+
+                        <div>
+                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Sub Category</p>
+                            {!purchaseEntry.category ? (
+                                <p className="text-xs text-slate-400">Select category first</p>
+                            ) : purchaseSubCategoryOptions.length === 0 ? (
+                                <p className="text-xs text-slate-400">No sub category available for this category</p>
+                            ) : (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {purchaseSubCategoryOptions.map((name) => (
+                                        <button
+                                            key={`purchase-sub-chip-${name}`}
+                                            type="button"
+                                            onClick={() => setPurchaseEntry((prev) => ({ ...prev, subCategory: name }))}
+                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${purchaseEntry.subCategory === name ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
+                                        >
+                                            {name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex items-center justify-end">
@@ -1288,7 +1508,7 @@ export default function SalesmanDashboard() {
                                 >
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Revenue'}</p>
-                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'} • Tap to view</p>
+                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'} | Tap to view</p>
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-emerald-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
@@ -1310,7 +1530,7 @@ export default function SalesmanDashboard() {
                                 >
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Purchase'}</p>
-                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'} • Tap to view</p>
+                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'} | Tap to view</p>
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-rose-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
@@ -1348,6 +1568,12 @@ export default function SalesmanDashboard() {
             {toast && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-xl bg-slate-900 text-white px-3 py-2 text-xs font-semibold z-50">
                     {toast}
+                </div>
+            )}
+
+            {showSuccess && (
+                <div className="fixed top-20 left-1/2 -translate-x-1/2 rounded-xl bg-emerald-600 text-white px-4 py-2 text-xs font-semibold z-[90]">
+                    Sale completed
                 </div>
             )}
 
@@ -1466,36 +1692,25 @@ export default function SalesmanDashboard() {
                 </div>
             )}
 
-            {showAddMobileModal && (
-                <div className="fixed inset-0 z-[86]" onClick={() => setShowAddMobileModal(false)}>
-                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
-                    <div className="absolute inset-x-3 top-16 mx-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-                            <div>
-                                <h3 className="text-sm font-black text-slate-800">Add Mobile to Inventory</h3>
-                                <p className="text-[11px] text-slate-500">Salesman quick stock entry</p>
-                            </div>
-                            <button onClick={() => setShowAddMobileModal(false)} className="text-slate-500 hover:text-slate-700">x</button>
-                        </div>
+            <SmartCategoryForm
+                isOpen={showInventoryForm}
+                onClose={() => setShowInventoryForm(false)}
+                onSubmit={() => {
+                    setShowInventoryForm(false);
+                    setToast(formMode === 'purchase' ? 'Purchase entry saved' : 'Product added');
+                    setTimeout(() => setToast(''), 1800);
+                }}
+            />
 
-                        <form onSubmit={handleAddMobileInventory} className="p-4 space-y-2">
-                            <div className="grid grid-cols-2 gap-2">
-                                <input value={mobileForm.name} onChange={(e) => setMobileForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Mobile name" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                <input value={mobileForm.model} onChange={(e) => setMobileForm((prev) => ({ ...prev, model: e.target.value }))} placeholder="Model" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                <input value={mobileForm.barcode} onChange={(e) => setMobileForm((prev) => ({ ...prev, barcode: e.target.value }))} placeholder="Barcode (optional)" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                <input type="number" min="1" value={mobileForm.stock} onChange={(e) => setMobileForm((prev) => ({ ...prev, stock: e.target.value }))} placeholder="Stock" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                <input type="number" step="0.01" min="0" value={mobileForm.purchasePrice} onChange={(e) => setMobileForm((prev) => ({ ...prev, purchasePrice: e.target.value }))} placeholder="Purchase price" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                <input type="number" step="0.01" min="0" value={mobileForm.sellingPrice} onChange={(e) => setMobileForm((prev) => ({ ...prev, sellingPrice: e.target.value }))} placeholder="Selling price" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                <textarea rows={2} value={mobileForm.notes} onChange={(e) => setMobileForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" className="col-span-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                            </div>
-                            {mobileInventoryError && <p className="text-[11px] text-rose-600">{mobileInventoryError}</p>}
-                            <div className="flex justify-end">
-                                <button type="submit" className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-emerald-700">Add Mobile</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
+            <TransactionModal
+                isOpen={showTransactionModal}
+                onClose={() => {
+                    setShowTransactionModal(false);
+                    setSelectedProduct(null);
+                }}
+                onAddToBill={handleAddToBill}
+                initialProduct={selectedProduct}
+            />
 
             {showMobileInventoryModal && (
                 <div className="fixed inset-0 z-[86]" onClick={() => setShowMobileInventoryModal(false)}>
@@ -1524,7 +1739,7 @@ export default function SalesmanDashboard() {
                                     <div key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center justify-between gap-3">
                                         <div className="min-w-0">
                                             <p className="text-xs font-bold text-slate-700 truncate">{item.snapshot.name || 'Mobile'}</p>
-                                            <p className="text-[10px] text-slate-500 truncate">{item.snapshot.barcode || 'No barcode'} • Stock {item.snapshot.stock} • {priceTag(item.snapshot.sellingPrice || 0)}</p>
+                                            <p className="text-[10px] text-slate-500 truncate">{item.snapshot.barcode || 'No barcode'} | Stock {item.snapshot.stock} | {priceTag(item.snapshot.sellingPrice || 0)}</p>
                                         </div>
                                         <button
                                             type="button"
@@ -1550,7 +1765,7 @@ export default function SalesmanDashboard() {
                                 <h3 className="text-sm font-black text-slate-800">Quick Sales Transaction</h3>
                                 <p className="text-[11px] text-slate-500">From barcode suggestion</p>
                             </div>
-                            <button onClick={() => setShowQuickSaleModal(false)} className="text-slate-500 hover:text-slate-700">âœ•</button>
+                            <button onClick={() => setShowQuickSaleModal(false)} className="text-slate-500 hover:text-slate-700">x</button>
                         </div>
 
                         <div className="p-4 space-y-3">
@@ -1608,18 +1823,18 @@ export default function SalesmanDashboard() {
                 <div className="fixed top-16 right-3 z-50 w-72 rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden">
                     <div className="px-3 py-2 bg-slate-800 text-white flex items-center justify-between">
                         <p className="text-xs font-semibold">Calculator</p>
-                        <button onClick={() => setShowCalc(false)} className="text-xs text-slate-300 hover:text-white">âœ•</button>
+                        <button onClick={() => setShowCalc(false)} className="text-xs text-slate-300 hover:text-white">x</button>
                     </div>
                     <div className="p-3 bg-slate-900 text-right">
                         {calcOp && <p className="text-slate-500 text-[10px] font-mono">{calcPrev} {calcOp}</p>}
                         <p className="text-white text-2xl font-bold font-mono">{calcDisplay}</p>
                     </div>
                     <div className="grid grid-cols-4 gap-px bg-slate-200 p-px">
-                        {['C', 'âŒ«', 'Ã·', 'Ã—', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
+                        {['C', 'BACK', '/', '*', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
                             <button
                                 key={key}
                                 onClick={() => handleCalcPress(key)}
-                                className={`h-11 text-sm font-bold ${key === '=' ? 'bg-blue-600 text-white row-span-2 hover:bg-blue-700' : key === '0' ? 'col-span-2 bg-white hover:bg-slate-50' : ['+', '-', 'Ã—', 'Ã·'].includes(key) ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : ['C', 'âŒ«'].includes(key) ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-white text-slate-800 hover:bg-slate-50'}`}
+                                className={`h-11 text-sm font-bold ${key === '=' ? 'bg-blue-600 text-white row-span-2 hover:bg-blue-700' : key === '0' ? 'col-span-2 bg-white hover:bg-slate-50' : ['+', '-', '*', '/'].includes(key) ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : ['C', 'BACK'].includes(key) ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-white text-slate-800 hover:bg-slate-50'}`}
                             >
                                 {key}
                             </button>
@@ -1637,7 +1852,7 @@ export default function SalesmanDashboard() {
                                 <h2 className="text-lg font-bold text-white">Pending Center</h2>
                                 <p className="text-xs text-rose-100">Orders + online tracking</p>
                             </div>
-                            <button onClick={() => setShowPendingOrders(false)} className="text-white text-lg">âœ•</button>
+                            <button onClick={() => setShowPendingOrders(false)} className="text-white text-lg">x</button>
                         </div>
 
                         <div className="px-4 pt-3">
@@ -1660,9 +1875,18 @@ export default function SalesmanDashboard() {
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
                             {pendingTab === 'orders' && (
                                 <>
+                                    <button
+                                        onClick={() => {
+                                            setShowPendingOrders(false);
+                                            setShowRepairModal(true);
+                                        }}
+                                        className="w-full rounded-xl bg-amber-600 text-white py-2 text-sm font-semibold hover:bg-amber-700 transition-colors"
+                                    >
+                                        + Add Repair Job
+                                    </button>
                                     {pendingOrders.length === 0 ? (
                                         <div className="text-center py-12">
-                                            <p className="text-4xl">âœ…</p>
+                                            <p className="text-4xl">OK</p>
                                             <p className="text-sm text-slate-500 mt-2">No pending orders</p>
                                         </div>
                                     ) : pendingOrders.map((job) => (
@@ -1671,6 +1895,15 @@ export default function SalesmanDashboard() {
                                             <p className="text-sm font-bold text-slate-800">{job.customerName}</p>
                                             <p className="text-xs text-slate-500">{job.deviceModel}</p>
                                             <p className="text-xs mt-1 text-slate-400">{job.problem}</p>
+                                            <div className="mt-2 flex justify-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => printPendingRepairBill(job)}
+                                                    className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                                >
+                                                    Print
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
                                 </>
@@ -1734,7 +1967,7 @@ export default function SalesmanDashboard() {
 
                                     {onlineOrders.length === 0 ? (
                                         <div className="text-center py-10">
-                                            <p className="text-3xl">ðŸ›’</p>
+                                            <p className="text-sm font-semibold text-slate-500">No records</p>
                                             <p className="text-sm text-slate-500 mt-2">No online orders yet</p>
                                         </div>
                                     ) : (
@@ -1745,7 +1978,7 @@ export default function SalesmanDashboard() {
                                                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${order.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{order.status}</span>
                                                 </div>
                                                 <p className="text-sm font-bold text-slate-800 mt-1">{order.itemName}</p>
-                                                <p className="text-xs text-slate-500">{order.platform || 'Online'} • Qty {order.quantity} • {priceTag(order.amount || 0)} • Color {order.color || '-'}</p>
+                                                <p className="text-xs text-slate-500">{order.platform || 'Online'} | Qty {order.quantity} | {priceTag(order.amount || 0)} | Color {order.color || '-'}</p>
                                                 <p className="text-xs text-slate-400">Ordered: {order.orderDate || 'N/A'}</p>
                                                 {order.notes ? <p className="text-xs text-slate-400 mt-1">{order.notes}</p> : null}
                                                 {order.status !== 'received' && (
