@@ -6,7 +6,7 @@ import 'react-date-range/dist/theme/default.css';
 
 /**
  * Reusable Date Range Filter component.
- * 
+ *
  * Props:
  *   dateSelection - array with one { startDate, endDate, key } object
  *   setDateSelection - setter for the above
@@ -30,7 +30,10 @@ export default function DateRangeFilter({ dateSelection, setDateSelection }) {
     end.setHours(23, 59, 59, 999);
 
     const fmt = (d) => d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
-    const label = fmt(start) === fmt(end) ? fmt(start) : `${fmt(start)} — ${fmt(end)}`;
+    const label = fmt(start) === fmt(end) ? fmt(start) : `${fmt(start)} - ${fmt(end)}`;
+    const monthOptions = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const currentYear = new Date().getFullYear();
+    const yearOptions = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i);
 
     const isTodaySelected = () => {
         const today = new Date();
@@ -56,12 +59,35 @@ export default function DateRangeFilter({ dateSelection, setDateSelection }) {
             {showPicker && (
                 <div className="absolute top-full right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-slate-200 z-[100] overflow-hidden">
                     <DateRangePicker
-                        onChange={item => setDateSelection([item.selection])}
+                        onChange={(item) => setDateSelection([item.selection])}
                         showSelectionPreview={true}
                         moveRangeOnFirstSelection={false}
                         months={2}
                         ranges={dateSelection}
                         direction="horizontal"
+                        showMonthAndYearPickers={true}
+                        navigatorRenderer={(focusedDate, changeShownDate) => (
+                            <div className="flex items-center justify-end gap-2 px-3 py-2 border-b border-slate-200 bg-slate-50">
+                                <select
+                                    value={focusedDate.getMonth()}
+                                    onChange={(e) => changeShownDate(Number(e.target.value), 'setMonth')}
+                                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                                >
+                                    {monthOptions.map((name, index) => (
+                                        <option key={`month-${name}`} value={index}>{name}</option>
+                                    ))}
+                                </select>
+                                <select
+                                    value={focusedDate.getFullYear()}
+                                    onChange={(e) => changeShownDate(Number(e.target.value), 'setYear')}
+                                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                                >
+                                    {yearOptions.map((year) => (
+                                        <option key={`year-${year}`} value={year}>{year}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                         className="scale-90 origin-top-right md:scale-100"
                         rangeColors={['#3b82f6']}
                     />

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Menu, Receipt, Scale, Search, ShoppingCart, Sparkles, Wrench, CircleHelp, Wallet } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Wrench, CircleHelp, Wallet } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { priceTag } from '../utils/currency';
@@ -20,6 +20,16 @@ const newQuickSaleItem = () => ({
     quantity: '1',
     amount: '',
     paymentMode: 'Cash',
+    notes: '',
+});
+
+const newMobileInventoryForm = () => ({
+    name: '',
+    model: '',
+    barcode: '',
+    stock: '1',
+    purchasePrice: '',
+    sellingPrice: '',
     notes: '',
 });
 
@@ -92,6 +102,17 @@ function extractCategoryName(category) {
     if (!category) return '';
     if (typeof category === 'string') return category;
     return category.level1 || '';
+}
+
+function buildTransactionDraft(txn = {}) {
+    return {
+        desc: String(txn.desc || ''),
+        category: extractCategoryName(txn.category) || '',
+        amount: String(parseFloat(txn.amount) || 0),
+        quantity: String(Math.max(1, parseInt(txn.quantity || '1', 10) || 1)),
+        paymentMethod: String(txn.paymentMethod || 'Cash'),
+        notes: String(txn.notes || ''),
+    };
 }
 
 function resolveProductSnapshot(product = {}) {
@@ -241,10 +262,13 @@ export default function SalesmanDashboard() {
     const navigate = useNavigate();
     const { role, user, isPunchedIn, activeShop, billShowTax } = useAuth();
     const {
+        products,
         transactions,
         lookupBarcode,
         searchProducts,
+        addProduct,
         addTransaction,
+        updateTransaction,
         adjustStock,
         getLevel1Categories,
     } = useInventory();
@@ -276,8 +300,19 @@ export default function SalesmanDashboard() {
     const [showQuickSaleModal, setShowQuickSaleModal] = useState(false);
     const [quickSaleForm, setQuickSaleForm] = useState(newQuickSaleItem());
     const [quickSaleCart, setQuickSaleCart] = useState([]);
+    const [showAddMobileModal, setShowAddMobileModal] = useState(false);
+    const [showMobileInventoryModal, setShowMobileInventoryModal] = useState(false);
+    const [mobileInventorySearch, setMobileInventorySearch] = useState('');
+    const [mobileInventoryError, setMobileInventoryError] = useState('');
+    const [mobileForm, setMobileForm] = useState(newMobileInventoryForm());
+    const [showTransactionDetailModal, setShowTransactionDetailModal] = useState(false);
+    const [selectedTransaction, setSelectedTransaction] = useState(null);
+    const [transactionDraft, setTransactionDraft] = useState(null);
+    const [transactionFormError, setTransactionFormError] = useState('');
+    const [isSavingTransaction, setIsSavingTransaction] = useState(false);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
+    const canEditTransactions = Boolean(user?.canEditTransactions);
 
     useEffect(() => {
         if (!user || role !== 'salesman') navigate('/');
@@ -362,6 +397,32 @@ export default function SalesmanDashboard() {
 
     const l1OptionsRaw = getLevel1Categories() || [];
     const l1Options = l1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+    const mobileInventoryProducts = useMemo(() => {
+        const query = String(mobileInventorySearch || '').trim().toLowerCase();
+        const isMobileLike = (snapshot) => {
+            const categoryText = `${snapshot.category || ''} ${snapshot.subCategory || ''}`.toLowerCase();
+            const nameText = String(snapshot.name || '').toLowerCase();
+            return categoryText.includes('mobile')
+                || categoryText.includes('phone')
+                || categoryText.includes('smart')
+                || nameText.includes('mobile')
+                || nameText.includes('iphone')
+                || nameText.includes('samsung');
+        };
+
+        return (products || [])
+            .map((product) => {
+                const snapshot = resolveProductSnapshot(product);
+                return { raw: product, snapshot };
+            })
+            .filter(({ snapshot }) => isMobileLike(snapshot))
+            .filter(({ snapshot }) => {
+                if (!query) return true;
+                const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
+                return searchable.includes(query);
+            })
+            .sort((a, b) => String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' }));
+    }, [mobileInventorySearch, products]);
 
     const buildSelectedDate = (dateValue) => {
         const selected = new Date(`${dateValue}T00:00:00`);
@@ -497,6 +558,123 @@ export default function SalesmanDashboard() {
         popup.document.close();
         popup.focus();
         popup.print();
+    };
+
+    const openTransactionDetailModal = (txn) => {
+        if (!txn) return;
+        setSelectedTransaction(txn);
+        setTransactionDraft(buildTransactionDraft(txn));
+        setTransactionFormError('');
+        setShowTransactionDetailModal(true);
+    };
+
+    const closeTransactionDetailModal = () => {
+        setShowTransactionDetailModal(false);
+        setSelectedTransaction(null);
+        setTransactionDraft(null);
+        setTransactionFormError('');
+        setIsSavingTransaction(false);
+    };
+
+    const saveTransactionChanges = async () => {
+        if (!canEditTransactions || !selectedTransaction || !transactionDraft) return;
+
+        const nextDesc = String(transactionDraft.desc || '').trim();
+        const nextCategory = String(transactionDraft.category || '').trim();
+        const nextPayment = String(transactionDraft.paymentMethod || '').trim();
+        const nextAmount = parseFloat(transactionDraft.amount);
+        const nextQty = Math.max(1, parseInt(transactionDraft.quantity || '1', 10) || 1);
+        if (!nextDesc || !nextCategory || !nextPayment || !Number.isFinite(nextAmount) || nextAmount <= 0) {
+            setTransactionFormError('Description, category, payment mode and a valid amount are required.');
+            return;
+        }
+
+        setIsSavingTransaction(true);
+        setTransactionFormError('');
+        try {
+            const payload = {
+                desc: nextDesc,
+                category: nextCategory,
+                paymentMethod: nextPayment,
+                amount: nextAmount,
+                quantity: nextQty,
+                notes: String(transactionDraft.notes || ''),
+            };
+            const updated = await updateTransaction(selectedTransaction.id, payload);
+            const mergedTxn = { ...(selectedTransaction || {}), ...payload, ...(updated || {}) };
+            setSelectedTransaction(mergedTxn);
+            setTransactionDraft(buildTransactionDraft(mergedTxn));
+            setToast('Transaction updated');
+            setTimeout(() => setToast(''), 1800);
+        } catch (error) {
+            setTransactionFormError(error?.message || 'Failed to update transaction');
+        } finally {
+            setIsSavingTransaction(false);
+        }
+    };
+
+    const printTransactionDraft = () => {
+        if (!selectedTransaction || !transactionDraft) return;
+        printRecentTransaction({
+            ...selectedTransaction,
+            desc: transactionDraft.desc,
+            category: transactionDraft.category,
+            paymentMethod: transactionDraft.paymentMethod,
+            amount: parseFloat(transactionDraft.amount) || 0,
+            quantity: Math.max(1, parseInt(transactionDraft.quantity || '1', 10) || 1),
+            notes: transactionDraft.notes,
+        });
+    };
+
+    const handleAddMobileInventory = async (e) => {
+        e.preventDefault();
+        const nextName = String(mobileForm.name || '').trim();
+        const nextModel = String(mobileForm.model || '').trim();
+        const nextBarcode = String(mobileForm.barcode || '').trim();
+        const nextStock = Math.max(0, parseInt(mobileForm.stock || '0', 10) || 0);
+        const nextPurchasePrice = parseFloat(mobileForm.purchasePrice) || 0;
+        const nextSellingPrice = parseFloat(mobileForm.sellingPrice);
+        if (!nextName) {
+            setMobileInventoryError('Mobile name is required.');
+            return;
+        }
+        if (nextStock <= 0) {
+            setMobileInventoryError('Stock must be greater than 0.');
+            return;
+        }
+        if (!Number.isFinite(nextSellingPrice) || nextSellingPrice <= 0) {
+            setMobileInventoryError('Selling price must be greater than 0.');
+            return;
+        }
+        if (nextBarcode && lookupBarcode(nextBarcode)) {
+            setMobileInventoryError('Barcode already exists in inventory.');
+            return;
+        }
+
+        try {
+            await addProduct({
+                name: nextName,
+                model: nextModel,
+                barcode: nextBarcode || null,
+                category: { level1: 'Mobiles', level2: nextModel || '' },
+                stock: nextStock,
+                purchasePrice: nextPurchasePrice,
+                sellingPrice: nextSellingPrice,
+                notes: mobileForm.notes || '',
+            });
+            setShowAddMobileModal(false);
+            setMobileForm(newMobileInventoryForm());
+            setMobileInventoryError('');
+            setToast('Mobile added to inventory');
+            setTimeout(() => setToast(''), 1800);
+        } catch (error) {
+            setMobileInventoryError(error?.message || 'Failed to add mobile');
+        }
+    };
+
+    const sellMobileFromInventory = (product) => {
+        openSalesFormWithProduct(product);
+        setShowMobileInventoryModal(false);
     };
 
     const openSalesFormWithProduct = (product) => {
@@ -816,6 +994,9 @@ export default function SalesmanDashboard() {
                         <div>
                             <h1 className="text-sm sm:text-base font-black text-white">Salesman Dashboard</h1>
                             <p className="text-[11px] text-blue-100">Hello, {user?.name || 'Salesman'}</p>
+                            <p className={`text-[10px] ${canEditTransactions ? 'text-emerald-200' : 'text-amber-200'}`}>
+                                Transaction Edit: {canEditTransactions ? 'Enabled' : 'Disabled'}
+                            </p>
                         </div>
                     </div>
 
@@ -857,6 +1038,8 @@ export default function SalesmanDashboard() {
                     </div>
 
                     <div className="flex items-center gap-2.5 text-slate-300">
+                        <button onClick={() => { setMobileInventoryError(''); setShowAddMobileModal(true); }} title="Add Mobile" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Mobile</span></button>
+                        <button onClick={() => setShowMobileInventoryModal(true)} title="Mobile Inventory" className="fab-animated" style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobiles</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Pending Jobs" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Pending Jobs</span></button>
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
                         <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
@@ -892,7 +1075,7 @@ export default function SalesmanDashboard() {
                     />
                 </section>
 
-                <section className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <section className="grid grid-cols-2 gap-3">
                     <form onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('sales'); }} className="rounded-2xl border border-emerald-200 bg-white/90 p-3 space-y-3 shadow-sm backdrop-blur-sm">
                         <div className="rounded-xl px-3 py-2 flex items-center justify-between bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <p className="text-xs font-semibold">New Sales Entry</p>
@@ -1093,47 +1276,45 @@ export default function SalesmanDashboard() {
                 </section>
                 <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm">
-                        <h3 className="text-sm font-black text-emerald-700 mb-2">Revenue Transactions</h3>
+                        <h3 className="text-sm font-black text-emerald-700 mb-1">Revenue Transactions</h3>
+                        <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {revenueTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries today</p> : revenueTransactions.map((txn) => (
-                                <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2">
+                                <button
+                                    type="button"
+                                    key={txn.id}
+                                    onClick={() => openTransactionDetailModal(txn)}
+                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto] items-center gap-2 hover:bg-emerald-50/60 transition-colors"
+                                >
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Revenue'}</p>
-                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'}</p>
+                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'} • Tap to view</p>
                                     </div>
-                                    <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.time || '--:--'}</p>
+                                    <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-emerald-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
-                                    <button
-                                        type="button"
-                                        onClick={() => printRecentTransaction(txn)}
-                                        className="text-[11px] font-semibold text-slate-600 border-l border-slate-200 pl-3 hover:text-emerald-700"
-                                    >
-                                        Print
-                                    </button>
-                                </div>
+                                </button>
                             ))}
                         </div>
                     </div>
 
                     <div className="rounded-2xl border border-rose-100 bg-white p-3 shadow-sm">
-                        <h3 className="text-sm font-black text-rose-700 mb-2">Purchase Transactions History</h3>
+                        <h3 className="text-sm font-black text-rose-700 mb-1">Purchase Transactions History</h3>
+                        <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {purchaseTransactions.length === 0 ? <p className="text-xs text-slate-400">No purchase transactions yet</p> : purchaseTransactions.map((txn) => (
-                                <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2">
+                                <button
+                                    type="button"
+                                    key={txn.id}
+                                    onClick={() => openTransactionDetailModal(txn)}
+                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto] items-center gap-2 hover:bg-rose-50/60 transition-colors"
+                                >
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Purchase'}</p>
-                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'}</p>
+                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'} • Tap to view</p>
                                     </div>
-                                    <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.time || '--:--'}</p>
+                                    <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-rose-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
-                                    <button
-                                        type="button"
-                                        onClick={() => printRecentTransaction(txn)}
-                                        className="text-[11px] font-semibold text-slate-600 border-l border-slate-200 pl-3 hover:text-rose-700"
-                                    >
-                                        Print
-                                    </button>
-                                </div>
+                                </button>
                             ))}
                         </div>
                     </div>
@@ -1167,6 +1348,196 @@ export default function SalesmanDashboard() {
             {toast && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-xl bg-slate-900 text-white px-3 py-2 text-xs font-semibold z-50">
                     {toast}
+                </div>
+            )}
+
+            {showTransactionDetailModal && selectedTransaction && transactionDraft && (
+                <div className="fixed inset-0 z-[86]" onClick={closeTransactionDetailModal}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-12 mx-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-black text-slate-800">Transaction Details</h3>
+                                <p className="text-[11px] text-slate-500">{selectedTransaction.transactionId || selectedTransaction.id || 'N/A'}</p>
+                            </div>
+                            <button onClick={closeTransactionDetailModal} className="text-slate-500 hover:text-slate-700">x</button>
+                        </div>
+
+                        <div className="p-4 space-y-3">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Type</p><p className="font-semibold text-slate-700">{selectedTransaction.type === 'income' ? 'Revenue' : 'Purchase'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Date</p><p className="font-semibold text-slate-700">{selectedTransaction.date || '-'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Time</p><p className="font-semibold text-slate-700">{selectedTransaction.time || '-'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Salesman No</p><p className="font-semibold text-slate-700">{selectedTransaction.salesmanNumber || '-'}</p></div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Description</label>
+                                    <input
+                                        value={transactionDraft.desc}
+                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, desc: e.target.value }))}
+                                        readOnly={!canEditTransactions}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
+                                        disabled={!canEditTransactions}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
+                                    <input
+                                        value={transactionDraft.category}
+                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, category: e.target.value }))}
+                                        readOnly={!canEditTransactions}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
+                                        disabled={!canEditTransactions}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Amount</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={transactionDraft.amount}
+                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, amount: e.target.value }))}
+                                        readOnly={!canEditTransactions}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
+                                        disabled={!canEditTransactions}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Quantity</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value={transactionDraft.quantity}
+                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, quantity: e.target.value }))}
+                                        readOnly={!canEditTransactions}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
+                                        disabled={!canEditTransactions}
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Payment Mode</label>
+                                    <input
+                                        value={transactionDraft.paymentMethod}
+                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, paymentMethod: e.target.value }))}
+                                        readOnly={!canEditTransactions}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
+                                        disabled={!canEditTransactions}
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Notes</label>
+                                    <textarea
+                                        rows={2}
+                                        value={transactionDraft.notes}
+                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, notes: e.target.value }))}
+                                        readOnly={!canEditTransactions}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
+                                        disabled={!canEditTransactions}
+                                    />
+                                </div>
+                            </div>
+
+                            {!canEditTransactions && (
+                                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                                    Edit access is disabled for your account. Ask admin to enable transaction editing.
+                                </p>
+                            )}
+                            {transactionFormError && <p className="text-[11px] text-rose-600">{transactionFormError}</p>}
+
+                            <div className="flex items-center justify-between gap-2">
+                                <button type="button" onClick={printTransactionDraft} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                    Print
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={saveTransactionChanges}
+                                    disabled={!canEditTransactions || isSavingTransaction}
+                                    className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60"
+                                >
+                                    {isSavingTransaction ? 'Saving...' : 'Save Changes'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showAddMobileModal && (
+                <div className="fixed inset-0 z-[86]" onClick={() => setShowAddMobileModal(false)}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-16 mx-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-black text-slate-800">Add Mobile to Inventory</h3>
+                                <p className="text-[11px] text-slate-500">Salesman quick stock entry</p>
+                            </div>
+                            <button onClick={() => setShowAddMobileModal(false)} className="text-slate-500 hover:text-slate-700">x</button>
+                        </div>
+
+                        <form onSubmit={handleAddMobileInventory} className="p-4 space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                                <input value={mobileForm.name} onChange={(e) => setMobileForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Mobile name" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                <input value={mobileForm.model} onChange={(e) => setMobileForm((prev) => ({ ...prev, model: e.target.value }))} placeholder="Model" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                <input value={mobileForm.barcode} onChange={(e) => setMobileForm((prev) => ({ ...prev, barcode: e.target.value }))} placeholder="Barcode (optional)" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                <input type="number" min="1" value={mobileForm.stock} onChange={(e) => setMobileForm((prev) => ({ ...prev, stock: e.target.value }))} placeholder="Stock" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                <input type="number" step="0.01" min="0" value={mobileForm.purchasePrice} onChange={(e) => setMobileForm((prev) => ({ ...prev, purchasePrice: e.target.value }))} placeholder="Purchase price" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                <input type="number" step="0.01" min="0" value={mobileForm.sellingPrice} onChange={(e) => setMobileForm((prev) => ({ ...prev, sellingPrice: e.target.value }))} placeholder="Selling price" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                <textarea rows={2} value={mobileForm.notes} onChange={(e) => setMobileForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" className="col-span-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                            </div>
+                            {mobileInventoryError && <p className="text-[11px] text-rose-600">{mobileInventoryError}</p>}
+                            <div className="flex justify-end">
+                                <button type="submit" className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-emerald-700">Add Mobile</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {showMobileInventoryModal && (
+                <div className="fixed inset-0 z-[86]" onClick={() => setShowMobileInventoryModal(false)}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-black text-slate-800">Mobile Inventory</h3>
+                                <p className="text-[11px] text-slate-500">Tap Sell to open sale flow</p>
+                            </div>
+                            <button onClick={() => setShowMobileInventoryModal(false)} className="text-slate-500 hover:text-slate-700">x</button>
+                        </div>
+
+                        <div className="p-4 space-y-3">
+                            <input
+                                value={mobileInventorySearch}
+                                onChange={(e) => setMobileInventorySearch(e.target.value)}
+                                placeholder="Search mobile by name/category/barcode..."
+                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                            />
+
+                            <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/40 p-2 space-y-1.5">
+                                {mobileInventoryProducts.length === 0 ? (
+                                    <p className="text-xs text-slate-400 p-2">No mobile products found in inventory.</p>
+                                ) : mobileInventoryProducts.map((item) => (
+                                    <div key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold text-slate-700 truncate">{item.snapshot.name || 'Mobile'}</p>
+                                            <p className="text-[10px] text-slate-500 truncate">{item.snapshot.barcode || 'No barcode'} • Stock {item.snapshot.stock} • {priceTag(item.snapshot.sellingPrice || 0)}</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => sellMobileFromInventory(item.raw)}
+                                            className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-emerald-700"
+                                        >
+                                            Sell
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
 
