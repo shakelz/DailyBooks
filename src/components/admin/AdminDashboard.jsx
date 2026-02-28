@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+﻿import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Draggable from 'react-draggable';
 import { useAuth } from '../../context/AuthContext';
@@ -39,20 +39,15 @@ function getStaffTxnId(txn) {
     return String(txn?.salesmanId || txn?.workerId || '');
 }
 
-// ══════════════════════════════════════════════════════════
-// DailyBooks — Admin Dashboard (Unified UI)
 // Matches Salesman UI + Admin Features (Production/Logs)
-// ══════════════════════════════════════════════════════════
 
 export default function AdminDashboard() {
     const navigate = useNavigate();
     const { products, transactions, addTransaction, updateTransaction, deleteTransaction, lookupBarcode, searchProducts, getLowStockProducts, addProduct, adjustStock, getCategoryImage } = useInventory();
     const { role, user, logout: authLogout, attendanceLogs, salesmen, updateAttendanceLog, deleteAttendanceLog } = useAuth();
 
-    // ── Profile/Search States ──
     const [searchTerm, setSearchTerm] = useState(''); // For TransactionList
 
-    // ── Date Range Filter State ──
     const [dateSelection, setDateSelection] = useState([
         {
             startDate: new Date(new Date().setHours(0, 0, 0, 0)),
@@ -61,7 +56,6 @@ export default function AdminDashboard() {
         }
     ]);
 
-    // ── Auth Check ──
     useEffect(() => {
         // Admin check is technically handled by App.jsx routes, but good for safety
         if (!user || role !== 'admin') {
@@ -69,44 +63,36 @@ export default function AdminDashboard() {
         }
     }, [user, role, navigate]);
 
-    // ── Search + Product Modal ──
     const [searchQuery, setSearchQuery] = useState('');
     const [suggestions, setSuggestions] = useState([]);
     const [showTransactionModal, setShowTransactionModal] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState(null);
 
-    // ── Inventory Form Mode ──
     const [formMode, setFormMode] = useState('inventory'); // 'inventory' | 'purchase'
     const [showInventoryForm, setShowInventoryForm] = useState(false);
     const [showCategoryManager, setShowCategoryManager] = useState(false);
 
-    // ── Calculator State ──
     const [showCalc, setShowCalc] = useState(false);
     const [calcDisplay, setCalcDisplay] = useState('0');
     const [calcPrev, setCalcPrev] = useState(null);
     const [calcOp, setCalcOp] = useState(null);
     const calcNodeRef = useRef(null);
 
-    // ── Success Popup ──
     const [showSuccess, setShowSuccess] = useState(false);
 
-    // ── Attendance Editing ──
     const [editingLog, setEditingLog] = useState(null);
 
-    // ── Scanner Buffer ──
     const scanBufferRef = useRef('');
     const lastKeyTimeRef = useRef(0);
     const scanTimeoutRef = useRef(null);
     const SCAN_SPEED_THRESHOLD = 80;
 
-    // ── Live Ticker for Staff Production & Salary ──
     const [time, setTime] = useState(new Date());
     useEffect(() => {
         const timer = setInterval(() => setTime(new Date()), 1000); // Update every 1s for live salary
         return () => clearInterval(timer);
     }, []);
 
-    // ═══════════════════ COMPUTED ═══════════════════
 
     // Standardize to the start and end of the selected date range for filtering
     const targetDateStart = new Date(dateSelection[0].startDate);
@@ -266,7 +252,6 @@ export default function AdminDashboard() {
 
     const todayTransactions = transactions.filter(t => {
         if (!t.timestamp && !t.date) return false;
-        // Hide salary transactions — those belong in ExpensesTab only
         if (t.category === 'Salary') return false;
 
         let tDate;
@@ -279,10 +264,8 @@ export default function AdminDashboard() {
         return tDate >= targetDateStart && tDate <= targetDateEnd;
     });
     const incomeTransactions = todayTransactions.filter(t => t.type === 'income');
-    // Exclude fixed expenses from sales/purchase view — those belong in ExpensesTab only
     const expenseTransactions = todayTransactions.filter(t => t.type === 'expense' && !t.isFixedExpense);
 
-    // ── Payment Method Breakdowns ──
     const getBreakdown = (txns) => {
         return txns.reduce((acc, t) => {
             const method = String(t.paymentMethod || 'cash').toLowerCase();
@@ -306,7 +289,6 @@ export default function AdminDashboard() {
     const kpiPurchaseLabel = isTodaySelection ? 'Total Purchase' : `Purchases (${kpiPeriodLabel})`;
     const kpiNetSubLabel = `${netAmount >= 0 ? 'Profit' : 'Loss'} (${kpiPeriodLabel})`;
 
-    // ── Category Aggregation ──
     const aggregateByCategory = (txns) => {
         const map = {};
         txns.forEach(t => {
@@ -320,7 +302,6 @@ export default function AdminDashboard() {
     const incomeByCategory = aggregateByCategory(incomeTransactions);
     const expenseByCategory = aggregateByCategory(expenseTransactions);
 
-    // ═══════════════════ SEARCH ═══════════════════
 
     const handleSearchChange = (val) => {
         setSearchQuery(val);
@@ -359,7 +340,6 @@ export default function AdminDashboard() {
         setSuggestions([]);
     };
 
-    // ═══════════════════ ADD TO BILL ═══════════════════
 
     const handleAddToBill = (productWithQty) => {
         addTransaction(productWithQty);
@@ -375,12 +355,11 @@ export default function AdminDashboard() {
         setSelectedProduct(null);
     };
 
-    // ═══════════════════ CALCULATOR ═══════════════════
 
     const handleCalcPress = useCallback((key) => {
         if (key === 'C') { setCalcDisplay('0'); setCalcPrev(null); setCalcOp(null); return; }
-        if (key === '⌫') { setCalcDisplay(d => d.length > 1 ? d.slice(0, -1) : '0'); return; }
-        if (['+', '-', '×', '÷'].includes(key)) {
+        if (key === 'BACK') { setCalcDisplay(d => d.length > 1 ? d.slice(0, -1) : '0'); return; }
+        if (['+', '-', '*', '/'].includes(key)) {
             setCalcPrev(parseFloat(calcDisplay));
             setCalcOp(key);
             setCalcDisplay('0');
@@ -392,8 +371,8 @@ export default function AdminDashboard() {
                 let result;
                 if (calcOp === '+') result = calcPrev + curr;
                 else if (calcOp === '-') result = calcPrev - curr;
-                else if (calcOp === '×') result = calcPrev * curr;
-                else if (calcOp === '÷') result = curr !== 0 ? calcPrev / curr : 0;
+                else if (calcOp === '*') result = calcPrev * curr;
+                else if (calcOp === '/') result = curr !== 0 ? calcPrev / curr : 0;
                 setCalcDisplay(String(parseFloat(result.toFixed(6))));
                 setCalcPrev(null); setCalcOp(null);
             }
@@ -403,7 +382,30 @@ export default function AdminDashboard() {
         setCalcDisplay(d => d === '0' && key !== '.' ? key : d + key);
     }, [calcDisplay, calcPrev, calcOp]);
 
-    // ── Keyboard Scanner Logic ──
+    useEffect(() => {
+        if (!showCalc) return undefined;
+        const handleCalcKeyDown = (e) => {
+            if (e.altKey || e.ctrlKey || e.metaKey) return;
+            const tagName = e.target?.tagName || '';
+            if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return;
+
+            let mapped = '';
+            if (/^[0-9]$/.test(e.key)) mapped = e.key;
+            else if (['+', '-', '*', '/'].includes(e.key)) mapped = e.key;
+            else if (e.key === '.' || e.key === ',') mapped = '.';
+            else if (e.key === 'Enter') mapped = '=';
+            else if (e.key === 'Backspace') mapped = 'BACK';
+            else if (e.key === 'Delete' || e.key === 'Escape') mapped = 'C';
+
+            if (!mapped) return;
+            e.preventDefault();
+            handleCalcPress(mapped);
+        };
+
+        window.addEventListener('keydown', handleCalcKeyDown);
+        return () => window.removeEventListener('keydown', handleCalcKeyDown);
+    }, [showCalc, handleCalcPress]);
+
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (showInventoryForm || showCalc || showTransactionModal) return;
@@ -450,12 +452,10 @@ export default function AdminDashboard() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [showInventoryForm, showCalc, showTransactionModal, lookupBarcode]);
 
-    // ═══════════════════ RENDER ═══════════════════
 
     return (
         <div className="h-full flex flex-col space-y-4">
 
-            {/* ═══ DASHBOARD HEADER ═══ */}
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">Admin Dashboard</h1>
@@ -465,7 +465,6 @@ export default function AdminDashboard() {
                 <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
             </div>
 
-            {/* ═══ TOTAL BAR ═══ */}
             <TotalBar
                 totalIncome={totalIncome}
                 totalExpense={totalExpense}
@@ -479,16 +478,13 @@ export default function AdminDashboard() {
                 netSubLabel={kpiNetSubLabel}
             />
 
-            {/* ═══ MAIN CONTENT SCROLL ═══ */}
             <div className="flex-1 space-y-4">
 
-                {/* ── ADMIN FEATURE: Staff Production & Logs ── */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* ── Staff Production & Live Salary ── */}
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                         <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                             <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                <span>⏱️</span> Staff Production & Salary
+                                <span>Time</span> Staff Production & Salary
                             </h3>
                             <div className="text-right">
                                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total {formattedDisplayDate}</p>
@@ -524,12 +520,12 @@ export default function AdminDashboard() {
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg shadow-sm ${isOnline ? 'bg-green-100 text-green-600 ring-2 ring-green-500/20' : 'bg-slate-100 text-slate-400'}`}>
-                                                    {staff.photo ? <img src={staff.photo} className="w-full h-full rounded-full object-cover" /> : '👤'}
+                                                    {staff.photo ? <img src={staff.photo} className="w-full h-full rounded-full object-cover" /> : 'U'}
                                                 </div>
                                                 <div>
                                                     <p className="font-bold text-slate-700 text-sm">{staff.name}</p>
                                                     <p className={`text-[10px] font-bold uppercase tracking-wider ${isOnline ? 'text-green-500 animate-pulse' : 'text-slate-400'}`}>
-                                                        {isOnline ? '● Online Now' : '○ Offline'}
+                                                        {isOnline ? 'Online Now' : 'Offline'}
                                                     </p>
                                                 </div>
                                             </div>
@@ -543,17 +539,17 @@ export default function AdminDashboard() {
                                             {isOnline && stat.liveMs > 0 ? (
                                                 <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-xl">
                                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                                    <span className="text-xs font-bold text-emerald-700 font-mono tabular-nums">€{liveSalary.toFixed(4)}</span>
+                                                    <span className="text-xs font-bold text-emerald-700 font-mono tabular-nums">EUR {liveSalary.toFixed(4)}</span>
                                                     <span className="text-[9px] text-emerald-500">session</span>
                                                 </div>
                                             ) : null}
-                                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-100 rounded-xl" title={`${stat.totalHours.toFixed(2)}h × €${hourlyRate}/hr`}>
-                                                <span className="text-xs font-bold text-violet-700 font-mono">€{totalEarnedToday.toFixed(2)}</span>
+                                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-100 rounded-xl" title={`${stat.totalHours.toFixed(2)}h x EUR ${hourlyRate}/hr`}>
+                                                <span className="text-xs font-bold text-violet-700 font-mono">EUR {totalEarnedToday.toFixed(2)}</span>
                                                 <span className="text-[9px] text-violet-500">{kpiPeriodLabel} ({stat.totalHours.toFixed(1)}h)</span>
                                             </div>
                                             {paidToday > 0 && (
                                                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-xl">
-                                                    <span className="text-xs font-bold text-blue-700 font-mono">€{paidToday.toFixed(2)}</span>
+                                                    <span className="text-xs font-bold text-blue-700 font-mono">EUR {paidToday.toFixed(2)}</span>
                                                     <span className="text-[9px] text-blue-500">paid</span>
                                                 </div>
                                             )}
@@ -568,11 +564,10 @@ export default function AdminDashboard() {
                         </div>
                     </div>
 
-                    {/* ── Attendance Log Table ── */}
                     <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                         <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                             <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                <span>📝</span> Activity Log ({formattedDisplayDate})
+                                <span>Log</span> Activity Log ({formattedDisplayDate})
                             </h3>
                             <span className="text-[10px] bg-slate-200 px-2 py-0.5 rounded-full font-bold text-slate-600">
                                 {attendanceLogsInRange.length} Records
@@ -603,7 +598,7 @@ export default function AdminDashboard() {
                                                 <div className="flex items-center justify-between">
                                                     {earnedAmount !== null && earnedAmount > 0.001 ? (
                                                         <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold font-mono">
-                                                            €{earnedAmount.toFixed(2)}
+                                                            EUR {earnedAmount.toFixed(2)}
                                                         </span>
                                                     ) : <span className="text-[10px] text-slate-300">-</span>}
                                                     <button
@@ -642,7 +637,7 @@ export default function AdminDashboard() {
                                                         <td className="px-5 py-2.5 text-right flex items-center justify-end gap-2">
                                                             {earnedAmount !== null && earnedAmount > 0.001 && (
                                                                 <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold font-mono">
-                                                                    €{earnedAmount.toFixed(2)}
+                                                                    EUR {earnedAmount.toFixed(2)}
                                                                 </span>
                                                             )}
                                                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${log.type === 'IN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
@@ -683,7 +678,7 @@ export default function AdminDashboard() {
                         <input
                             value={searchQuery}
                             onChange={(e) => handleSearchChange(e.target.value)}
-                            placeholder="🔍 Scan barcode or search product..."
+                            placeholder="Scan barcode or search product..."
                             className="w-full pl-10 pr-4 py-3 rounded-2xl bg-white border border-slate-200 text-sm font-medium placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-300 shadow-sm transition-all"
                         />
                     </form>
@@ -696,10 +691,10 @@ export default function AdminDashboard() {
                                     <div key={`${p.id}-${index}`} onClick={() => selectSuggestion(p)}
                                         className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-none flex items-center justify-between transition-colors">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-500 text-sm">📦</div>
+                                            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-500 text-sm">INV</div>
                                             <div>
                                                 <p className="text-sm font-bold text-slate-700">{p.name}</p>
-                                                <p className="text-[10px] text-slate-400">{p.barcode || 'No barcode'} • Stock: {p.stock}</p>
+                                                <p className="text-[10px] text-slate-400">{p.barcode || 'No barcode'} | Stock: {p.stock}</p>
                                             </div>
                                         </div>
                                         <p className="text-sm font-bold text-emerald-600">{priceTag(p.sellingPrice || 0)}</p>
@@ -710,7 +705,6 @@ export default function AdminDashboard() {
                     )}
                 </div>
 
-                {/* ── Category Containers (Side by Side) ── */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
                     {/* Sales by Category */}
@@ -729,7 +723,7 @@ export default function AdminDashboard() {
                         <div className="p-3">
                             {incomeByCategory.length === 0 ? (
                                 <div className="text-center py-6 text-slate-300">
-                                    <p className="text-2xl mb-1">📊</p>
+                                    <p className="text-2xl mb-1">Chart</p>
                                     <p className="text-[10px]">No sales yet</p>
                                 </div>
                             ) : (
@@ -741,7 +735,7 @@ export default function AdminDashboard() {
                                                     {getCategoryImage(cat) ? (
                                                         <img src={getCategoryImage(cat)} alt={cat} className="w-full h-full object-cover" />
                                                     ) : (
-                                                        <span className="text-xs">📊</span>
+                                                        <span className="text-xs">Chart</span>
                                                     )}
                                                 </div>
                                                 <div>
@@ -784,7 +778,7 @@ export default function AdminDashboard() {
                         <div className="p-3">
                             {expenseByCategory.length === 0 ? (
                                 <div className="text-center py-6 text-slate-300">
-                                    <p className="text-2xl mb-1">📊</p>
+                                    <p className="text-2xl mb-1">Chart</p>
                                     <p className="text-[10px]">No purchases yet</p>
                                 </div>
                             ) : (
@@ -796,7 +790,7 @@ export default function AdminDashboard() {
                                                     {getCategoryImage(cat) ? (
                                                         <img src={getCategoryImage(cat)} alt={cat} className="w-full h-full object-cover" />
                                                     ) : (
-                                                        <span className="text-xs">📉</span>
+                                                        <span className="text-xs">Chart</span>
                                                     )}
                                                 </div>
                                                 <div>
@@ -813,11 +807,10 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* ── Transaction History ── */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                     <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-4">
                         <div className="flex items-center gap-2 whitespace-nowrap">
-                            <span className="text-base">📋</span>
+                            <span className="text-base">List</span>
                             <h3 className="text-sm font-bold text-slate-800">Recent Transactions</h3>
                         </div>
 
@@ -840,7 +833,7 @@ export default function AdminDashboard() {
                                     onClick={() => setSearchTerm('')}
                                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors"
                                 >
-                                    ✕
+                                    x
                                 </button>
                             )}
                         </div>
@@ -853,14 +846,12 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            {/* ═══ SUCCESS POPUP ═══ */}
             {showSuccess && (
                 <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[70] bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3 animate-bounce">
-                    <span className="text-xl">✅</span>
+                    <span className="text-xl">OK</span>
                     <span className="font-bold">Transaction Successful!</span>
                 </div>
             )}
-            {/* ═══ MODALS ═══ */}
             <SmartCategoryForm
                 isOpen={showInventoryForm}
                 onClose={() => setShowInventoryForm(false)}
@@ -902,13 +893,12 @@ export default function AdminDashboard() {
                 initialProduct={selectedProduct}
             />
 
-            {/* ═══ ATTENDANCE EDIT MODAL ═══ */}
             {editingLog && (
                 <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-200">
                         <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                             <h3 className="font-bold text-slate-700">Edit Punch Record</h3>
-                            <button onClick={() => setEditingLog(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+                            <button onClick={() => setEditingLog(null)} className="text-slate-400 hover:text-slate-600">x</button>
                         </div>
                         <div className="p-6 space-y-4">
                             <div>
@@ -1018,7 +1008,7 @@ export default function AdminDashboard() {
                                             const staff = salesmen.find(s => String(s.id) === String(editingLog.userId));
                                             const hourlyRate = parseFloat(staff?.hourlyRate) || 12.50;
                                             const newSalary = parseFloat((hoursWorked * hourlyRate).toFixed(2));
-                                            const salaryDesc = `Salary: ${editingLog.userName} (${hoursWorked.toFixed(1)}h @ €${hourlyRate}/hr)`;
+                                            const salaryDesc = `Salary: ${editingLog.userName} (${hoursWorked.toFixed(1)}h @ EUR ${hourlyRate}/hr)`;
 
                                             const payrollMs = lastOutMs || getTimestampMs(editedTimestamp) || Date.now();
                                             const payrollDateObj = new Date(payrollMs);
@@ -1077,7 +1067,6 @@ export default function AdminDashboard() {
                 </div>
             )}
 
-            {/* ═══ CALCULATOR FAB ═══ */}
             {showCalc && (
                 <Draggable nodeRef={calcNodeRef} handle=".calc-handle" bounds="parent">
                     <div
@@ -1085,21 +1074,21 @@ export default function AdminDashboard() {
                         className="fixed bottom-32 right-6 w-[23rem] h-[30rem] min-w-[20rem] min-h-[27rem] resize overflow-hidden bg-white rounded-3xl shadow-2xl border border-slate-200 z-[60] flex flex-col"
                     >
                         <div className="calc-handle bg-slate-800 px-4 py-2 flex items-center justify-between cursor-grab active:cursor-grabbing">
-                            <span className="text-white font-bold text-xs">🧮 Calculator</span>
-                            <button onClick={() => setShowCalc(false)} className="text-slate-400 hover:text-white text-xs cursor-pointer">✕</button>
+                            <span className="text-white font-bold text-xs">Calculator</span>
+                            <button onClick={() => setShowCalc(false)} className="text-slate-400 hover:text-white text-xs cursor-pointer">x</button>
                         </div>
                         <div className="p-3 bg-slate-900 text-right">
                             {calcOp && <p className="text-slate-500 text-[10px] font-mono">{calcPrev} {calcOp}</p>}
                             <p className="text-white text-2xl font-bold font-mono tracking-tight">{calcDisplay}</p>
                         </div>
                         <div className="flex-1 grid grid-cols-4 grid-rows-5 gap-px bg-slate-200 p-px">
-                            {['C', '⌫', '÷', '×', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
+                            {['C', 'BACK', '/', '*', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
                                 <button key={key} onClick={() => handleCalcPress(key)}
                                     className={`h-full text-sm font-bold transition-all active:scale-95 cursor-pointer
                                                 ${key === '=' ? 'col-span-1 row-span-2 bg-blue-500 text-white hover:bg-blue-600'
                                             : key === '0' ? 'col-span-2 bg-white hover:bg-slate-50 text-slate-800'
-                                                : ['C', '⌫'].includes(key) ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                    : ['+', '-', '×', '÷'].includes(key) ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                                                : ['C', 'BACK'].includes(key) ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                    : ['+', '-', '*', '/'].includes(key) ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
                                                         : 'bg-white text-slate-800 hover:bg-slate-50'}`}>
                                     {key}
                                 </button>
@@ -1109,11 +1098,10 @@ export default function AdminDashboard() {
                 </Draggable>
             )}
 
-            {/* ═══ FABs ═══ */}
             <div className="fixed bottom-6 right-6 flex flex-col gap-3 z-50">
                 <button onClick={() => setShowCalc(c => !c)}
                     className="w-12 h-12 rounded-2xl bg-slate-800 text-white shadow-lg shadow-slate-800/30 flex items-center justify-center hover:bg-slate-700 active:scale-90 transition-all cursor-pointer">
-                    <span className="text-lg">🧮</span>
+                    <span className="text-lg">Calc</span>
                 </button>
                 <button onClick={() => {
                     setShowCategoryManager(true);
@@ -1127,4 +1115,6 @@ export default function AdminDashboard() {
         </div>
     );
 }
+
+
 

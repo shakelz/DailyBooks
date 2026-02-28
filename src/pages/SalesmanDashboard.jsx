@@ -148,6 +148,108 @@ function categoryTotals(transactions) {
         .slice(0, 8);
 }
 
+function escapeHtml(value) {
+    return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll('\'', '&#39;');
+}
+
+function buildReceiptHtml({
+    shopName,
+    shopAddress,
+    issuedAt,
+    receiptNo,
+    paymentMethod,
+    items = [],
+    showTax = true
+}) {
+    const rows = Array.isArray(items) ? items : [];
+    const grossTotal = rows.reduce((sum, row) => sum + (Number(row?.total) || 0), 0);
+    const netTotal = grossTotal / 1.19;
+    const taxTotal = grossTotal - netTotal;
+    const formatMoney = (value) => `${Number(value || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR`;
+    const dt = issuedAt instanceof Date && !Number.isNaN(issuedAt.getTime()) ? issuedAt : new Date();
+    const safeRows = rows.map((row) => {
+        const qty = Math.max(1, parseInt(row?.quantity || '1', 10) || 1);
+        const lineTotal = Number(row?.total) || 0;
+        return `
+            <div class="line-item">
+                <div class="line-name">${qty}x ${escapeHtml(row?.name || 'Artikel')}</div>
+                <div class="line-price">${formatMoney(lineTotal)} A</div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <html>
+            <head>
+                <title>Beleg</title>
+                <style>
+                    body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 12px; color: #111; }
+                    .center { text-align: center; }
+                    .shop { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+                    .line { border-top: 1px solid #111; margin: 8px 0; }
+                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; }
+                    .head { font-weight: 700; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; }
+                    .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
+                    .line-name { flex: 1; }
+                    .line-price { text-align: right; min-width: 85px; }
+                    .small { font-size: 10px; line-height: 1.35; }
+                    .tax-table { width: 100%; margin-top: 6px; font-size: 11px; border-collapse: collapse; }
+                    .tax-table td { padding: 1px 0; }
+                    .tax-table td:last-child { text-align: right; }
+                </style>
+            </head>
+            <body>
+                <div class="center">
+                    <div class="shop">${escapeHtml(shopName || 'Shop')}</div>
+                    ${shopAddress ? `<div>${escapeHtml(shopAddress)}</div>` : ''}
+                    <div>Deutschland</div>
+                </div>
+
+                <div class="line"></div>
+                <div class="center" style="font-weight:700; margin-bottom:6px;">Beleg</div>
+                <div class="row"><span>Datum:</span><span>${dt.toLocaleString('de-DE')}</span></div>
+                <div class="row"><span>Belegnummer:</span><span>${escapeHtml(receiptNo || '-')}</span></div>
+
+                <div class="line"></div>
+                <div class="row head"><span>Artikel</span><span>Betrag</span></div>
+                ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 EUR A</div></div>'}
+
+                <div class="line"></div>
+                <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                <div class="row"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
+
+                ${showTax ? `
+                    <table class="tax-table">
+                        <tbody>
+                            <tr><td>USt. %</td><td>Netto</td><td>USt.</td><td>Brutto</td></tr>
+                            <tr>
+                                <td>A 19%</td>
+                                <td>${formatMoney(netTotal)}</td>
+                                <td>${formatMoney(taxTotal)}</td>
+                                <td>${formatMoney(grossTotal)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                ` : ''}
+
+                <div class="line"></div>
+                <div class="row"><span>Zahlung:</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
+                <div class="row"><span>Transaktion-ID:</span><span>${escapeHtml(receiptNo || '-')}</span></div>
+                <div class="line"></div>
+                <div class="small center">
+                    Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.<br/>
+                    Vielen Dank. ${escapeHtml(shopName || 'Shop')}
+                </div>
+            </body>
+        </html>
+    `;
+}
+
 function MiniDonut({ items }) {
     const [hoveredSlice, setHoveredSlice] = useState(-1);
     const source = (items || []).slice(0, 5);
@@ -267,7 +369,7 @@ export default function SalesmanDashboard() {
         getLevel1Categories,
         getLevel2Categories,
     } = useInventory();
-    const { repairJobs } = useRepairs();
+    const { repairJobs, updateRepairStatus } = useRepairs();
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
 
     const [showProfileModal, setShowProfileModal] = useState(false);
@@ -285,6 +387,7 @@ export default function SalesmanDashboard() {
     const [onlineOrders, setOnlineOrders] = useState([]);
     const [showOnlineOrderForm, setShowOnlineOrderForm] = useState(false);
     const [onlineOrderForm, setOnlineOrderForm] = useState(newOnlineOrderForm());
+    const [onlineOrderErrors, setOnlineOrderErrors] = useState({});
     const [topBarcodeQuery, setTopBarcodeQuery] = useState('');
     const [topBarcodeMatches, setTopBarcodeMatches] = useState([]);
     const [showTopBarcodeMatches, setShowTopBarcodeMatches] = useState(false);
@@ -302,6 +405,7 @@ export default function SalesmanDashboard() {
     const [showSuccess, setShowSuccess] = useState(false);
     const [showMobileInventoryModal, setShowMobileInventoryModal] = useState(false);
     const [mobileInventorySearch, setMobileInventorySearch] = useState('');
+    const [selectedMobileInventoryItem, setSelectedMobileInventoryItem] = useState(null);
     const [showSalesProductSuggestions, setShowSalesProductSuggestions] = useState(false);
     const [showPurchaseProductSuggestions, setShowPurchaseProductSuggestions] = useState(false);
     const [showTransactionDetailModal, setShowTransactionDetailModal] = useState(false);
@@ -311,7 +415,11 @@ export default function SalesmanDashboard() {
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
-    const canEditTransactions = Boolean(user?.canEditTransactions);
+    const canEditTransactions = Boolean(
+        user?.canEditTransactions
+        ?? user?.permissions?.canEditTransactions
+        ?? false
+    );
 
     useEffect(() => {
         if (!user || role !== 'salesman') navigate('/');
@@ -337,7 +445,17 @@ export default function SalesmanDashboard() {
         [todayTransactions]
     );
     const purchaseTransactions = useMemo(
-        () => todayTransactions.filter((txn) => txn.type === 'expense' && (txn.source === 'purchase' || String(txn.desc || '').toLowerCase().includes('purchase'))),
+        () => todayTransactions.filter((txn) => {
+            if (txn.type !== 'expense') return false;
+            const source = String(txn.source || '').toLowerCase();
+            const desc = String(txn.desc || '').toLowerCase();
+            return source === 'purchase'
+                || source === 'online-order'
+                || source === 'repair-parts'
+                || desc.includes('purchase')
+                || desc.includes('online order')
+                || desc.includes('online purchase');
+        }),
         [todayTransactions]
     );
 
@@ -591,52 +709,30 @@ export default function SalesmanDashboard() {
         if (!txn) return;
 
         const amountValue = parseFloat(txn.amount) || 0;
-        const isSale = txn.type === 'income';
-        const netTotal = amountValue / 1.19;
-        const taxTotal = amountValue - netTotal;
         const shopName = activeShop?.name || 'Shop';
         const shopAddress = activeShop?.address || activeShop?.location || '';
         const txnDate = txn.timestamp ? new Date(txn.timestamp) : new Date();
         const popup = window.open('', 'recent-transaction-receipt', 'width=420,height=760');
         if (!popup) return;
+        const qty = Math.max(1, parseInt(txn.quantity || '1', 10) || 1);
+        const unitPrice = qty > 0 ? amountValue / qty : amountValue;
 
-        const escapeHtml = (value) => String(value || '')
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;')
-            .replaceAll('"', '&quot;')
-            .replaceAll('\'', '&#39;');
-
-        popup.document.write(`
-            <html>
-                <head>
-                    <title>Beleg</title>
-                    <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
-                        h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
-                        .line { border-top:1px dashed #000; margin:8px 0; }
-                    </style>
-                </head>
-                <body>
-                    <h2>${escapeHtml(shopName)}</h2>
-                    ${shopAddress ? `<p>${escapeHtml(shopAddress)}</p>` : ''}
-                    <p>${txnDate.toLocaleString('de-DE')}</p>
-                    <div class="line"></div>
-                    <div class="row"><span>Typ</span><span>${isSale ? 'Verkauf' : 'Einkauf'}</span></div>
-                    <div class="row"><span>Position</span><span>${escapeHtml(txn.desc || 'Transaktion')}</span></div>
-                    <div class="row"><span>Kategorie</span><span>${escapeHtml(extractCategoryName(txn.category) || '-')}</span></div>
-                    <div class="row"><span>Zahlung</span><span>${escapeHtml(txn.paymentMethod || 'Cash')}</span></div>
-                    <div class="line"></div>
-                    <div class="row"><strong>Zwischensumme</strong><strong>EUR ${amountValue.toFixed(2)}</strong></div>
-                    ${billShowTax ? `<div class="row"><span>Netto (19%)</span><span>EUR ${netTotal.toFixed(2)}</span></div>
-                    <div class="row"><span>USt (19%)</span><span>EUR ${taxTotal.toFixed(2)}</span></div>` : ''}
-                    <div class="row"><strong>GESAMTBETRAG</strong><strong>EUR ${amountValue.toFixed(2)}</strong></div>
-                    <div class="line"></div>
-                    <p style="font-size:10px">Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.</p>
-                </body>
-            </html>
-        `);
+        popup.document.write(buildReceiptHtml({
+            shopName,
+            shopAddress,
+            issuedAt: txnDate,
+            receiptNo: txn.transactionId || txn.id || '-',
+            paymentMethod: txn.paymentMethod || 'Cash',
+            showTax: billShowTax,
+            items: [
+                {
+                    name: txn.desc || 'Transaktion',
+                    quantity: qty,
+                    unitPrice,
+                    total: amountValue,
+                },
+            ],
+        }));
         popup.document.close();
         popup.focus();
         popup.print();
@@ -708,10 +804,15 @@ export default function SalesmanDashboard() {
         });
     };
 
+    const formatDisplayDate = (value) => {
+        if (!value) return '-';
+        const dt = new Date(value);
+        if (Number.isNaN(dt.getTime())) return String(value);
+        return dt.toLocaleString('de-DE');
+    };
+
     const printPendingRepairBill = (job) => {
         if (!job) return;
-        const shopName = activeShop?.name || 'Shop';
-        const shopAddress = activeShop?.address || activeShop?.location || '';
         const popup = window.open('', 'pending-repair-bill', 'width=420,height=760');
         if (!popup) return;
 
@@ -735,22 +836,26 @@ export default function SalesmanDashboard() {
                     </style>
                 </head>
                 <body>
-                    <h2>${toSafe(shopName)}</h2>
-                    ${shopAddress ? `<p>${toSafe(shopAddress)}</p>` : ''}
+                    <h2>Kundenbeleg</h2>
                     <p>${createdAt.toLocaleString('de-DE')}</p>
                     <div class="line"></div>
                     <div class="row"><span>Auftrag</span><span>${toSafe(job.refId || job.id || '-')}</span></div>
                     <div class="row"><span>Kunde</span><span>${toSafe(job.customerName || '-')}</span></div>
-                    <div class="row"><span>Telefon</span><span>${toSafe(job.customerPhone || '-')}</span></div>
+                    <div class="row"><span>Telefon</span><span>${toSafe(job.phone || job.customerPhone || '-')}</span></div>
                     <div class="row"><span>Geraet</span><span>${toSafe(job.deviceModel || '-')}</span></div>
+                    <div class="row"><span>IMEI</span><span>${toSafe(job.imei || '-')}</span></div>
                     <div class="row"><span>Problem</span><span>${toSafe(job.problem || job.issueType || '-')}</span></div>
                     <div class="row"><span>Status</span><span>Ausstehend</span></div>
                     <div class="line"></div>
                     <div class="row"><span>Kostenvoranschlag</span><span>EUR ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
                     <div class="row"><span>Anzahlung</span><span>EUR ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Endbetrag</span><span>EUR ${(parseFloat(job.finalAmount) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Ersatzteile</span><span>EUR ${(parseFloat(job.partsCost) || 0).toFixed(2)}</span></div>
                     <div class="row"><span>Lieferdatum</span><span>${toSafe(job.deliveryDate || '-')}</span></div>
+                    <div class="row"><span>Erstellt</span><span>${toSafe(formatDisplayDate(job.createdAt || ''))}</span></div>
+                    <div class="row"><span>Notiz</span><span>${toSafe(job.notes || '-')}</span></div>
                     <div class="line"></div>
-                    <p style="font-size:10px">Bitte Beleg zur Abholung mitbringen.</p>
+                    <p style="font-size:10px">Bitte diesen Kundenbeleg zur Abholung mitbringen.</p>
                 </body>
             </html>
         `);
@@ -759,16 +864,114 @@ export default function SalesmanDashboard() {
         popup.print();
     };
 
+    const printOnlineOrderBill = (order) => {
+        if (!order) return;
+        const shopName = activeShop?.name || 'Shop';
+        const shopAddress = activeShop?.address || activeShop?.location || '';
+        const qty = Math.max(1, parseInt(order.quantity || '1', 10) || 1);
+        const unitPrice = parseFloat(order.amount || 0) || 0;
+        const totalPrice = qty * unitPrice;
+        const popup = window.open('', 'online-order-bill', 'width=420,height=760');
+        if (!popup) return;
+
+        const toSafe = (value) => String(value || '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll('\'', '&#39;');
+
+        popup.document.write(`
+            <html>
+                <head>
+                    <title>Online-Bestellung</title>
+                    <style>
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
+                        h2,p { margin: 0; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
+                        .line { border-top:1px dashed #000; margin:8px 0; }
+                    </style>
+                </head>
+                <body>
+                    <h2>${toSafe(shopName)}</h2>
+                    ${shopAddress ? `<p>${toSafe(shopAddress)}</p>` : ''}
+                    <p>${new Date().toLocaleString('de-DE')}</p>
+                    <div class="line"></div>
+                    <div class="row"><span>Bestellung</span><span>${toSafe(order.orderId || order.id || '-')}</span></div>
+                    <div class="row"><span>Plattform</span><span>${toSafe(order.platform || '-')}</span></div>
+                    <div class="row"><span>Artikel</span><span>${toSafe(order.itemName || '-')}</span></div>
+                    <div class="row"><span>Kategorie</span><span>${toSafe(order.category || '-')}</span></div>
+                    <div class="row"><span>Farbe</span><span>${toSafe(order.color || '-')}</span></div>
+                    <div class="row"><span>Qty</span><span>${qty}</span></div>
+                    <div class="row"><span>Preis/Einheit</span><span>EUR ${unitPrice.toFixed(2)}</span></div>
+                    <div class="row"><span>Status</span><span>${toSafe(order.status || 'ordered')}</span></div>
+                    <div class="row"><span>Zahlung</span><span>${toSafe(order.paymentStatus || 'Paid')}</span></div>
+                    <div class="row"><span>Bestelldatum</span><span>${toSafe(order.orderDate || '-')}</span></div>
+                    <div class="line"></div>
+                    <div class="row"><strong>Gesamt</strong><strong>EUR ${totalPrice.toFixed(2)}</strong></div>
+                    <div class="line"></div>
+                    <p style="font-size:10px">${toSafe(order.notes || '-')}</p>
+                </body>
+            </html>
+        `);
+        popup.document.close();
+        popup.focus();
+        popup.print();
+    };
+
+    const completePendingRepair = async (job) => {
+        if (!job?.id) return;
+        try {
+            const finalAmount = Number(job.finalAmount || job.estimatedCost || 0) || 0;
+            await updateRepairStatus(job.id, 'completed', {
+                completedAt: new Date().toISOString(),
+                finalAmount,
+            });
+            const marker = `RepairRef:${job.refId || job.id}`;
+            const alreadyLogged = todayTransactions.some((txn) => (
+                String(txn.source || '').toLowerCase() === 'repair'
+                && String(txn.notes || '').includes(marker)
+            ));
+            if (!alreadyLogged && finalAmount > 0) {
+                const now = new Date();
+                await addTransaction({
+                    desc: `Repair Service: ${job.deviceModel || 'Device'} (${job.refId || job.id})`,
+                    amount: finalAmount,
+                    quantity: 1,
+                    type: 'income',
+                    category: 'Repair Service',
+                    paymentMethod: 'Cash',
+                    notes: `${marker} | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
+                    source: 'repair',
+                    salesmanName: user?.name,
+                    salesmanNumber: user?.salesmanNumber || 0,
+                    workerId: String(user?.id || ''),
+                    timestamp: now.toISOString(),
+                    date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                });
+            }
+            setToast(`Repair ${job.refId || ''} marked completed`);
+            setTimeout(() => setToast(''), 1800);
+        } catch (error) {
+            alert(error?.message || 'Failed to update repair status');
+        }
+    };
+
     const sellMobileFromInventory = (product) => {
         setSelectedProduct(product);
         setShowTransactionModal(true);
         setShowMobileInventoryModal(false);
+        setSelectedMobileInventoryItem(null);
     };
 
     const handleAddToBill = async (productWithQty) => {
         try {
             await addTransaction(productWithQty);
-            await adjustStock(productWithQty.productId || productWithQty.id, -(parseInt(productWithQty.quantity || 1, 10) || 1));
+            const stockProductId = productWithQty.productId || productWithQty.id || '';
+            if (stockProductId) {
+                await adjustStock(stockProductId, -(parseInt(productWithQty.quantity || 1, 10) || 1));
+            }
             setShowSuccess(true);
             setTimeout(() => setShowSuccess(false), 1800);
             setShowTransactionModal(false);
@@ -844,41 +1047,25 @@ export default function SalesmanDashboard() {
             return;
         }
 
-        const grandTotal = lines.reduce((sum, line) => sum + (line.total || 0), 0);
-        const netTotal = grandTotal / 1.19;
-        const taxTotal = grandTotal - netTotal;
         const shopName = activeShop?.name || 'Shop';
         const shopAddress = activeShop?.address || activeShop?.location || '';
         const popup = window.open('', 'quick-sale-receipt', 'width=420,height=760');
         if (!popup) return;
 
-        popup.document.write(`
-            <html>
-                <head>
-                    <title>Kassenbeleg</title>
-                    <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
-                        h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
-                        .line { border-top:1px dashed #000; margin:8px 0; }
-                    </style>
-                </head>
-                <body>
-                    <h2>${shopName}</h2>
-                    ${shopAddress ? `<p>${shopAddress}</p>` : ''}
-                    <p>${new Date().toLocaleString('de-DE')}</p>
-                    <div class="line"></div>
-                    ${lines.map((line) => `<div class="row"><span>${line.name}</span><span>${line.quantity} x ${line.amount.toFixed(2)}</span><strong>EUR ${line.total.toFixed(2)}</strong></div>`).join('')}
-                    <div class="line"></div>
-                    <div class="row"><strong>Zwischensumme</strong><strong>EUR ${grandTotal.toFixed(2)}</strong></div>
-                    ${billShowTax ? `<div class="row"><span>Netto (19%)</span><span>EUR ${netTotal.toFixed(2)}</span></div>
-                    <div class="row"><span>USt (19%)</span><span>EUR ${taxTotal.toFixed(2)}</span></div>` : ''}
-                    <div class="row"><strong>GESAMTBETRAG</strong><strong>EUR ${grandTotal.toFixed(2)}</strong></div>
-                    <div class="line"></div>
-                    <p style="font-size:10px">Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.</p>
-                </body>
-            </html>
-        `);
+        popup.document.write(buildReceiptHtml({
+            shopName,
+            shopAddress,
+            issuedAt: new Date(),
+            receiptNo: `QS-${Date.now()}`,
+            paymentMethod: quickSaleForm.paymentMode || 'Cash',
+            showTax: billShowTax,
+            items: lines.map((line) => ({
+                name: line.name,
+                quantity: line.quantity,
+                unitPrice: line.amount,
+                total: line.total,
+            })),
+        }));
         popup.document.close();
         popup.focus();
         popup.print();
@@ -1034,19 +1221,54 @@ export default function SalesmanDashboard() {
         setCalcDisplay((d) => d === '0' && key !== '.' ? key : d + key);
     };
 
+    useEffect(() => {
+        if (!showCalc) return undefined;
+        const handleCalcKeyboard = (event) => {
+            if (event.altKey || event.ctrlKey || event.metaKey) return;
+            const target = event.target;
+            const tagName = target?.tagName || '';
+            if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return;
+            let mapped = '';
+            const key = event.key;
+            if (/^[0-9]$/.test(key)) mapped = key;
+            else if (key === '+' || key === '-' || key === '*' || key === '/') mapped = key;
+            else if (key === '.' || key === ',') mapped = '.';
+            else if (key === 'Enter') mapped = '=';
+            else if (key === 'Backspace') mapped = 'BACK';
+            else if (key === 'Delete' || key === 'Escape') mapped = 'C';
+            if (!mapped) return;
+            event.preventDefault();
+            handleCalcPress(mapped);
+        };
+        window.addEventListener('keydown', handleCalcKeyboard);
+        return () => window.removeEventListener('keydown', handleCalcKeyboard);
+    }, [showCalc, calcDisplay, calcPrev, calcOp]);
+
+    const validateOnlineOrderForm = () => {
+        const nextErrors = {};
+        if (!String(onlineOrderForm.orderId || '').trim()) nextErrors.orderId = 'Order ID is required';
+        if (!String(onlineOrderForm.platform || '').trim()) nextErrors.platform = 'Platform is required';
+        if (!String(onlineOrderForm.itemName || '').trim()) nextErrors.itemName = 'Item name is required';
+        if (!String(onlineOrderForm.category || '').trim()) nextErrors.category = 'Select category';
+        if (!String(onlineOrderForm.color || '').trim()) nextErrors.color = 'Select color';
+        if (onlineOrderForm.color === 'Custom' && !String(onlineOrderForm.customColor || '').trim()) {
+            nextErrors.customColor = 'Enter custom color';
+        }
+        const qty = Math.max(1, parseInt(onlineOrderForm.quantity || '1', 10) || 1);
+        const amount = parseFloat(onlineOrderForm.amount || '0') || 0;
+        if (!qty || qty <= 0) nextErrors.quantity = 'Enter valid quantity';
+        if (!amount || amount <= 0) nextErrors.amount = 'Enter valid amount';
+        if (!String(onlineOrderForm.orderDate || '').trim()) nextErrors.orderDate = 'Select order date';
+        setOnlineOrderErrors(nextErrors);
+        return Object.keys(nextErrors).length === 0;
+    };
+
     const saveOnlineOrder = async (e) => {
         e.preventDefault();
-        if (!onlineOrderForm.orderId.trim() || !onlineOrderForm.itemName.trim()) {
-            alert('Order ID and item name are required');
-            return;
-        }
+        if (!validateOnlineOrderForm()) return;
         const resolvedColor = onlineOrderForm.color === 'Custom'
             ? String(onlineOrderForm.customColor || '').trim()
             : String(onlineOrderForm.color || '').trim();
-        if (onlineOrderForm.color === 'Custom' && !resolvedColor) {
-            alert('Please enter a custom color');
-            return;
-        }
 
         const row = {
             id: String(Date.now()),
@@ -1067,7 +1289,7 @@ export default function SalesmanDashboard() {
             category: row.category || 'Online Purchase',
             paymentMethod: row.paymentStatus === 'Credit' ? 'Credit' : 'Online',
             notes: `OrderId: ${row.orderId} | Platform: ${row.platform || '-'} | Ordered: ${row.orderDate || '-'} | Color: ${row.color || '-'} | Status: ${row.paymentStatus}`,
-            source: 'purchase',
+            source: 'online-order',
             salesmanName: user?.name,
             salesmanNumber: user?.salesmanNumber || 0,
             workerId: String(user?.id || ''),
@@ -1077,6 +1299,7 @@ export default function SalesmanDashboard() {
         });
 
         setOnlineOrderForm(newOnlineOrderForm());
+        setOnlineOrderErrors({});
         setShowOnlineOrderForm(false);
         setPendingTab('online');
     };
@@ -1179,14 +1402,14 @@ export default function SalesmanDashboard() {
                     />
                 </section>
 
-                <section className="grid grid-cols-2 gap-3">
-                    <form onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('sales'); }} className="rounded-2xl border border-emerald-200 bg-white/90 p-3 space-y-3 shadow-sm backdrop-blur-sm">
-                        <div className="rounded-xl px-3 py-2 flex items-center justify-between bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <section className="grid grid-cols-2 gap-2 items-start">
+                    <form onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('sales'); }} className="rounded-xl border border-emerald-200 bg-white/90 p-2.5 space-y-2.5 shadow-sm backdrop-blur-sm">
+                        <div className="rounded-lg px-2.5 py-1.5 flex items-center justify-between bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <p className="text-xs font-semibold">New Sales Entry</p>
-                            <p className="text-xs font-semibold">Simple form</p>
+                            <p className="text-[11px] font-semibold">Simple</p>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5">
                             <div className="relative">
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Date</label>
                                 <input
@@ -1197,7 +1420,7 @@ export default function SalesmanDashboard() {
                                         setSalesEntry((prev) => ({ ...prev, date: e.target.value }));
                                         setSalesEntryErrors((prev) => ({ ...prev, date: '' }));
                                     }}
-                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 pr-8 text-xs text-slate-700 ${salesEntryErrors.date ? 'border-rose-300' : 'border-slate-200'}`}
+                                    className={`w-full rounded-lg border bg-white px-2 py-1.5 pr-8 text-xs text-slate-700 ${salesEntryErrors.date ? 'border-rose-300' : 'border-slate-200'}`}
                                     aria-invalid={Boolean(salesEntryErrors.date)}
                                     required
                                 />
@@ -1220,7 +1443,7 @@ export default function SalesmanDashboard() {
                                         setSalesEntry((prev) => ({ ...prev, paymentMode: e.target.value }));
                                         setSalesEntryErrors((prev) => ({ ...prev, paymentMode: '' }));
                                     }}
-                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-slate-700 ${salesEntryErrors.paymentMode ? 'border-rose-300' : 'border-slate-200'}`}
+                                    className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 ${salesEntryErrors.paymentMode ? 'border-rose-300' : 'border-slate-200'}`}
                                     aria-invalid={Boolean(salesEntryErrors.paymentMode)}
                                 >
                                     {paymentModes.map((mode) => <option key={`sales-pay-${mode}`} value={mode}>{mode}</option>)}
@@ -1240,7 +1463,7 @@ export default function SalesmanDashboard() {
                                         setSalesEntryErrors((prev) => ({ ...prev, amount: '' }));
                                     }}
                                     placeholder="Amount"
-                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-slate-700 ${salesEntryErrors.amount ? 'border-rose-300' : 'border-slate-200'}`}
+                                    className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 ${salesEntryErrors.amount ? 'border-rose-300' : 'border-slate-200'}`}
                                     aria-invalid={Boolean(salesEntryErrors.amount)}
                                     required
                                 />
@@ -1248,64 +1471,66 @@ export default function SalesmanDashboard() {
                             </div>
                         </div>
 
-                        <div className="relative">
-                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
-                            <input
-                                value={salesEntry.productName}
-                                onFocus={() => setShowSalesProductSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowSalesProductSuggestions(false), 160)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && salesProductSuggestions.length > 0) {
-                                        e.preventDefault();
-                                        applyEntryProduct('sales', salesProductSuggestions[0].raw);
-                                    }
-                                }}
-                                onChange={(e) => handleEntryProductQueryChange('sales', e.target.value)}
-                                placeholder="Type product name or scan bullet barcode"
-                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                            />
-                            {showSalesProductSuggestions && salesProductSuggestions.length > 0 && (
-                                <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-44 overflow-y-auto">
-                                    {salesProductSuggestions.map((row) => (
-                                        <button
-                                            key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
-                                            type="button"
-                                            onMouseDown={(e) => {
-                                                e.preventDefault();
-                                                applyEntryProduct('sales', row.raw);
-                                            }}
-                                            className="w-full text-left px-2.5 py-2 hover:bg-emerald-50 border-b border-slate-100 last:border-b-0"
-                                        >
-                                            <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
-                                            <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.sellingPrice || 0)}</p>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                        <div className="space-y-2">
+                            <div className="relative">
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
+                                <input
+                                    value={salesEntry.productName}
+                                    onFocus={() => setShowSalesProductSuggestions(true)}
+                                    onBlur={() => setTimeout(() => setShowSalesProductSuggestions(false), 160)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && salesProductSuggestions.length > 0) {
+                                            e.preventDefault();
+                                            applyEntryProduct('sales', salesProductSuggestions[0].raw);
+                                        }
+                                    }}
+                                    onChange={(e) => handleEntryProductQueryChange('sales', e.target.value)}
+                                    placeholder="Type product / scan barcode"
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+                                />
+                                {showSalesProductSuggestions && salesProductSuggestions.length > 0 && (
+                                    <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-36 overflow-y-auto">
+                                        {salesProductSuggestions.map((row) => (
+                                            <button
+                                                key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    applyEntryProduct('sales', row.raw);
+                                                }}
+                                                className="w-full text-left px-2 py-1.5 hover:bg-emerald-50 border-b border-slate-100 last:border-b-0"
+                                            >
+                                                <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
+                                                <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.sellingPrice || 0)}</p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
 
-                        <div>
-                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Category</p>
-                            {l1Options.length === 0 ? (
-                                <p className="text-xs text-slate-400">No categories available</p>
-                            ) : (
-                                <div className="flex flex-wrap gap-1.5">
-                                    {l1Options.map((name) => (
-                                        <button
-                                            key={`sales-chip-${name}`}
-                                            type="button"
-                                            onClick={() => {
-                                                setSalesEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
-                                                setSalesEntryErrors((prev) => ({ ...prev, category: '' }));
-                                            }}
-                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${salesEntry.category === name ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
-                                        >
-                                            {name}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                            {salesEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{salesEntryErrors.category}</p>}
+                            <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
+                                {l1Options.length === 0 ? (
+                                    <p className="text-xs text-slate-400">No categories available</p>
+                                ) : (
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {l1Options.map((name) => (
+                                            <button
+                                                key={`sales-cat-chip-${name}`}
+                                                type="button"
+                                                onClick={() => {
+                                                    setSalesEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
+                                                    setSalesEntryErrors((prev) => ({ ...prev, category: '' }));
+                                                }}
+                                                className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${salesEntry.category === name ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
+                                            >
+                                                {name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                {salesEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{salesEntryErrors.category}</p>}
+                            </div>
                         </div>
 
                         <div>
@@ -1321,7 +1546,7 @@ export default function SalesmanDashboard() {
                                             key={`sales-sub-chip-${name}`}
                                             type="button"
                                             onClick={() => setSalesEntry((prev) => ({ ...prev, subCategory: name }))}
-                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${salesEntry.subCategory === name ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
+                                            className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${salesEntry.subCategory === name ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
                                         >
                                             {name}
                                         </button>
@@ -1331,19 +1556,19 @@ export default function SalesmanDashboard() {
                         </div>
 
                         <div className="flex items-center justify-end">
-                            <button type="submit" className="rounded-xl text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-sm font-semibold">
+                            <button type="submit" className="rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 text-xs font-semibold">
                                 Save Sales Entry
                             </button>
                         </div>
                     </form>
 
-                    <form onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('purchase'); }} className="rounded-2xl border border-rose-200 bg-white/90 p-3 space-y-3 shadow-sm backdrop-blur-sm">
-                        <div className="rounded-xl px-3 py-2 flex items-center justify-between bg-rose-50 text-rose-700 border border-rose-200">
+                    <form onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('purchase'); }} className="rounded-xl border border-rose-200 bg-white/90 p-2.5 space-y-2.5 shadow-sm backdrop-blur-sm">
+                        <div className="rounded-lg px-2.5 py-1.5 flex items-center justify-between bg-rose-50 text-rose-700 border border-rose-200">
                             <p className="text-xs font-semibold">New Purchase Entry</p>
-                            <p className="text-xs font-semibold">Simple form</p>
+                            <p className="text-[11px] font-semibold">Simple</p>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5">
                             <div className="relative">
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Date</label>
                                 <input
@@ -1354,7 +1579,7 @@ export default function SalesmanDashboard() {
                                         setPurchaseEntry((prev) => ({ ...prev, date: e.target.value }));
                                         setPurchaseEntryErrors((prev) => ({ ...prev, date: '' }));
                                     }}
-                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 pr-8 text-xs text-slate-700 ${purchaseEntryErrors.date ? 'border-rose-300' : 'border-slate-200'}`}
+                                    className={`w-full rounded-lg border bg-white px-2 py-1.5 pr-8 text-xs text-slate-700 ${purchaseEntryErrors.date ? 'border-rose-300' : 'border-slate-200'}`}
                                     aria-invalid={Boolean(purchaseEntryErrors.date)}
                                     required
                                 />
@@ -1377,7 +1602,7 @@ export default function SalesmanDashboard() {
                                         setPurchaseEntry((prev) => ({ ...prev, paymentMode: e.target.value }));
                                         setPurchaseEntryErrors((prev) => ({ ...prev, paymentMode: '' }));
                                     }}
-                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-slate-700 ${purchaseEntryErrors.paymentMode ? 'border-rose-300' : 'border-slate-200'}`}
+                                    className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 ${purchaseEntryErrors.paymentMode ? 'border-rose-300' : 'border-slate-200'}`}
                                     aria-invalid={Boolean(purchaseEntryErrors.paymentMode)}
                                 >
                                     {paymentModes.map((mode) => <option key={`purchase-pay-${mode}`} value={mode}>{mode}</option>)}
@@ -1397,7 +1622,7 @@ export default function SalesmanDashboard() {
                                         setPurchaseEntryErrors((prev) => ({ ...prev, amount: '' }));
                                     }}
                                     placeholder="Amount"
-                                    className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs text-slate-700 ${purchaseEntryErrors.amount ? 'border-rose-300' : 'border-slate-200'}`}
+                                    className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 ${purchaseEntryErrors.amount ? 'border-rose-300' : 'border-slate-200'}`}
                                     aria-invalid={Boolean(purchaseEntryErrors.amount)}
                                     required
                                 />
@@ -1405,64 +1630,66 @@ export default function SalesmanDashboard() {
                             </div>
                         </div>
 
-                        <div className="relative">
-                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
-                            <input
-                                value={purchaseEntry.productName}
-                                onFocus={() => setShowPurchaseProductSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowPurchaseProductSuggestions(false), 160)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && purchaseProductSuggestions.length > 0) {
-                                        e.preventDefault();
-                                        applyEntryProduct('purchase', purchaseProductSuggestions[0].raw);
-                                    }
-                                }}
-                                onChange={(e) => handleEntryProductQueryChange('purchase', e.target.value)}
-                                placeholder="Type product name or scan bullet barcode"
-                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                            />
-                            {showPurchaseProductSuggestions && purchaseProductSuggestions.length > 0 && (
-                                <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-44 overflow-y-auto">
-                                    {purchaseProductSuggestions.map((row) => (
-                                        <button
-                                            key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
-                                            type="button"
-                                            onMouseDown={(e) => {
-                                                e.preventDefault();
-                                                applyEntryProduct('purchase', row.raw);
-                                            }}
-                                            className="w-full text-left px-2.5 py-2 hover:bg-rose-50 border-b border-slate-100 last:border-b-0"
-                                        >
-                                            <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
-                                            <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.purchasePrice || row.snapshot.sellingPrice || 0)}</p>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                        <div className="space-y-2">
+                            <div className="relative">
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
+                                <input
+                                    value={purchaseEntry.productName}
+                                    onFocus={() => setShowPurchaseProductSuggestions(true)}
+                                    onBlur={() => setTimeout(() => setShowPurchaseProductSuggestions(false), 160)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && purchaseProductSuggestions.length > 0) {
+                                            e.preventDefault();
+                                            applyEntryProduct('purchase', purchaseProductSuggestions[0].raw);
+                                        }
+                                    }}
+                                    onChange={(e) => handleEntryProductQueryChange('purchase', e.target.value)}
+                                    placeholder="Type product / scan barcode"
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+                                />
+                                {showPurchaseProductSuggestions && purchaseProductSuggestions.length > 0 && (
+                                    <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-36 overflow-y-auto">
+                                        {purchaseProductSuggestions.map((row) => (
+                                            <button
+                                                key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    applyEntryProduct('purchase', row.raw);
+                                                }}
+                                                className="w-full text-left px-2 py-1.5 hover:bg-rose-50 border-b border-slate-100 last:border-b-0"
+                                            >
+                                                <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
+                                                <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.purchasePrice || row.snapshot.sellingPrice || 0)}</p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
 
-                        <div>
-                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Category</p>
-                            {l1Options.length === 0 ? (
-                                <p className="text-xs text-slate-400">No categories available</p>
-                            ) : (
-                                <div className="flex flex-wrap gap-1.5">
-                                    {l1Options.map((name) => (
-                                        <button
-                                            key={`purchase-chip-${name}`}
-                                            type="button"
-                                            onClick={() => {
-                                                setPurchaseEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
-                                                setPurchaseEntryErrors((prev) => ({ ...prev, category: '' }));
-                                            }}
-                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${purchaseEntry.category === name ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
-                                        >
-                                            {name}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                            {purchaseEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.category}</p>}
+                            <div>
+                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
+                                {l1Options.length === 0 ? (
+                                    <p className="text-xs text-slate-400">No categories available</p>
+                                ) : (
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {l1Options.map((name) => (
+                                            <button
+                                                key={`purchase-cat-chip-${name}`}
+                                                type="button"
+                                                onClick={() => {
+                                                    setPurchaseEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
+                                                    setPurchaseEntryErrors((prev) => ({ ...prev, category: '' }));
+                                                }}
+                                                className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${purchaseEntry.category === name ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
+                                            >
+                                                {name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                {purchaseEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.category}</p>}
+                            </div>
                         </div>
 
                         <div>
@@ -1478,7 +1705,7 @@ export default function SalesmanDashboard() {
                                             key={`purchase-sub-chip-${name}`}
                                             type="button"
                                             onClick={() => setPurchaseEntry((prev) => ({ ...prev, subCategory: name }))}
-                                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${purchaseEntry.subCategory === name ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
+                                            className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${purchaseEntry.subCategory === name ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
                                         >
                                             {name}
                                         </button>
@@ -1488,7 +1715,7 @@ export default function SalesmanDashboard() {
                         </div>
 
                         <div className="flex items-center justify-end">
-                            <button type="submit" className="rounded-xl text-white bg-rose-600 hover:bg-rose-700 px-4 py-2 text-sm font-semibold">
+                            <button type="submit" className="rounded-lg text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 text-xs font-semibold">
                                 Save Purchase Entry
                             </button>
                         </div>
@@ -1713,7 +1940,7 @@ export default function SalesmanDashboard() {
             />
 
             {showMobileInventoryModal && (
-                <div className="fixed inset-0 z-[86]" onClick={() => setShowMobileInventoryModal(false)}>
+                <div className="fixed inset-0 z-[86]" onClick={() => { setShowMobileInventoryModal(false); setSelectedMobileInventoryItem(null); }}>
                     <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
                     <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
                         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
@@ -1721,7 +1948,7 @@ export default function SalesmanDashboard() {
                                 <h3 className="text-sm font-black text-slate-800">Mobile Inventory</h3>
                                 <p className="text-[11px] text-slate-500">Tap Sell to open sale flow</p>
                             </div>
-                            <button onClick={() => setShowMobileInventoryModal(false)} className="text-slate-500 hover:text-slate-700">x</button>
+                            <button onClick={() => { setShowMobileInventoryModal(false); setSelectedMobileInventoryItem(null); }} className="text-slate-500 hover:text-slate-700">x</button>
                         </div>
 
                         <div className="p-4 space-y-3">
@@ -1737,19 +1964,84 @@ export default function SalesmanDashboard() {
                                     <p className="text-xs text-slate-400 p-2">No mobile products found in inventory.</p>
                                 ) : mobileInventoryProducts.map((item) => (
                                     <div key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center justify-between gap-3">
-                                        <div className="min-w-0">
-                                            <p className="text-xs font-bold text-slate-700 truncate">{item.snapshot.name || 'Mobile'}</p>
-                                            <p className="text-[10px] text-slate-500 truncate">{item.snapshot.barcode || 'No barcode'} | Stock {item.snapshot.stock} | {priceTag(item.snapshot.sellingPrice || 0)}</p>
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            {item.raw?.image ? (
+                                                <img src={item.raw.image} alt={item.snapshot.name || 'Mobile'} className="w-11 h-11 rounded-md object-cover border border-slate-200 flex-shrink-0" />
+                                            ) : (
+                                                <div className="w-11 h-11 rounded-md border border-slate-200 bg-slate-100 text-slate-400 text-[10px] flex items-center justify-center flex-shrink-0">No Img</div>
+                                            )}
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-bold text-slate-700 truncate">{item.snapshot.name || 'Mobile'}</p>
+                                                <p className="text-[10px] text-slate-500 truncate">{item.snapshot.barcode || 'No barcode'} | Stock {item.snapshot.stock} | {priceTag(item.snapshot.sellingPrice || 0)}</p>
+                                            </div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => sellMobileFromInventory(item.raw)}
-                                            className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-emerald-700"
-                                        >
-                                            Sell
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedMobileInventoryItem(item)}
+                                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                            >
+                                                Details
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => sellMobileFromInventory(item.raw)}
+                                                className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-emerald-700"
+                                            >
+                                                Sell
+                                            </button>
+                                        </div>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {selectedMobileInventoryItem && (
+                <div className="fixed inset-0 z-[90]" onClick={() => setSelectedMobileInventoryItem(null)}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-16 mx-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <h3 className="text-sm font-black text-slate-800">Mobile Details</h3>
+                            <button onClick={() => setSelectedMobileInventoryItem(null)} className="text-slate-500 hover:text-slate-700">x</button>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <div className="flex items-center gap-3">
+                                {selectedMobileInventoryItem.raw?.image ? (
+                                    <img src={selectedMobileInventoryItem.raw.image} alt={selectedMobileInventoryItem.snapshot.name || 'Mobile'} className="w-16 h-16 rounded-lg border border-slate-200 object-cover" />
+                                ) : (
+                                    <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-100 text-slate-400 text-xs flex items-center justify-center">No Image</div>
+                                )}
+                                <div className="min-w-0">
+                                    <p className="text-sm font-black text-slate-800 truncate">{selectedMobileInventoryItem.snapshot.name || 'Mobile'}</p>
+                                    <p className="text-xs text-slate-500 truncate">{selectedMobileInventoryItem.snapshot.barcode || 'No barcode'}</p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Category</p><p className="font-semibold text-slate-700">{selectedMobileInventoryItem.snapshot.category || '-'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Sub Category</p><p className="font-semibold text-slate-700">{selectedMobileInventoryItem.snapshot.subCategory || '-'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Stock</p><p className="font-semibold text-slate-700">{selectedMobileInventoryItem.snapshot.stock}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Selling Price</p><p className="font-semibold text-emerald-700">{priceTag(selectedMobileInventoryItem.snapshot.sellingPrice || 0)}</p></div>
+                            </div>
+
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedMobileInventoryItem(null)}
+                                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                                >
+                                    Close
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => sellMobileFromInventory(selectedMobileInventoryItem.raw)}
+                                    className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-emerald-700"
+                                >
+                                    Sell
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1890,12 +2182,48 @@ export default function SalesmanDashboard() {
                                             <p className="text-sm text-slate-500 mt-2">No pending orders</p>
                                         </div>
                                     ) : pendingOrders.map((job) => (
-                                        <div key={job.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                                            <p className="text-xs font-black text-blue-600">{job.refId}</p>
-                                            <p className="text-sm font-bold text-slate-800">{job.customerName}</p>
-                                            <p className="text-xs text-slate-500">{job.deviceModel}</p>
-                                            <p className="text-xs mt-1 text-slate-400">{job.problem}</p>
-                                            <div className="mt-2 flex justify-end">
+                                        <div key={job.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-black text-blue-600">{job.refId}</p>
+                                                    <p className="text-sm font-bold text-slate-800 truncate">{job.customerName || 'Customer'}</p>
+                                                </div>
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">{job.status || 'pending'}</span>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-1 text-[11px]">
+                                                <p className="text-slate-500"><span className="text-slate-400">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">IMEI:</span> {job.imei || '-'}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">Device:</span> {job.deviceModel || '-'}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">Delivery:</span> {job.deliveryDate || '-'}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
+                                            </div>
+
+                                            <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                                <span className="text-slate-400">Issue:</span> {job.problem || job.issueType || '-'}
+                                            </p>
+                                            {job.notes ? (
+                                                <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                                    <span className="text-slate-400">Notes:</span> {job.notes}
+                                                </p>
+                                            ) : null}
+
+                                            <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                                <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 text-emerald-700 font-semibold">Est: {priceTag(job.estimatedCost || 0)}</span>
+                                                <span className="rounded-md bg-sky-50 border border-sky-200 px-2 py-1 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
+                                                <span className="rounded-md bg-violet-50 border border-violet-200 px-2 py-1 text-violet-700 font-semibold">Final: {priceTag(job.finalAmount || 0)}</span>
+                                                <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-1 text-orange-700 font-semibold">Parts: {priceTag(job.partsCost || 0)}</span>
+                                            </div>
+
+                                            <div className="flex justify-end gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => completePendingRepair(job)}
+                                                    className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-emerald-700"
+                                                >
+                                                    Complete
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => printPendingRepairBill(job)}
@@ -1922,44 +2250,146 @@ export default function SalesmanDashboard() {
                                         <form onSubmit={saveOnlineOrder} className="rounded-xl border border-blue-200 bg-blue-50/40 p-3 space-y-2 animate-in fade-in-0 slide-in-from-top-2 duration-300">
                                             <div className="grid grid-cols-2 gap-1.5">
                                                 <div className="col-span-2 grid grid-cols-[1fr_auto] gap-1.5">
-                                                    <input value={onlineOrderForm.orderId} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, orderId: e.target.value }))} placeholder="Order ID" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                    <div>
+                                                        <input
+                                                            value={onlineOrderForm.orderId}
+                                                            onChange={(e) => {
+                                                                setOnlineOrderForm((prev) => ({ ...prev, orderId: e.target.value }));
+                                                                setOnlineOrderErrors((prev) => ({ ...prev, orderId: '' }));
+                                                            }}
+                                                            placeholder="Order ID"
+                                                            className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.orderId ? 'border-rose-300' : 'border-slate-200'}`}
+                                                        />
+                                                        {onlineOrderErrors.orderId && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.orderId}</p>}
+                                                    </div>
                                                     <button type="button" onClick={() => setOnlineOrderForm((prev) => ({ ...prev, orderId: randomOnlineOrderId() }))} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600">Random</button>
                                                 </div>
-                                                <input value={onlineOrderForm.platform} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, platform: e.target.value }))} placeholder="Platform" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                                <input value={onlineOrderForm.itemName} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, itemName: e.target.value }))} placeholder="Item Name" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                                <select value={onlineOrderForm.category} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, category: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs">
-                                                    <option value="">Select category</option>
-                                                    {l1Options.map((name) => <option key={`online-${name}`} value={name}>{name}</option>)}
-                                                </select>
-                                                <select
-                                                    value={onlineOrderForm.color}
-                                                    onChange={(e) => setOnlineOrderForm((prev) => ({
-                                                        ...prev,
-                                                        color: e.target.value,
-                                                        customColor: e.target.value === 'Custom' ? prev.customColor : ''
-                                                    }))}
-                                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
-                                                >
-                                                    <option value="">Select color</option>
-                                                    {ONLINE_ORDER_COLORS.map((name) => <option key={`online-color-${name}`} value={name}>{name}</option>)}
-                                                </select>
-                                                {onlineOrderForm.color === 'Custom' && (
+                                                <div>
                                                     <input
-                                                        value={onlineOrderForm.customColor}
-                                                        onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, customColor: e.target.value }))}
-                                                        placeholder="Custom color"
-                                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                                                        value={onlineOrderForm.platform}
+                                                        onChange={(e) => {
+                                                            setOnlineOrderForm((prev) => ({ ...prev, platform: e.target.value }));
+                                                            setOnlineOrderErrors((prev) => ({ ...prev, platform: '' }));
+                                                        }}
+                                                        placeholder="Platform"
+                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.platform ? 'border-rose-300' : 'border-slate-200'}`}
                                                     />
+                                                    {onlineOrderErrors.platform && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.platform}</p>}
+                                                </div>
+                                                <div>
+                                                    <input
+                                                        value={onlineOrderForm.itemName}
+                                                        onChange={(e) => {
+                                                            setOnlineOrderForm((prev) => ({ ...prev, itemName: e.target.value }));
+                                                            setOnlineOrderErrors((prev) => ({ ...prev, itemName: '' }));
+                                                        }}
+                                                        placeholder="Item Name"
+                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.itemName ? 'border-rose-300' : 'border-slate-200'}`}
+                                                    />
+                                                    {onlineOrderErrors.itemName && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.itemName}</p>}
+                                                </div>
+                                                <div>
+                                                    <select
+                                                        value={onlineOrderForm.category}
+                                                        onChange={(e) => {
+                                                            setOnlineOrderForm((prev) => ({ ...prev, category: e.target.value }));
+                                                            setOnlineOrderErrors((prev) => ({ ...prev, category: '' }));
+                                                        }}
+                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.category ? 'border-rose-300' : 'border-slate-200'}`}
+                                                    >
+                                                        <option value="">Select category</option>
+                                                        {l1Options.map((name) => <option key={`online-${name}`} value={name}>{name}</option>)}
+                                                    </select>
+                                                    {onlineOrderErrors.category && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.category}</p>}
+                                                </div>
+                                                <div>
+                                                    <select
+                                                        value={onlineOrderForm.color}
+                                                        onChange={(e) => {
+                                                            const nextColor = e.target.value;
+                                                            setOnlineOrderForm((prev) => ({
+                                                                ...prev,
+                                                                color: nextColor,
+                                                                customColor: nextColor === 'Custom' ? prev.customColor : ''
+                                                            }));
+                                                            setOnlineOrderErrors((prev) => ({
+                                                                ...prev,
+                                                                color: '',
+                                                                customColor: ''
+                                                            }));
+                                                        }}
+                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.color ? 'border-rose-300' : 'border-slate-200'}`}
+                                                    >
+                                                        <option value="">Select color</option>
+                                                        {ONLINE_ORDER_COLORS.map((name) => <option key={`online-color-${name}`} value={name}>{name}</option>)}
+                                                    </select>
+                                                    {onlineOrderErrors.color && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.color}</p>}
+                                                </div>
+                                                {onlineOrderForm.color === 'Custom' && (
+                                                    <div>
+                                                        <input
+                                                            value={onlineOrderForm.customColor}
+                                                            onChange={(e) => {
+                                                                setOnlineOrderForm((prev) => ({ ...prev, customColor: e.target.value }));
+                                                                setOnlineOrderErrors((prev) => ({ ...prev, customColor: '' }));
+                                                            }}
+                                                            placeholder="Custom color"
+                                                            className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.customColor ? 'border-rose-300' : 'border-slate-200'}`}
+                                                        />
+                                                        {onlineOrderErrors.customColor && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.customColor}</p>}
+                                                    </div>
                                                 )}
-                                                <input type="number" min="1" value={onlineOrderForm.quantity} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, quantity: e.target.value }))} placeholder="Qty" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                                <input type="number" step="0.01" value={onlineOrderForm.amount} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                                <input type="date" value={onlineOrderForm.orderDate} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, orderDate: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                <div>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        value={onlineOrderForm.quantity}
+                                                        onChange={(e) => {
+                                                            setOnlineOrderForm((prev) => ({ ...prev, quantity: e.target.value }));
+                                                            setOnlineOrderErrors((prev) => ({ ...prev, quantity: '' }));
+                                                        }}
+                                                        placeholder="Qty"
+                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.quantity ? 'border-rose-300' : 'border-slate-200'}`}
+                                                    />
+                                                    {onlineOrderErrors.quantity && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.quantity}</p>}
+                                                </div>
+                                                <div>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={onlineOrderForm.amount}
+                                                        onChange={(e) => {
+                                                            setOnlineOrderForm((prev) => ({ ...prev, amount: e.target.value }));
+                                                            setOnlineOrderErrors((prev) => ({ ...prev, amount: '' }));
+                                                        }}
+                                                        placeholder="Amount"
+                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.amount ? 'border-rose-300' : 'border-slate-200'}`}
+                                                    />
+                                                    {onlineOrderErrors.amount && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.amount}</p>}
+                                                </div>
+                                                <div>
+                                                    <input
+                                                        type="date"
+                                                        value={onlineOrderForm.orderDate}
+                                                        onChange={(e) => {
+                                                            setOnlineOrderForm((prev) => ({ ...prev, orderDate: e.target.value }));
+                                                            setOnlineOrderErrors((prev) => ({ ...prev, orderDate: '' }));
+                                                        }}
+                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.orderDate ? 'border-rose-300' : 'border-slate-200'}`}
+                                                    />
+                                                    {onlineOrderErrors.orderDate && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.orderDate}</p>}
+                                                </div>
                                                 <select value={onlineOrderForm.paymentStatus} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, paymentStatus: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs">
                                                     <option value="Paid">Paid</option>
                                                     <option value="Partial">Partial</option>
                                                     <option value="Credit">Credit</option>
                                                 </select>
                                                 <textarea value={onlineOrderForm.notes} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Order notes" rows={2} className="col-span-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                                                {Object.values(onlineOrderErrors).some(Boolean) && (
+                                                    <p className="col-span-2 text-[10px] text-rose-600">
+                                                        Please fill all required fields highlighted in red.
+                                                    </p>
+                                                )}
                                                 <button type="submit" className="col-span-2 rounded-lg bg-emerald-600 text-white py-2 text-sm font-semibold hover:bg-emerald-700 transition-colors">Save Online Order</button>
                                             </div>
                                         </form>
@@ -1972,20 +2402,45 @@ export default function SalesmanDashboard() {
                                         </div>
                                     ) : (
                                         onlineOrders.map((order) => (
-                                            <div key={order.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                                            <div key={order.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                                                 <div className="flex items-center justify-between gap-2">
                                                     <p className="text-xs font-black text-blue-600">{order.orderId}</p>
                                                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${order.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{order.status}</span>
                                                 </div>
-                                                <p className="text-sm font-bold text-slate-800 mt-1">{order.itemName}</p>
-                                                <p className="text-xs text-slate-500">{order.platform || 'Online'} | Qty {order.quantity} | {priceTag(order.amount || 0)} | Color {order.color || '-'}</p>
-                                                <p className="text-xs text-slate-400">Ordered: {order.orderDate || 'N/A'}</p>
-                                                {order.notes ? <p className="text-xs text-slate-400 mt-1">{order.notes}</p> : null}
-                                                {order.status !== 'received' && (
-                                                    <button onClick={() => markOnlineOrderReceived(order.id)} className="mt-2 rounded-lg bg-emerald-600 text-white px-3 py-1 text-xs font-semibold hover:bg-emerald-700 transition-colors">
-                                                        Mark Received
+                                                <p className="text-sm font-bold text-slate-800">{order.itemName}</p>
+
+                                                <div className="grid grid-cols-2 gap-1 text-[11px]">
+                                                    <p className="text-slate-500"><span className="text-slate-400">Platform:</span> {order.platform || '-'}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Category:</span> {order.category || '-'}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Color:</span> {order.color || '-'}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Qty:</span> {order.quantity || 1}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Unit Price:</span> {priceTag(order.amount || 0)}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Total:</span> {priceTag((parseFloat(order.amount || 0) || 0) * (Math.max(1, parseInt(order.quantity || '1', 10) || 1)))}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Order Date:</span> {order.orderDate || '-'}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Payment:</span> {order.paymentStatus || '-'}</p>
+                                                    <p className="text-slate-500 col-span-2"><span className="text-slate-400">Created:</span> {formatDisplayDate(order.createdAt || '')}</p>
+                                                </div>
+
+                                                {order.notes ? (
+                                                    <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                                        <span className="text-slate-400">Notes:</span> {order.notes}
+                                                    </p>
+                                                ) : null}
+
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => printOnlineOrderBill(order)}
+                                                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                                    >
+                                                        Print
                                                     </button>
-                                                )}
+                                                    {order.status !== 'received' && (
+                                                        <button onClick={() => markOnlineOrderReceived(order.id)} className="rounded-lg bg-emerald-600 text-white px-3 py-1 text-xs font-semibold hover:bg-emerald-700 transition-colors">
+                                                            Mark Received
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         ))
                                     )}

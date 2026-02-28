@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+﻿import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { InventoryProvider } from './context/InventoryContext'
 import { RepairsProvider } from './context/RepairsContext'
@@ -48,7 +48,7 @@ function App() {
                 <Route path="/salesman/latest-dashboard" element={<LatestDashboard />} />
 
                 {/* Catch-all 404 */}
-                <Route path="*" element={<ComingSoonPage title="Page Not Found" icon="🔍" />} />
+                <Route path="*" element={<ComingSoonPage title="Page Not Found" icon="404" />} />
               </Routes>
               <PWAInstallButton />
             </BrowserRouter>
@@ -60,3 +60,4 @@ function App() {
 }
 
 export default App
+

@@ -13,23 +13,34 @@ export default function RepairModal({ isOpen, onClose }) {
         deviceModel: '',
         imei: '',
         problem: '',
+        advanceAmount: '',
         estimatedCost: '',
         deliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0], // +3 days default
     });
+    const [errors, setErrors] = useState({});
 
-    const handleChange = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+    const handleChange = (field, value) => {
+        setForm((prev) => ({ ...prev, [field]: value }));
+        setErrors((prev) => ({ ...prev, [field]: '' }));
+    };
 
     const resetForm = () => {
         setForm({
             customerName: '', phone: '', deviceModel: '', imei: '',
-            problem: '', estimatedCost: '',
+            problem: '', advanceAmount: '', estimatedCost: '',
             deliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
         });
+        setErrors({});
     };
 
     const handleSave = async (shouldPrint = false) => {
-        if (!form.customerName.trim() || !form.phone.trim() || !form.deviceModel.trim() || !form.problem.trim()) {
-            alert('Please fill in Customer Name, Phone, Device Model, and Problem.');
+        const nextErrors = {};
+        if (!form.customerName.trim()) nextErrors.customerName = 'Customer name is required';
+        if (!form.phone.trim()) nextErrors.phone = 'Phone is required';
+        if (!form.deviceModel.trim()) nextErrors.deviceModel = 'Device model is required';
+        if (!form.problem.trim()) nextErrors.problem = 'Problem description is required';
+        if (Object.keys(nextErrors).length > 0) {
+            setErrors(nextErrors);
             return;
         }
 
@@ -40,6 +51,7 @@ export default function RepairModal({ isOpen, onClose }) {
                 deviceModel: form.deviceModel.trim(),
                 imei: form.imei.trim(),
                 problem: form.problem.trim(),
+                advanceAmount: parseFloat(form.advanceAmount) || 0,
                 estimatedCost: parseFloat(form.estimatedCost) || 0,
                 deliveryDate: form.deliveryDate,
             });
@@ -90,6 +102,9 @@ export default function RepairModal({ isOpen, onClose }) {
         const estimatedCost = Number.isFinite(parseFloat(job?.estimatedCost))
             ? parseFloat(job.estimatedCost)
             : 0;
+        const advanceAmount = Number.isFinite(parseFloat(job?.advanceAmount))
+            ? parseFloat(job.advanceAmount)
+            : 0;
 
         return `<!DOCTYPE html>
 <html>
@@ -114,7 +129,7 @@ export default function RepairModal({ isOpen, onClose }) {
 <body>
     <!-- CUSTOMER COPY -->
     <div class="label">
-        <div class="title">— Kundenbeleg —</div>
+        <div class="title">Kundenbeleg</div>
         <div class="shop-name">${esc(receiptShopName)}</div>
         ${receiptShopAddress ? `<div class="shop-addr">${esc(receiptShopAddress)}</div>` : ''}
         <div class="divider"></div>
@@ -126,7 +141,8 @@ export default function RepairModal({ isOpen, onClose }) {
         ${job.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(job.imei)}</span></div>` : ''}
         <div class="divider"></div>
         <div class="problem"><strong>Fehler:</strong> ${problemNote}</div>
-        <div class="row"><span class="label-text">Geschaetzte Kosten:</span><span>€${estimatedCost.toFixed(2)}</span></div>
+        <div class="row"><span class="label-text">Geschaetzte Kosten:</span><span>EUR ${estimatedCost.toFixed(2)}</span></div>
+        <div class="row"><span class="label-text">Anzahlung:</span><span>EUR ${advanceAmount.toFixed(2)}</span></div>
         <div class="row"><span class="label-text">Abholung:</span><span>${deliveryFormatted}</span></div>
         <div class="divider"></div>
         <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
@@ -134,7 +150,7 @@ export default function RepairModal({ isOpen, onClose }) {
 
     <!-- SHOP LABEL (stick on phone) -->
     <div class="label">
-        <div class="title">— Ladenbeleg —</div>
+        <div class="title">Ladenbeleg</div>
         <div class="ref-id" style="font-size:22px;">${esc(job.refId)}</div>
         <div class="divider"></div>
         <div class="problem"><strong>Fehlernotiz:</strong> ${problemNote}</div>
@@ -177,9 +193,10 @@ export default function RepairModal({ isOpen, onClose }) {
                             <input
                                 value={form.customerName}
                                 onChange={e => handleChange('customerName', e.target.value)}
-                                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium"
+                                className={`w-full px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium ${errors.customerName ? 'border-rose-300' : 'border-slate-200'}`}
                                 placeholder="Max Mustermann"
                             />
+                            {errors.customerName && <p className="mt-1 text-[10px] text-rose-600">{errors.customerName}</p>}
                         </div>
                         <div>
                             <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1">
@@ -189,9 +206,10 @@ export default function RepairModal({ isOpen, onClose }) {
                                 type="tel"
                                 value={form.phone}
                                 onChange={e => handleChange('phone', e.target.value)}
-                                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium font-mono"
+                                className={`w-full px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium font-mono ${errors.phone ? 'border-rose-300' : 'border-slate-200'}`}
                                 placeholder="+49 170 1234567"
                             />
+                            {errors.phone && <p className="mt-1 text-[10px] text-rose-600">{errors.phone}</p>}
                         </div>
                     </div>
 
@@ -204,9 +222,10 @@ export default function RepairModal({ isOpen, onClose }) {
                             <input
                                 value={form.deviceModel}
                                 onChange={e => handleChange('deviceModel', e.target.value)}
-                                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium"
+                                className={`w-full px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium ${errors.deviceModel ? 'border-rose-300' : 'border-slate-200'}`}
                                 placeholder="iPhone 15 Pro Max"
                             />
+                            {errors.deviceModel && <p className="mt-1 text-[10px] text-rose-600">{errors.deviceModel}</p>}
                         </div>
                         <div>
                             <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1">
@@ -221,25 +240,42 @@ export default function RepairModal({ isOpen, onClose }) {
                         </div>
                     </div>
 
-                    {/* Problem */}
-                    <div>
-                        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1">
-                            <FileText size={12} /> Problem Description *
-                        </label>
-                        <textarea
-                            value={form.problem}
-                            onChange={e => handleChange('problem', e.target.value)}
-                            rows={3}
-                            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium resize-none"
-                            placeholder="Describe the issue... e.g. Screen broken, battery replacement, water damage..."
-                        />
+                    {/* Problem + Advance */}
+                    <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr] gap-3">
+                        <div>
+                            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1">
+                                <FileText size={12} /> Problem Description *
+                            </label>
+                            <textarea
+                                value={form.problem}
+                                onChange={e => handleChange('problem', e.target.value)}
+                                rows={3}
+                                className={`w-full px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium resize-none ${errors.problem ? 'border-rose-300' : 'border-slate-200'}`}
+                                placeholder="Describe the issue... e.g. Screen broken, battery replacement, water damage..."
+                            />
+                            {errors.problem && <p className="mt-1 text-[10px] text-rose-600">{errors.problem}</p>}
+                        </div>
+                        <div>
+                            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1">
+                                <DollarSign size={12} /> Advance (EUR)
+                            </label>
+                            <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={form.advanceAmount}
+                                onChange={e => handleChange('advanceAmount', e.target.value)}
+                                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium font-mono"
+                                placeholder="0.00"
+                            />
+                        </div>
                     </div>
 
                     {/* Cost & Date */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1">
-                                <DollarSign size={12} /> Estimated Cost (€)
+                                <DollarSign size={12} /> Estimated Cost (EUR)
                             </label>
                             <input
                                 type="number"

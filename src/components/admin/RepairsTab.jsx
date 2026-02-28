@@ -11,7 +11,7 @@ import DateRangeFilter from './DateRangeFilter';
 
 export default function RepairsTab() {
     const { repairJobs, updateRepairStatus, deleteRepair } = useRepairs();
-    const { addTransaction, products } = useInventory();
+    const { addTransaction, products, transactions } = useInventory();
 
     const [statusFilter, setStatusFilter] = useState('all'); // all | pending | completed
     const [searchTerm, setSearchTerm] = useState('');
@@ -26,6 +26,12 @@ export default function RepairsTab() {
     // Modal State
     const [completingJob, setCompletingJob] = useState(null);
 
+    const resolveRepairDate = (job) => {
+        const raw = job?.createdAt || job?.created_at || job?.timestamp || '';
+        const parsed = new Date(raw);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
     const dateFilteredJobs = useMemo(() => {
         const rangeStart = new Date(dateSelection[0].startDate);
         rangeStart.setHours(0, 0, 0, 0);
@@ -33,9 +39,8 @@ export default function RepairsTab() {
         rangeEnd.setHours(23, 59, 59, 999);
 
         return repairJobs.filter(j => {
-            if (!j.createdAt) return false;
-            const createdAt = new Date(j.createdAt);
-            if (Number.isNaN(createdAt.getTime())) return false;
+            const createdAt = resolveRepairDate(j);
+            if (!createdAt) return false;
             return createdAt >= rangeStart && createdAt <= rangeEnd;
         });
     }, [repairJobs, dateSelection]);
@@ -47,7 +52,7 @@ export default function RepairsTab() {
         const completedCount = dateFilteredJobs.filter(j => j.status === 'completed').length;
         const totalRevenue = dateFilteredJobs
             .filter(j => j.status === 'completed' && j.finalAmount)
-            .reduce((sum, j) => sum + j.finalAmount, 0);
+            .reduce((sum, j) => sum + (parseFloat(j.finalAmount) || 0), 0);
         return { pendingCount, totalJobs, completedCount, totalRevenue };
     }, [dateFilteredJobs]);
 
@@ -58,16 +63,30 @@ export default function RepairsTab() {
             if (searchTerm.trim()) {
                 const q = searchTerm.toLowerCase();
                 return (
-                    j.refId?.toLowerCase().includes(q) ||
-                    j.customerName?.toLowerCase().includes(q) ||
-                    j.phone?.includes(q) ||
-                    j.deviceModel?.toLowerCase().includes(q) ||
-                    j.problem?.toLowerCase().includes(q)
+                    String(j.refId || '').toLowerCase().includes(q) ||
+                    String(j.customerName || j.customer_name || '').toLowerCase().includes(q) ||
+                    String(j.phone || j.customerPhone || '').includes(q) ||
+                    String(j.deviceModel || j.device_model || '').toLowerCase().includes(q) ||
+                    String(j.problem || j.issueType || '').toLowerCase().includes(q)
                 );
             }
             return true;
         });
     }, [dateFilteredJobs, statusFilter, searchTerm]);
+
+    const repairTransactions = useMemo(() => {
+        const rangeStart = new Date(dateSelection[0].startDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(dateSelection[0].endDate);
+        rangeEnd.setHours(23, 59, 59, 999);
+        return (transactions || [])
+            .filter((txn) => String(txn?.source || '').toLowerCase() === 'repair')
+            .filter((txn) => {
+                const d = new Date(txn.timestamp || `${txn.date || ''} ${txn.time || ''}`);
+                return !Number.isNaN(d.getTime()) && d >= rangeStart && d <= rangeEnd;
+            })
+            .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+    }, [transactions, dateSelection]);
 
     // ── Mark Complete (opens Modal) ──
     const handleInitiateComplete = (job) => {
@@ -112,7 +131,7 @@ export default function RepairsTab() {
             amount: finalAmount,
             type: 'income',
             category: 'Repair Service',
-            notes: `Customer: ${job.customerName} | ${job.problem} | Parts Cost: €${totalPartsCost.toFixed(2)}`,
+            notes: `Customer: ${job.customerName} | ${job.problem} | Parts Cost: EUR ${totalPartsCost.toFixed(2)}`,
             source: 'repair',
             date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
@@ -216,13 +235,14 @@ export default function RepairsTab() {
                 ) : (
                     filteredJobs.map(job => {
                         const sc = statusConfig[job.status] || statusConfig['pending'];
-                        const createdDate = new Date(job.createdAt).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' });
-                        const deliveryDate = job.deliveryDate ? new Date(job.deliveryDate).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }) : '—';
+                        const createdAt = resolveRepairDate(job);
+                        const createdDate = createdAt ? createdAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }) : '-';
+                        const deliveryDate = job.deliveryDate ? new Date(job.deliveryDate).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }) : '-';
                         const isOverdue = job.status !== 'completed' && job.deliveryDate && new Date(job.deliveryDate) < new Date();
 
                         // Calculate Profit for completed jobs
-                        const partsCost = job.partsCost || 0;
-                        const netProfit = (job.finalAmount || 0) - partsCost;
+                        const partsCost = parseFloat(job.partsCost) || 0;
+                        const netProfit = (parseFloat(job.finalAmount) || 0) - partsCost;
 
                         return (
                             <div key={job.id} className={`bg-white rounded-2xl shadow-sm border transition-all hover:shadow-md ${isOverdue ? 'border-red-200 bg-red-50/30' : 'border-slate-100'}`}>
@@ -245,21 +265,21 @@ export default function RepairsTab() {
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                                                 <div className="flex items-center gap-1.5 text-slate-600">
                                                     <User size={12} className="text-slate-400" />
-                                                    <span className="font-medium">{job.customerName}</span>
+                                                    <span className="font-medium">{job.customerName || job.customer_name || '-'}</span>
                                                 </div>
                                                 <div className="flex items-center gap-1.5 text-slate-600">
                                                     <Phone size={12} className="text-slate-400" />
-                                                    <span className="font-mono">{job.phone}</span>
+                                                    <span className="font-mono">{job.phone || job.customerPhone || '-'}</span>
                                                 </div>
                                                 <div className="flex items-center gap-1.5 text-slate-600">
                                                     <Smartphone size={12} className="text-slate-400" />
-                                                    <span className="font-medium">{job.deviceModel}</span>
+                                                    <span className="font-medium">{job.deviceModel || job.device_model || '-'}</span>
                                                 </div>
                                             </div>
 
                                             <div className="mt-3">
                                                 <p className="text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
-                                                    <strong>Issue:</strong> {job.problem}
+                                                    <strong>Issue:</strong> {job.problem || job.issueType || '-'}
                                                 </p>
 
                                                 {job.partsUsed && job.partsUsed.length > 0 && (
@@ -325,6 +345,26 @@ export default function RepairsTab() {
                         );
                     })
                 )}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-black text-slate-800">Repair Transactions</h3>
+                    <span className="text-[10px] font-bold text-slate-500">{repairTransactions.length} entries</span>
+                </div>
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                    {repairTransactions.length === 0 ? (
+                        <p className="text-xs text-slate-400">No repair transactions in selected range.</p>
+                    ) : repairTransactions.map((txn) => (
+                        <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                                <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Repair Service'}</p>
+                                <p className="text-[11px] text-slate-500 truncate">{txn.date || '-'} {txn.time || ''} | {txn.paymentMethod || 'Cash'}</p>
+                            </div>
+                            <p className="text-sm font-black text-emerald-600">{priceTag(txn.amount || 0)}</p>
+                        </div>
+                    ))}
+                </div>
             </div>
 
             {/* Modals */}

@@ -101,12 +101,16 @@ export default function AdminPanel() {
                 <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
                     {showSidebarLabels ? (
                         <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center font-bold">C</div>
-                            <span className="font-bold text-lg tracking-tight">Daily<span className="text-cyan-400">Books</span></span>
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center font-bold">
+                                <LayoutDashboard size={16} />
+                            </div>
+                            <span className="font-bold text-lg tracking-tight">Admin<span className="text-cyan-400">Dashboard</span></span>
                         </div>
                     ) : (
                         <div className="w-full flex justify-center">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center font-bold">C</div>
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center font-bold">
+                                <LayoutDashboard size={16} />
+                            </div>
                         </div>
                     )}
                 </div>
@@ -149,7 +153,10 @@ export default function AdminPanel() {
 
                 <div className="md:hidden h-16 bg-white border-b border-slate-200 flex items-center px-4 justify-between shrink-0">
                     <div>
-                        <div className="font-bold text-slate-800">DailyBooks</div>
+                        <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                            <LayoutDashboard size={16} className="text-blue-600" />
+                            <span>Admin Dashboard</span>
+                        </div>
                         {currentShop && (
                             <div className="text-[10px] text-slate-400 font-semibold">{currentShop.name}</div>
                         )}

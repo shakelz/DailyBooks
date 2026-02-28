@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Calendar, ChevronDown } from 'lucide-react';
 import { DateRangePicker } from 'react-date-range';
+import { defaultStaticRanges, createStaticRanges } from 'react-date-range';
 import 'react-date-range/dist/styles.css';
 import 'react-date-range/dist/theme/default.css';
 
@@ -34,6 +35,48 @@ export default function DateRangeFilter({ dateSelection, setDateSelection }) {
     const monthOptions = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const currentYear = new Date().getFullYear();
     const yearOptions = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i);
+    const yearStaticRanges = createStaticRanges([
+        {
+            label: 'This Year',
+            range: () => {
+                const now = new Date();
+                return {
+                    startDate: new Date(now.getFullYear(), 0, 1),
+                    endDate: new Date(now.getFullYear(), 11, 31),
+                };
+            },
+            isSelected(range) {
+                const now = new Date();
+                const thisYearStart = new Date(now.getFullYear(), 0, 1);
+                const thisYearEnd = new Date(now.getFullYear(), 11, 31);
+                return (
+                    range.startDate.getTime() === thisYearStart.getTime()
+                    && range.endDate.getTime() === thisYearEnd.getTime()
+                );
+            },
+        },
+        {
+            label: 'Last Year',
+            range: () => {
+                const now = new Date();
+                const y = now.getFullYear() - 1;
+                return {
+                    startDate: new Date(y, 0, 1),
+                    endDate: new Date(y, 11, 31),
+                };
+            },
+            isSelected(range) {
+                const now = new Date();
+                const y = now.getFullYear() - 1;
+                const lastYearStart = new Date(y, 0, 1);
+                const lastYearEnd = new Date(y, 11, 31);
+                return (
+                    range.startDate.getTime() === lastYearStart.getTime()
+                    && range.endDate.getTime() === lastYearEnd.getTime()
+                );
+            },
+        },
+    ]);
 
     const isTodaySelected = () => {
         const today = new Date();
@@ -65,6 +108,7 @@ export default function DateRangeFilter({ dateSelection, setDateSelection }) {
                         months={2}
                         ranges={dateSelection}
                         direction="horizontal"
+                        staticRanges={[...defaultStaticRanges, ...yearStaticRanges]}
                         showMonthAndYearPickers={true}
                         navigatorRenderer={(focusedDate, changeShownDate) => (
                             <div className="flex items-center justify-end gap-2 px-3 py-2 border-b border-slate-200 bg-slate-50">

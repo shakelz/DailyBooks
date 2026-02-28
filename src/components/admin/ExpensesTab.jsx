@@ -1,7 +1,20 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { priceTag } from '../../utils/currency';
 import DateRangeFilter from './DateRangeFilter';
+
+const EXPENSE_CATEGORY_OPTIONS = [
+    'General',
+    'Rent',
+    'Utilities',
+    'Salary',
+    'Repairs',
+    'Stock Purchase',
+    'Online Purchase',
+    'Transport',
+    'Marketing',
+    'Misc'
+];
 
 function nowLocalInputValue() {
     const now = new Date();
@@ -39,6 +52,8 @@ export default function ExpensesTab() {
     const [desc, setDesc] = useState('');
     const [amount, setAmount] = useState('');
     const [category, setCategory] = useState('General');
+    const [categoryOption, setCategoryOption] = useState('General');
+    const [customCategory, setCustomCategory] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('Cash');
     const [when, setWhen] = useState(nowLocalInputValue());
 
@@ -47,6 +62,8 @@ export default function ExpensesTab() {
     const [editDesc, setEditDesc] = useState('');
     const [editAmount, setEditAmount] = useState('');
     const [editCategory, setEditCategory] = useState('General');
+    const [editCategoryOption, setEditCategoryOption] = useState('General');
+    const [editCustomCategory, setEditCustomCategory] = useState('');
     const [editPaymentMethod, setEditPaymentMethod] = useState('Cash');
     const [editWhen, setEditWhen] = useState(nowLocalInputValue());
 
@@ -85,6 +102,8 @@ export default function ExpensesTab() {
         setDesc('');
         setAmount('');
         setCategory('General');
+        setCategoryOption('General');
+        setCustomCategory('');
         setPaymentMethod('Cash');
         setWhen(nowLocalInputValue());
     };
@@ -93,7 +112,8 @@ export default function ExpensesTab() {
         e.preventDefault();
         const value = parseFloat(amount);
         const dt = new Date(when);
-        if (!desc.trim() || !Number.isFinite(value) || value <= 0 || Number.isNaN(dt.getTime())) {
+        const resolvedCategory = categoryOption === '__custom__' ? customCategory.trim() : categoryOption;
+        if (!desc.trim() || !resolvedCategory || !Number.isFinite(value) || value <= 0 || Number.isNaN(dt.getTime())) {
             alert('Please fill valid description, amount and date/time.');
             return;
         }
@@ -102,7 +122,7 @@ export default function ExpensesTab() {
                 desc: `${entryType === 'income' ? 'Income' : 'Expense'}: ${desc.trim()}`,
                 amount: value,
                 type: entryType,
-                category: category.trim() || 'General',
+                category: resolvedCategory,
                 paymentMethod,
                 source: entryType === 'income' ? 'admin-income' : 'admin-expense',
                 date: dt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
@@ -123,7 +143,15 @@ export default function ExpensesTab() {
         setEditType(txn.type === 'income' ? 'income' : 'expense');
         setEditDesc(String(txn.desc || '').replace(/^Income:\s*/i, '').replace(/^Expense:\s*/i, ''));
         setEditAmount(String(parseFloat(txn.amount) || 0));
-        setEditCategory(String(txn.category || 'General'));
+        const rawCategory = String(txn.category || 'General');
+        setEditCategory(rawCategory);
+        if (EXPENSE_CATEGORY_OPTIONS.includes(rawCategory)) {
+            setEditCategoryOption(rawCategory);
+            setEditCustomCategory('');
+        } else {
+            setEditCategoryOption('__custom__');
+            setEditCustomCategory(rawCategory);
+        }
         setEditPaymentMethod(String(txn.paymentMethod || 'Cash'));
         setEditWhen(local.toISOString().slice(0, 16));
     };
@@ -131,7 +159,8 @@ export default function ExpensesTab() {
     const saveEdit = async (txnId) => {
         const value = parseFloat(editAmount);
         const dt = new Date(editWhen);
-        if (!editDesc.trim() || !Number.isFinite(value) || value <= 0 || Number.isNaN(dt.getTime())) {
+        const resolvedCategory = editCategoryOption === '__custom__' ? editCustomCategory.trim() : editCategoryOption;
+        if (!editDesc.trim() || !resolvedCategory || !Number.isFinite(value) || value <= 0 || Number.isNaN(dt.getTime())) {
             alert('Please fill valid description, amount and date/time.');
             return;
         }
@@ -140,7 +169,7 @@ export default function ExpensesTab() {
                 desc: `${editType === 'income' ? 'Income' : 'Expense'}: ${editDesc.trim()}`,
                 amount: value,
                 type: editType,
-                category: editCategory.trim() || 'General',
+                category: resolvedCategory,
                 paymentMethod: editPaymentMethod,
                 source: editType === 'income' ? 'admin-income' : 'admin-expense',
                 date: dt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
@@ -196,7 +225,35 @@ export default function ExpensesTab() {
                     </div>
                     <div className="md:col-span-2"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Description</label><input value={desc} onChange={(e) => setDesc(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
                     <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Amount</label><input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
-                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Category</label><input value={category} onChange={(e) => setCategory(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                    <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Category</label>
+                        <select
+                            value={categoryOption}
+                            onChange={(e) => {
+                                setCategoryOption(e.target.value);
+                                if (e.target.value !== '__custom__') {
+                                    setCategory(e.target.value);
+                                }
+                            }}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        >
+                            {EXPENSE_CATEGORY_OPTIONS.map((item) => (
+                                <option key={`add-cat-${item}`} value={item}>{item}</option>
+                            ))}
+                            <option value="__custom__">Custom...</option>
+                        </select>
+                        {categoryOption === '__custom__' && (
+                            <input
+                                value={customCategory}
+                                onChange={(e) => {
+                                    setCustomCategory(e.target.value);
+                                    setCategory(e.target.value);
+                                }}
+                                placeholder="Enter custom category"
+                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                            />
+                        )}
+                    </div>
                     <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Payment</label><select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option>Cash</option><option>Visa</option><option>Online</option><option>Bank Transfer</option></select></div>
                     <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Date & Time</label><input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
                     <div className="md:col-span-7"><button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">Save Entry</button></div>
@@ -215,7 +272,7 @@ export default function ExpensesTab() {
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="min-w-0">
                                         <p className="text-sm font-bold text-slate-800 truncate">{txn.desc}</p>
-                                        <p className="text-[11px] text-slate-500">{txn.date} {txn.time} · {txn.category || 'General'} · {txn.paymentMethod || 'Cash'}</p>
+                                        <p className="text-[11px] text-slate-500">{txn.date} {txn.time} | {txn.category || 'General'} | {txn.paymentMethod || 'Cash'}</p>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <p className={`text-sm font-black ${isIncome ? 'text-emerald-600' : 'text-red-600'}`}>{isIncome ? '+' : '-'}{priceTag(txn.amount)}</p>
@@ -234,7 +291,35 @@ export default function ExpensesTab() {
                                     </div>
                                     <div className="md:col-span-2"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Description</label><input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
                                     <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Amount</label><input type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
-                                    <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Category</label><input value={editCategory} onChange={(e) => setEditCategory(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Category</label>
+                                        <select
+                                            value={editCategoryOption}
+                                            onChange={(e) => {
+                                                setEditCategoryOption(e.target.value);
+                                                if (e.target.value !== '__custom__') {
+                                                    setEditCategory(e.target.value);
+                                                }
+                                            }}
+                                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                        >
+                                            {EXPENSE_CATEGORY_OPTIONS.map((item) => (
+                                                <option key={`edit-cat-${item}`} value={item}>{item}</option>
+                                            ))}
+                                            <option value="__custom__">Custom...</option>
+                                        </select>
+                                        {editCategoryOption === '__custom__' && (
+                                            <input
+                                                value={editCustomCategory}
+                                                onChange={(e) => {
+                                                    setEditCustomCategory(e.target.value);
+                                                    setEditCategory(e.target.value);
+                                                }}
+                                                placeholder="Enter custom category"
+                                                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                            />
+                                        )}
+                                    </div>
                                     <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Payment</label><select value={editPaymentMethod} onChange={(e) => setEditPaymentMethod(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option>Cash</option><option>Visa</option><option>Online</option><option>Bank Transfer</option></select></div>
                                     <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Date & Time</label><input type="datetime-local" value={editWhen} onChange={(e) => setEditWhen(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
                                     <div className="md:col-span-7 flex items-center justify-end gap-2">
@@ -250,3 +335,4 @@ export default function ExpensesTab() {
         </div>
     );
 }
+
