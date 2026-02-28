@@ -37,6 +37,29 @@ function safeText(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function parseTransactionDate(txn) {
+    const parsed = new Date(txn?.timestamp || `${txn?.date || ''} ${txn?.time || ''}`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isCashbookEntry(txn) {
+    const source = String(txn?.source || '').toLowerCase();
+    return source === 'admin'
+        || source === 'admin-income'
+        || source === 'admin-expense'
+        || source === 'cashbook';
+}
+
+function isRepairRevenueTransaction(txn) {
+    if (String(txn?.type || '').toLowerCase() !== 'income') return false;
+    const source = String(txn?.source || '').toLowerCase();
+    const category = String(txn?.category || '').toLowerCase();
+    return source === 'repair'
+        || source.startsWith('repair-')
+        || source.startsWith('repair_')
+        || category.includes('repair');
+}
+
 export default function InsightsTab() {
     const { transactions, products } = useInventory();
     const { isAdminLike, slowMovingDays, salesmen, attendanceLogs } = useAuth();
@@ -131,15 +154,16 @@ export default function InsightsTab() {
             const tDate = safeDate(t.timestamp);
             if (!tDate) return false;
             const amount = parseFloat(t.amount) || 0;
+            const isSalesIncome = t.type === 'income' && !isCashbookEntry(t);
 
             // For Growth calc
-            if (t.type === 'income') {
+            if (isSalesIncome) {
                 if (tDate >= lastWeekCutoff) currentWeekSales += amount;
                 else if (tDate >= twoWeeksAgoCutoff && tDate < lastWeekCutoff) lastWeekSales += amount;
             }
 
             // Main Filter — only income transactions (no fixed expenses in sales data)
-            return tDate >= rangeStart && tDate <= rangeEnd && t.type === 'income';
+            return tDate >= rangeStart && tDate <= rangeEnd && isSalesIncome;
         });
 
         // Sales Growth %
@@ -259,6 +283,7 @@ export default function InsightsTab() {
             // ── Salesman Aggregation (shop sales only) ──
             if (String(t.source || 'shop').toLowerCase() !== 'repair') {
                 const salesman = resolveSalesmanName(t);
+                if (!salesman || salesman.toLowerCase() === 'unknown') return;
                 if (!salesmanStats[salesman]) salesmanStats[salesman] = { name: salesman, sales: 0, marginSum: 0, count: 0, totalDiscount: 0, profit: 0 };
 
                 salesmanStats[salesman].sales += saleAmount;
@@ -368,7 +393,7 @@ export default function InsightsTab() {
         sevenDaysAgo.setDate(now.getDate() - 7);
 
         transactions.forEach(t => {
-            if (!t.timestamp || t.type !== 'income') return;
+            if (!t.timestamp || t.type !== 'income' || isCashbookEntry(t)) return;
             const tDate = new Date(t.timestamp);
             const hour = tDate.getHours();
 
@@ -503,7 +528,13 @@ export default function InsightsTab() {
         const pending = filtered.filter(j => j.status === 'pending').length;
         const inProgress = filtered.filter(j => j.status === 'in_progress').length;
         const completed = filtered.filter(j => j.status === 'completed');
-        const completedRevenue = completed.reduce((sum, j) => sum + (parseFloat(j.finalAmount) || parseFloat(j.estimatedCost) || 0), 0);
+        const repairRevenueTxns = transactions
+            .filter((txn) => isRepairRevenueTransaction(txn))
+            .filter((txn) => {
+                const d = parseTransactionDate(txn);
+                return d && d >= rangeStart && d <= rangeEnd;
+            });
+        const completedRevenue = repairRevenueTxns.reduce((sum, txn) => sum + (parseFloat(txn.amount) || 0), 0);
         const estimatedTotal = filtered.reduce((sum, j) => sum + (parseFloat(j.estimatedCost) || 0), 0);
 
         // Average turnaround (days) for completed
@@ -518,7 +549,7 @@ export default function InsightsTab() {
         }
 
         return { total: filtered.length, pending, inProgress, completed: completed.length, completedRevenue, estimatedTotal, avgTurnaround };
-    }, [repairJobs, repairDateFilter]);
+    }, [repairJobs, repairDateFilter, transactions]);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">

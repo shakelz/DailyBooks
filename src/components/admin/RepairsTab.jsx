@@ -32,6 +32,21 @@ export default function RepairsTab() {
         return Number.isNaN(parsed.getTime()) ? null : parsed;
     };
 
+    const parseTransactionDate = (txn) => {
+        const parsed = new Date(txn?.timestamp || `${txn?.date || ''} ${txn?.time || ''}`);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const isRepairRevenueTransaction = (txn) => {
+        if (String(txn?.type || '').toLowerCase() !== 'income') return false;
+        const source = String(txn?.source || '').toLowerCase();
+        const category = String(txn?.category || '').toLowerCase();
+        return source === 'repair'
+            || source.startsWith('repair-')
+            || source.startsWith('repair_')
+            || category.includes('repair');
+    };
+
     const dateFilteredJobs = useMemo(() => {
         const rangeStart = new Date(dateSelection[0].startDate);
         rangeStart.setHours(0, 0, 0, 0);
@@ -50,10 +65,7 @@ export default function RepairsTab() {
         const pendingCount = dateFilteredJobs.filter(j => j.status === 'pending').length;
         const totalJobs = dateFilteredJobs.length;
         const completedCount = dateFilteredJobs.filter(j => j.status === 'completed').length;
-        const totalRevenue = dateFilteredJobs
-            .filter(j => j.status === 'completed' && j.finalAmount)
-            .reduce((sum, j) => sum + (parseFloat(j.finalAmount) || 0), 0);
-        return { pendingCount, totalJobs, completedCount, totalRevenue };
+        return { pendingCount, totalJobs, completedCount };
     }, [dateFilteredJobs]);
 
     // ── Filter Jobs ──
@@ -80,13 +92,18 @@ export default function RepairsTab() {
         const rangeEnd = new Date(dateSelection[0].endDate);
         rangeEnd.setHours(23, 59, 59, 999);
         return (transactions || [])
-            .filter((txn) => String(txn?.source || '').toLowerCase() === 'repair')
+            .filter((txn) => isRepairRevenueTransaction(txn))
             .filter((txn) => {
-                const d = new Date(txn.timestamp || `${txn.date || ''} ${txn.time || ''}`);
-                return !Number.isNaN(d.getTime()) && d >= rangeStart && d <= rangeEnd;
+                const d = parseTransactionDate(txn);
+                return d && d >= rangeStart && d <= rangeEnd;
             })
-            .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+            .sort((a, b) => (parseTransactionDate(b)?.getTime() || 0) - (parseTransactionDate(a)?.getTime() || 0));
     }, [transactions, dateSelection]);
+
+    const repairRevenueTotal = useMemo(
+        () => repairTransactions.reduce((sum, txn) => sum + (parseFloat(txn.amount) || 0), 0),
+        [repairTransactions]
+    );
 
     // ── Mark Complete (opens Modal) ──
     const handleInitiateComplete = (job) => {
@@ -193,7 +210,7 @@ export default function RepairsTab() {
                         <div className="p-2 bg-violet-50 rounded-lg text-violet-500"><DollarSign size={18} /></div>
                         <span className="text-[10px] font-bold text-slate-400 uppercase">Revenue</span>
                     </div>
-                    <p className="text-2xl font-black text-violet-600">{priceTag(kpis.totalRevenue)}</p>
+                    <p className="text-2xl font-black text-violet-600">{priceTag(repairRevenueTotal)}</p>
                 </div>
             </div>
 

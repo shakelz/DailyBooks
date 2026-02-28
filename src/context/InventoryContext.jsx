@@ -80,11 +80,15 @@ function normalizeInventoryRecord(product) {
     const categoryHierarchy = buildCategoryHierarchy(source.category, source.categoryPath, rawAttrs);
     const attributePurchaseFrom = cleanText(rawAttrs[PURCHASE_FROM_KEY]);
     const attributePaymentMode = cleanText(rawAttrs[PAYMENT_MODE_KEY]);
+    const attributeImage = cleanText(rawAttrs.image) || cleanText(rawAttrs.imageUrl) || cleanText(rawAttrs.image_url);
 
     const publicAttrs = { ...rawAttrs };
     delete publicAttrs[CATEGORY_HIERARCHY_KEY];
     delete publicAttrs[PURCHASE_FROM_KEY];
     delete publicAttrs[PAYMENT_MODE_KEY];
+    delete publicAttrs.image;
+    delete publicAttrs.imageUrl;
+    delete publicAttrs.image_url;
     const normalizedAttrs = Object.entries(publicAttrs).reduce((acc, [key, value]) => {
         if (isCategoryHierarchyObject(value)) return acc;
         const normalizedValue = stringifyAttributeValue(value);
@@ -121,6 +125,7 @@ function normalizeInventoryRecord(product) {
         categoryPath: normalizedPath,
         purchaseFrom: normalizedPurchaseFrom,
         paymentMode: normalizedPaymentMode,
+        image: cleanText(source.image) || cleanText(source.image_url) || attributeImage || '',
         attributes: normalizedAttrs,
     };
 }
@@ -129,6 +134,7 @@ function buildInventoryPayload(product, includeId = false, shopId = '') {
     const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
     const purchaseFrom = cleanText(product?.purchaseFrom);
     const paymentMode = cleanText(product?.paymentMode);
+    const imageValue = cleanText(product?.image) || cleanText(product?.imageUrl) || cleanText(product?.image_url);
     const payloadAttributes = {
         ...(product?.attributes && typeof product.attributes === 'object' ? product.attributes : {})
     };
@@ -152,6 +158,12 @@ function buildInventoryPayload(product, includeId = false, shopId = '') {
         payloadAttributes[PAYMENT_MODE_KEY] = paymentMode;
     } else {
         delete payloadAttributes[PAYMENT_MODE_KEY];
+    }
+
+    if (imageValue) {
+        payloadAttributes.image = imageValue;
+    } else {
+        delete payloadAttributes.image;
     }
 
     const payload = withShopId({

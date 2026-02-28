@@ -134,7 +134,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                     <div class="row"><span>Belegnummer</span><span>${escapeHtml(transactionId)}</span></div>
                     <div class="line"></div>
                     <div class="row" style="font-weight:700; border-bottom:1px solid #000; padding-bottom:4px;"><span>Artikel</span><span>Betrag</span></div>
-                    <div class="row"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)} A</span></div>
+                    <div class="row"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)}</span></div>
                     <div class="row"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
                     <div class="row"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
                     <div class="line"></div>

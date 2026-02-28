@@ -110,6 +110,26 @@ function buildTransactionDraft(txn = {}) {
     };
 }
 
+function resolveProductImage(product = {}) {
+    const attrs = product.attributes && typeof product.attributes === 'object' ? product.attributes : {};
+    const candidates = [
+        product.image,
+        product.imageUrl,
+        product.image_url,
+        product.photo,
+        product.thumbnail,
+        product.productImage,
+        product.product_image,
+        attrs.image,
+        attrs.imageUrl,
+        attrs.image_url,
+        attrs.photo,
+        attrs.thumbnail,
+    ];
+    const found = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+    return found ? found.trim() : '';
+}
+
 function resolveProductSnapshot(product = {}) {
     const categoryRaw = product.category || product.productCategory || product.cat || '';
     const sellingPrice = Number(
@@ -128,8 +148,17 @@ function resolveProductSnapshot(product = {}) {
         stock: Number(product.stock ?? product.qty ?? product.quantity ?? 0) || 0,
         sellingPrice,
         purchasePrice,
+        image: resolveProductImage(product),
         raw: product,
     };
+}
+
+function isCashbookTransaction(txn = {}) {
+    const source = String(txn?.source || '').toLowerCase();
+    return source === 'admin'
+        || source === 'admin-income'
+        || source === 'admin-expense'
+        || source === 'cashbook';
 }
 
 function categoryTotals(transactions) {
@@ -178,7 +207,7 @@ function buildReceiptHtml({
         return `
             <div class="line-item">
                 <div class="line-name">${qty}x ${escapeHtml(row?.name || 'Artikel')}</div>
-                <div class="line-price">${formatMoney(lineTotal)} A</div>
+                <div class="line-price">${formatMoney(lineTotal)}</div>
             </div>
         `;
     }).join('');
@@ -217,7 +246,7 @@ function buildReceiptHtml({
 
                 <div class="line"></div>
                 <div class="row head"><span>Artikel</span><span>Betrag</span></div>
-                ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 EUR A</div></div>'}
+                ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 EUR</div></div>'}
 
                 <div class="line"></div>
                 <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
@@ -228,7 +257,7 @@ function buildReceiptHtml({
                         <tbody>
                             <tr><td>USt. %</td><td>Netto</td><td>USt.</td><td>Brutto</td></tr>
                             <tr>
-                                <td>A 19%</td>
+                                <td>19%</td>
                                 <td>${formatMoney(netTotal)}</td>
                                 <td>${formatMoney(taxTotal)}</td>
                                 <td>${formatMoney(grossTotal)}</td>
@@ -441,12 +470,16 @@ export default function SalesmanDashboard() {
     );
 
     const revenueTransactions = useMemo(
-        () => todayTransactions.filter((txn) => txn.type === 'income'),
+        () => todayTransactions.filter((txn) => {
+            if (txn.type !== 'income') return false;
+            return !isCashbookTransaction(txn);
+        }),
         [todayTransactions]
     );
     const purchaseTransactions = useMemo(
         () => todayTransactions.filter((txn) => {
             if (txn.type !== 'expense') return false;
+            if (isCashbookTransaction(txn)) return false;
             const source = String(txn.source || '').toLowerCase();
             const desc = String(txn.desc || '').toLowerCase();
             return source === 'purchase'
@@ -705,6 +738,15 @@ export default function SalesmanDashboard() {
         }
     };
 
+    const handleSalesFormEnterKey = (event) => {
+        if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+        const tagName = String(event.target?.tagName || '').toLowerCase();
+        if (tagName === 'textarea' || tagName === 'button' || tagName === 'select') return;
+        if (showSalesProductSuggestions && salesProductSuggestions.length > 0) return;
+        event.preventDefault();
+        submitSimpleEntry('sales');
+    };
+
     const printRecentTransaction = (txn) => {
         if (!txn) return;
 
@@ -736,6 +778,97 @@ export default function SalesmanDashboard() {
         popup.document.close();
         popup.focus();
         popup.print();
+    };
+
+    const printMobileLabel = (product) => {
+        const snapshot = resolveProductSnapshot(product);
+        const barcode = String(snapshot.barcode || '').trim() || '-';
+        const productName = String(snapshot.name || 'Mobile').trim() || 'Mobile';
+        const attrs = snapshot.raw?.attributes && typeof snapshot.raw.attributes === 'object'
+            ? snapshot.raw.attributes
+            : {};
+        const ram = attrs.RAM || attrs.Ram || attrs.ram || '';
+        const storage = attrs.Storage || attrs.storage || attrs.Memory || attrs.memory || '';
+        const specs = [String(ram || '').trim(), String(storage || '').trim()].filter(Boolean).join(' | ');
+        const priceValue = Math.round(Number(snapshot.sellingPrice) || 0);
+        const escapeHtmlSafe = (value) => String(value || '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll('\'', '&#39;');
+
+        const printWindow = window.open('', 'mobile-label-print', 'width=600,height=400');
+        if (!printWindow) return;
+
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <style>
+                        @media print {
+                            body { margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+                            @page { size: auto; margin: 0; }
+                        }
+                        body { font-family: sans-serif; }
+                        .label {
+                            width: 78mm;
+                            border: 2px solid #000;
+                            padding: 10px;
+                            box-sizing: border-box;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            text-align: center;
+                        }
+                        .barcode-font {
+                            font-family: 'Libre Barcode 39', cursive;
+                            font-size: 34px;
+                            line-height: 1;
+                            margin: 5px 0 10px 0;
+                            white-space: nowrap;
+                        }
+                        .product-name {
+                            font-size: 22px;
+                            font-weight: bold;
+                            line-height: 1.1;
+                            max-height: 58px;
+                            overflow: hidden;
+                            margin-bottom: 4px;
+                        }
+                        .specs {
+                            font-size: 13px;
+                            font-weight: bold;
+                            font-family: monospace;
+                            border: 1px solid #000;
+                            padding: 2px 8px;
+                            border-radius: 4px;
+                            margin-bottom: 8px;
+                        }
+                        .price-tag {
+                            font-size: 26px;
+                            font-weight: 900;
+                            margin-top: auto;
+                            border-top: 2px solid #000;
+                            width: 100%;
+                            padding-top: 6px;
+                        }
+                    </style>
+                    <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet">
+                </head>
+                <body>
+                    <div class="label">
+                        <div class="barcode-font">*${escapeHtmlSafe(barcode)}*</div>
+                        <div class="product-name">${escapeHtmlSafe(productName)}</div>
+                        ${specs ? `<div class="specs">${escapeHtmlSafe(specs)}</div>` : ''}
+                        <div class="price-tag">${priceValue} EUR</div>
+                    </div>
+                    <script>
+                        window.onload = function () { window.print(); window.close(); };
+                    </script>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
     };
 
     const openTransactionDetailModal = (txn) => {
@@ -1403,7 +1536,11 @@ export default function SalesmanDashboard() {
                 </section>
 
                 <section className="grid grid-cols-2 gap-2 items-start">
-                    <form onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('sales'); }} className="rounded-xl border border-emerald-200 bg-white/90 p-2.5 space-y-2.5 shadow-sm backdrop-blur-sm">
+                    <form
+                        onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('sales'); }}
+                        onKeyDown={handleSalesFormEnterKey}
+                        className="rounded-xl border border-emerald-200 bg-white/90 p-2.5 space-y-2.5 shadow-sm backdrop-blur-sm"
+                    >
                         <div className="rounded-lg px-2.5 py-1.5 flex items-center justify-between bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <p className="text-xs font-semibold">New Sales Entry</p>
                             <p className="text-[11px] font-semibold">Simple</p>
@@ -1481,6 +1618,7 @@ export default function SalesmanDashboard() {
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter' && salesProductSuggestions.length > 0) {
                                             e.preventDefault();
+                                            e.stopPropagation();
                                             applyEntryProduct('sales', salesProductSuggestions[0].raw);
                                         }
                                     }}
@@ -1965,8 +2103,8 @@ export default function SalesmanDashboard() {
                                 ) : mobileInventoryProducts.map((item) => (
                                     <div key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-2 min-w-0">
-                                            {item.raw?.image ? (
-                                                <img src={item.raw.image} alt={item.snapshot.name || 'Mobile'} className="w-11 h-11 rounded-md object-cover border border-slate-200 flex-shrink-0" />
+                                            {item.snapshot.image ? (
+                                                <img src={item.snapshot.image} alt={item.snapshot.name || 'Mobile'} className="w-11 h-11 rounded-md object-cover border border-slate-200 flex-shrink-0" />
                                             ) : (
                                                 <div className="w-11 h-11 rounded-md border border-slate-200 bg-slate-100 text-slate-400 text-[10px] flex items-center justify-center flex-shrink-0">No Img</div>
                                             )}
@@ -1976,6 +2114,13 @@ export default function SalesmanDashboard() {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => printMobileLabel(item.raw)}
+                                                className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                                            >
+                                                Print Label
+                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={() => setSelectedMobileInventoryItem(item)}
@@ -2009,8 +2154,8 @@ export default function SalesmanDashboard() {
                         </div>
                         <div className="p-4 space-y-3">
                             <div className="flex items-center gap-3">
-                                {selectedMobileInventoryItem.raw?.image ? (
-                                    <img src={selectedMobileInventoryItem.raw.image} alt={selectedMobileInventoryItem.snapshot.name || 'Mobile'} className="w-16 h-16 rounded-lg border border-slate-200 object-cover" />
+                                {selectedMobileInventoryItem.snapshot.image ? (
+                                    <img src={selectedMobileInventoryItem.snapshot.image} alt={selectedMobileInventoryItem.snapshot.name || 'Mobile'} className="w-16 h-16 rounded-lg border border-slate-200 object-cover" />
                                 ) : (
                                     <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-100 text-slate-400 text-xs flex items-center justify-center">No Image</div>
                                 )}
@@ -2028,6 +2173,13 @@ export default function SalesmanDashboard() {
                             </div>
 
                             <div className="flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => printMobileLabel(selectedMobileInventoryItem.raw)}
+                                    className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                                >
+                                    Print Label
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => setSelectedMobileInventoryItem(null)}

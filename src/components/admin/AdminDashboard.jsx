@@ -484,7 +484,7 @@ export default function AdminDashboard() {
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                         <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                             <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                <span>Time</span> Staff Production & Salary
+                                <span>Staff</span> Production & Salary
                             </h3>
                             <div className="text-right">
                                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total {formattedDisplayDate}</p>
@@ -567,7 +567,7 @@ export default function AdminDashboard() {
                     <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                         <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                             <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                                <span>Log</span> Activity Log ({formattedDisplayDate})
+                                <span>Activity</span> Log ({formattedDisplayDate})
                             </h3>
                             <span className="text-[10px] bg-slate-200 px-2 py-0.5 rounded-full font-bold text-slate-600">
                                 {attendanceLogsInRange.length} Records

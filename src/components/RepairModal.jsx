@@ -113,8 +113,7 @@ export default function RepairModal({ isOpen, onClose }) {
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Courier New', monospace; width: 80mm; }
-        .label { padding: 4mm; page-break-after: always; border-bottom: 2px dashed #000; }
-        .label:last-child { border-bottom: none; page-break-after: auto; }
+        .label { padding: 4mm; border-bottom: none; page-break-after: auto; }
         .shop-name { font-size: 16px; font-weight: bold; text-align: center; margin-bottom: 2mm; }
         .shop-addr { font-size: 10px; text-align: center; margin-bottom: 3mm; color: #333; }
         .divider { border-top: 1px solid #000; margin: 2mm 0; }
@@ -148,15 +147,6 @@ export default function RepairModal({ isOpen, onClose }) {
         <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
     </div>
 
-    <!-- SHOP LABEL (stick on phone) -->
-    <div class="label">
-        <div class="title">Ladenbeleg</div>
-        <div class="ref-id" style="font-size:22px;">${esc(job.refId)}</div>
-        <div class="divider"></div>
-        <div class="problem"><strong>Fehlernotiz:</strong> ${problemNote}</div>
-        <div class="row"><span class="label-text">Geraet:</span><span>${esc(job.deviceModel)}</span></div>
-        <div class="row"><span class="label-text">Abholdatum:</span><span>${deliveryFormatted}</span></div>
-    </div>
 </body>
 </html>`;
     };

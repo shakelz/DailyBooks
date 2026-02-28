@@ -341,7 +341,6 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                         </div>
                         <div>
                             <h2 className="text-base font-bold text-slate-800">Add Product</h2>
-                            <p className="text-[11px] text-blue-500">Universal Dynamic Inventory Entry</p>
                         </div>
                     </div>
                     <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
@@ -531,8 +530,6 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                         </div>
 
                         <div className="space-y-2">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Standard Fields</p>
-
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sold By / Purchase From</label>
@@ -540,7 +537,6 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                                         type="text"
                                         value={purchaseFrom}
                                         onChange={e => setPurchaseFrom(e.target.value)}
-                                        placeholder="Source"
                                         className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 transition-all"
                                     />
                                 </div>
@@ -563,13 +559,11 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Source / Product URL</label>
                                     <input type="text" value={productUrl} onChange={e => setProductUrl(e.target.value)}
-                                        placeholder="URL / source"
                                         className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 transition-all" />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Notes</label>
                                     <textarea value={notes} onChange={e => setNotes(e.target.value)}
-                                        placeholder="Notes"
                                         rows={2}
                                         className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50 transition-all resize-none" />
                                 </div>

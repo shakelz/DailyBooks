@@ -52,6 +52,10 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
         return sum + (lineAmount - (lineAmount / 1.19));
     }, 0);
     const showTax = billShowTax !== false;
+    const formatAmount = (value) => `EUR ${Number(value || 0).toLocaleString('de-DE', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    })}`;
     const receiptShopName = activeShop?.name || 'Shop';
     const receiptShopAddress = activeShop?.address || activeShop?.location || '';
     const workerRef = String(txn?.workerId || txn?.salesmanId || '');
@@ -112,7 +116,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                         ${attrs ? `<br/>${attrs}` : ''}
                     </td>
                     <td class="text-right">${lineQty}</td>
-                    <td class="text-right">EUR ${lineAmount.toFixed(2)}</td>
+                    <td class="text-right">${formatAmount(lineAmount)}</td>
                 </tr>
             `;
         }).join('');
@@ -122,11 +126,11 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                 <table style="font-size: 10px;">
                     <tr>
                         <td>Netto (19%)</td>
-                        <td class="text-right">EUR ${net.toFixed(2)}</td>
+                        <td class="text-right">${formatAmount(net)}</td>
                     </tr>
                     <tr>
                         <td>USt (19%)</td>
-                        <td class="text-right">EUR ${tax.toFixed(2)}</td>
+                        <td class="text-right">${formatAmount(tax)}</td>
                     </tr>
                 </table>
             `
@@ -187,7 +191,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                 <table class="bold">
                     <tr>
                         <td>Zwischensumme</td>
-                        <td class="text-right">EUR ${amount.toFixed(2)}</td>
+                        <td class="text-right">${formatAmount(amount)}</td>
                     </tr>
                 </table>
 
@@ -196,7 +200,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                 <table class="bold fs-lg" style="border-top: 1px solid #000; padding-top: 4px; margin-top: 4px;">
                     <tr>
                         <td>GESAMTBETRAG</td>
-                        <td class="text-right">EUR ${amount.toFixed(2)}</td>
+                        <td class="text-right">${formatAmount(amount)}</td>
                     </tr>
                 </table>
 
@@ -351,11 +355,11 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                         </div>
                                         <div>
                                             <p className="text-[9px] font-bold text-slate-400 uppercase">Unit (At Sale)</p>
-                                            <p className="text-sm text-slate-700 font-medium">€{displayUnitAtSale.toFixed(2)}</p>
+                                            <p className="text-sm text-slate-700 font-medium">{formatAmount(displayUnitAtSale)}</p>
                                         </div>
                                         <div>
                                             <p className="text-[9px] font-bold text-slate-400 uppercase">Buy (At Sale)</p>
-                                            <p className="text-sm text-slate-700 font-medium">€{displayBuyAtSale.toFixed(2)}</p>
+                                            <p className="text-sm text-slate-700 font-medium">{formatAmount(displayBuyAtSale)}</p>
                                         </div>
                                     </div>
 
@@ -379,15 +383,15 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                     <div className="space-y-2 px-1">
                                         <div className="flex justify-between text-sm">
                                             <span className="text-slate-500">Retail Price</span>
-                                            <span className="text-slate-700 font-semibold">€{basePrice.toFixed(2)}</span>
+                                            <span className="text-slate-700 font-semibold">{formatAmount(basePrice)}</span>
                                         </div>
                                         <div className="flex justify-between text-sm">
                                             <span className="text-slate-500">Discount</span>
-                                            <span className="text-red-500 font-semibold">-€{discountValue.toFixed(2)}</span>
+                                            <span className="text-red-500 font-semibold">-{formatAmount(discountValue)}</span>
                                         </div>
                                         <div className="flex justify-between items-center pt-2 border-t border-slate-100">
                                             <span className="text-sm font-bold text-slate-800">Final Price</span>
-                                            <span className="text-lg font-bold text-emerald-600">€{amount.toFixed(2)}</span>
+                                            <span className="text-lg font-bold text-emerald-600">{formatAmount(amount)}</span>
                                         </div>
                                     </div>
                                 </section>                                {showTax && (
@@ -396,15 +400,15 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                         <div className="space-y-2 px-1">
                                             <div className="flex justify-between text-sm">
                                                 <span className="text-slate-500">Netto</span>
-                                                <span className="text-slate-700">€{net.toFixed(2)}</span>
+                                                <span className="text-slate-700">{formatAmount(net)}</span>
                                             </div>
                                             <div className="flex justify-between text-sm">
                                                 <span className="text-slate-500">USt (Tax)</span>
-                                                <span className="text-slate-700">€{tax.toFixed(2)}</span>
+                                                <span className="text-slate-700">{formatAmount(tax)}</span>
                                             </div>
                                             <div className="flex justify-between pt-2 border-t border-slate-100">
                                                 <span className="text-sm font-bold text-slate-800">Brutto</span>
-                                                <span className="text-sm font-bold text-slate-800">€{amount.toFixed(2)}</span>
+                                                <span className="text-sm font-bold text-slate-800">{formatAmount(amount)}</span>
                                             </div>
                                         </div>
                                     </section>
