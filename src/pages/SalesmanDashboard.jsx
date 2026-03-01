@@ -89,6 +89,7 @@ function newOnlineOrderForm() {
         quantity: '1',
         amount: '',
         orderDate: todayIsoDate(),
+        expectedDeliveryDate: '',
         paymentStatus: 'Paid',
         notes: '',
     };
@@ -1208,6 +1209,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                     <div class="row"><span>Status</span><span>${toSafe(order.status || 'ordered')}</span></div>
                     <div class="row"><span>Zahlung</span><span>${toSafe(order.paymentStatus || 'Paid')}</span></div>
                     <div class="row"><span>Bestelldatum</span><span>${toSafe(order.orderDate || '-')}</span></div>
+                    <div class="row"><span>Lieferdatum</span><span>${toSafe(order.expectedDeliveryDate || '-')}</span></div>
                     <div class="line"></div>
                     <div class="row"><strong>Gesamt</strong><strong>EUR ${totalPrice.toFixed(2)}</strong></div>
                     <div class="line"></div>
@@ -1590,7 +1592,7 @@ export default function SalesmanDashboard({ adminView = false }) {
             type: 'expense',
             category: row.category || 'Online Purchase',
             paymentMethod: row.paymentStatus === 'Credit' ? 'Credit' : 'Online',
-            notes: `OrderId: ${row.orderId} | Platform: ${row.platform || '-'} | Ordered: ${row.orderDate || '-'} | Color: ${row.color || '-'} | Status: ${row.paymentStatus}`,
+            notes: `OrderId: ${row.orderId} | Platform: ${row.platform || '-'} | Ordered: ${row.orderDate || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'} | Color: ${row.color || '-'} | Status: ${row.paymentStatus}`,
             source: 'online-order',
             salesmanName: user?.name,
             salesmanNumber: user?.salesmanNumber || 0,
@@ -2963,6 +2965,17 @@ export default function SalesmanDashboard({ adminView = false }) {
                                                     />
                                                     {onlineOrderErrors.orderDate && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.orderDate}</p>}
                                                 </div>
+                                                <div>
+                                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Expected Delivery</label>
+                                                    <input
+                                                        type="date"
+                                                        value={onlineOrderForm.expectedDeliveryDate}
+                                                        onChange={(e) => {
+                                                            setOnlineOrderForm((prev) => ({ ...prev, expectedDeliveryDate: e.target.value }));
+                                                        }}
+                                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                                                    />
+                                                </div>
                                                 <select value={onlineOrderForm.paymentStatus} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, paymentStatus: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs">
                                                     <option value="Paid">Paid</option>
                                                     <option value="Partial">Partial</option>
@@ -3001,6 +3014,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                                                     <p className="text-slate-500"><span className="text-slate-400">Unit Price:</span> {priceTag(order.amount || 0)}</p>
                                                     <p className="text-slate-500"><span className="text-slate-400">Total:</span> {priceTag((parseFloat(order.amount || 0) || 0) * (Math.max(1, parseInt(order.quantity || '1', 10) || 1)))}</p>
                                                     <p className="text-slate-500"><span className="text-slate-400">Order Date:</span> {order.orderDate || '-'}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Expected Delivery:</span> {order.expectedDeliveryDate || '-'}</p>
                                                     <p className="text-slate-500"><span className="text-slate-400">Payment:</span> {order.paymentStatus || '-'}</p>
                                                     <p className="text-slate-500 col-span-2"><span className="text-slate-400">Created:</span> {formatDisplayDate(order.createdAt || '')}</p>
                                                 </div>
