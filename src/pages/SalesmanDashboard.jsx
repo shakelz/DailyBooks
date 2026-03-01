@@ -3238,18 +3238,25 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         </div>
 
                         <div className="px-4 pt-3">
-                            <div className="rounded-xl bg-slate-100 p-1 grid grid-cols-1 gap-1">
+                            <div className="rounded-xl bg-slate-100 p-1 grid grid-cols-2 gap-1">
                                 <button
                                     onClick={() => setPendingTab('orders')}
                                     className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
                                 >
                                     Pending Orders
                                 </button>
+                                <button
+                                    onClick={() => setPendingTab('online')}
+                                    className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'online' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                                >
+                                    Online Orders
+                                </button>
                             </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                            <>
+                            {pendingTab === 'orders' ? (
+                                <>
                                 <button
                                     onClick={() => {
                                         setShowPendingOrders(false);
@@ -3317,7 +3324,77 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         </div>
                                     </div>
                                 ))}
-                            </>
+                                </>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={() => {
+                                            setShowPendingOrders(false);
+                                            setShowOnlineOrderForm(true);
+                                        }}
+                                        className="w-full rounded-xl bg-blue-600 text-white py-2 text-sm font-semibold hover:bg-blue-700 transition-colors"
+                                    >
+                                        + Add Online Order
+                                    </button>
+                                    {onlineOrders.filter((order) => String(order?.status || '').toLowerCase() !== 'received').length === 0 ? (
+                                        <div className="text-center py-12">
+                                            <p className="text-4xl">OK</p>
+                                            <p className="text-sm text-slate-500 mt-2">No pending online orders</p>
+                                        </div>
+                                    ) : onlineOrders
+                                        .filter((order) => String(order?.status || '').toLowerCase() !== 'received')
+                                        .map((order) => {
+                                            const { totalCost, advanceAmount, remainingAmount } = resolveOnlineOrderTotals(order);
+                                            return (
+                                                <div key={order.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <p className="text-xs font-black text-blue-600">{order.orderId || order.id}</p>
+                                                            <p className="text-sm font-bold text-slate-800 truncate">{order.itemName || 'Online Order'}</p>
+                                                        </div>
+                                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">{order.status || 'ordered'}</span>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-1 text-[11px]">
+                                                        <p className="text-slate-500"><span className="text-slate-400">Platform:</span> {order.platform || '-'}</p>
+                                                        <p className="text-slate-500"><span className="text-slate-400">Category:</span> {order.category || '-'}</p>
+                                                        <p className="text-slate-500"><span className="text-slate-400">Color:</span> {order.color || '-'}</p>
+                                                        <p className="text-slate-500"><span className="text-slate-400">Order Date:</span> {formatDisplayDate(order.orderDate || order.createdAt || '')}</p>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-3 gap-1 text-[10px]">
+                                                        <span className="rounded-md bg-violet-50 border border-violet-200 px-2 py-1 text-violet-700 font-semibold">Cost: {priceTag(totalCost)}</span>
+                                                        <span className="rounded-md bg-sky-50 border border-sky-200 px-2 py-1 text-sky-700 font-semibold">Advance: {priceTag(advanceAmount)}</span>
+                                                        <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 text-emerald-700 font-semibold">Remain: {priceTag(remainingAmount)}</span>
+                                                    </div>
+
+                                                    {order.notes ? (
+                                                        <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                                            <span className="text-slate-400">Notes:</span> {order.notes}
+                                                        </p>
+                                                    ) : null}
+
+                                                    <div className="flex justify-end gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => markOnlineOrderReceived(order.id)}
+                                                            className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-emerald-700"
+                                                        >
+                                                            Mark Received
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => printOnlineOrderBill(order)}
+                                                            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                                        >
+                                                            Print
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
