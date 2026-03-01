@@ -479,7 +479,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [transactionDraft, setTransactionDraft] = useState(null);
     const [transactionFormError, setTransactionFormError] = useState('');
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
+    const [recentlyDeletedTxn, setRecentlyDeletedTxn] = useState(null);
     const deletingZeroMobileIdsRef = useRef(new Set());
+    const deleteUndoTimeoutRef = useRef(null);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
     const canEditTransactions = adminView || Boolean(
@@ -621,6 +623,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [products]);
 
     const isMobileTransaction = (txn = {}) => {
+        const source = String(txn?.source || '').toLowerCase();
+        if (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_')) {
+            return false;
+        }
+
         const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
             ? productLookup[String(txn.productId)]
             : null;
@@ -631,6 +638,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const nameText = String(txn?.name || txn?.desc || txn?.productSnapshot?.name || '').trim();
 
         if (linkedSnapshot && isMobileLikeSnapshot(linkedSnapshot)) return true;
+
+        if (source && source !== 'shop' && source !== 'purchase') return false;
 
         const haystack = `${categoryText} ${subCategoryText} ${nameText}`.toLowerCase();
         return haystack.includes('mobile')
@@ -1244,10 +1253,45 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!confirmed) return;
         try {
             await deleteTransaction(txn.id);
-            setToast('Transaction deleted');
+            if (deleteUndoTimeoutRef.current) {
+                clearTimeout(deleteUndoTimeoutRef.current);
+                deleteUndoTimeoutRef.current = null;
+            }
+            setRecentlyDeletedTxn({ ...txn });
+            deleteUndoTimeoutRef.current = setTimeout(() => {
+                setRecentlyDeletedTxn(null);
+                deleteUndoTimeoutRef.current = null;
+            }, 8000);
+
+            setToast('Transaction deleted (Undo available)');
             setTimeout(() => setToast(''), 1800);
         } catch (error) {
             alert(error?.message || 'Failed to delete transaction');
+        }
+    };
+
+    const handleUndoDeleteTransaction = async () => {
+        if (!recentlyDeletedTxn) return;
+        const txn = { ...recentlyDeletedTxn };
+        setRecentlyDeletedTxn(null);
+        if (deleteUndoTimeoutRef.current) {
+            clearTimeout(deleteUndoTimeoutRef.current);
+            deleteUndoTimeoutRef.current = null;
+        }
+
+        try {
+            await addTransaction({ ...txn, id: txn.id });
+
+            if (txn.productId) {
+                const qty = Math.max(1, parseInt(txn.quantity || '1', 10) || 1);
+                const stockDelta = String(txn.type || '').toLowerCase() === 'income' ? -qty : qty;
+                await adjustStock(txn.productId, stockDelta);
+            }
+
+            setToast('Transaction restored');
+            setTimeout(() => setToast(''), 1800);
+        } catch (error) {
+            alert(error?.message || 'Failed to restore transaction');
         }
     };
 
@@ -2534,6 +2578,19 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             {toast && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-xl bg-slate-900 text-white px-3 py-2 text-xs font-semibold z-50">
                     {toast}
+                </div>
+            )}
+
+            {recentlyDeletedTxn && (
+                <div className="fixed bottom-16 left-1/2 -translate-x-1/2 rounded-xl bg-amber-600 text-white px-3 py-2 text-xs font-semibold z-50 flex items-center gap-2">
+                    <span>Transaction deleted</span>
+                    <button
+                        type="button"
+                        onClick={handleUndoDeleteTransaction}
+                        className="rounded-md bg-white/20 px-2 py-0.5 hover:bg-white/30"
+                    >
+                        Undo
+                    </button>
                 </div>
             )}
 
