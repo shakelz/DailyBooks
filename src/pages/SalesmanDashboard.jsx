@@ -426,6 +426,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         addTransaction,
         updateTransaction,
         adjustStock,
+        deleteProduct,
         getStockSeverity,
         getLevel1Categories,
         getLevel2Categories,
@@ -477,6 +478,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [transactionDraft, setTransactionDraft] = useState(null);
     const [transactionFormError, setTransactionFormError] = useState('');
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
+    const deletingZeroMobileIdsRef = useRef(new Set());
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
     const canEditTransactions = adminView || Boolean(
@@ -863,8 +865,44 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
                 return searchable.includes(query);
             })
-            .sort((a, b) => String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' }));
+            .sort((a, b) => {
+                const aMs = Date.parse(String(a.raw?.timestamp || ''));
+                const bMs = Date.parse(String(b.raw?.timestamp || ''));
+                const hasA = Number.isFinite(aMs);
+                const hasB = Number.isFinite(bMs);
+                if (hasA && hasB && aMs !== bMs) return bMs - aMs;
+                if (hasA && !hasB) return -1;
+                if (!hasA && hasB) return 1;
+                return String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' });
+            });
     }, [mobileInventorySearch, products]);
+
+    useEffect(() => {
+        const zeroStockMobiles = (products || [])
+            .map((product) => {
+                const snapshot = resolveProductSnapshot(product);
+                return { raw: product, snapshot };
+            })
+            .filter(({ raw, snapshot }) => {
+                const id = String(raw?.id || '').trim();
+                if (!id) return false;
+                if (!isMobileLikeSnapshot(snapshot)) return false;
+                const stockValue = Number(snapshot.stock) || 0;
+                return stockValue <= 0;
+            });
+
+        zeroStockMobiles.forEach(({ raw }) => {
+            const id = String(raw?.id || '').trim();
+            if (!id || deletingZeroMobileIdsRef.current.has(id)) return;
+
+            deletingZeroMobileIdsRef.current.add(id);
+            Promise.resolve(deleteProduct(id))
+                .catch(() => { })
+                .finally(() => {
+                    deletingZeroMobileIdsRef.current.delete(id);
+                });
+        });
+    }, [products, deleteProduct]);
 
     const otherInventoryProducts = useMemo(() => {
         const query = String(otherInventorySearch || '').trim().toLowerCase();
