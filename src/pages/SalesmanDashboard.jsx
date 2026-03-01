@@ -86,8 +86,8 @@ function newOnlineOrderForm() {
         category: '',
         color: '',
         customColor: '',
-        quantity: '1',
-        amount: '',
+        totalCost: '',
+        advanceAmount: '',
         orderDate: todayIsoDate(),
         expectedDeliveryDate: '',
         paymentStatus: 'Paid',
@@ -550,14 +550,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         return { start: todayStart, end: todayEnd, label: 'Today' };
     }, [adminView, adminDashboardDateSelection, todayStart, todayEnd]);
-
-    const todayTransactions = useMemo(
-        () => transactions.filter((txn) => {
-            const dt = txn?.timestamp ? new Date(txn.timestamp) : null;
-            return dt && !Number.isNaN(dt.getTime()) && dt >= todayStart && dt <= todayEnd;
-        }),
-        [transactions, todayStart, todayEnd]
-    );
 
     const rangeTransactions = useMemo(
         () => transactions.filter((txn) => {
@@ -1371,9 +1363,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const printOnlineOrderBill = (order) => {
         if (!order) return;
-        const qty = Math.max(1, parseInt(order.quantity || '1', 10) || 1);
-        const unitPrice = parseFloat(order.amount || 0) || 0;
-        const totalPrice = qty * unitPrice;
+        const totalPrice = Number(order.totalCost ?? order.amount) || 0;
+        const advanceAmount = Number(order.advanceAmount) || 0;
+        const remainingAmount = Math.max(0, totalPrice - advanceAmount);
         const popup = window.open('', 'online-order-bill', 'width=420,height=760');
         if (!popup) return;
 
@@ -1406,14 +1398,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <div class="row"><span>Artikel</span><span>${toSafe(order.itemName || '-')}</span></div>
                     <div class="row"><span>Kategorie</span><span>${toSafe(order.category || '-')}</span></div>
                     <div class="row"><span>Farbe</span><span>${toSafe(order.color || '-')}</span></div>
-                    <div class="row"><span>Qty</span><span>${qty}</span></div>
-                    <div class="row"><span>Preis/Einheit</span><span>EUR ${unitPrice.toFixed(2)}</span></div>
                     <div class="row"><span>Status</span><span>${toSafe(order.status || 'ordered')}</span></div>
                     <div class="row"><span>Zahlung</span><span>${toSafe(order.paymentStatus || 'Paid')}</span></div>
                     <div class="row"><span>Bestelldatum</span><span>${toSafe(order.orderDate || '-')}</span></div>
                     <div class="row"><span>Lieferdatum</span><span>${toSafe(order.expectedDeliveryDate || '-')}</span></div>
                     <div class="line"></div>
-                    <div class="row"><strong>Gesamt</strong><strong>EUR ${totalPrice.toFixed(2)}</strong></div>
+                    <div class="row"><span>Kosten</span><span>EUR ${totalPrice.toFixed(2)}</span></div>
+                    <div class="row"><span>Anzahlung</span><span>EUR ${advanceAmount.toFixed(2)}</span></div>
+                    <div class="row"><strong>Restbetrag</strong><strong>EUR ${remainingAmount.toFixed(2)}</strong></div>
                     <div class="line"></div>
                     <p style="font-size:10px">${toSafe(order.notes || '-')}</p>
                 </body>
@@ -1424,29 +1416,80 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         popup.print();
     };
 
+    const hasRepairStageTransaction = (job, stage = 'ADVANCE') => {
+        const marker = `RepairRef:${job?.refId || job?.id || ''}`;
+        const stageMarker = `${marker} | Stage:${stage}`;
+        return (transactions || []).some((txn) => (
+            String(txn?.source || '').toLowerCase() === 'repair'
+            && String(txn?.notes || '').includes(stageMarker)
+        ));
+    };
+
+    const ensureRepairAdvanceTransaction = async (job) => {
+        if (!job?.id) return;
+        const advanceAmount = Number(job.advanceAmount || 0) || 0;
+        if (advanceAmount <= 0) return;
+        if (hasRepairStageTransaction(job, 'ADVANCE')) return;
+
+        const marker = `RepairRef:${job.refId || job.id}`;
+        const bookedAt = job?.createdAt ? new Date(job.createdAt) : new Date();
+        const when = Number.isNaN(bookedAt.getTime()) ? new Date() : bookedAt;
+
+        await addTransaction({
+            desc: `Repair Advance: ${job.deviceModel || 'Device'} (${job.refId || job.id})`,
+            amount: advanceAmount,
+            quantity: 1,
+            type: 'income',
+            category: 'Repair Service',
+            paymentMethod: 'Cash',
+            notes: `${marker} | Stage:ADVANCE | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
+            source: 'repair',
+            salesmanName: user?.name,
+            salesmanNumber: user?.salesmanNumber || 0,
+            workerId: String(user?.id || ''),
+            timestamp: when.toISOString(),
+            date: when.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+            time: when.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+        });
+    };
+
+    useEffect(() => {
+        const syncRepairAdvances = async () => {
+            for (const job of (repairJobs || [])) {
+                try {
+                    await ensureRepairAdvanceTransaction(job);
+                } catch {
+                    // ignore non-critical sync failures
+                }
+            }
+        };
+        syncRepairAdvances();
+    }, [repairJobs, transactions]);
+
     const completePendingRepair = async (job) => {
         if (!job?.id) return;
         try {
             const finalAmount = Number(job.finalAmount || job.estimatedCost || 0) || 0;
+            const advanceAmount = Number(job.advanceAmount || 0) || 0;
+            const remainingAmount = Math.max(0, finalAmount - advanceAmount);
             await updateRepairStatus(job.id, 'completed', {
                 completedAt: new Date().toISOString(),
                 finalAmount,
             });
-            const marker = `RepairRef:${job.refId || job.id}`;
-            const alreadyLogged = todayTransactions.some((txn) => (
-                String(txn.source || '').toLowerCase() === 'repair'
-                && String(txn.notes || '').includes(marker)
-            ));
-            if (!alreadyLogged && finalAmount > 0) {
+
+            await ensureRepairAdvanceTransaction(job);
+
+            if (remainingAmount > 0 && !hasRepairStageTransaction(job, 'REMAINING')) {
+                const marker = `RepairRef:${job.refId || job.id}`;
                 const now = new Date();
                 await addTransaction({
-                    desc: `Repair Service: ${job.deviceModel || 'Device'} (${job.refId || job.id})`,
-                    amount: finalAmount,
+                    desc: `Repair Remaining: ${job.deviceModel || 'Device'} (${job.refId || job.id})`,
+                    amount: remainingAmount,
                     quantity: 1,
                     type: 'income',
                     category: 'Repair Service',
                     paymentMethod: 'Cash',
-                    notes: `${marker} | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
+                    notes: `${marker} | Stage:REMAINING | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
                     source: 'repair',
                     salesmanName: user?.name,
                     salesmanNumber: user?.salesmanNumber || 0,
@@ -1750,6 +1793,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return () => window.removeEventListener('keydown', handleCalcKeyboard);
     }, [showCalc, calcDisplay, calcPrev, calcOp]);
 
+    const resolveOnlineOrderTotals = (order = {}) => {
+        const totalCost = Number(order?.totalCost ?? order?.amount) || 0;
+        const advanceAmount = Number(order?.advanceAmount) || 0;
+        const remainingAmount = Math.max(0, totalCost - advanceAmount);
+        return { totalCost, advanceAmount, remainingAmount };
+    };
+
+    const hasOnlineOrderStageTransaction = (order, stage = 'ADVANCE') => {
+        const marker = `OnlineOrderRef:${order?.orderId || order?.id || ''}`;
+        const stageMarker = `${marker} | Stage:${stage}`;
+        return (transactions || []).some((txn) => (
+            String(txn?.source || '').toLowerCase() === 'online-order'
+            && String(txn?.notes || '').includes(stageMarker)
+        ));
+    };
+
     const validateOnlineOrderForm = () => {
         const nextErrors = {};
         if (!String(onlineOrderForm.orderId || '').trim()) nextErrors.orderId = 'Order ID is required';
@@ -1760,10 +1819,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (onlineOrderForm.color === 'Custom' && !String(onlineOrderForm.customColor || '').trim()) {
             nextErrors.customColor = 'Enter custom color';
         }
-        const qty = Math.max(1, parseInt(onlineOrderForm.quantity || '1', 10) || 1);
-        const amount = parseFloat(onlineOrderForm.amount || '0') || 0;
-        if (!qty || qty <= 0) nextErrors.quantity = 'Enter valid quantity';
-        if (!amount || amount <= 0) nextErrors.amount = 'Enter valid amount';
+        const totalCost = Number(onlineOrderForm.totalCost) || 0;
+        const advanceAmount = Math.max(0, Number(onlineOrderForm.advanceAmount) || 0);
+        if (!totalCost || totalCost <= 0) nextErrors.totalCost = 'Enter valid cost';
+        if (advanceAmount > totalCost) nextErrors.advanceAmount = 'Advance cannot exceed cost';
         if (!String(onlineOrderForm.orderDate || '').trim()) nextErrors.orderDate = 'Select order date';
         setOnlineOrderErrors(nextErrors);
         return Object.keys(nextErrors).length === 0;
@@ -1775,34 +1834,40 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const resolvedColor = onlineOrderForm.color === 'Custom'
             ? String(onlineOrderForm.customColor || '').trim()
             : String(onlineOrderForm.color || '').trim();
+        const totalCost = Number(onlineOrderForm.totalCost) || 0;
+        const advanceAmount = Math.max(0, Number(onlineOrderForm.advanceAmount) || 0);
 
         const row = {
             id: String(Date.now()),
             ...onlineOrderForm,
             color: resolvedColor,
-            quantity: Math.max(1, parseInt(onlineOrderForm.quantity || '1', 10) || 1),
-            amount: parseFloat(onlineOrderForm.amount || '0') || 0,
+            totalCost,
+            advanceAmount,
             status: 'ordered',
             createdAt: new Date().toISOString(),
         };
         setOnlineOrders((prev) => [row, ...prev]);
 
-        await addTransaction({
-            desc: `Online Purchase: ${row.itemName}`,
-            amount: row.amount * row.quantity,
-            quantity: row.quantity,
-            type: 'expense',
-            category: row.category || 'Online Purchase',
-            paymentMethod: row.paymentStatus === 'Credit' ? 'Credit' : 'Online',
-            notes: `OrderId: ${row.orderId} | Platform: ${row.platform || '-'} | Ordered: ${row.orderDate || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'} | Color: ${row.color || '-'} | Status: ${row.paymentStatus}`,
-            source: 'online-order',
-            salesmanName: user?.name,
-            salesmanNumber: user?.salesmanNumber || 0,
-            workerId: String(user?.id || ''),
-            timestamp: new Date().toISOString(),
-            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-        });
+        if (advanceAmount > 0 && !hasOnlineOrderStageTransaction(row, 'ADVANCE')) {
+            const marker = `OnlineOrderRef:${row.orderId || row.id}`;
+            const bookedAt = buildSelectedDate(row.orderDate || todayIsoDate());
+            await addTransaction({
+                desc: `Online Order Advance: ${row.itemName}`,
+                amount: advanceAmount,
+                quantity: 1,
+                type: 'expense',
+                category: row.category || 'Online Purchase',
+                paymentMethod: row.paymentStatus === 'Credit' ? 'Credit' : 'Online',
+                notes: `${marker} | Stage:ADVANCE | Platform: ${row.platform || '-'} | Color: ${row.color || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
+                source: 'online-order',
+                salesmanName: user?.name,
+                salesmanNumber: user?.salesmanNumber || 0,
+                workerId: String(user?.id || ''),
+                timestamp: bookedAt.toISOString(),
+                date: bookedAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: bookedAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            });
+        }
 
         setOnlineOrderForm(newOnlineOrderForm());
         setOnlineOrderErrors({});
@@ -1810,8 +1875,36 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setPendingTab('online');
     };
 
-    const markOnlineOrderReceived = (id) => {
-        setOnlineOrders((prev) => prev.map((order) => order.id === id ? { ...order, status: 'received' } : order));
+    const markOnlineOrderReceived = async (id) => {
+        const target = onlineOrders.find((order) => String(order.id) === String(id));
+        if (!target) return;
+
+        const { totalCost, advanceAmount, remainingAmount } = resolveOnlineOrderTotals(target);
+        const marker = `OnlineOrderRef:${target.orderId || target.id}`;
+
+        if (remainingAmount > 0 && !hasOnlineOrderStageTransaction(target, 'REMAINING')) {
+            const settledAt = new Date();
+            await addTransaction({
+                desc: `Online Order Remaining: ${target.itemName || 'Order'}`,
+                amount: remainingAmount,
+                quantity: 1,
+                type: 'expense',
+                category: target.category || 'Online Purchase',
+                paymentMethod: target.paymentStatus === 'Credit' ? 'Credit' : 'Online',
+                notes: `${marker} | Stage:REMAINING | Platform: ${target.platform || '-'} | Total: ${totalCost.toFixed(2)} | Advance: ${advanceAmount.toFixed(2)}`,
+                source: 'online-order',
+                salesmanName: user?.name,
+                salesmanNumber: user?.salesmanNumber || 0,
+                workerId: String(user?.id || ''),
+                timestamp: settledAt.toISOString(),
+                date: settledAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: settledAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            });
+        }
+
+        setOnlineOrders((prev) => prev.map((order) => order.id === id
+            ? { ...order, status: 'received', receivedAt: new Date().toISOString() }
+            : order));
     };
 
     const salesByCategory = useMemo(() => categoryTotals(nonMobileRevenueTransactions), [nonMobileRevenueTransactions]);
@@ -3206,171 +3299,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             {pendingTab === 'online' && (
                                 <>
                                     <button
-                                        onClick={() => setShowOnlineOrderForm((prev) => !prev)}
+                                        onClick={() => setShowOnlineOrderForm(true)}
                                         className="w-full rounded-xl bg-blue-600 text-white py-2 text-sm font-semibold hover:bg-blue-700 transition-colors"
                                     >
-                                        {showOnlineOrderForm ? 'Hide Online Order Form' : '+ Add Online Order'}
+                                        + Add Online Order
                                     </button>
-
-                                    {showOnlineOrderForm && (
-                                        <form onSubmit={saveOnlineOrder} className="rounded-xl border border-blue-200 bg-blue-50/40 p-3 space-y-2 animate-in fade-in-0 slide-in-from-top-2 duration-300">
-                                            <div className="grid grid-cols-2 gap-1.5">
-                                                <div className="col-span-2 grid grid-cols-[1fr_auto] gap-1.5">
-                                                    <div>
-                                                        <input
-                                                            value={onlineOrderForm.orderId}
-                                                            onChange={(e) => {
-                                                                setOnlineOrderForm((prev) => ({ ...prev, orderId: e.target.value }));
-                                                                setOnlineOrderErrors((prev) => ({ ...prev, orderId: '' }));
-                                                            }}
-                                                            placeholder="Order ID"
-                                                            className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.orderId ? 'border-rose-300' : 'border-slate-200'}`}
-                                                        />
-                                                        {onlineOrderErrors.orderId && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.orderId}</p>}
-                                                    </div>
-                                                    <button type="button" onClick={() => setOnlineOrderForm((prev) => ({ ...prev, orderId: randomOnlineOrderId() }))} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600">Random</button>
-                                                </div>
-                                                <div>
-                                                    <input
-                                                        value={onlineOrderForm.platform}
-                                                        onChange={(e) => {
-                                                            setOnlineOrderForm((prev) => ({ ...prev, platform: e.target.value }));
-                                                            setOnlineOrderErrors((prev) => ({ ...prev, platform: '' }));
-                                                        }}
-                                                        placeholder="Platform"
-                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.platform ? 'border-rose-300' : 'border-slate-200'}`}
-                                                    />
-                                                    {onlineOrderErrors.platform && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.platform}</p>}
-                                                </div>
-                                                <div>
-                                                    <input
-                                                        value={onlineOrderForm.itemName}
-                                                        onChange={(e) => {
-                                                            setOnlineOrderForm((prev) => ({ ...prev, itemName: e.target.value }));
-                                                            setOnlineOrderErrors((prev) => ({ ...prev, itemName: '' }));
-                                                        }}
-                                                        placeholder="Item Name"
-                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.itemName ? 'border-rose-300' : 'border-slate-200'}`}
-                                                    />
-                                                    {onlineOrderErrors.itemName && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.itemName}</p>}
-                                                </div>
-                                                <div>
-                                                    <select
-                                                        value={onlineOrderForm.category}
-                                                        onChange={(e) => {
-                                                            setOnlineOrderForm((prev) => ({ ...prev, category: e.target.value }));
-                                                            setOnlineOrderErrors((prev) => ({ ...prev, category: '' }));
-                                                        }}
-                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.category ? 'border-rose-300' : 'border-slate-200'}`}
-                                                    >
-                                                        <option value="">Select category</option>
-                                                        {revenueL1Options.map((name) => <option key={`online-${name}`} value={name}>{name}</option>)}
-                                                    </select>
-                                                    {onlineOrderErrors.category && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.category}</p>}
-                                                </div>
-                                                <div>
-                                                    <select
-                                                        value={onlineOrderForm.color}
-                                                        onChange={(e) => {
-                                                            const nextColor = e.target.value;
-                                                            setOnlineOrderForm((prev) => ({
-                                                                ...prev,
-                                                                color: nextColor,
-                                                                customColor: nextColor === 'Custom' ? prev.customColor : ''
-                                                            }));
-                                                            setOnlineOrderErrors((prev) => ({
-                                                                ...prev,
-                                                                color: '',
-                                                                customColor: ''
-                                                            }));
-                                                        }}
-                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.color ? 'border-rose-300' : 'border-slate-200'}`}
-                                                    >
-                                                        <option value="">Select color</option>
-                                                        {ONLINE_ORDER_COLORS.map((name) => <option key={`online-color-${name}`} value={name}>{name}</option>)}
-                                                    </select>
-                                                    {onlineOrderErrors.color && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.color}</p>}
-                                                </div>
-                                                {onlineOrderForm.color === 'Custom' && (
-                                                    <div>
-                                                        <input
-                                                            value={onlineOrderForm.customColor}
-                                                            onChange={(e) => {
-                                                                setOnlineOrderForm((prev) => ({ ...prev, customColor: e.target.value }));
-                                                                setOnlineOrderErrors((prev) => ({ ...prev, customColor: '' }));
-                                                            }}
-                                                            placeholder="Custom color"
-                                                            className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.customColor ? 'border-rose-300' : 'border-slate-200'}`}
-                                                        />
-                                                        {onlineOrderErrors.customColor && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.customColor}</p>}
-                                                    </div>
-                                                )}
-                                                <div>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        value={onlineOrderForm.quantity}
-                                                        onChange={(e) => {
-                                                            setOnlineOrderForm((prev) => ({ ...prev, quantity: e.target.value }));
-                                                            setOnlineOrderErrors((prev) => ({ ...prev, quantity: '' }));
-                                                        }}
-                                                        placeholder="Qty"
-                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.quantity ? 'border-rose-300' : 'border-slate-200'}`}
-                                                    />
-                                                    {onlineOrderErrors.quantity && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.quantity}</p>}
-                                                </div>
-                                                <div>
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        value={onlineOrderForm.amount}
-                                                        onChange={(e) => {
-                                                            setOnlineOrderForm((prev) => ({ ...prev, amount: e.target.value }));
-                                                            setOnlineOrderErrors((prev) => ({ ...prev, amount: '' }));
-                                                        }}
-                                                        placeholder="Amount"
-                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.amount ? 'border-rose-300' : 'border-slate-200'}`}
-                                                    />
-                                                    {onlineOrderErrors.amount && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.amount}</p>}
-                                                </div>
-                                                <div>
-                                                    <input
-                                                        type="date"
-                                                        value={onlineOrderForm.orderDate}
-                                                        onChange={(e) => {
-                                                            setOnlineOrderForm((prev) => ({ ...prev, orderDate: e.target.value }));
-                                                            setOnlineOrderErrors((prev) => ({ ...prev, orderDate: '' }));
-                                                        }}
-                                                        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.orderDate ? 'border-rose-300' : 'border-slate-200'}`}
-                                                    />
-                                                    {onlineOrderErrors.orderDate && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.orderDate}</p>}
-                                                </div>
-                                                <div>
-                                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Expected Delivery</label>
-                                                    <input
-                                                        type="date"
-                                                        value={onlineOrderForm.expectedDeliveryDate}
-                                                        onChange={(e) => {
-                                                            setOnlineOrderForm((prev) => ({ ...prev, expectedDeliveryDate: e.target.value }));
-                                                        }}
-                                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
-                                                    />
-                                                </div>
-                                                <select value={onlineOrderForm.paymentStatus} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, paymentStatus: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs">
-                                                    <option value="Paid">Paid</option>
-                                                    <option value="Partial">Partial</option>
-                                                    <option value="Credit">Credit</option>
-                                                </select>
-                                                <textarea value={onlineOrderForm.notes} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Order notes" rows={2} className="col-span-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                                                {Object.values(onlineOrderErrors).some(Boolean) && (
-                                                    <p className="col-span-2 text-[10px] text-rose-600">
-                                                        Please fill all required fields highlighted in red.
-                                                    </p>
-                                                )}
-                                                <button type="submit" className="col-span-2 rounded-lg bg-emerald-600 text-white py-2 text-sm font-semibold hover:bg-emerald-700 transition-colors">Save Online Order</button>
-                                            </div>
-                                        </form>
-                                    )}
 
                                     {onlineOrders.length === 0 ? (
                                         <div className="text-center py-10">
@@ -3390,9 +3323,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                     <p className="text-slate-500"><span className="text-slate-400">Platform:</span> {order.platform || '-'}</p>
                                                     <p className="text-slate-500"><span className="text-slate-400">Category:</span> {order.category || '-'}</p>
                                                     <p className="text-slate-500"><span className="text-slate-400">Color:</span> {order.color || '-'}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Qty:</span> {order.quantity || 1}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Unit Price:</span> {priceTag(order.amount || 0)}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Total:</span> {priceTag((parseFloat(order.amount || 0) || 0) * (Math.max(1, parseInt(order.quantity || '1', 10) || 1)))}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Cost:</span> {priceTag((Number(order.totalCost ?? order.amount) || 0))}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Advance:</span> {priceTag((Number(order.advanceAmount) || 0))}</p>
+                                                    <p className="text-slate-500"><span className="text-slate-400">Remaining:</span> {priceTag(Math.max(0, (Number(order.totalCost ?? order.amount) || 0) - (Number(order.advanceAmount) || 0)))}</p>
                                                     <p className="text-slate-500"><span className="text-slate-400">Order Date:</span> {order.orderDate || '-'}</p>
                                                     <p className="text-slate-500"><span className="text-slate-400">Expected Delivery:</span> {order.expectedDeliveryDate || '-'}</p>
                                                     <p className="text-slate-500"><span className="text-slate-400">Payment:</span> {order.paymentStatus || '-'}</p>
@@ -3425,6 +3358,222 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 </>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {showOnlineOrderForm && (
+                <div className="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowOnlineOrderForm(false)}>
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5 rounded-t-3xl flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold text-white">New Online Order</h2>
+                                <p className="text-xs text-blue-200">Add cost + advance with staged transactions</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowOnlineOrderForm(false)}
+                                className="p-2 hover:bg-white/20 rounded-xl transition-colors text-white"
+                            >
+                                x
+                            </button>
+                        </div>
+
+                        <form onSubmit={saveOnlineOrder} className="p-5 space-y-3">
+                            <div className="grid grid-cols-[1fr_auto] gap-2">
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Order ID</label>
+                                    <input
+                                        value={onlineOrderForm.orderId}
+                                        onChange={(e) => {
+                                            setOnlineOrderForm((prev) => ({ ...prev, orderId: e.target.value }));
+                                            setOnlineOrderErrors((prev) => ({ ...prev, orderId: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.orderId ? 'border-rose-300' : 'border-slate-200'}`}
+                                    />
+                                    {onlineOrderErrors.orderId && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.orderId}</p>}
+                                </div>
+                                <button type="button" onClick={() => setOnlineOrderForm((prev) => ({ ...prev, orderId: randomOnlineOrderId() }))} className="self-end rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600">Random</button>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Platform</label>
+                                    <input
+                                        value={onlineOrderForm.platform}
+                                        onChange={(e) => {
+                                            setOnlineOrderForm((prev) => ({ ...prev, platform: e.target.value }));
+                                            setOnlineOrderErrors((prev) => ({ ...prev, platform: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.platform ? 'border-rose-300' : 'border-slate-200'}`}
+                                    />
+                                    {onlineOrderErrors.platform && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.platform}</p>}
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Item Name</label>
+                                    <input
+                                        value={onlineOrderForm.itemName}
+                                        onChange={(e) => {
+                                            setOnlineOrderForm((prev) => ({ ...prev, itemName: e.target.value }));
+                                            setOnlineOrderErrors((prev) => ({ ...prev, itemName: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.itemName ? 'border-rose-300' : 'border-slate-200'}`}
+                                    />
+                                    {onlineOrderErrors.itemName && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.itemName}</p>}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Category</label>
+                                    <select
+                                        value={onlineOrderForm.category}
+                                        onChange={(e) => {
+                                            setOnlineOrderForm((prev) => ({ ...prev, category: e.target.value }));
+                                            setOnlineOrderErrors((prev) => ({ ...prev, category: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.category ? 'border-rose-300' : 'border-slate-200'}`}
+                                    >
+                                        <option value="">Select category</option>
+                                        {revenueL1Options.map((name) => <option key={`online-modal-${name}`} value={name}>{name}</option>)}
+                                    </select>
+                                    {onlineOrderErrors.category && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.category}</p>}
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Color</label>
+                                    <select
+                                        value={onlineOrderForm.color}
+                                        onChange={(e) => {
+                                            const nextColor = e.target.value;
+                                            setOnlineOrderForm((prev) => ({
+                                                ...prev,
+                                                color: nextColor,
+                                                customColor: nextColor === 'Custom' ? prev.customColor : ''
+                                            }));
+                                            setOnlineOrderErrors((prev) => ({ ...prev, color: '', customColor: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.color ? 'border-rose-300' : 'border-slate-200'}`}
+                                    >
+                                        <option value="">Select color</option>
+                                        {ONLINE_ORDER_COLORS.map((name) => <option key={`online-modal-color-${name}`} value={name}>{name}</option>)}
+                                    </select>
+                                    {onlineOrderErrors.color && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.color}</p>}
+                                </div>
+                            </div>
+
+                            {onlineOrderForm.color === 'Custom' && (
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Custom Color</label>
+                                    <input
+                                        value={onlineOrderForm.customColor}
+                                        onChange={(e) => {
+                                            setOnlineOrderForm((prev) => ({ ...prev, customColor: e.target.value }));
+                                            setOnlineOrderErrors((prev) => ({ ...prev, customColor: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.customColor ? 'border-rose-300' : 'border-slate-200'}`}
+                                    />
+                                    {onlineOrderErrors.customColor && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.customColor}</p>}
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Cost</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={onlineOrderForm.totalCost}
+                                        onChange={(e) => {
+                                            setOnlineOrderForm((prev) => ({ ...prev, totalCost: e.target.value }));
+                                            setOnlineOrderErrors((prev) => ({ ...prev, totalCost: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.totalCost ? 'border-rose-300' : 'border-slate-200'}`}
+                                    />
+                                    {onlineOrderErrors.totalCost && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.totalCost}</p>}
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Advance</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={onlineOrderForm.advanceAmount}
+                                        onChange={(e) => {
+                                            setOnlineOrderForm((prev) => ({ ...prev, advanceAmount: e.target.value }));
+                                            setOnlineOrderErrors((prev) => ({ ...prev, advanceAmount: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.advanceAmount ? 'border-rose-300' : 'border-slate-200'}`}
+                                    />
+                                    {onlineOrderErrors.advanceAmount && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.advanceAmount}</p>}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Order Date</label>
+                                    <input
+                                        type="date"
+                                        value={onlineOrderForm.orderDate}
+                                        onChange={(e) => {
+                                            setOnlineOrderForm((prev) => ({ ...prev, orderDate: e.target.value }));
+                                            setOnlineOrderErrors((prev) => ({ ...prev, orderDate: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.orderDate ? 'border-rose-300' : 'border-slate-200'}`}
+                                    />
+                                    {onlineOrderErrors.orderDate && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.orderDate}</p>}
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Expected Delivery</label>
+                                    <input
+                                        type="date"
+                                        value={onlineOrderForm.expectedDeliveryDate}
+                                        onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, expectedDeliveryDate: e.target.value }))}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Payment</label>
+                                    <select value={onlineOrderForm.paymentStatus} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, paymentStatus: e.target.value }))} className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs">
+                                        <option value="Paid">Paid</option>
+                                        <option value="Partial">Partial</option>
+                                        <option value="Credit">Credit</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Notes</label>
+                                    <textarea
+                                        value={onlineOrderForm.notes}
+                                        onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, notes: e.target.value }))}
+                                        rows={2}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs"
+                                    />
+                                </div>
+                            </div>
+
+                            {Object.values(onlineOrderErrors).some(Boolean) && (
+                                <p className="text-[10px] text-rose-600">Please fill all required fields highlighted in red.</p>
+                            )}
+
+                            <div className="flex gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowOnlineOrderForm(false)}
+                                    className="flex-1 rounded-xl border border-slate-300 bg-white py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 rounded-xl bg-emerald-600 text-white py-2.5 text-sm font-semibold hover:bg-emerald-700"
+                                >
+                                    Save Online Order
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
