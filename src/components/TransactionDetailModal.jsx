@@ -51,7 +51,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
         const lineAmount = parseFloat(item?.amount) || 0;
         return sum + (lineAmount - (lineAmount / 1.19));
     }, 0);
-    const showTax = billShowTax !== false;
+    const showTax = txn?.includeTax === undefined ? billShowTax !== false : Boolean(txn.includeTax);
     const formatAmount = (value) => `EUR ${Number(value || 0).toLocaleString('de-DE', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2

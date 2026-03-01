@@ -25,6 +25,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
     const [customerPhone, setCustomerPhone] = useState('');
     const [customerType, setCustomerType] = useState('New'); // 'New' | 'Regular'
     const [paymentMethod, setPaymentMethod] = useState('Cash'); // 'Cash' | 'Visa' | 'Online'
+    const [includeTax, setIncludeTax] = useState(Boolean(billShowTax));
 
     const [transactionId, setTransactionId] = useState('');
 
@@ -42,6 +43,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             setCustomerPhone(editingItem.customerInfo?.phone || '');
             setCustomerType(editingItem.customerInfo?.type || 'New');
             setPaymentMethod(editingItem.paymentMethod || 'Cash');
+            setIncludeTax(editingItem.includeTax === undefined ? Boolean(billShowTax) : Boolean(editingItem.includeTax));
             setStatus('idle');
         } else if (isOpen && initialProduct) {
             // ADD MODE: Fresh from product
@@ -65,9 +67,10 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             setCustomerName('');
             setCustomerPhone('');
             setCustomerType('New');
+            setIncludeTax(Boolean(billShowTax));
             setStatus('idle');
         }
-    }, [isOpen, initialProduct, editingItem]);
+    }, [isOpen, initialProduct, editingItem, billShowTax]);
 
     if (!isOpen || !product) return null;
 
@@ -142,7 +145,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                     <div class="line"></div>
                     <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
                     <div class="row"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
-                    ${billShowTax ? `<div class="row"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
+                    ${includeTax ? `<div class="row"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
                     <div class="row"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
                     <div class="line"></div>
                     <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
@@ -179,10 +182,11 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             // Financials
             amount: grossTotal,
             discount: discountValue,
+            includeTax: Boolean(includeTax),
             taxInfo: {
-                net: netTotal,
-                tax: taxTotal,
-                rate: 0.19
+                net: includeTax ? netTotal : grossTotal,
+                tax: includeTax ? taxTotal : 0,
+                rate: includeTax ? 0.19 : 0
             },
 
             // Attributes
@@ -262,7 +266,12 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             profit: estimatedProfit,
             amount: grossTotal,
             discount: discountValue,
-            taxInfo: { net: netTotal, tax: taxTotal, rate: 0.19 },
+            includeTax: Boolean(includeTax),
+            taxInfo: {
+                net: includeTax ? netTotal : grossTotal,
+                tax: includeTax ? taxTotal : 0,
+                rate: includeTax ? 0.19 : 0
+            },
             verifiedAttributes: { ...verifiedAttrs },
             attributes: product.attributes || {},
             barcode: product.barcode || '',
@@ -360,6 +369,20 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                         <div className="bg-blue-50/30 p-3 rounded-xl border border-blue-100">
                             <h3 className="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-2">Financials (EU Standard)</h3>
 
+                            <div className="mb-2 flex items-center justify-between rounded-lg border border-blue-100 bg-white px-2.5 py-2">
+                                <div>
+                                    <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Tax Inclusion</p>
+                                    <p className="text-[10px] text-slate-400">Show Netto/USt on bill</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setIncludeTax((prev) => !prev)}
+                                    className={`relative h-6 w-11 rounded-full transition-colors ${includeTax ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                                >
+                                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${includeTax ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                </button>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-2 mb-2">
                                 <div>
                                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Retail Price</label>
@@ -391,16 +414,22 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                             </div>
 
                             {/* Netto/USt Breakdown */}
-                            <div className="mt-2 pt-2 border-t border-blue-100 space-y-1">
-                                <div className="flex justify-between text-[11px] font-medium text-slate-400 px-1">
-                                    <span>Netto (Excl. 19% Tax)</span>
-                                    <span>{priceTag(netTotal)}</span>
+                            {includeTax ? (
+                                <div className="mt-2 pt-2 border-t border-blue-100 space-y-1">
+                                    <div className="flex justify-between text-[11px] font-medium text-slate-400 px-1">
+                                        <span>Netto (Excl. 19% Tax)</span>
+                                        <span>{priceTag(netTotal)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-[11px] font-medium text-slate-400 px-1">
+                                        <span>USt (19% Tax)</span>
+                                        <span>{priceTag(taxTotal)}</span>
+                                    </div>
                                 </div>
-                                <div className="flex justify-between text-[11px] font-medium text-slate-400 px-1">
-                                    <span>USt (19% Tax)</span>
-                                    <span>{priceTag(taxTotal)}</span>
+                            ) : (
+                                <div className="mt-2 pt-2 border-t border-blue-100">
+                                    <p className="text-[11px] text-slate-500 px-1">Tax lines are disabled for this bill.</p>
                                 </div>
-                            </div>
+                            )}
                         </div>
 
                     </div>
