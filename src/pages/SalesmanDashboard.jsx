@@ -838,7 +838,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         [purchaseEntry.productName, purchaseEntry.category, purchaseEntry.subCategory, searchProducts]
     );
 
-    const isMobileLikeSnapshot = (snapshot = {}) => {
+    function isMobileLikeSnapshot(snapshot = {}) {
         const categoryText = `${snapshot.category || ''} ${snapshot.subCategory || ''}`.toLowerCase();
         const nameText = String(snapshot.name || '').toLowerCase();
         return categoryText.includes('mobile')
@@ -847,7 +847,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || nameText.includes('mobile')
             || nameText.includes('iphone')
             || nameText.includes('samsung');
-    };
+    }
 
     const mobileInventoryProducts = useMemo(() => {
         const query = String(mobileInventorySearch || '').trim().toLowerCase();
