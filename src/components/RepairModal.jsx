@@ -142,7 +142,7 @@ export default function RepairModal({ isOpen, onClose }) {
         ${job.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(job.imei)}</span></div>` : ''}
         <div class="divider"></div>
         <div class="problem"><strong>Fehler:</strong> ${problemNote}</div>
-        <div class="row"><span class="label-text">Geschaetzte Kosten:</span><span>EUR ${estimatedCost.toFixed(2)}</span></div>
+        <div class="row"><span class="label-text">Kosten:</span><span>EUR ${estimatedCost.toFixed(2)}</span></div>
         <div class="row"><span class="label-text">Anzahlung:</span><span>EUR ${advanceAmount.toFixed(2)}</span></div>
         <div class="row"><span class="label-text">Abholung:</span><span>${deliveryFormatted}</span></div>
         <div class="divider"></div>
@@ -267,7 +267,7 @@ export default function RepairModal({ isOpen, onClose }) {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1">
-                                <DollarSign size={12} /> Estimated Cost (EUR)
+                                <DollarSign size={12} /> Cost (EUR)
                             </label>
                             <input
                                 type="number"
