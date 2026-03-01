@@ -941,6 +941,35 @@ export function AuthProvider({ children }) {
         return () => supabase.removeChannel(channel);
     }, []);
 
+    const syncShopTelephoneColumn = useCallback(async (shopRows = []) => {
+        const sourceRows = Array.isArray(shopRows) ? shopRows : [];
+        for (const shop of sourceRows) {
+            const sid = asString(shop?.id || shop?.shop_id);
+            if (!sid) continue;
+
+            const currentTelephone = asString(shop?.telephone);
+            const resolvedTelephone = asString(
+                shop?.telephone
+                || shop?.phone
+                || shop?.shop_phone
+                || shop?.telephone_number
+                || shop?.phone_number
+                || shop?.contact_number
+                || shop?.mobile
+                || shop?.telefon
+                || shop?.tel
+                || ''
+            );
+
+            if (!resolvedTelephone || currentTelephone === resolvedTelephone) continue;
+
+            await supabase
+                .from('shops')
+                .update({ telephone: resolvedTelephone })
+                .eq('id', sid);
+        }
+    }, []);
+
     const refreshShops = useCallback(async (preferredShopId = '') => {
         if (!role || !user) {
             setShops([]);
@@ -953,6 +982,8 @@ export function AuthProvider({ children }) {
                 setShops([]);
                 return [];
             }
+
+            await syncShopTelephoneColumn(data);
 
             const normalized = data.map(normalizeShop).filter(Boolean);
             const enriched = await attachShopOwnerCredentials(normalized);
@@ -985,13 +1016,15 @@ export function AuthProvider({ children }) {
             return fallback;
         }
 
+        await syncShopTelephoneColumn([data]);
+
         const normalized = normalizeShop(data);
         const enriched = normalized ? await attachShopOwnerCredentials([normalized]) : [];
         const merged = enriched.map((shop) => mergeShopMeta(shop, shopMetaMap));
         setShops(merged);
         setActiveShopIdState(sid);
         return merged;
-    }, [role, user, activeShopId, shopMetaMap]);
+    }, [role, user, activeShopId, shopMetaMap, syncShopTelephoneColumn]);
 
     const loadSalesmenForShop = useCallback(async (shopIdParam = '') => {
         const sid = asString(shopIdParam || activeShopId);
@@ -1166,6 +1199,11 @@ export function AuthProvider({ children }) {
         };
         const resolvedAddress = asString(shopAddress || createdShopWithCredentials.address || createdShopWithCredentials.location);
         const resolvedTelephone = asString(shopTelephone || createdShopWithCredentials.telephone || createdShopWithCredentials.phone || '');
+
+        if (resolvedTelephone) {
+            await supabase.from('shops').update({ telephone: resolvedTelephone }).eq('id', shopId);
+        }
+
         patchShopMeta(shopId, { address: resolvedAddress, telephone: resolvedTelephone, billShowTax: true });
         const createdShopWithMeta = mergeShopMeta({
             ...createdShopWithCredentials,
@@ -1295,6 +1333,21 @@ export function AuthProvider({ children }) {
 
             if (!updatedShop) {
                 throw new Error(updateError?.message || 'Failed to update shop.');
+            }
+
+            if (hasTelephone) {
+                const { error } = await supabase
+                    .from('shops')
+                    .update({ telephone: nextTelephone || '' })
+                    .eq('id', sid);
+                if (error) {
+                    throw new Error(error.message || 'Failed to update shop telephone column.');
+                }
+                updatedShop = {
+                    ...updatedShop,
+                    telephone: nextTelephone || '',
+                    phone: nextTelephone || '',
+                };
             }
         }
 
