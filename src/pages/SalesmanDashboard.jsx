@@ -3201,162 +3201,92 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="bg-gradient-to-r from-rose-500 to-orange-500 p-5 flex items-center justify-between">
                             <div>
                                 <h2 className="text-lg font-bold text-white">Pending Center</h2>
-                                <p className="text-xs text-rose-100">Orders + online tracking</p>
+                                <p className="text-xs text-rose-100">Repair order tracking</p>
                             </div>
                             <button onClick={() => setShowPendingOrders(false)} className="text-white text-lg">x</button>
                         </div>
 
                         <div className="px-4 pt-3">
-                            <div className="rounded-xl bg-slate-100 p-1 grid grid-cols-2 gap-1">
+                            <div className="rounded-xl bg-slate-100 p-1 grid grid-cols-1 gap-1">
                                 <button
                                     onClick={() => setPendingTab('orders')}
                                     className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
                                 >
                                     Pending Orders
                                 </button>
-                                <button
-                                    onClick={() => setPendingTab('online')}
-                                    className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'online' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                                >
-                                    Online Orders
-                                </button>
                             </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                            {pendingTab === 'orders' && (
-                                <>
-                                    <button
-                                        onClick={() => {
-                                            setShowPendingOrders(false);
-                                            setShowRepairModal(true);
-                                        }}
-                                        className="w-full rounded-xl bg-amber-600 text-white py-2 text-sm font-semibold hover:bg-amber-700 transition-colors"
-                                    >
-                                        + Add Repair Job
-                                    </button>
-                                    {pendingOrders.length === 0 ? (
-                                        <div className="text-center py-12">
-                                            <p className="text-4xl">OK</p>
-                                            <p className="text-sm text-slate-500 mt-2">No pending orders</p>
+                            <>
+                                <button
+                                    onClick={() => {
+                                        setShowPendingOrders(false);
+                                        setShowRepairModal(true);
+                                    }}
+                                    className="w-full rounded-xl bg-amber-600 text-white py-2 text-sm font-semibold hover:bg-amber-700 transition-colors"
+                                >
+                                    + Add Repair Job
+                                </button>
+                                {pendingOrders.length === 0 ? (
+                                    <div className="text-center py-12">
+                                        <p className="text-4xl">OK</p>
+                                        <p className="text-sm text-slate-500 mt-2">No pending orders</p>
+                                    </div>
+                                ) : pendingOrders.map((job) => (
+                                    <div key={job.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-black text-blue-600">{job.refId}</p>
+                                                <p className="text-sm font-bold text-slate-800 truncate">{job.customerName || 'Customer'}</p>
+                                            </div>
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">{job.status || 'pending'}</span>
                                         </div>
-                                    ) : pendingOrders.map((job) => (
-                                        <div key={job.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="min-w-0">
-                                                    <p className="text-xs font-black text-blue-600">{job.refId}</p>
-                                                    <p className="text-sm font-bold text-slate-800 truncate">{job.customerName || 'Customer'}</p>
-                                                </div>
-                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">{job.status || 'pending'}</span>
-                                            </div>
 
-                                            <div className="grid grid-cols-2 gap-1 text-[11px]">
-                                                <p className="text-slate-500"><span className="text-slate-400">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">IMEI:</span> {job.imei || '-'}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">Device:</span> {job.deviceModel || '-'}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">Delivery:</span> {job.deliveryDate || '-'}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
-                                            </div>
+                                        <div className="grid grid-cols-2 gap-1 text-[11px]">
+                                            <p className="text-slate-500"><span className="text-slate-400">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">IMEI:</span> {job.imei || '-'}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">Device:</span> {job.deviceModel || '-'}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">Delivery:</span> {job.deliveryDate || '-'}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
+                                        </div>
 
+                                        <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                            <span className="text-slate-400">Issue:</span> {job.problem || job.issueType || '-'}
+                                        </p>
+                                        {job.notes ? (
                                             <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
-                                                <span className="text-slate-400">Issue:</span> {job.problem || job.issueType || '-'}
+                                                <span className="text-slate-400">Notes:</span> {job.notes}
                                             </p>
-                                            {job.notes ? (
-                                                <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
-                                                    <span className="text-slate-400">Notes:</span> {job.notes}
-                                                </p>
-                                            ) : null}
+                                        ) : null}
 
-                                            <div className="grid grid-cols-2 gap-1 text-[10px]">
-                                                <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 text-emerald-700 font-semibold">Est: {priceTag(job.estimatedCost || 0)}</span>
-                                                <span className="rounded-md bg-sky-50 border border-sky-200 px-2 py-1 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
-                                                <span className="rounded-md bg-violet-50 border border-violet-200 px-2 py-1 text-violet-700 font-semibold">Final: {priceTag(job.finalAmount || 0)}</span>
-                                                <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-1 text-orange-700 font-semibold">Parts: {priceTag(job.partsCost || 0)}</span>
-                                            </div>
-
-                                            <div className="flex justify-end gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => completePendingRepair(job)}
-                                                    className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-emerald-700"
-                                                >
-                                                    Complete
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => printPendingRepairBill(job)}
-                                                    className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                                                >
-                                                    Print
-                                                </button>
-                                            </div>
+                                        <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                            <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 text-emerald-700 font-semibold">Est: {priceTag(job.estimatedCost || 0)}</span>
+                                            <span className="rounded-md bg-sky-50 border border-sky-200 px-2 py-1 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
+                                            <span className="rounded-md bg-violet-50 border border-violet-200 px-2 py-1 text-violet-700 font-semibold">Final: {priceTag(job.finalAmount || 0)}</span>
+                                            <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-1 text-orange-700 font-semibold">Parts: {priceTag(job.partsCost || 0)}</span>
                                         </div>
-                                    ))}
-                                </>
-                            )}
 
-                            {pendingTab === 'online' && (
-                                <>
-                                    <button
-                                        onClick={() => setShowOnlineOrderForm(true)}
-                                        className="w-full rounded-xl bg-blue-600 text-white py-2 text-sm font-semibold hover:bg-blue-700 transition-colors"
-                                    >
-                                        + Add Online Order
-                                    </button>
-
-                                    {onlineOrders.length === 0 ? (
-                                        <div className="text-center py-10">
-                                            <p className="text-sm font-semibold text-slate-500">No records</p>
-                                            <p className="text-sm text-slate-500 mt-2">No online orders yet</p>
+                                        <div className="flex justify-end gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => completePendingRepair(job)}
+                                                className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-emerald-700"
+                                            >
+                                                Complete
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => printPendingRepairBill(job)}
+                                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                            >
+                                                Print
+                                            </button>
                                         </div>
-                                    ) : (
-                                        onlineOrders.map((order) => (
-                                            <div key={order.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <p className="text-xs font-black text-blue-600">{order.orderId}</p>
-                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${order.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{order.status}</span>
-                                                </div>
-                                                <p className="text-sm font-bold text-slate-800">{order.itemName}</p>
-
-                                                <div className="grid grid-cols-2 gap-1 text-[11px]">
-                                                    <p className="text-slate-500"><span className="text-slate-400">Platform:</span> {order.platform || '-'}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Category:</span> {order.category || '-'}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Color:</span> {order.color || '-'}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Cost:</span> {priceTag((Number(order.totalCost ?? order.amount) || 0))}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Advance:</span> {priceTag((Number(order.advanceAmount) || 0))}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Remaining:</span> {priceTag(Math.max(0, (Number(order.totalCost ?? order.amount) || 0) - (Number(order.advanceAmount) || 0)))}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Order Date:</span> {order.orderDate || '-'}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Expected Delivery:</span> {order.expectedDeliveryDate || '-'}</p>
-                                                    <p className="text-slate-500"><span className="text-slate-400">Payment:</span> {order.paymentStatus || '-'}</p>
-                                                    <p className="text-slate-500 col-span-2"><span className="text-slate-400">Created:</span> {formatDisplayDate(order.createdAt || '')}</p>
-                                                </div>
-
-                                                {order.notes ? (
-                                                    <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
-                                                        <span className="text-slate-400">Notes:</span> {order.notes}
-                                                    </p>
-                                                ) : null}
-
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => printOnlineOrderBill(order)}
-                                                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                                                    >
-                                                        Print
-                                                    </button>
-                                                    {order.status !== 'received' && (
-                                                        <button onClick={() => markOnlineOrderReceived(order.id)} className="rounded-lg bg-emerald-600 text-white px-3 py-1 text-xs font-semibold hover:bg-emerald-700 transition-colors">
-                                                            Mark Received
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </>
-                            )}
+                                    </div>
+                                ))}
+                            </>
                         </div>
                     </div>
                 </div>
