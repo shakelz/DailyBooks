@@ -200,14 +200,15 @@ function getRangeOverlapMs(startMs, endMs, rangeStartMs, rangeEndMs) {
 }
 
 function resolveShopPhone(shop = {}) {
+    const safeShop = shop && typeof shop === 'object' ? shop : {};
     const candidates = [
-        shop.telephone,
-        shop.phone,
-        shop.shopPhone,
-        shop.contactPhone,
-        shop.contact_phone,
-        shop.mobile,
-        shop.tel
+        safeShop.telephone,
+        safeShop.phone,
+        safeShop.shopPhone,
+        safeShop.contactPhone,
+        safeShop.contact_phone,
+        safeShop.mobile,
+        safeShop.tel
     ];
     const found = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
     return found ? found.trim() : '';
