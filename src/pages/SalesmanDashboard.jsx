@@ -1124,7 +1124,6 @@ export default function SalesmanDashboard({ adminView = false }) {
             .replaceAll('"', '&quot;')
             .replaceAll('\'', '&#39;');
 
-        const createdAt = job.createdAt ? new Date(job.createdAt) : new Date();
         popup.document.write(`
             <html>
                 <head>
@@ -1134,29 +1133,33 @@ export default function SalesmanDashboard({ adminView = false }) {
                         h2,p { margin: 0; }
                         .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
                         .line { border-top:1px dashed #000; margin:8px 0; }
+                        .center { text-align: center; }
                         .doc-title { font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
                         .shop-title { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
+                        .ticket-id { text-align: center; font-size: 30px; font-weight: 700; letter-spacing: 2px; margin: 10px 0; }
+                        .issue-box { margin-top: 8px; border: 1px solid #000; padding: 6px; font-size: 12px; }
                     </style>
                 </head>
                 <body>
-                    <p class="doc-title">ABHOLSCHEIN</p>
-                    <h2 class="shop-title">${toSafe(receiptShopName)}</h2>
-                    ${receiptShopAddress ? `<p>${toSafe(receiptShopAddress)}</p>` : ''}
+                    <div class="center">
+                        <p class="doc-title">ABHOLSCHEIN</p>
+                        <h2 class="shop-title">${toSafe(receiptShopName)}</h2>
+                        ${receiptShopAddress ? `<p>${toSafe(receiptShopAddress)}</p>` : ''}
+                        ${receiptShopPhone ? `<p>Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
+                    </div>
                     <div class="line"></div>
-                    <p>Kundenbeleg</p>
-                    <p>${createdAt.toLocaleString('de-DE')}</p>
+                    <p class="ticket-id">${toSafe(job.refId || job.id || '-')}</p>
                     <div class="line"></div>
-                    <div class="row"><span>Auftrag</span><span>${toSafe(job.refId || job.id || '-')}</span></div>
-                    <div class="row"><span>Kunde</span><span>${toSafe(job.customerName || '-')}</span></div>
+                    <div class="row"><span>Name</span><span>${toSafe(job.customerName || '-')}</span></div>
                     <div class="row"><span>Telefon</span><span>${toSafe(job.phone || job.customerPhone || '-')}</span></div>
-                    <div class="row"><span>Geraet</span><span>${toSafe(job.deviceModel || '-')}</span></div>
+                    <div class="row"><span>Gerät</span><span>${toSafe(job.deviceModel || '-')}</span></div>
                     <div class="row"><span>IMEI</span><span>${toSafe(job.imei || '-')}</span></div>
-                    <div class="row"><span>Problem</span><span>${toSafe(job.problem || job.issueType || '-')}</span></div>
+                    <div class="issue-box"><strong>Fehler:</strong> ${toSafe(job.problem || job.issueType || '-')}</div>
                     <div class="row"><span>Status</span><span>Ausstehend</span></div>
                     <div class="line"></div>
-                    <div class="row"><span>Estimated Cost</span><span>EUR ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
-                    <div class="row"><span>Advance Paid</span><span>EUR ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
-                    <div class="row"><span>Lieferdatum</span><span>${toSafe(job.deliveryDate || '-')}</span></div>
+                    <div class="row"><span>Kosten</span><span>EUR ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Anzahlung</span><span>EUR ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Abholung</span><span>${toSafe(job.deliveryDate || '-')}</span></div>
                     <div class="line"></div>
                     <p style="font-size:10px">Bitte diesen Kundenbeleg zur Abholung mitbringen.</p>
                 </body>
