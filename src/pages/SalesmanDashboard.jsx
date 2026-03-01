@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, Wrench, CircleHelp, Wallet } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, Wrench, CircleHelp, Wallet, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { priceTag } from '../utils/currency';
@@ -425,6 +425,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         searchProducts,
         addTransaction,
         updateTransaction,
+        deleteTransaction,
         adjustStock,
         deleteProduct,
         getStockSeverity,
@@ -1234,6 +1235,20 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setTransactionDraft(buildTransactionDraft(txn, billShowTax));
         setTransactionFormError('');
         setShowTransactionDetailModal(true);
+    };
+
+    const handleDeleteHistoryTransaction = async (txn, event) => {
+        event?.stopPropagation?.();
+        if (!adminView || !txn?.id) return;
+        const confirmed = window.confirm('Delete this transaction from history?');
+        if (!confirmed) return;
+        try {
+            await deleteTransaction(txn.id);
+            setToast('Transaction deleted');
+            setTimeout(() => setToast(''), 1800);
+        } catch (error) {
+            alert(error?.message || 'Failed to delete transaction');
+        }
     };
 
     const closeTransactionDetailModal = () => {
@@ -2433,11 +2448,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {revenueHistoryTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries for selected period</p> : revenueHistoryTransactions.map((txn) => (
-                                <button
-                                    type="button"
+                                <div
                                     key={txn.id}
                                     onClick={() => openTransactionDetailModal(txn)}
-                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto] items-center gap-2 hover:bg-emerald-50/60 transition-colors"
+                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 hover:bg-emerald-50/60 transition-colors cursor-pointer"
                                 >
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Revenue'}</p>
@@ -2445,7 +2459,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-emerald-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
-                                </button>
+                                    {adminView ? (
+                                        <button
+                                            type="button"
+                                            onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
+                                            className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
+                                            title="Delete transaction"
+                                        >
+                                            <Trash2 size={13} />
+                                        </button>
+                                    ) : <span />}
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -2455,11 +2479,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {purchaseTransactions.length === 0 ? <p className="text-xs text-slate-400">No purchase transactions for selected period</p> : purchaseTransactions.map((txn) => (
-                                <button
-                                    type="button"
+                                <div
                                     key={txn.id}
                                     onClick={() => openTransactionDetailModal(txn)}
-                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto] items-center gap-2 hover:bg-rose-50/60 transition-colors"
+                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 hover:bg-rose-50/60 transition-colors cursor-pointer"
                                 >
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Purchase'}</p>
@@ -2467,7 +2490,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-rose-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
-                                </button>
+                                    {adminView ? (
+                                        <button
+                                            type="button"
+                                            onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
+                                            className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
+                                            title="Delete transaction"
+                                        >
+                                            <Trash2 size={13} />
+                                        </button>
+                                    ) : <span />}
+                                </div>
                             ))}
                         </div>
                     </div>
