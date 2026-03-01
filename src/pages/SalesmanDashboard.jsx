@@ -2381,6 +2381,19 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             </div>
                         </div>
 
+                        <div>
+                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Expense Name</label>
+                            <input
+                                type="text"
+                                value={purchaseEntry.productName}
+                                onChange={(e) => {
+                                    setPurchaseEntry((prev) => ({ ...prev, productName: e.target.value, productId: '' }));
+                                }}
+                                placeholder="Enter expense name"
+                                className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+                            />
+                        </div>
+
                         <div className="space-y-2">
                             <div>
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
