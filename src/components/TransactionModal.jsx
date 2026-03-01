@@ -148,7 +148,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                     <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
                     <div class="row"><span>Transaktion-ID</span><span>${escapeHtml(transactionId)}</span></div>
                     <div class="line"></div>
-                    <p style="font-size:10px; text-align:center;">Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.</p>
+                    <p style="font-size:10px; text-align:center;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
                 </body>
             </html>
         `);

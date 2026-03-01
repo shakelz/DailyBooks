@@ -193,10 +193,25 @@ function mergeShopMeta(shop = {}, metaMap = {}) {
     if (!shop || typeof shop !== 'object') return shop;
     const meta = getShopMeta(metaMap, shop.id);
     const resolvedAddress = asString(meta.address || shop.address || shop.location || '');
+    const resolvedTelephone = asString(
+        meta.telephone
+        || shop.telephone
+        || shop.phone
+        || shop.shop_phone
+        || shop.telephone_number
+        || shop.phone_number
+        || shop.contact_number
+        || shop.mobile
+        || shop.telefon
+        || shop.tel
+        || ''
+    );
     const showTax = meta.billShowTax === undefined ? true : asBoolean(meta.billShowTax);
     return {
         ...shop,
         address: resolvedAddress,
+        telephone: resolvedTelephone,
+        phone: resolvedTelephone,
         billShowTax: showTax
     };
 }
@@ -254,6 +269,12 @@ function normalizeShop(shop) {
         shop.telephone
         || shop.phone
         || shop.shop_phone
+        || shop.telephone_number
+        || shop.phone_number
+        || shop.contact_number
+        || shop.mobile
+        || shop.telefon
+        || shop.tel
         || shop.shopPhone
         || shop.contact_phone
         || shop.contactPhone
@@ -325,7 +346,18 @@ function buildShopInsertPayloads({ name, location, address, ownerEmail, telephon
     const addressVariants = safeAddress ? [{ address: safeAddress }, { location: safeAddress }, {}] : [{}];
     const ownerVariants = safeOwnerEmail ? [{ owner_email: safeOwnerEmail }, { ownerEmail: safeOwnerEmail }, {}] : [{}];
     const telephoneVariants = safeTelephone
-        ? [{ telephone: safeTelephone }, { phone: safeTelephone }, { shop_phone: safeTelephone }, {}]
+        ? [
+            { telephone: safeTelephone },
+            { phone: safeTelephone },
+            { shop_phone: safeTelephone },
+            { telephone_number: safeTelephone },
+            { phone_number: safeTelephone },
+            { contact_number: safeTelephone },
+            { mobile: safeTelephone },
+            { telefon: safeTelephone },
+            { tel: safeTelephone },
+            {}
+        ]
         : [{}];
 
     const payloads = [];
@@ -402,7 +434,18 @@ function buildShopUpdatePayloads({ name, location, address, ownerEmail, telephon
     const ownerVariants = email === undefined ? [{}] : [{ owner_email: email }, { ownerEmail: email }, {}];
     const telephoneVariants = safeTelephone === undefined
         ? [{}]
-        : [{ telephone: safeTelephone }, { phone: safeTelephone }, { shop_phone: safeTelephone }, {}];
+        : [
+            { telephone: safeTelephone },
+            { phone: safeTelephone },
+            { shop_phone: safeTelephone },
+            { telephone_number: safeTelephone },
+            { phone_number: safeTelephone },
+            { contact_number: safeTelephone },
+            { mobile: safeTelephone },
+            { telefon: safeTelephone },
+            { tel: safeTelephone },
+            {}
+        ];
 
     const candidates = [];
     nameVariants.forEach((namePayload) => {
@@ -1122,15 +1165,19 @@ export function AuthProvider({ children }) {
             owner_profile_id: asString(createdProfile.id),
         };
         const resolvedAddress = asString(shopAddress || createdShopWithCredentials.address || createdShopWithCredentials.location);
-        patchShopMeta(shopId, { address: resolvedAddress, billShowTax: true });
+        const resolvedTelephone = asString(shopTelephone || createdShopWithCredentials.telephone || createdShopWithCredentials.phone || '');
+        patchShopMeta(shopId, { address: resolvedAddress, telephone: resolvedTelephone, billShowTax: true });
         const createdShopWithMeta = mergeShopMeta({
             ...createdShopWithCredentials,
-            address: resolvedAddress
+            address: resolvedAddress,
+            telephone: resolvedTelephone,
+            phone: resolvedTelephone
         }, {
             ...shopMetaMap,
             [shopId]: {
                 ...(shopMetaMap?.[shopId] || {}),
                 address: resolvedAddress,
+                telephone: resolvedTelephone,
                 billShowTax: true
             }
         });
@@ -1171,7 +1218,13 @@ export function AuthProvider({ children }) {
         const hasAddress = Object.prototype.hasOwnProperty.call(updates, 'address');
         const hasTelephone = Object.prototype.hasOwnProperty.call(updates, 'telephone')
             || Object.prototype.hasOwnProperty.call(updates, 'phone')
-            || Object.prototype.hasOwnProperty.call(updates, 'shop_phone');
+            || Object.prototype.hasOwnProperty.call(updates, 'shop_phone')
+            || Object.prototype.hasOwnProperty.call(updates, 'telephone_number')
+            || Object.prototype.hasOwnProperty.call(updates, 'phone_number')
+            || Object.prototype.hasOwnProperty.call(updates, 'contact_number')
+            || Object.prototype.hasOwnProperty.call(updates, 'mobile')
+            || Object.prototype.hasOwnProperty.call(updates, 'telefon')
+            || Object.prototype.hasOwnProperty.call(updates, 'tel');
         const hasOwner = Object.prototype.hasOwnProperty.call(updates, 'ownerEmail')
             || Object.prototype.hasOwnProperty.call(updates, 'owner_email');
         const hasOwnerPassword = Object.prototype.hasOwnProperty.call(updates, 'ownerPassword')
@@ -1181,7 +1234,17 @@ export function AuthProvider({ children }) {
         const nextLocation = hasLocation ? asString(updates.location) : undefined;
         const nextAddress = hasAddress ? asString(updates.address) : undefined;
         const nextTelephone = hasTelephone
-            ? asString(updates.telephone ?? updates.phone ?? updates.shop_phone)
+            ? asString(
+                updates.telephone
+                ?? updates.phone
+                ?? updates.shop_phone
+                ?? updates.telephone_number
+                ?? updates.phone_number
+                ?? updates.contact_number
+                ?? updates.mobile
+                ?? updates.telefon
+                ?? updates.tel
+            )
             : undefined;
         const nextOwnerEmail = hasOwner ? asString(updates.ownerEmail ?? updates.owner_email) : undefined;
         const nextOwnerPassword = hasOwnerPassword
@@ -1304,22 +1367,38 @@ export function AuthProvider({ children }) {
                     updatedShop?.telephone
                     || updatedShop?.phone
                     || updatedShop?.shop_phone
+                    || updatedShop?.telephone_number
+                    || updatedShop?.phone_number
+                    || updatedShop?.contact_number
+                    || updatedShop?.mobile
+                    || updatedShop?.telefon
+                    || updatedShop?.tel
                     || currentShop?.telephone
                     || currentShop?.phone
                     || currentShop?.shop_phone
+                    || currentShop?.telephone_number
+                    || currentShop?.phone_number
+                    || currentShop?.contact_number
+                    || currentShop?.mobile
+                    || currentShop?.telefon
+                    || currentShop?.tel
                     || ''
                 ),
         };
 
-        if (hasAddress) {
-            patchShopMeta(sid, { address: nextAddress });
+        if (hasAddress || hasTelephone) {
+            patchShopMeta(sid, {
+                ...(hasAddress ? { address: nextAddress } : {}),
+                ...(hasTelephone ? { telephone: nextTelephone } : {})
+            });
         }
 
         const mergedShopWithMeta = mergeShopMeta(mergedShop, {
             ...shopMetaMap,
             [sid]: {
                 ...(shopMetaMap?.[sid] || {}),
-                ...(hasAddress ? { address: nextAddress } : {})
+                ...(hasAddress ? { address: nextAddress } : {}),
+                ...(hasTelephone ? { telephone: nextTelephone } : {})
             }
         });
 

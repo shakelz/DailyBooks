@@ -69,6 +69,7 @@ function newSimpleEntryForm() {
         subCategory: '',
         productName: '',
         productId: '',
+        quantity: '1',
         amount: '',
     };
 }
@@ -299,8 +300,7 @@ function buildReceiptHtml({
                 <div class="row"><span>Transaktion-ID:</span><span>${escapeHtml(receiptNo || '-')}</span></div>
                 <div class="line"></div>
                 <div class="small center">
-                    Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.<br/>
-                    Vielen Dank. ${escapeHtml(shopName || 'Shop')}
+                    Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName || 'Shop')}
                 </div>
             </body>
         </html>
@@ -813,10 +813,12 @@ export default function SalesmanDashboard({ adminView = false }) {
         const nextErrors = {};
         const parsedDate = new Date(`${entry?.date || ''}T00:00:00`);
         const amountValue = Number(entry?.amount);
+        const quantityValue = parseInt(entry?.quantity || '1', 10);
 
         if (!entry?.date || Number.isNaN(parsedDate.getTime())) nextErrors.date = 'Select a valid date';
         if (!String(entry?.paymentMode || '').trim()) nextErrors.paymentMode = 'Select payment mode';
         if (!String(entry?.category || '').trim()) nextErrors.category = 'Select category';
+        if (!Number.isFinite(quantityValue) || quantityValue < 1) nextErrors.qty = 'Qty must be at least 1';
         if (!Number.isFinite(amountValue) || amountValue <= 0) nextErrors.amount = 'Enter valid amount';
 
         return nextErrors;
@@ -841,6 +843,7 @@ export default function SalesmanDashboard({ adminView = false }) {
         else setPurchaseEntryErrors({});
 
         const amountValue = parseFloat(entry.amount) || 0;
+        const quantityValue = Math.max(1, parseInt(entry.quantity || '1', 10) || 1);
         const selectedDate = buildSelectedDate(entry.date);
         const type = mode === 'sales' ? 'income' : 'expense';
         const productLabel = String(entry.productName || '').trim();
@@ -851,7 +854,7 @@ export default function SalesmanDashboard({ adminView = false }) {
         await addTransaction({
             desc: descLabel,
             amount: amountValue,
-            quantity: 1,
+            quantity: quantityValue,
             type,
             category: entry.category,
             paymentMethod: entry.paymentMode || 'Cash',
@@ -867,7 +870,7 @@ export default function SalesmanDashboard({ adminView = false }) {
         });
 
         if (type === 'income' && entry.productId) {
-            await adjustStock(entry.productId, -1);
+            await adjustStock(entry.productId, -quantityValue);
         }
 
         setToast(`${mode === 'sales' ? 'Sales' : 'Purchase'} saved`);
@@ -1814,41 +1817,60 @@ export default function SalesmanDashboard({ adminView = false }) {
                         </div>
 
                         <div className="space-y-2">
-                            <div className="relative">
-                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
-                                <input
-                                    value={salesEntry.productName}
-                                    onFocus={() => setShowSalesProductSuggestions(true)}
-                                    onBlur={() => setTimeout(() => setShowSalesProductSuggestions(false), 160)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && salesProductSuggestions.length > 0) {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            applyEntryProduct('sales', salesProductSuggestions[0].raw);
-                                        }
-                                    }}
-                                    onChange={(e) => handleEntryProductQueryChange('sales', e.target.value)}
-                                    placeholder="Type product / scan barcode"
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
-                                />
-                                {showSalesProductSuggestions && salesProductSuggestions.length > 0 && (
-                                    <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-36 overflow-y-auto">
-                                        {salesProductSuggestions.map((row) => (
-                                            <button
-                                                key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
-                                                type="button"
-                                                onMouseDown={(e) => {
-                                                    e.preventDefault();
-                                                    applyEntryProduct('sales', row.raw);
-                                                }}
-                                                className="w-full text-left px-2 py-1.5 hover:bg-emerald-50 border-b border-slate-100 last:border-b-0"
-                                            >
-                                                <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
-                                                <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.sellingPrice || 0)}</p>
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
+                            <div className="grid grid-cols-[1fr_88px] gap-1.5 items-end">
+                                <div className="relative">
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
+                                    <input
+                                        value={salesEntry.productName}
+                                        onFocus={() => setShowSalesProductSuggestions(true)}
+                                        onBlur={() => setTimeout(() => setShowSalesProductSuggestions(false), 160)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && salesProductSuggestions.length > 0) {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                applyEntryProduct('sales', salesProductSuggestions[0].raw);
+                                            }
+                                        }}
+                                        onChange={(e) => handleEntryProductQueryChange('sales', e.target.value)}
+                                        placeholder="Type product / scan barcode"
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+                                    />
+                                    {showSalesProductSuggestions && salesProductSuggestions.length > 0 && (
+                                        <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-36 overflow-y-auto">
+                                            {salesProductSuggestions.map((row) => (
+                                                <button
+                                                    key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
+                                                    type="button"
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault();
+                                                        applyEntryProduct('sales', row.raw);
+                                                    }}
+                                                    className="w-full text-left px-2 py-1.5 hover:bg-emerald-50 border-b border-slate-100 last:border-b-0"
+                                                >
+                                                    <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
+                                                    <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.sellingPrice || 0)}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Qty</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value={salesEntry.quantity}
+                                        onChange={(e) => {
+                                            const nextQty = e.target.value.replace(/[^\d]/g, '');
+                                            setSalesEntry((prev) => ({ ...prev, quantity: nextQty || '1' }));
+                                            setSalesEntryErrors((prev) => ({ ...prev, qty: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 ${salesEntryErrors.qty ? 'border-rose-300' : 'border-slate-200'}`}
+                                        aria-invalid={Boolean(salesEntryErrors.qty)}
+                                    />
+                                    {salesEntryErrors.qty && <p className="mt-1 text-[10px] text-rose-600">{salesEntryErrors.qty}</p>}
+                                </div>
                             </div>
 
                             <div>
@@ -1974,40 +1996,59 @@ export default function SalesmanDashboard({ adminView = false }) {
                         </div>
 
                         <div className="space-y-2">
-                            <div className="relative">
-                                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
-                                <input
-                                    value={purchaseEntry.productName}
-                                    onFocus={() => setShowPurchaseProductSuggestions(true)}
-                                    onBlur={() => setTimeout(() => setShowPurchaseProductSuggestions(false), 160)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && purchaseProductSuggestions.length > 0) {
-                                            e.preventDefault();
-                                            applyEntryProduct('purchase', purchaseProductSuggestions[0].raw);
-                                        }
-                                    }}
-                                    onChange={(e) => handleEntryProductQueryChange('purchase', e.target.value)}
-                                    placeholder="Type product / scan barcode"
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
-                                />
-                                {showPurchaseProductSuggestions && purchaseProductSuggestions.length > 0 && (
-                                    <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-36 overflow-y-auto">
-                                        {purchaseProductSuggestions.map((row) => (
-                                            <button
-                                                key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
-                                                type="button"
-                                                onMouseDown={(e) => {
-                                                    e.preventDefault();
-                                                    applyEntryProduct('purchase', row.raw);
-                                                }}
-                                                className="w-full text-left px-2 py-1.5 hover:bg-rose-50 border-b border-slate-100 last:border-b-0"
-                                            >
-                                                <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
-                                                <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.purchasePrice || row.snapshot.sellingPrice || 0)}</p>
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
+                            <div className="grid grid-cols-[1fr_88px] gap-1.5 items-end">
+                                <div className="relative">
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
+                                    <input
+                                        value={purchaseEntry.productName}
+                                        onFocus={() => setShowPurchaseProductSuggestions(true)}
+                                        onBlur={() => setTimeout(() => setShowPurchaseProductSuggestions(false), 160)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && purchaseProductSuggestions.length > 0) {
+                                                e.preventDefault();
+                                                applyEntryProduct('purchase', purchaseProductSuggestions[0].raw);
+                                            }
+                                        }}
+                                        onChange={(e) => handleEntryProductQueryChange('purchase', e.target.value)}
+                                        placeholder="Type product / scan barcode"
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+                                    />
+                                    {showPurchaseProductSuggestions && purchaseProductSuggestions.length > 0 && (
+                                        <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-36 overflow-y-auto">
+                                            {purchaseProductSuggestions.map((row) => (
+                                                <button
+                                                    key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
+                                                    type="button"
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault();
+                                                        applyEntryProduct('purchase', row.raw);
+                                                    }}
+                                                    className="w-full text-left px-2 py-1.5 hover:bg-rose-50 border-b border-slate-100 last:border-b-0"
+                                                >
+                                                    <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
+                                                    <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.purchasePrice || row.snapshot.sellingPrice || 0)}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Qty</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value={purchaseEntry.quantity}
+                                        onChange={(e) => {
+                                            const nextQty = e.target.value.replace(/[^\d]/g, '');
+                                            setPurchaseEntry((prev) => ({ ...prev, quantity: nextQty || '1' }));
+                                            setPurchaseEntryErrors((prev) => ({ ...prev, qty: '' }));
+                                        }}
+                                        className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 ${purchaseEntryErrors.qty ? 'border-rose-300' : 'border-slate-200'}`}
+                                        aria-invalid={Boolean(purchaseEntryErrors.qty)}
+                                    />
+                                    {purchaseEntryErrors.qty && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.qty}</p>}
+                                </div>
                             </div>
 
                             <div>

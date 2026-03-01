@@ -132,11 +132,8 @@ const ReceiptTemplate = forwardRef(({
                 </div>
 
                 <div style={{ marginTop: '12px', fontSize: '9px', lineHeight: '1.3' }}>
-                    Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.
+                    Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. {receiptShopName}
                 </div>
-
-                <div style={{ marginTop: '18px' }}>Vielen Dank fuer Ihren Einkauf!</div>
-                <div style={{ fontWeight: 'bold', marginTop: '4px' }}>{receiptShopName}</div>
             </div>
         </div>
     );

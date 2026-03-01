@@ -41,7 +41,6 @@ export default function AdminSettings() {
 
     // ── Shops State ──
     const [shopName, setShopName] = useState('');
-    const [shopLocation, setShopLocation] = useState('');
     const [shopAddress, setShopAddress] = useState('');
     const [shopTelephone, setShopTelephone] = useState('');
     const [shopOwnerEmail, setShopOwnerEmail] = useState('');
@@ -51,7 +50,6 @@ export default function AdminSettings() {
     const [isCreatingShop, setIsCreatingShop] = useState(false);
     const [editingShopId, setEditingShopId] = useState('');
     const [editingShopName, setEditingShopName] = useState('');
-    const [editingShopLocation, setEditingShopLocation] = useState('');
     const [editingShopAddress, setEditingShopAddress] = useState('');
     const [editingShopTelephone, setEditingShopTelephone] = useState('');
     const [editingShopOwnerEmail, setEditingShopOwnerEmail] = useState('');
@@ -167,13 +165,12 @@ export default function AdminSettings() {
         try {
             const result = await createShop({
                 shopName,
-                location: shopLocation,
+                location: shopAddress,
                 address: shopAddress,
                 ownerEmail: shopOwnerEmail,
                 telephone: shopTelephone
             });
             setShopName('');
-            setShopLocation('');
             setShopAddress('');
             setShopTelephone('');
             setShopOwnerEmail('');
@@ -194,9 +191,19 @@ export default function AdminSettings() {
         setCreatedManager(null);
         setEditingShopId(shop.id);
         setEditingShopName(shop.name || '');
-        setEditingShopLocation(shop.location || '');
         setEditingShopAddress(shop.address || shop.location || '');
-        setEditingShopTelephone(shop.telephone || shop.phone || '');
+        setEditingShopTelephone(
+            shop.telephone
+            || shop.phone
+            || shop.shop_phone
+            || shop.telephone_number
+            || shop.phone_number
+            || shop.contact_number
+            || shop.mobile
+            || shop.telefon
+            || shop.tel
+            || ''
+        );
         setEditingShopOwnerEmail(shop.owner_email || '');
         setEditingShopOwnerPassword('');
         setShowEditingShopOwnerPassword(false);
@@ -205,7 +212,6 @@ export default function AdminSettings() {
     const cancelShopEdit = () => {
         setEditingShopId('');
         setEditingShopName('');
-        setEditingShopLocation('');
         setEditingShopAddress('');
         setEditingShopTelephone('');
         setEditingShopOwnerEmail('');
@@ -226,7 +232,7 @@ export default function AdminSettings() {
         try {
             const payload = {
                 name: editingShopName,
-                location: editingShopLocation,
+                location: editingShopAddress,
                 address: editingShopAddress,
                 telephone: editingShopTelephone,
                 ownerEmail: editingShopOwnerEmail
@@ -324,7 +330,7 @@ export default function AdminSettings() {
                         </div>
                     </div>
 
-                    <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+                    <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                         <div className="md:col-span-1">
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Shop Name</label>
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
@@ -334,18 +340,6 @@ export default function AdminSettings() {
                                     onChange={(e) => setShopName(e.target.value)}
                                     className="w-full bg-transparent outline-none text-sm font-medium"
                                     placeholder="e.g. DailyBooks Berlin"
-                                />
-                            </div>
-                        </div>
-                        <div className="md:col-span-1">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Location</label>
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
-                                <MapPin size={14} className="text-slate-400" />
-                                <input
-                                    value={shopLocation}
-                                    onChange={(e) => setShopLocation(e.target.value)}
-                                    className="w-full bg-transparent outline-none text-sm font-medium"
-                                    placeholder="City / Address"
                                 />
                             </div>
                         </div>
@@ -420,20 +414,12 @@ export default function AdminSettings() {
                                 shops.map((shop) => (
                                     <div key={shop.id} className="px-3 py-2 rounded-xl border border-slate-100 bg-slate-50 space-y-3">
                                         {editingShopId === shop.id ? (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3 items-end">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
                                                 <div>
                                                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Shop Name</label>
                                                     <input
                                                         value={editingShopName}
                                                         onChange={(e) => setEditingShopName(e.target.value)}
-                                                        className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Location</label>
-                                                    <input
-                                                        value={editingShopLocation}
-                                                        onChange={(e) => setEditingShopLocation(e.target.value)}
                                                         className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
                                                     />
                                                 </div>
@@ -509,9 +495,19 @@ export default function AdminSettings() {
                                             <div className="flex flex-wrap items-center justify-between gap-3">
                                                 <div>
                                                     <p className="text-sm font-bold text-slate-800">{shop.name}</p>
-                                                    <p className="text-xs text-slate-500">{shop.location || 'Location not set'}</p>
                                                     <p className="text-xs text-slate-500">{shop.address || 'Address not set'}</p>
-                                                    <p className="text-xs text-slate-500">{shop.telephone || shop.phone || 'Telephone not set'}</p>
+                                                    <p className="text-xs text-slate-500">{
+                                                        shop.telephone
+                                                        || shop.phone
+                                                        || shop.shop_phone
+                                                        || shop.telephone_number
+                                                        || shop.phone_number
+                                                        || shop.contact_number
+                                                        || shop.mobile
+                                                        || shop.telefon
+                                                        || shop.tel
+                                                        || 'Telephone not set'
+                                                    }</p>
                                                 </div>
                                                 <div className="flex items-center gap-3">
                                                     <div className="text-right">

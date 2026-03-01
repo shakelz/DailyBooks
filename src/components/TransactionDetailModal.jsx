@@ -211,13 +211,8 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                 <div style="margin-top: 10px; font-size: 9px;">
                     <div>Zahlungsart: ${esc(txn.paymentMethod || 'Bar')}</div>
                     <div style="margin-top: 8px;">
-                        Rueckgabe/Umtausch innerhalb von 14 Tagen nur bei Schaden mit Beleg.
+                        Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${esc(receiptShopName)}
                     </div>
-                </div>
-
-                <div class="text-center footer-text" style="margin-top: 25px;">
-                    <div>Vielen Dank fuer Ihren Einkauf!</div>
-                    <div class="bold">${esc(receiptShopName)}</div>
                 </div>
             </body>
             </html>
@@ -396,7 +391,8 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                             <span className="text-lg font-bold text-emerald-600">{formatAmount(amount)}</span>
                                         </div>
                                     </div>
-                                </section>                                {showTax && (
+                                </section>
+                                {showTax && (
                                     <section>
                                         <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Tax Inclusion (19%)</h3>
                                         <div className="space-y-2 px-1">
