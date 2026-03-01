@@ -122,6 +122,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         const completedAt = printData.completedAt || new Date().toISOString();
         const receiptShopName = String(activeShop?.name || 'Shop').trim() || 'Shop';
         const receiptShopAddress = String(activeShop?.address || activeShop?.location || '').trim();
+        const receiptShopPhone = String(activeShop?.telephone || activeShop?.phone || '').trim();
 
         return `<!DOCTYPE html>
 <html>
@@ -151,6 +152,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         <div class="title">— Reparaturabschluss —</div>
         <div class="shop-name">${esc(receiptShopName)}</div>
         ${receiptShopAddress ? `<div class="shop-addr">${esc(receiptShopAddress)}</div>` : ''}
+        ${receiptShopPhone ? `<div class="shop-addr">Tel: ${esc(receiptShopPhone)}</div>` : ''}
         <div class="divider"></div>
         <div class="ref-id">${esc(printData.refId)}</div>
         <div class="divider"></div>

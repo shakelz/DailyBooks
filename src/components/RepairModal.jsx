@@ -94,6 +94,7 @@ export default function RepairModal({ isOpen, onClose }) {
         ));
         const receiptShopName = String(activeShop?.name || 'Shop').trim() || 'Shop';
         const receiptShopAddress = String(activeShop?.address || activeShop?.location || '').trim();
+        const receiptShopPhone = String(activeShop?.telephone || activeShop?.phone || '').trim();
         const parsedDelivery = job?.deliveryDate ? new Date(job.deliveryDate) : null;
         const deliveryFormatted = parsedDelivery && !Number.isNaN(parsedDelivery.getTime())
             ? parsedDelivery.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -131,6 +132,7 @@ export default function RepairModal({ isOpen, onClose }) {
         <div class="title">Kundenbeleg</div>
         <div class="shop-name">${esc(receiptShopName)}</div>
         ${receiptShopAddress ? `<div class="shop-addr">${esc(receiptShopAddress)}</div>` : ''}
+        ${receiptShopPhone ? `<div class="shop-addr">Tel: ${esc(receiptShopPhone)}</div>` : ''}
         <div class="divider"></div>
         <div class="ref-id">${esc(job.refId)}</div>
         <div class="divider"></div>

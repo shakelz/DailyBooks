@@ -186,9 +186,36 @@ function escapeHtml(value) {
         .replaceAll('\'', '&#39;');
 }
 
+function getTimestampMs(value) {
+    if (!value) return NaN;
+    const ms = Date.parse(value);
+    return Number.isNaN(ms) ? NaN : ms;
+}
+
+function getRangeOverlapMs(startMs, endMs, rangeStartMs, rangeEndMs) {
+    const from = Math.max(startMs, rangeStartMs);
+    const to = Math.min(endMs, rangeEndMs);
+    return Math.max(0, to - from);
+}
+
+function resolveShopPhone(shop = {}) {
+    const candidates = [
+        shop.telephone,
+        shop.phone,
+        shop.shopPhone,
+        shop.contactPhone,
+        shop.contact_phone,
+        shop.mobile,
+        shop.tel
+    ];
+    const found = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+    return found ? found.trim() : '';
+}
+
 function buildReceiptHtml({
     shopName,
     shopAddress,
+    shopPhone,
     issuedAt,
     receiptNo,
     paymentMethod,
@@ -236,6 +263,7 @@ function buildReceiptHtml({
                 <div class="center">
                     <div class="shop">${escapeHtml(shopName || 'Shop')}</div>
                     ${shopAddress ? `<div>${escapeHtml(shopAddress)}</div>` : ''}
+                    ${shopPhone ? `<div>Tel: ${escapeHtml(shopPhone)}</div>` : ''}
                     <div>Deutschland</div>
                 </div>
 
@@ -384,9 +412,9 @@ function CompactTrendCard({ label, value, colorClass }) {
     );
 }
 
-export default function SalesmanDashboard() {
+export default function SalesmanDashboard({ adminView = false }) {
     const navigate = useNavigate();
-    const { role, user, isPunchedIn, activeShop, billShowTax } = useAuth();
+    const { role, user, isPunchedIn, activeShop, billShowTax, attendanceLogs, salesmen } = useAuth();
     const {
         products,
         transactions,
@@ -449,10 +477,26 @@ export default function SalesmanDashboard() {
         ?? user?.permissions?.canEditTransactions
         ?? false
     );
+    const requiresPunch = !adminView;
+    const receiptShopName = activeShop?.name || 'Shop';
+    const receiptShopAddress = activeShop?.address || activeShop?.location || '';
+    const receiptShopPhone = resolveShopPhone(activeShop);
 
     useEffect(() => {
-        if (!user || role !== 'salesman') navigate('/');
-    }, [navigate, role, user]);
+        if (!user) {
+            navigate('/');
+            return;
+        }
+        const normalizedRole = String(role || '').toLowerCase();
+        const isAdminRole = normalizedRole === 'admin' || normalizedRole === 'superadmin';
+        if (!adminView && normalizedRole !== 'salesman') {
+            navigate('/');
+            return;
+        }
+        if (adminView && !isAdminRole) {
+            navigate('/');
+        }
+    }, [adminView, navigate, role, user]);
 
 
     const dayStart = useMemo(() => {
@@ -514,6 +558,105 @@ export default function SalesmanDashboard() {
         });
         return combined;
     }, [purchaseBreakdown, revenueBreakdown]);
+
+    const staffProductionRows = useMemo(() => {
+        if (!adminView) return [];
+        const startMs = dayStart.getTime();
+        const endMs = Date.now();
+        const logsByStaff = new Map();
+
+        (attendanceLogs || []).forEach((log) => {
+            const uid = String(log?.userId || log?.workerId || '');
+            if (!uid) return;
+            const existing = logsByStaff.get(uid) || [];
+            existing.push(log);
+            logsByStaff.set(uid, existing);
+        });
+
+        const salaryByStaff = (transactions || []).reduce((acc, txn) => {
+            if (!(txn?.type === 'expense' && txn?.category === 'Salary')) return acc;
+            const sid = String(txn?.workerId || txn?.salesmanId || '');
+            if (!sid) return acc;
+
+            const txnMs = getTimestampMs(txn?.timestamp);
+            if (Number.isFinite(txnMs)) {
+                if (txnMs < startMs || txnMs > endMs) return acc;
+            } else {
+                const txnDate = new Date(`${txn?.date || ''}T00:00:00`);
+                if (Number.isNaN(txnDate.getTime()) || txnDate.getTime() < startMs) return acc;
+            }
+
+            acc[sid] = (acc[sid] || 0) + (parseFloat(txn?.amount) || 0);
+            return acc;
+        }, {});
+
+        return (salesmen || []).map((staff) => {
+            const sid = String(staff?.id || '');
+            const hourlyRate = parseFloat(staff?.hourlyRate) || 12.5;
+            const staffLogs = (logsByStaff.get(sid) || [])
+                .filter((log) => Number.isFinite(getTimestampMs(log?.timestamp)))
+                .sort((a, b) => getTimestampMs(a.timestamp) - getTimestampMs(b.timestamp));
+
+            let openInMs = null;
+            let totalMs = 0;
+            staffLogs.forEach((log) => {
+                const ts = getTimestampMs(log?.timestamp);
+                if (!Number.isFinite(ts)) return;
+                if (log?.type === 'IN') {
+                    openInMs = ts;
+                    return;
+                }
+                if (log?.type === 'OUT' && openInMs !== null) {
+                    totalMs += getRangeOverlapMs(openInMs, ts, startMs, endMs);
+                    openInMs = null;
+                }
+            });
+            if (openInMs !== null) {
+                totalMs += getRangeOverlapMs(openInMs, endMs, startMs, endMs);
+            }
+
+            const totalHours = totalMs / 3600000;
+            const earned = totalHours * hourlyRate;
+            const paid = salaryByStaff[sid] || 0;
+            const isOnlineFromLogs = openInMs !== null;
+            const profileOnline = String(staff?.is_online ?? staff?.isOnline ?? staff?.online).toLowerCase() === 'true';
+
+            return {
+                id: sid,
+                name: String(staff?.name || 'Staff'),
+                totalHours,
+                earned,
+                paid,
+                isOnline: profileOnline || isOnlineFromLogs,
+            };
+        }).sort((a, b) => b.earned - a.earned);
+    }, [adminView, attendanceLogs, dayStart, salesmen, transactions]);
+
+    const activityLogsToday = useMemo(() => {
+        if (!adminView) return [];
+        const startMs = dayStart.getTime();
+        const nowMs = Date.now();
+        const staffNameById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), String(staff?.name || 'Staff')]));
+
+        return (attendanceLogs || [])
+            .filter((log) => {
+                const ts = getTimestampMs(log?.timestamp);
+                return Number.isFinite(ts) && ts >= startMs && ts <= nowMs;
+            })
+            .sort((a, b) => getTimestampMs(b?.timestamp) - getTimestampMs(a?.timestamp))
+            .map((log) => {
+                const uid = String(log?.userId || log?.workerId || '');
+                const fallbackName = staffNameById.get(uid) || 'Staff';
+                return {
+                    id: String(log?.id || `${uid}-${log?.timestamp || ''}`),
+                    userName: String(log?.userName || log?.workerName || fallbackName),
+                    type: String(log?.type || '').toUpperCase(),
+                    timeLabel: Number.isFinite(getTimestampMs(log?.timestamp))
+                        ? new Date(log.timestamp).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
+                        : '--:--',
+                };
+            });
+    }, [adminView, attendanceLogs, dayStart, salesmen]);
 
     useEffect(() => {
         const endpoint = import.meta.env.VITE_CF_DO_STATS_URL;
@@ -680,7 +823,7 @@ export default function SalesmanDashboard() {
     };
 
     const submitSimpleEntry = async (mode = 'sales') => {
-        if (!isPunchedIn) {
+        if (requiresPunch && !isPunchedIn) {
             alert('Please punch in first');
             setShowProfileModal(true);
             return;
@@ -751,8 +894,6 @@ export default function SalesmanDashboard() {
         if (!txn) return;
 
         const amountValue = parseFloat(txn.amount) || 0;
-        const shopName = activeShop?.name || 'Shop';
-        const shopAddress = activeShop?.address || activeShop?.location || '';
         const txnDate = txn.timestamp ? new Date(txn.timestamp) : new Date();
         const popup = window.open('', 'recent-transaction-receipt', 'width=420,height=760');
         if (!popup) return;
@@ -760,8 +901,9 @@ export default function SalesmanDashboard() {
         const unitPrice = qty > 0 ? amountValue / qty : amountValue;
 
         popup.document.write(buildReceiptHtml({
-            shopName,
-            shopAddress,
+            shopName: receiptShopName,
+            shopAddress: receiptShopAddress,
+            shopPhone: receiptShopPhone,
             issuedAt: txnDate,
             receiptNo: txn.transactionId || txn.id || '-',
             paymentMethod: txn.paymentMethod || 'Cash',
@@ -969,7 +1111,11 @@ export default function SalesmanDashboard() {
                     </style>
                 </head>
                 <body>
-                    <h2>Kundenbeleg</h2>
+                    <h2>${toSafe(receiptShopName)}</h2>
+                    ${receiptShopAddress ? `<p>${toSafe(receiptShopAddress)}</p>` : ''}
+                    ${receiptShopPhone ? `<p>Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
+                    <div class="line"></div>
+                    <p>Kundenbeleg</p>
                     <p>${createdAt.toLocaleString('de-DE')}</p>
                     <div class="line"></div>
                     <div class="row"><span>Auftrag</span><span>${toSafe(job.refId || job.id || '-')}</span></div>
@@ -999,8 +1145,6 @@ export default function SalesmanDashboard() {
 
     const printOnlineOrderBill = (order) => {
         if (!order) return;
-        const shopName = activeShop?.name || 'Shop';
-        const shopAddress = activeShop?.address || activeShop?.location || '';
         const qty = Math.max(1, parseInt(order.quantity || '1', 10) || 1);
         const unitPrice = parseFloat(order.amount || 0) || 0;
         const totalPrice = qty * unitPrice;
@@ -1026,8 +1170,9 @@ export default function SalesmanDashboard() {
                     </style>
                 </head>
                 <body>
-                    <h2>${toSafe(shopName)}</h2>
-                    ${shopAddress ? `<p>${toSafe(shopAddress)}</p>` : ''}
+                    <h2>${toSafe(receiptShopName)}</h2>
+                    ${receiptShopAddress ? `<p>${toSafe(receiptShopAddress)}</p>` : ''}
+                    ${receiptShopPhone ? `<p>Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
                     <p>${new Date().toLocaleString('de-DE')}</p>
                     <div class="line"></div>
                     <div class="row"><span>Bestellung</span><span>${toSafe(order.orderId || order.id || '-')}</span></div>
@@ -1180,14 +1325,13 @@ export default function SalesmanDashboard() {
             return;
         }
 
-        const shopName = activeShop?.name || 'Shop';
-        const shopAddress = activeShop?.address || activeShop?.location || '';
         const popup = window.open('', 'quick-sale-receipt', 'width=420,height=760');
         if (!popup) return;
 
         popup.document.write(buildReceiptHtml({
-            shopName,
-            shopAddress,
+            shopName: receiptShopName,
+            shopAddress: receiptShopAddress,
+            shopPhone: receiptShopPhone,
             issuedAt: new Date(),
             receiptNo: `QS-${Date.now()}`,
             paymentMethod: quickSaleForm.paymentMode || 'Cash',
@@ -1205,7 +1349,7 @@ export default function SalesmanDashboard() {
     };
 
     const completeQuickSale = async () => {
-        if (!isPunchedIn) {
+        if (requiresPunch && !isPunchedIn) {
             alert('Please punch in first');
             setShowProfileModal(true);
             return;
@@ -1452,8 +1596,8 @@ export default function SalesmanDashboard() {
                             <BarChart3 size={18} />
                         </div>
                         <div>
-                            <h1 className="text-sm sm:text-base font-black text-white">Salesman Dashboard</h1>
-                            <p className="text-[11px] text-blue-100">Hello, {user?.name || 'Salesman'}</p>
+                            <h1 className="text-sm sm:text-base font-black text-white">{adminView ? 'Admin Dashboard' : 'Salesman Dashboard'}</h1>
+                            <p className="text-[11px] text-blue-100">Hello, {user?.name || (adminView ? 'Admin' : 'Salesman')}</p>
                             <p className={`text-[10px] ${canEditTransactions ? 'text-emerald-200' : 'text-amber-200'}`}>
                                 Transaction Edit: {canEditTransactions ? 'Enabled' : 'Disabled'}
                             </p>
@@ -1534,6 +1678,67 @@ export default function SalesmanDashboard() {
                         colorClass="border-rose-200 bg-gradient-to-br from-rose-100 to-pink-50"
                     />
                 </section>
+
+                {adminView && (
+                    <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        <div className="rounded-2xl border border-violet-100 bg-white p-3 shadow-sm">
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                                <h3 className="text-sm font-black text-violet-700">Staff Production & Salary</h3>
+                                <span className="text-[10px] text-slate-400">Today</span>
+                            </div>
+                            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                {staffProductionRows.length === 0 ? (
+                                    <p className="text-xs text-slate-400">No staff activity available.</p>
+                                ) : staffProductionRows.map((staff) => (
+                                    <div key={`staff-prod-${staff.id}`} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-xs font-bold text-slate-700 truncate">{staff.name}</p>
+                                            <span className={`text-[10px] font-semibold ${staff.isOnline ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                                {staff.isOnline ? 'Online' : 'Offline'}
+                                            </span>
+                                        </div>
+                                        <div className="mt-1 grid grid-cols-3 gap-2 text-[11px]">
+                                            <div>
+                                                <p className="text-slate-400">Hours</p>
+                                                <p className="font-bold text-slate-700">{staff.totalHours.toFixed(2)}h</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-slate-400">Earned</p>
+                                                <p className="font-bold text-violet-700">{priceTag(staff.earned)}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-slate-400">Paid</p>
+                                                <p className="font-bold text-blue-700">{priceTag(staff.paid)}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-sky-100 bg-white p-3 shadow-sm">
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                                <h3 className="text-sm font-black text-sky-700">Activity Logs</h3>
+                                <span className="text-[10px] text-slate-400">{activityLogsToday.length} records</span>
+                            </div>
+                            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                {activityLogsToday.length === 0 ? (
+                                    <p className="text-xs text-slate-400">No attendance logs today.</p>
+                                ) : activityLogsToday.map((log) => (
+                                    <div key={`activity-log-${log.id}`} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold text-slate-700 truncate">{log.userName}</p>
+                                            <p className="text-[11px] text-slate-400">{log.timeLabel}</p>
+                                        </div>
+                                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${log.type === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                            {log.type === 'IN' ? 'PUNCHED IN' : 'PUNCHED OUT'}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </section>
+                )}
 
                 <section className="grid grid-cols-2 gap-2 items-start">
                     <form

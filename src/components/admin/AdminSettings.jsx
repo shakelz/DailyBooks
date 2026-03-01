@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash } from 'lucide-react';
+import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash, Phone } from 'lucide-react';
 
 export default function AdminSettings() {
     const {
@@ -43,6 +43,7 @@ export default function AdminSettings() {
     const [shopName, setShopName] = useState('');
     const [shopLocation, setShopLocation] = useState('');
     const [shopAddress, setShopAddress] = useState('');
+    const [shopTelephone, setShopTelephone] = useState('');
     const [shopOwnerEmail, setShopOwnerEmail] = useState('');
     const [shopError, setShopError] = useState('');
     const [shopMessage, setShopMessage] = useState('');
@@ -52,6 +53,7 @@ export default function AdminSettings() {
     const [editingShopName, setEditingShopName] = useState('');
     const [editingShopLocation, setEditingShopLocation] = useState('');
     const [editingShopAddress, setEditingShopAddress] = useState('');
+    const [editingShopTelephone, setEditingShopTelephone] = useState('');
     const [editingShopOwnerEmail, setEditingShopOwnerEmail] = useState('');
     const [editingShopOwnerPassword, setEditingShopOwnerPassword] = useState('');
     const [showEditingShopOwnerPassword, setShowEditingShopOwnerPassword] = useState(false);
@@ -167,11 +169,13 @@ export default function AdminSettings() {
                 shopName,
                 location: shopLocation,
                 address: shopAddress,
-                ownerEmail: shopOwnerEmail
+                ownerEmail: shopOwnerEmail,
+                telephone: shopTelephone
             });
             setShopName('');
             setShopLocation('');
             setShopAddress('');
+            setShopTelephone('');
             setShopOwnerEmail('');
             setCreatedManager(result?.credentials || null);
             setEditingShopId('');
@@ -192,6 +196,7 @@ export default function AdminSettings() {
         setEditingShopName(shop.name || '');
         setEditingShopLocation(shop.location || '');
         setEditingShopAddress(shop.address || shop.location || '');
+        setEditingShopTelephone(shop.telephone || shop.phone || '');
         setEditingShopOwnerEmail(shop.owner_email || '');
         setEditingShopOwnerPassword('');
         setShowEditingShopOwnerPassword(false);
@@ -202,6 +207,7 @@ export default function AdminSettings() {
         setEditingShopName('');
         setEditingShopLocation('');
         setEditingShopAddress('');
+        setEditingShopTelephone('');
         setEditingShopOwnerEmail('');
         setEditingShopOwnerPassword('');
         setShowEditingShopOwnerPassword(false);
@@ -222,6 +228,7 @@ export default function AdminSettings() {
                 name: editingShopName,
                 location: editingShopLocation,
                 address: editingShopAddress,
+                telephone: editingShopTelephone,
                 ownerEmail: editingShopOwnerEmail
             };
             if (editingShopOwnerPassword.trim()) {
@@ -317,7 +324,7 @@ export default function AdminSettings() {
                         </div>
                     </div>
 
-                    <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                    <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
                         <div className="md:col-span-1">
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Shop Name</label>
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
@@ -351,6 +358,19 @@ export default function AdminSettings() {
                                     onChange={(e) => setShopAddress(e.target.value)}
                                     className="w-full bg-transparent outline-none text-sm font-medium"
                                     placeholder="Street, postal code, city"
+                                />
+                            </div>
+                        </div>
+                        <div className="md:col-span-1">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Telephone</label>
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                <Phone size={14} className="text-slate-400" />
+                                <input
+                                    type="tel"
+                                    value={shopTelephone}
+                                    onChange={(e) => setShopTelephone(e.target.value)}
+                                    className="w-full bg-transparent outline-none text-sm font-medium"
+                                    placeholder="+49 30 1234567"
                                 />
                             </div>
                         </div>
@@ -400,7 +420,7 @@ export default function AdminSettings() {
                                 shops.map((shop) => (
                                     <div key={shop.id} className="px-3 py-2 rounded-xl border border-slate-100 bg-slate-50 space-y-3">
                                         {editingShopId === shop.id ? (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3 items-end">
                                                 <div>
                                                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Shop Name</label>
                                                     <input
@@ -423,6 +443,16 @@ export default function AdminSettings() {
                                                         value={editingShopAddress}
                                                         onChange={(e) => setEditingShopAddress(e.target.value)}
                                                         className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Telephone</label>
+                                                    <input
+                                                        type="tel"
+                                                        value={editingShopTelephone}
+                                                        onChange={(e) => setEditingShopTelephone(e.target.value)}
+                                                        className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
+                                                        placeholder="+49 30 1234567"
                                                     />
                                                 </div>
                                                 <div>
@@ -481,6 +511,7 @@ export default function AdminSettings() {
                                                     <p className="text-sm font-bold text-slate-800">{shop.name}</p>
                                                     <p className="text-xs text-slate-500">{shop.location || 'Location not set'}</p>
                                                     <p className="text-xs text-slate-500">{shop.address || 'Address not set'}</p>
+                                                    <p className="text-xs text-slate-500">{shop.telephone || shop.phone || 'Telephone not set'}</p>
                                                 </div>
                                                 <div className="flex items-center gap-3">
                                                     <div className="text-right">

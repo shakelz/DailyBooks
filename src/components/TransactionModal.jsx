@@ -106,6 +106,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
         const formatMoney = (value) => `${Number(value || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR`;
         const shopName = activeShop?.name || 'Shop';
         const shopAddress = activeShop?.address || activeShop?.location || '';
+        const shopPhone = activeShop?.telephone || activeShop?.phone || '';
 
         const popup = window.open('', 'transaction-modal-print', 'width=420,height=760');
         if (!popup) return;
@@ -126,6 +127,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                     <div class="center">
                         <h2>${escapeHtml(shopName)}</h2>
                         ${shopAddress ? `<p>${escapeHtml(shopAddress)}</p>` : ''}
+                        ${shopPhone ? `<p>Tel: ${escapeHtml(shopPhone)}</p>` : ''}
                         <p>Deutschland</p>
                     </div>
                     <div class="line"></div>

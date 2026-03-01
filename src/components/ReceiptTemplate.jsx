@@ -15,7 +15,8 @@ const ReceiptTemplate = forwardRef(({
     time,
     showTax,
     shopName,
-    shopAddress
+    shopAddress,
+    shopTelephone
 }, ref) => {
     const { activeShop, billShowTax } = useAuth();
     const lineItems = Array.isArray(items) ? items : [];
@@ -25,6 +26,7 @@ const ReceiptTemplate = forwardRef(({
     const shouldShowTax = showTax === undefined ? billShowTax : Boolean(showTax);
     const receiptShopName = String(shopName || activeShop?.name || 'Shop').trim() || 'Shop';
     const receiptShopAddress = String(shopAddress || activeShop?.address || activeShop?.location || '').trim();
+    const receiptShopTelephone = String(shopTelephone || activeShop?.telephone || activeShop?.phone || '').trim();
 
     const renderIMEI = (item) => {
         const category = typeof item?.category === 'object' ? item.category?.level1 : item?.category;
@@ -54,6 +56,7 @@ const ReceiptTemplate = forwardRef(({
             <div style={{ textAlign: 'center', marginBottom: '16px' }}>
                 <div style={{ fontWeight: 'bold', fontSize: '16px' }}>{receiptShopName}</div>
                 {receiptShopAddress && <div style={{ marginTop: '4px' }}>{receiptShopAddress}</div>}
+                {receiptShopTelephone && <div style={{ marginTop: '2px' }}>Tel: {receiptShopTelephone}</div>}
             </div>
 
             <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />

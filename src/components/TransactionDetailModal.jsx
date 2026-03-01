@@ -58,6 +58,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
     })}`;
     const receiptShopName = activeShop?.name || 'Shop';
     const receiptShopAddress = activeShop?.address || activeShop?.location || '';
+    const receiptShopPhone = activeShop?.telephone || activeShop?.phone || '';
     const workerRef = String(txn?.workerId || txn?.salesmanId || '');
     const worker = salesmen.find((row) => String(row.id) === workerRef);
     const salesmanLabel = worker?.salesmanNumber
@@ -165,6 +166,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                 <div class="text-center">
                     <div class="bold fs-lg">${esc(receiptShopName)}</div>
                     ${receiptShopAddress ? `<div style="margin-top: 4px;">${esc(receiptShopAddress)}</div>` : ''}
+                    ${receiptShopPhone ? `<div style="margin-top: 2px;">Tel: ${esc(receiptShopPhone)}</div>` : ''}
                 </div>
 
                 <div class="divider"></div>

@@ -250,6 +250,15 @@ function normalizeSalesman(profile) {
 
 function normalizeShop(shop) {
     if (!shop || typeof shop !== 'object') return null;
+    const resolvedTelephone = asString(
+        shop.telephone
+        || shop.phone
+        || shop.shop_phone
+        || shop.shopPhone
+        || shop.contact_phone
+        || shop.contactPhone
+        || ''
+    );
     return {
         ...shop,
         id: asString(shop.id || shop.shop_id),
@@ -257,6 +266,8 @@ function normalizeShop(shop) {
         location: asString(shop.location || shop.address || ''),
         address: asString(shop.address || shop.location || ''),
         owner_email: asString(shop.owner_email || shop.ownerEmail || ''),
+        telephone: resolvedTelephone,
+        phone: resolvedTelephone,
     };
 }
 
@@ -302,28 +313,35 @@ async function attachShopOwnerCredentials(shopList = []) {
     });
 }
 
-function buildShopInsertPayloads({ name, location, address, ownerEmail }) {
+function buildShopInsertPayloads({ name, location, address, ownerEmail, telephone }) {
     const safeName = asString(name);
     const safeLocation = asString(location);
     const safeAddress = asString(address);
     const safeOwnerEmail = asString(ownerEmail).toLowerCase();
+    const safeTelephone = asString(telephone);
 
     const nameVariants = safeName ? [{ name: safeName }, { shop_name: safeName }] : [];
     const locationVariants = safeLocation ? [{ location: safeLocation }, {}] : [{}];
     const addressVariants = safeAddress ? [{ address: safeAddress }, { location: safeAddress }, {}] : [{}];
     const ownerVariants = safeOwnerEmail ? [{ owner_email: safeOwnerEmail }, { ownerEmail: safeOwnerEmail }, {}] : [{}];
+    const telephoneVariants = safeTelephone
+        ? [{ telephone: safeTelephone }, { phone: safeTelephone }, { shop_phone: safeTelephone }, {}]
+        : [{}];
 
     const payloads = [];
     nameVariants.forEach((namePayload) => {
         locationVariants.forEach((locationPayload) => {
             addressVariants.forEach((addressPayload) => {
                 ownerVariants.forEach((ownerPayload) => {
-                    payloads.push(cleanPayload({
-                        ...namePayload,
-                        ...locationPayload,
-                        ...addressPayload,
-                        ...ownerPayload
-                    }));
+                    telephoneVariants.forEach((telephonePayload) => {
+                        payloads.push(cleanPayload({
+                            ...namePayload,
+                            ...locationPayload,
+                            ...addressPayload,
+                            ...ownerPayload,
+                            ...telephonePayload
+                        }));
+                    });
                 });
             });
         });
@@ -371,28 +389,35 @@ function buildTimestampFromTime(baseTimestamp, timeValue) {
     return base.toISOString();
 }
 
-function buildShopUpdatePayloads({ name, location, address, ownerEmail }) {
+function buildShopUpdatePayloads({ name, location, address, ownerEmail, telephone }) {
     const email = ownerEmail === undefined ? undefined : asString(ownerEmail).toLowerCase();
     const safeName = name === undefined ? undefined : asString(name);
     const safeLocation = location === undefined ? undefined : asString(location);
     const safeAddress = address === undefined ? undefined : asString(address);
+    const safeTelephone = telephone === undefined ? undefined : asString(telephone);
 
     const nameVariants = safeName === undefined ? [{}] : [{ name: safeName }, { shop_name: safeName }];
     const locationVariants = safeLocation === undefined ? [{}] : [{ location: safeLocation }, {}];
     const addressVariants = safeAddress === undefined ? [{}] : [{ address: safeAddress }, { location: safeAddress }, {}];
     const ownerVariants = email === undefined ? [{}] : [{ owner_email: email }, { ownerEmail: email }, {}];
+    const telephoneVariants = safeTelephone === undefined
+        ? [{}]
+        : [{ telephone: safeTelephone }, { phone: safeTelephone }, { shop_phone: safeTelephone }, {}];
 
     const candidates = [];
     nameVariants.forEach((namePayload) => {
         locationVariants.forEach((locationPayload) => {
             addressVariants.forEach((addressPayload) => {
                 ownerVariants.forEach((ownerPayload) => {
-                    candidates.push(cleanPayload({
-                        ...namePayload,
-                        ...locationPayload,
-                        ...addressPayload,
-                        ...ownerPayload
-                    }));
+                    telephoneVariants.forEach((telephonePayload) => {
+                        candidates.push(cleanPayload({
+                            ...namePayload,
+                            ...locationPayload,
+                            ...addressPayload,
+                            ...ownerPayload,
+                            ...telephonePayload
+                        }));
+                    });
                 });
             });
         });
@@ -403,7 +428,10 @@ function buildShopUpdatePayloads({ name, location, address, ownerEmail }) {
         const hasName = Object.prototype.hasOwnProperty.call(payload, 'name') || Object.prototype.hasOwnProperty.call(payload, 'shop_name');
         const hasLocation = Object.prototype.hasOwnProperty.call(payload, 'location') || Object.prototype.hasOwnProperty.call(payload, 'address');
         const hasOwner = Object.prototype.hasOwnProperty.call(payload, 'owner_email') || Object.prototype.hasOwnProperty.call(payload, 'ownerEmail');
-        return hasName || hasLocation || hasOwner;
+        const hasTelephone = Object.prototype.hasOwnProperty.call(payload, 'telephone')
+            || Object.prototype.hasOwnProperty.call(payload, 'phone')
+            || Object.prototype.hasOwnProperty.call(payload, 'shop_phone');
+        return hasName || hasLocation || hasOwner || hasTelephone;
     });
 }
 
@@ -1020,7 +1048,7 @@ export function AuthProvider({ children }) {
         setActiveShopIdState(lockedShopId || sid);
     }, [isSuperAdmin, user, activeShopId]);
 
-    const createShop = useCallback(async ({ shopName, location, address, ownerEmail }) => {
+    const createShop = useCallback(async ({ shopName, location, address, ownerEmail, telephone }) => {
         if (role !== 'superadmin') {
             throw new Error('Only superadmin can create shops.');
         }
@@ -1029,6 +1057,7 @@ export function AuthProvider({ children }) {
         const shopLocation = asString(location);
         const shopAddress = asString(address);
         const email = asString(ownerEmail).toLowerCase();
+        const shopTelephone = asString(telephone);
 
         if (!name) throw new Error('Shop name is required.');
         if (!email) throw new Error('Owner email is required.');
@@ -1039,7 +1068,8 @@ export function AuthProvider({ children }) {
             name,
             location: shopLocation,
             address: shopAddress,
-            ownerEmail: email
+            ownerEmail: email,
+            telephone: shopTelephone
         });
 
         for (const payload of shopPayloads) {
@@ -1139,6 +1169,9 @@ export function AuthProvider({ children }) {
         const hasName = Object.prototype.hasOwnProperty.call(updates, 'name');
         const hasLocation = Object.prototype.hasOwnProperty.call(updates, 'location');
         const hasAddress = Object.prototype.hasOwnProperty.call(updates, 'address');
+        const hasTelephone = Object.prototype.hasOwnProperty.call(updates, 'telephone')
+            || Object.prototype.hasOwnProperty.call(updates, 'phone')
+            || Object.prototype.hasOwnProperty.call(updates, 'shop_phone');
         const hasOwner = Object.prototype.hasOwnProperty.call(updates, 'ownerEmail')
             || Object.prototype.hasOwnProperty.call(updates, 'owner_email');
         const hasOwnerPassword = Object.prototype.hasOwnProperty.call(updates, 'ownerPassword')
@@ -1147,12 +1180,15 @@ export function AuthProvider({ children }) {
         const nextName = hasName ? asString(updates.name) : undefined;
         const nextLocation = hasLocation ? asString(updates.location) : undefined;
         const nextAddress = hasAddress ? asString(updates.address) : undefined;
+        const nextTelephone = hasTelephone
+            ? asString(updates.telephone ?? updates.phone ?? updates.shop_phone)
+            : undefined;
         const nextOwnerEmail = hasOwner ? asString(updates.ownerEmail ?? updates.owner_email) : undefined;
         const nextOwnerPassword = hasOwnerPassword
             ? asString(updates.ownerPassword ?? updates.owner_password)
             : undefined;
         const shouldUpdateOwnerPassword = hasOwnerPassword && !!nextOwnerPassword;
-        const shouldUpdateShopTable = hasName || hasLocation || hasAddress || hasOwner;
+        const shouldUpdateShopTable = hasName || hasLocation || hasAddress || hasTelephone || hasOwner;
         const shouldUpdateOwnerProfile = hasOwner || shouldUpdateOwnerPassword;
 
         if (hasName && !nextName) {
@@ -1170,7 +1206,8 @@ export function AuthProvider({ children }) {
                 name: nextName,
                 location: nextLocation,
                 address: nextAddress,
-                ownerEmail: nextOwnerEmail
+                ownerEmail: nextOwnerEmail,
+                telephone: nextTelephone
             });
 
             if (payloads.length === 0) {
@@ -1261,6 +1298,17 @@ export function AuthProvider({ children }) {
             address: hasAddress
                 ? nextAddress
                 : asString(updatedShop?.address || currentShop?.address || updatedShop?.location || currentShop?.location),
+            telephone: hasTelephone
+                ? nextTelephone
+                : asString(
+                    updatedShop?.telephone
+                    || updatedShop?.phone
+                    || updatedShop?.shop_phone
+                    || currentShop?.telephone
+                    || currentShop?.phone
+                    || currentShop?.shop_phone
+                    || ''
+                ),
         };
 
         if (hasAddress) {
