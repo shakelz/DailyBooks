@@ -467,6 +467,8 @@ export default function SalesmanDashboard({ adminView = false }) {
     const [showMobileInventoryModal, setShowMobileInventoryModal] = useState(false);
     const [mobileInventorySearch, setMobileInventorySearch] = useState('');
     const [mobileInventoryTab, setMobileInventoryTab] = useState('iphone');
+    const [showOtherInventoryModal, setShowOtherInventoryModal] = useState(false);
+    const [otherInventorySearch, setOtherInventorySearch] = useState('');
     const [selectedMobileInventoryItem, setSelectedMobileInventoryItem] = useState(null);
     const [showSalesProductSuggestions, setShowSalesProductSuggestions] = useState(false);
     const [showPurchaseProductSuggestions, setShowPurchaseProductSuggestions] = useState(false);
@@ -865,25 +867,26 @@ export default function SalesmanDashboard({ adminView = false }) {
         [purchaseEntry.productName, purchaseEntry.category, purchaseEntry.subCategory, searchProducts]
     );
 
+    const isMobileLikeSnapshot = (snapshot = {}) => {
+        const categoryText = `${snapshot.category || ''} ${snapshot.subCategory || ''}`.toLowerCase();
+        const nameText = String(snapshot.name || '').toLowerCase();
+        return categoryText.includes('mobile')
+            || categoryText.includes('phone')
+            || categoryText.includes('smart')
+            || nameText.includes('mobile')
+            || nameText.includes('iphone')
+            || nameText.includes('samsung');
+    };
+
     const mobileInventoryProducts = useMemo(() => {
         const query = String(mobileInventorySearch || '').trim().toLowerCase();
-        const isMobileLike = (snapshot) => {
-            const categoryText = `${snapshot.category || ''} ${snapshot.subCategory || ''}`.toLowerCase();
-            const nameText = String(snapshot.name || '').toLowerCase();
-            return categoryText.includes('mobile')
-                || categoryText.includes('phone')
-                || categoryText.includes('smart')
-                || nameText.includes('mobile')
-                || nameText.includes('iphone')
-                || nameText.includes('samsung');
-        };
 
         return (products || [])
             .map((product) => {
                 const snapshot = resolveProductSnapshot(product);
                 return { raw: product, snapshot };
             })
-            .filter(({ snapshot }) => isMobileLike(snapshot))
+            .filter(({ snapshot }) => isMobileLikeSnapshot(snapshot))
             .filter(({ snapshot }) => {
                 if (!query) return true;
                 const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
@@ -891,6 +894,22 @@ export default function SalesmanDashboard({ adminView = false }) {
             })
             .sort((a, b) => String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' }));
     }, [mobileInventorySearch, products]);
+
+    const otherInventoryProducts = useMemo(() => {
+        const query = String(otherInventorySearch || '').trim().toLowerCase();
+        return (products || [])
+            .map((product) => {
+                const snapshot = resolveProductSnapshot(product);
+                return { raw: product, snapshot };
+            })
+            .filter(({ snapshot }) => !isMobileLikeSnapshot(snapshot))
+            .filter(({ snapshot }) => {
+                if (!query) return true;
+                const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
+                return searchable.includes(query);
+            })
+            .sort((a, b) => String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' }));
+    }, [otherInventorySearch, products]);
 
     const filteredMobileInventoryProducts = useMemo(() => {
         const resolveBucket = (snapshot = {}) => {
@@ -908,22 +927,13 @@ export default function SalesmanDashboard({ adminView = false }) {
     const handleSmartCategorySubmit = async (productData = {}) => {
         setShowInventoryForm(false);
 
-        const categoryLevel1 = extractCategoryName(productData?.category || '').toLowerCase();
-        const categoryLevel2 = String(productData?.category?.level2 || '').toLowerCase();
-        const productName = String(productData?.name || productData?.desc || '').toLowerCase();
-        const mobileHint = `${categoryLevel1} ${categoryLevel2} ${productName}`;
-        const isMobileLike = mobileHint.includes('mobile')
-            || mobileHint.includes('phone')
-            || mobileHint.includes('iphone')
-            || mobileHint.includes('samsung');
-
         const qty = Math.max(0, parseInt(productData?.stock || '0', 10) || 0);
         const unitCost = parseFloat(productData?.purchasePrice || '0') || 0;
-        if (isMobileLike && qty > 0 && unitCost > 0) {
+        if (qty > 0 && unitCost > 0) {
             const now = new Date();
             const entryCategory = extractCategoryName(productData?.category || '') || 'Purchase';
             await addTransaction({
-                desc: `Purchase - ${String(productData?.name || 'Mobile').trim() || 'Mobile'}`,
+                desc: `Purchase - ${String(productData?.name || 'Inventory Item').trim() || 'Inventory Item'}`,
                 amount: qty * unitCost,
                 quantity: qty,
                 type: 'expense',
@@ -1852,8 +1862,9 @@ export default function SalesmanDashboard({ adminView = false }) {
                     </div>
 
                     <div className="flex items-center gap-2.5 text-slate-300">
-                        <button onClick={() => { setFormMode('inventory'); setShowInventoryForm(true); }} title="Add Mobile" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Mobile</span></button>
-                        <button onClick={() => setShowMobileInventoryModal(true)} title="Mobile Inventory" className="fab-animated" style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobiles</span></button>
+                        <button onClick={() => { setFormMode('inventory'); setShowInventoryForm(true); }} title="Add Inventory" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Inventory</span></button>
+                        <button onClick={() => setShowMobileInventoryModal(true)} title="Mobile Inventory" className="fab-animated" style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobile Inventory</span></button>
+                        <button onClick={() => setShowOtherInventoryModal(true)} title="Other Inventory" className="fab-animated" style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}><span className="fab-icon"><Scale size={14} /></span><span className="fab-title">Other Inventory</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Pending Jobs" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Pending Jobs</span></button>
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
                         <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
@@ -2821,6 +2832,54 @@ export default function SalesmanDashboard({ adminView = false }) {
                                     </div>
                                 ))}
                             </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showOtherInventoryModal && (
+                <div className="fixed inset-0 z-[86]" onClick={() => setShowOtherInventoryModal(false)}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-black text-slate-800">Other Inventory</h3>
+                                <p className="text-[11px] text-slate-500">All non-mobile inventory stocks</p>
+                            </div>
+                            <button onClick={() => setShowOtherInventoryModal(false)} className="text-slate-500 hover:text-slate-700">x</button>
+                        </div>
+
+                        <div className="p-4 space-y-3">
+                            <input
+                                value={otherInventorySearch}
+                                onChange={(e) => setOtherInventorySearch(e.target.value)}
+                                placeholder="Search inventory by name/category/barcode..."
+                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                            />
+
+                            <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/40 p-2 space-y-1.5">
+                                {otherInventoryProducts.length === 0 ? (
+                                    <p className="text-xs text-slate-400 p-2">No other inventory products found.</p>
+                                ) : otherInventoryProducts.map((item) => (
+                                    <div
+                                        key={`other-${item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}`}
+                                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 grid grid-cols-1 md:grid-cols-[1fr_auto_auto] items-center gap-2"
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-bold text-slate-800 truncate">{item.snapshot.name || 'Inventory Item'}</p>
+                                            <p className="text-[11px] text-slate-500 truncate">{item.snapshot.barcode || 'No barcode'} • {item.snapshot.subCategory || item.snapshot.category || 'Uncategorized'}</p>
+                                        </div>
+                                        <div className="text-center md:border-l md:border-slate-200 md:pl-3">
+                                            <p className="text-[10px] text-slate-400 uppercase tracking-wider">Stock</p>
+                                            <p className="text-base font-black text-slate-700">{item.snapshot.stock}</p>
+                                        </div>
+                                        <div className="md:border-l md:border-slate-200 md:pl-3">
+                                            <p className="text-[11px] text-slate-500">Buy: <span className="font-black text-slate-700">{priceTag(item.snapshot.purchasePrice || 0)}</span></p>
+                                            <p className="text-[11px] text-slate-500">Sell: <span className="font-black text-blue-600">{priceTag(item.snapshot.sellingPrice || 0)}</span></p>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>
