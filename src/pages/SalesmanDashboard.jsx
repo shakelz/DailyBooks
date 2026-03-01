@@ -790,9 +790,49 @@ export default function SalesmanDashboard({ adminView = false }) {
             if (text.includes('samsung')) return 'samsung';
             return 'others';
         };
-
+        if (mobileInventoryTab === 'all') return mobileInventoryProducts || [];
         return (mobileInventoryProducts || []).filter((item) => resolveBucket(item.snapshot) === mobileInventoryTab);
     }, [mobileInventoryProducts, mobileInventoryTab]);
+
+    const handleSmartCategorySubmit = async (productData = {}) => {
+        setShowInventoryForm(false);
+
+        const categoryLevel1 = extractCategoryName(productData?.category || '').toLowerCase();
+        const categoryLevel2 = String(productData?.category?.level2 || '').toLowerCase();
+        const productName = String(productData?.name || productData?.desc || '').toLowerCase();
+        const mobileHint = `${categoryLevel1} ${categoryLevel2} ${productName}`;
+        const isMobileLike = mobileHint.includes('mobile')
+            || mobileHint.includes('phone')
+            || mobileHint.includes('iphone')
+            || mobileHint.includes('samsung');
+
+        const qty = Math.max(0, parseInt(productData?.stock || '0', 10) || 0);
+        const unitCost = parseFloat(productData?.purchasePrice || '0') || 0;
+        if (isMobileLike && qty > 0 && unitCost > 0) {
+            const now = new Date();
+            const entryCategory = extractCategoryName(productData?.category || '') || 'Purchase';
+            await addTransaction({
+                desc: `Purchase - ${String(productData?.name || 'Mobile').trim() || 'Mobile'}`,
+                amount: qty * unitCost,
+                quantity: qty,
+                type: 'expense',
+                category: entryCategory,
+                paymentMethod: String(productData?.paymentMode || 'Cash'),
+                notes: productData?.category?.level2 ? `SubCategory: ${productData.category.level2}` : '',
+                source: 'purchase',
+                salesmanName: user?.name,
+                salesmanNumber: user?.salesmanNumber || 0,
+                workerId: String(user?.id || ''),
+                productId: productData?.id || undefined,
+                timestamp: now.toISOString(),
+                date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            });
+        }
+
+        setToast(formMode === 'purchase' ? 'Purchase entry saved' : 'Product added');
+        setTimeout(() => setToast(''), 1800);
+    };
 
     const buildSelectedDate = (dateValue) => {
         const selected = new Date(`${dateValue}T00:00:00`);
@@ -2377,11 +2417,7 @@ export default function SalesmanDashboard({ adminView = false }) {
             <SmartCategoryForm
                 isOpen={showInventoryForm}
                 onClose={() => setShowInventoryForm(false)}
-                onSubmit={() => {
-                    setShowInventoryForm(false);
-                    setToast(formMode === 'purchase' ? 'Purchase entry saved' : 'Product added');
-                    setTimeout(() => setToast(''), 1800);
-                }}
+                onSubmit={handleSmartCategorySubmit}
             />
 
             <TransactionModal
@@ -2419,6 +2455,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                                     { id: 'iphone', label: 'iPhone' },
                                     { id: 'samsung', label: 'Samsung' },
                                     { id: 'others', label: 'Others' },
+                                    { id: 'all', label: 'All' },
                                 ].map((tab) => (
                                     <button
                                         key={`mobile-tab-${tab.id}`}

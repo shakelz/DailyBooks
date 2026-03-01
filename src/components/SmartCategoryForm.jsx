@@ -6,21 +6,16 @@ import { CURRENCY_CONFIG } from '../utils/currency';
 
 // Built-in chip library
 const CHIP_LIBRARY = [
-    { key: 'imei', label: 'IMEI', icon: 'ID', type: 'text', placeholder: '15-digit IMEI number' },
-    { key: 'color', label: 'Color', icon: 'CLR', type: 'text', placeholder: 'e.g. Black, Blue, Silver' },
-    { key: 'condition', label: 'Condition', icon: 'OK', type: 'select', options: ['New', 'Used', 'Refurbished', 'Damaged'] },
     { key: 'warranty', label: 'Warranty', icon: 'WAR', type: 'select', options: ['No Warranty', '14 Days', '1 Month', '3 Months', '6 Months', '1 Year', '2 Years'] },
     { key: 'variant', label: 'Variant', icon: 'VAR', type: 'text', placeholder: 'e.g. 8GB/256GB, Pro Max' },
-    { key: 'compatibility', label: 'Compatibility', icon: 'CMP', type: 'text', placeholder: 'e.g. iPhone 15, Samsung S24' },
     { key: 'supplierUrl', label: 'Supplier URL', icon: 'URL', type: 'url', placeholder: 'https://supplier-link.com' },
-    { key: 'quality', label: 'Quality', icon: 'QLT', type: 'select', options: ['Original', 'OEM', 'Copy/Clone', 'Refurbished OEM'] },
-    { key: 'brand', label: 'Brand', icon: 'BRD', type: 'text', placeholder: 'e.g. Samsung, Apple, Xiaomi' },
     { key: 'ram', label: 'RAM', icon: 'RAM', type: 'select', options: ['2GB', '3GB', '4GB', '6GB', '8GB', '12GB', '16GB'] },
     { key: 'storage', label: 'Storage', icon: 'STG', type: 'select', options: ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB'] },
     { key: 'batteryHealth', label: 'Battery Health', icon: 'BAT', type: 'select', options: ['100%', '90-99%', '80-89%', '70-79%', 'Below 70%'] },
     { key: 'networkType', label: 'Network Type', icon: 'NET', type: 'select', options: ['4G LTE', '5G', '3G', 'WiFi Only'] },
     { key: 'packagingCond', label: 'Packaging Condition', icon: 'PKG', type: 'select', options: ['Sealed Box', 'Open Box', 'No Box', 'Damaged Box'] },
 ];
+const HIDDEN_SPEC_KEYS = ['imei', 'color', 'condition', 'compatibility', 'quality', 'brand'];
 const PAYMENT_MODE_OPTIONS = ['Cash', 'Visa', 'Online'];
 
 export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialData = null }) {
@@ -113,13 +108,18 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 // Chips & Attributes
                 if (initialData.attributes) {
                     const attrs = initialData.attributes;
-                    setDynamicFields(attrs);
+                    const cleanedAttrs = Object.entries(attrs).reduce((acc, [key, value]) => {
+                        if (HIDDEN_SPEC_KEYS.includes(key)) return acc;
+                        acc[key] = value;
+                        return acc;
+                    }, {});
+                    setDynamicFields(cleanedAttrs);
 
                     const libraryKeys = CHIP_LIBRARY.map(c => c.key);
-                    const existingKeys = Object.keys(attrs);
+                    const existingKeys = Object.keys(cleanedAttrs);
 
                     // Identify custom keys (those not in built-in library)
-                    const customKeys = existingKeys.filter(k => !libraryKeys.includes(k));
+                    const customKeys = existingKeys.filter(k => !libraryKeys.includes(k) && !HIDDEN_SPEC_KEYS.includes(k));
                     if (customKeys.length > 0) {
                         const restoredCustomChips = customKeys.map(k => ({
                             key: k,
@@ -235,10 +235,8 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
         if (!purchasePrice || parseFloat(purchasePrice) <= 0) errs.purchasePrice = 'Purchase price required';
         if (!paymentMode) errs.paymentMode = 'Payment mode required';
 
-        // 3. Name fallback check (must have Name or Model)
-        if (!name.trim() && !level3Model.trim()) {
-            errs.name = 'Name or Model required';
-        }
+        // 3. Name check
+        if (!name.trim()) errs.name = 'Product name required';
 
         // 4. Barcode duplicate check
         if (barcode && barcode.trim()) {
@@ -259,14 +257,14 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
 
         const productData = {
             id: (initialData && initialData.id) ? initialData.id : generateId('PRD'),
-            model: level3Model.trim() || '',
-            name: name.trim() || level3Model.trim() || `${level1} ${level2}`.trim(),
-            desc: name.trim() || level3Model.trim() || `${level1} ${level2}`.trim(),
+            model: '',
+            name: name.trim() || `${level1} ${level2}`.trim(),
+            desc: name.trim() || `${level1} ${level2}`.trim(),
             barcode: barcode ? barcode.trim() : null,
             category: {
                 level1: customL1 || level1,
                 level2: customL2 || level2,
-                level3: level3Model.trim() || null
+                level3: null
             },
             purchasePrice: parseFloat(purchasePrice) || 0,
             sellingPrice: parseFloat(sellingPrice) || 0,
@@ -292,7 +290,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             }
 
             // Call parent prop if provided
-            if (onSubmit) onSubmit(productData);
+            if (onSubmit) await Promise.resolve(onSubmit(productData));
 
             // Save Custom Categories or Update Images
             if (level1 || customL1) {
@@ -373,11 +371,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                                 <div className="flex-1 grid grid-cols-2 gap-2">
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Product Name <span className="text-red-500">*</span></label>
-                                        <input value={name} onChange={e => {
-                                            const value = e.target.value;
-                                            setName(value);
-                                            if (!String(level3Model || '').trim()) setLevel3Model(value);
-                                        }} placeholder="e.g. iPhone 13 Pro Max"
+                                            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. iPhone 13 Pro Max"
                                             className={`w-full px-3 py-1.5 rounded-lg bg-white border text-sm font-bold focus:outline-none focus:ring-2 transition-all ${errors.name ? 'border-red-300 focus:ring-red-200' : 'border-slate-200 focus:ring-blue-400/30'}`} />
                                         {errors.name && <p className="text-[10px] text-red-500 mt-1 font-bold">{errors.name}</p>}
                                     </div>
@@ -442,7 +436,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
 
                         <div className="space-y-3">
                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Category Hierarchy</label>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 {/* Level 1 */}
                                 <div>
                                     <select value={showCustomL1 ? 'custom' : level1} onChange={(e) => {
@@ -466,15 +460,6 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                                         <option value="custom" className="font-bold text-blue-600">+ Add New</option>
                                     </select>
                                     {showCustomL2 && <input value={customL2} onChange={e => setCustomL2(e.target.value)} placeholder="Enter Name" className="mt-2 w-full px-3 py-2 rounded-xl bg-white border border-blue-200 text-xs focus:ring-2 focus:ring-blue-400/30" autoFocus />}
-                                </div>
-                                {/* Level 3 (Model) */}
-                                <div>
-                                    <input value={level3Model} onChange={e => {
-                                        const value = e.target.value;
-                                        setLevel3Model(value);
-                                        if (!String(name || '').trim()) setName(value);
-                                    }} placeholder="Series / Model"
-                                        className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2" />
                                 </div>
                             </div>
                         </div>
