@@ -415,7 +415,7 @@ function CompactTrendCard({ label, value, colorClass }) {
     );
 }
 
-export default function SalesmanDashboard({ adminView = false }) {
+export default function SalesmanDashboard({ adminView = false, adminDashboardDateSelection = null }) {
     const navigate = useNavigate();
     const { role, user, isPunchedIn, activeShop, billShowTax, attendanceLogs, salesmen } = useAuth();
     const {
@@ -477,12 +477,6 @@ export default function SalesmanDashboard({ adminView = false }) {
     const [transactionDraft, setTransactionDraft] = useState(null);
     const [transactionFormError, setTransactionFormError] = useState('');
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
-    const [adminDateFilter, setAdminDateFilter] = useState('today');
-    const [adminFilterDate, setAdminFilterDate] = useState(todayIsoDate());
-    const [adminFilterMonth, setAdminFilterMonth] = useState(todayIsoDate().slice(0, 7));
-    const [adminFilterYear, setAdminFilterYear] = useState(String(new Date().getFullYear()));
-    const [adminCustomFrom, setAdminCustomFrom] = useState(todayIsoDate());
-    const [adminCustomTo, setAdminCustomTo] = useState(todayIsoDate());
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
     const canEditTransactions = adminView || Boolean(
@@ -524,96 +518,36 @@ export default function SalesmanDashboard({ adminView = false }) {
         return d;
     }, [todayStart]);
 
+    const formatRangeLabel = (start, end) => {
+        const fmt = (d) => d.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' });
+        return fmt(start) === fmt(end) ? fmt(start) : `${fmt(start)} - ${fmt(end)}`;
+    };
+
     const dashboardRange = useMemo(() => {
         if (!adminView) {
             return { start: todayStart, end: todayEnd, label: 'Today' };
         }
 
-        const parseDateStart = (iso) => {
-            const dt = new Date(`${String(iso || '').trim()}T00:00:00`);
-            if (Number.isNaN(dt.getTime())) return null;
-            return dt;
-        };
-        const toEndOfDay = (date) => {
-            const next = new Date(date);
-            next.setHours(23, 59, 59, 999);
-            return next;
-        };
+        const selected = Array.isArray(adminDashboardDateSelection) ? adminDashboardDateSelection[0] : null;
+        const selectedStart = selected?.startDate ? new Date(selected.startDate) : null;
+        const selectedEnd = selected?.endDate ? new Date(selected.endDate) : null;
 
-        if (adminDateFilter === 'date') {
-            const start = parseDateStart(adminFilterDate) || todayStart;
-            return { start, end: toEndOfDay(start), label: `Date: ${start.toLocaleDateString('de-DE')}` };
-        }
-
-        if (adminDateFilter === 'week') {
-            const anchor = parseDateStart(adminFilterDate) || todayStart;
-            const day = anchor.getDay();
-            const diffToMonday = day === 0 ? -6 : 1 - day;
-            const start = new Date(anchor);
-            start.setDate(anchor.getDate() + diffToMonday);
+        if (selectedStart && selectedEnd && !Number.isNaN(selectedStart.getTime()) && !Number.isNaN(selectedEnd.getTime())) {
+            const start = new Date(selectedStart);
+            const end = new Date(selectedEnd);
             start.setHours(0, 0, 0, 0);
-            const end = new Date(start);
-            end.setDate(start.getDate() + 6);
             end.setHours(23, 59, 59, 999);
-            return { start, end, label: `Week: ${start.toLocaleDateString('de-DE')} - ${end.toLocaleDateString('de-DE')}` };
-        }
-
-        if (adminDateFilter === 'month') {
-            const [yearRaw, monthRaw] = String(adminFilterMonth || '').split('-');
-            const year = parseInt(yearRaw, 10);
-            const monthIndex = (parseInt(monthRaw, 10) || 1) - 1;
-            if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) {
-                return { start: todayStart, end: todayEnd, label: 'Today' };
-            }
-            const start = new Date(year, monthIndex, 1, 0, 0, 0, 0);
-            const end = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
-            return { start, end, label: `Month: ${start.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}` };
-        }
-
-        if (adminDateFilter === 'year') {
-            const year = parseInt(adminFilterYear, 10);
-            if (!Number.isFinite(year)) {
-                return { start: todayStart, end: todayEnd, label: 'Today' };
-            }
-            const start = new Date(year, 0, 1, 0, 0, 0, 0);
-            const end = new Date(year, 11, 31, 23, 59, 59, 999);
-            return { start, end, label: `Year: ${year}` };
-        }
-
-        if (adminDateFilter === 'custom') {
-            const fromDate = parseDateStart(adminCustomFrom);
-            const toDate = parseDateStart(adminCustomTo);
-            if (!fromDate && !toDate) {
-                return { start: todayStart, end: todayEnd, label: 'Today' };
-            }
-            const start = fromDate || toDate;
-            const end = toDate ? toEndOfDay(toDate) : toEndOfDay(start);
-            if (start.getTime() <= end.getTime()) {
-                return {
-                    start,
-                    end,
-                    label: `Custom: ${start.toLocaleDateString('de-DE')} - ${end.toLocaleDateString('de-DE')}`,
-                };
-            }
+            const normalizedStart = start.getTime() <= end.getTime() ? start : end;
+            const normalizedEnd = start.getTime() <= end.getTime() ? end : start;
             return {
-                start: new Date(end.getFullYear(), end.getMonth(), end.getDate(), 0, 0, 0, 0),
-                end: toEndOfDay(start),
-                label: `Custom: ${end.toLocaleDateString('de-DE')} - ${start.toLocaleDateString('de-DE')}`,
+                start: normalizedStart,
+                end: normalizedEnd,
+                label: formatRangeLabel(normalizedStart, normalizedEnd),
             };
         }
 
         return { start: todayStart, end: todayEnd, label: 'Today' };
-    }, [
-        adminView,
-        adminDateFilter,
-        adminFilterDate,
-        adminFilterMonth,
-        adminFilterYear,
-        adminCustomFrom,
-        adminCustomTo,
-        todayStart,
-        todayEnd,
-    ]);
+    }, [adminView, adminDashboardDateSelection, todayStart, todayEnd]);
 
     const todayTransactions = useMemo(
         () => transactions.filter((txn) => {
@@ -1881,94 +1815,6 @@ export default function SalesmanDashboard({ adminView = false }) {
             </header>
 
             <main className="max-w-7xl mx-auto px-3 pt-4 pb-6 space-y-3">
-
-                {adminView && (
-                    <section className="rounded-2xl border border-blue-100 bg-white p-3 shadow-sm">
-                        <div className="flex flex-wrap items-end gap-2">
-                            <div className="min-w-[170px]">
-                                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Calendar Filter</label>
-                                <div className="relative">
-                                    <select
-                                        value={adminDateFilter}
-                                        onChange={(e) => setAdminDateFilter(e.target.value)}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                    >
-                                        <option value="today">Today</option>
-                                        <option value="date">Date</option>
-                                        <option value="week">Week</option>
-                                        <option value="month">Month</option>
-                                        <option value="year">Year</option>
-                                        <option value="custom">Custom</option>
-                                    </select>
-                                    <CalendarDays size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
-                                </div>
-                            </div>
-
-                            {(adminDateFilter === 'date' || adminDateFilter === 'week') && (
-                                <div className="min-w-[150px]">
-                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Select Date</label>
-                                    <input
-                                        type="date"
-                                        value={adminFilterDate}
-                                        onChange={(e) => setAdminFilterDate(e.target.value)}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                    />
-                                </div>
-                            )}
-
-                            {adminDateFilter === 'month' && (
-                                <div className="min-w-[150px]">
-                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Select Month</label>
-                                    <input
-                                        type="month"
-                                        value={adminFilterMonth}
-                                        onChange={(e) => setAdminFilterMonth(e.target.value)}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                    />
-                                </div>
-                            )}
-
-                            {adminDateFilter === 'year' && (
-                                <div className="min-w-[120px]">
-                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Select Year</label>
-                                    <input
-                                        type="number"
-                                        min="2000"
-                                        max="2099"
-                                        step="1"
-                                        value={adminFilterYear}
-                                        onChange={(e) => setAdminFilterYear(e.target.value)}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                    />
-                                </div>
-                            )}
-
-                            {adminDateFilter === 'custom' && (
-                                <>
-                                    <div className="min-w-[150px]">
-                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">From</label>
-                                        <input
-                                            type="date"
-                                            value={adminCustomFrom}
-                                            onChange={(e) => setAdminCustomFrom(e.target.value)}
-                                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                        />
-                                    </div>
-                                    <div className="min-w-[150px]">
-                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">To</label>
-                                        <input
-                                            type="date"
-                                            value={adminCustomTo}
-                                            onChange={(e) => setAdminCustomTo(e.target.value)}
-                                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-                                        />
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                        <p className="mt-2 text-[11px] font-semibold text-blue-700">Showing: {dashboardRange.label}</p>
-                    </section>
-                )}
 
                 <section className="grid grid-cols-1 md:grid-cols-[0.72fr_1fr_1fr] gap-2">
                     <CompactTrendCard

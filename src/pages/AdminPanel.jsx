@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import DateRangeFilter from '../components/admin/DateRangeFilter';
 import {
     LayoutDashboard, Package, TrendingUp, Settings,
     LogOut, ChevronLeft, ChevronRight, Menu, FileText, Wrench
@@ -16,6 +17,13 @@ export default function AdminPanel() {
     const [sidebarOpen, setSidebarOpen] = useState(() => (
         typeof window !== 'undefined' ? window.innerWidth >= 768 : true
     ));
+    const [adminDashboardDateSelection, setAdminDashboardDateSelection] = useState([
+        {
+            startDate: new Date(new Date().setHours(0, 0, 0, 0)),
+            endDate: new Date(),
+            key: 'selection',
+        },
+    ]);
 
     const currentShop = useMemo(
         () => shops.find((s) => String(s.id) === String(activeShopId)) || null,
@@ -79,6 +87,7 @@ export default function AdminPanel() {
     };
 
     const showSidebarLabels = isMobile || sidebarOpen;
+    const isDashboardRoute = location.pathname.startsWith('/admin/dashboard');
 
     return (
         <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -177,6 +186,12 @@ export default function AdminPanel() {
                 <main className="flex-1 overflow-auto p-4 pb-24 md:p-8 md:pb-8 relative">
                     <div className="max-w-7xl mx-auto">
                         <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
+                            {isDashboardRoute ? (
+                                <DateRangeFilter
+                                    dateSelection={adminDashboardDateSelection}
+                                    setDateSelection={setAdminDashboardDateSelection}
+                                />
+                            ) : null}
                             {isSuperAdmin ? (
                                 <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
                                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Switch Shop</span>
@@ -198,7 +213,11 @@ export default function AdminPanel() {
                                 </div>
                             ) : null}
                         </div>
-                        <Outlet />
+                        <Outlet
+                            context={{
+                                adminDashboardDateSelection,
+                            }}
+                        />
                     </div>
                 </main>
 
