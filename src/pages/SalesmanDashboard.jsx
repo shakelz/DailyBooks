@@ -465,6 +465,7 @@ export default function SalesmanDashboard({ adminView = false }) {
     const [showSuccess, setShowSuccess] = useState(false);
     const [showMobileInventoryModal, setShowMobileInventoryModal] = useState(false);
     const [mobileInventorySearch, setMobileInventorySearch] = useState('');
+    const [mobileInventoryTab, setMobileInventoryTab] = useState('iphone');
     const [selectedMobileInventoryItem, setSelectedMobileInventoryItem] = useState(null);
     const [showSalesProductSuggestions, setShowSalesProductSuggestions] = useState(false);
     const [showPurchaseProductSuggestions, setShowPurchaseProductSuggestions] = useState(false);
@@ -746,6 +747,19 @@ export default function SalesmanDashboard({ adminView = false }) {
             })
             .sort((a, b) => String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' }));
     }, [mobileInventorySearch, products]);
+
+    const filteredMobileInventoryProducts = useMemo(() => {
+        const resolveBucket = (snapshot = {}) => {
+            const subCategoryText = String(snapshot.subCategory || '').toLowerCase();
+            const fallbackText = `${snapshot.name || ''} ${snapshot.category || ''}`.toLowerCase();
+            const text = `${subCategoryText} ${fallbackText}`;
+            if (text.includes('iphone')) return 'iphone';
+            if (text.includes('samsung')) return 'samsung';
+            return 'others';
+        };
+
+        return (mobileInventoryProducts || []).filter((item) => resolveBucket(item.snapshot) === mobileInventoryTab);
+    }, [mobileInventoryProducts, mobileInventoryTab]);
 
     const buildSelectedDate = (dateValue) => {
         const selected = new Date(`${dateValue}T00:00:00`);
@@ -2299,10 +2313,10 @@ export default function SalesmanDashboard({ adminView = false }) {
                                     type="button"
                                     disabled={!canEditTransactions}
                                     onClick={() => setTransactionDraft((prev) => prev ? ({ ...prev, includeTax: !prev.includeTax }) : prev)}
-                                    className={`relative h-6 w-11 rounded-full transition-colors ${transactionDraft.includeTax ? 'bg-emerald-500' : 'bg-slate-300'} ${!canEditTransactions ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                    className={`relative h-6 w-11 overflow-hidden rounded-full transition-colors ${transactionDraft.includeTax ? 'bg-emerald-500' : 'bg-slate-300'} ${!canEditTransactions ? 'opacity-60 cursor-not-allowed' : ''}`}
                                     title="Toggle tax lines in printed bill"
                                 >
-                                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${transactionDraft.includeTax ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                    <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${transactionDraft.includeTax ? 'translate-x-5' : 'translate-x-0'}`} />
                                 </button>
                             </div>
                             {transactionFormError && <p className="text-[11px] text-rose-600">{transactionFormError}</p>}
@@ -2365,10 +2379,27 @@ export default function SalesmanDashboard({ adminView = false }) {
                                 className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
                             />
 
+                            <div className="flex items-center gap-1.5">
+                                {[
+                                    { id: 'iphone', label: 'iPhone' },
+                                    { id: 'samsung', label: 'Samsung' },
+                                    { id: 'others', label: 'Others' },
+                                ].map((tab) => (
+                                    <button
+                                        key={`mobile-tab-${tab.id}`}
+                                        type="button"
+                                        onClick={() => setMobileInventoryTab(tab.id)}
+                                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${mobileInventoryTab === tab.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:border-blue-300'}`}
+                                    >
+                                        {tab.label}
+                                    </button>
+                                ))}
+                            </div>
+
                             <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/40 p-2 space-y-1.5">
-                                {mobileInventoryProducts.length === 0 ? (
+                                {filteredMobileInventoryProducts.length === 0 ? (
                                     <p className="text-xs text-slate-400 p-2">No mobile products found in inventory.</p>
-                                ) : mobileInventoryProducts.map((item) => (
+                                ) : filteredMobileInventoryProducts.map((item) => (
                                     <div
                                         key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}
                                         className={`rounded-lg border px-3 py-2 flex items-center justify-between gap-3 ${(() => {
@@ -2399,8 +2430,8 @@ export default function SalesmanDashboard({ adminView = false }) {
                                                 <div className="w-11 h-11 rounded-md border border-slate-200 bg-slate-100 text-slate-400 text-[10px] flex items-center justify-center flex-shrink-0">No Img</div>
                                             )}
                                             <div className="min-w-0">
-                                                <p className="text-xs font-bold text-slate-700 truncate">{item.snapshot.name || 'Mobile'}</p>
-                                                <p className="text-[10px] text-slate-500 truncate">
+                                                <p className="text-sm font-black text-slate-800 truncate">{item.snapshot.name || 'Mobile'}</p>
+                                                <p className="text-xs text-slate-600 truncate">
                                                     {item.snapshot.barcode || 'No barcode'} | Stock <span className={`${(() => {
                                                         const stockValue = Number(item.snapshot.stock) || 0;
                                                         const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
@@ -2416,10 +2447,10 @@ export default function SalesmanDashboard({ adminView = false }) {
                                                                     ? 'yellow'
                                                                     : getStockSeverity(stockValue);
                                                         return severity === 'red'
-                                                            ? 'text-red-600 font-bold'
+                                                            ? 'text-red-600 font-black text-sm'
                                                             : severity === 'yellow'
-                                                                ? 'text-amber-600 font-bold'
-                                                                : 'text-emerald-600 font-semibold';
+                                                                ? 'text-amber-600 font-black text-sm'
+                                                                : 'text-emerald-600 font-black text-sm';
                                                     })()}`}>{item.snapshot.stock}</span> | {priceTag(item.snapshot.sellingPrice || 0)}
                                                 </p>
                                             </div>
@@ -2476,10 +2507,10 @@ export default function SalesmanDashboard({ adminView = false }) {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Category</p><p className="font-semibold text-slate-700">{selectedMobileInventoryItem.snapshot.category || '-'}</p></div>
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Sub Category</p><p className="font-semibold text-slate-700">{selectedMobileInventoryItem.snapshot.subCategory || '-'}</p></div>
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Stock</p><p className={`font-semibold ${(() => {
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Category</p><p className="font-bold text-slate-700">{selectedMobileInventoryItem.snapshot.category || '-'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Sub Category</p><p className="font-bold text-slate-700">{selectedMobileInventoryItem.snapshot.subCategory || '-'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Stock</p><p className={`font-black text-base ${(() => {
                                     const stockValue = Number(selectedMobileInventoryItem.snapshot.stock) || 0;
                                     const alertCfg = selectedMobileInventoryItem.raw?.stockAlert && typeof selectedMobileInventoryItem.raw.stockAlert === 'object'
                                         ? selectedMobileInventoryItem.raw.stockAlert
@@ -2500,8 +2531,8 @@ export default function SalesmanDashboard({ adminView = false }) {
                                         : severity === 'yellow'
                                             ? 'text-amber-600'
                                             : 'text-emerald-600';
-                                })()}`}>{selectedMobileInventoryItem.snapshot.stock}</p></div>
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Selling Price</p><p className="font-semibold text-emerald-700">{priceTag(selectedMobileInventoryItem.snapshot.sellingPrice || 0)}</p></div>
+                                        })()}`}>{selectedMobileInventoryItem.snapshot.stock}</p></div>
+                                        <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Selling Price</p><p className="font-black text-emerald-700 text-base">{priceTag(selectedMobileInventoryItem.snapshot.sellingPrice || 0)}</p></div>
                             </div>
 
                             <div className="flex justify-end gap-2">

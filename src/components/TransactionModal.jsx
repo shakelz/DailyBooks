@@ -377,9 +377,9 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                                 <button
                                     type="button"
                                     onClick={() => setIncludeTax((prev) => !prev)}
-                                    className={`relative h-6 w-11 rounded-full transition-colors ${includeTax ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                                    className={`relative h-6 w-11 overflow-hidden rounded-full transition-colors ${includeTax ? 'bg-emerald-500' : 'bg-slate-300'}`}
                                 >
-                                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${includeTax ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                    <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${includeTax ? 'translate-x-5' : 'translate-x-0'}`} />
                                 </button>
                             </div>
 
