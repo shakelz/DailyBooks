@@ -617,9 +617,46 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             });
     }, [purchaseTransactions, revenueTransactions]);
 
+    const productLookup = useMemo(() => {
+        return (products || []).reduce((acc, product) => {
+            const key = String(product?.id || '').trim();
+            if (key) acc[key] = product;
+            return acc;
+        }, {});
+    }, [products]);
+
+    const isMobileTransaction = (txn = {}) => {
+        const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
+            ? productLookup[String(txn.productId)]
+            : null;
+        const linkedSnapshot = linkedProduct ? resolveProductSnapshot(linkedProduct) : null;
+
+        const categoryText = extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category);
+        const subCategoryText = String(txn?.subCategory || txn?.productSnapshot?.subCategory || '').trim();
+        const nameText = String(txn?.name || txn?.desc || txn?.productSnapshot?.name || '').trim();
+
+        if (linkedSnapshot && isMobileLikeSnapshot(linkedSnapshot)) return true;
+
+        const haystack = `${categoryText} ${subCategoryText} ${nameText}`.toLowerCase();
+        return haystack.includes('mobile')
+            || haystack.includes('phone')
+            || haystack.includes('iphone')
+            || haystack.includes('samsung');
+    };
+
+    const nonMobileRevenueTransactions = useMemo(
+        () => revenueTransactions.filter((txn) => !isMobileTransaction(txn)),
+        [revenueTransactions, productLookup]
+    );
+
+    const nonMobilePurchaseTransactions = useMemo(
+        () => purchaseTransactions.filter((txn) => !isMobileTransaction(txn)),
+        [purchaseTransactions, productLookup]
+    );
+
     const fallbackStats = useMemo(() => {
-        const totalRevenue = revenueTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-        const totalExpenses = purchaseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+        const totalRevenue = nonMobileRevenueTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+        const totalExpenses = nonMobilePurchaseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
         return {
             totals: {
                 revenue: totalRevenue,
@@ -627,10 +664,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 income: totalRevenue - totalExpenses,
             },
         };
-    }, [purchaseTransactions, revenueTransactions]);
+    }, [nonMobilePurchaseTransactions, nonMobileRevenueTransactions]);
 
-    const revenueBreakdown = useMemo(() => buildPaymentBreakdown(revenueTransactions), [revenueTransactions]);
-    const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(purchaseTransactions), [purchaseTransactions]);
+    const revenueBreakdown = useMemo(() => buildPaymentBreakdown(nonMobileRevenueTransactions), [nonMobileRevenueTransactions]);
+    const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(nonMobilePurchaseTransactions), [nonMobilePurchaseTransactions]);
     const incomeBreakdown = useMemo(() => {
         const keys = new Set([...Object.keys(revenueBreakdown), ...Object.keys(purchaseBreakdown)]);
         const combined = {};
@@ -767,7 +804,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         };
     }, []);
 
-    const activeStats = adminView ? fallbackStats : (realtimeStats || fallbackStats);
+    const activeStats = fallbackStats;
 
     const salesL1OptionsRaw = getLevel1Categories('sales') || [];
     const salesL1Options = salesL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
@@ -1739,8 +1776,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setOnlineOrders((prev) => prev.map((order) => order.id === id ? { ...order, status: 'received' } : order));
     };
 
-    const salesByCategory = useMemo(() => categoryTotals(revenueTransactions), [revenueTransactions]);
-    const expensesByCategory = useMemo(() => categoryTotals(purchaseTransactions), [purchaseTransactions]);
+    const salesByCategory = useMemo(() => categoryTotals(nonMobileRevenueTransactions), [nonMobileRevenueTransactions]);
+    const expensesByCategory = useMemo(() => categoryTotals(nonMobilePurchaseTransactions), [nonMobilePurchaseTransactions]);
     return (
         <div className="min-h-screen bg-slate-100 text-slate-800">
             <header className="relative z-40 border-b border-blue-300/40 bg-gradient-to-r from-slate-900 via-blue-900 to-blue-700 px-3 py-2 shadow-md">
