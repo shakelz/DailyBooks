@@ -576,8 +576,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const source = String(txn.source || '').toLowerCase();
             const desc = String(txn.desc || '').toLowerCase();
             return source === 'purchase'
+                || source === 'expense'
                 || source === 'online-order'
                 || source === 'repair-parts'
+                || desc.includes('expense')
                 || desc.includes('purchase')
                 || desc.includes('online order')
                 || desc.includes('online purchase');
@@ -1031,16 +1033,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
     };
 
-    const validateSimpleEntry = (entry) => {
+    const validateSimpleEntry = (entry, mode = 'sales') => {
         const nextErrors = {};
         const parsedDate = new Date(`${entry?.date || ''}T00:00:00`);
         const amountValue = Number(entry?.amount);
+        const requiresQuantity = mode === 'sales';
         const quantityValue = parseInt(entry?.quantity || '1', 10);
 
         if (!entry?.date || Number.isNaN(parsedDate.getTime())) nextErrors.date = 'Select a valid date';
         if (!String(entry?.paymentMode || '').trim()) nextErrors.paymentMode = 'Select payment mode';
         if (!String(entry?.category || '').trim()) nextErrors.category = 'Select category';
-        if (!Number.isFinite(quantityValue) || quantityValue < 1) nextErrors.qty = 'Qty must be at least 1';
+        if (requiresQuantity && (!Number.isFinite(quantityValue) || quantityValue < 1)) nextErrors.qty = 'Qty must be at least 1';
         if (!Number.isFinite(amountValue) || amountValue <= 0) nextErrors.amount = 'Enter valid amount';
 
         return nextErrors;
@@ -1054,7 +1057,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         const entry = mode === 'sales' ? salesEntry : purchaseEntry;
-        const nextErrors = validateSimpleEntry(entry);
+        const nextErrors = validateSimpleEntry(entry, mode);
         if (Object.keys(nextErrors).length > 0) {
             if (mode === 'sales') setSalesEntryErrors(nextErrors);
             else setPurchaseEntryErrors(nextErrors);
@@ -1065,13 +1068,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         else setPurchaseEntryErrors({});
 
         const amountValue = parseFloat(entry.amount) || 0;
-        const quantityValue = Math.max(1, parseInt(entry.quantity || '1', 10) || 1);
+        const quantityValue = mode === 'sales'
+            ? Math.max(1, parseInt(entry.quantity || '1', 10) || 1)
+            : 1;
         const selectedDate = buildSelectedDate(entry.date);
         const type = mode === 'sales' ? 'income' : 'expense';
         const productLabel = String(entry.productName || '').trim();
         const descLabel = productLabel
-            ? `${mode === 'sales' ? 'Sale' : 'Purchase'} - ${productLabel}`
-            : `${mode === 'sales' ? 'Sale' : 'Purchase'} - ${entry.category}`;
+            ? `${mode === 'sales' ? 'Sale' : 'Expense'} - ${productLabel}`
+            : `${mode === 'sales' ? 'Sale' : 'Expense'} - ${entry.category}`;
 
         await addTransaction({
             desc: descLabel,
@@ -1081,7 +1086,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             category: entry.category,
             paymentMethod: entry.paymentMode || 'Cash',
             notes: entry.subCategory ? `SubCategory: ${entry.subCategory}` : '',
-            source: type === 'expense' ? 'purchase' : 'shop',
+            source: type === 'expense' ? 'expense' : 'shop',
             salesmanName: user?.name,
             salesmanNumber: user?.salesmanNumber || 0,
             workerId: String(user?.id || ''),
@@ -1095,7 +1100,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             await adjustStock(entry.productId, -quantityValue);
         }
 
-        setToast(`${mode === 'sales' ? 'Sales' : 'Purchase'} saved`);
+        setToast(`${mode === 'sales' ? 'Sales' : 'Expense'} saved`);
         setTimeout(() => setToast(''), 1800);
         if (mode === 'sales') {
             setSalesEntry(newSimpleEntryForm());
@@ -2310,7 +2315,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
                     <form onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('purchase'); }} className="rounded-xl border border-rose-200 bg-white/90 p-2.5 space-y-2.5 shadow-sm backdrop-blur-sm">
                         <div className="rounded-lg px-2.5 py-1.5 flex items-center justify-between bg-rose-50 text-rose-700 border border-rose-200">
-                            <p className="text-xs font-semibold">New Purchase Entry</p>
+                            <p className="text-xs font-semibold">New Expense Entry</p>
                             <p className="text-[11px] font-semibold">Simple</p>
                         </div>
 
@@ -2333,7 +2338,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     type="button"
                                     onClick={() => openDatePicker(purchaseDateInputRef)}
                                     className="absolute right-2 top-[27px] text-slate-500 hover:text-rose-700"
-                                    aria-label="Select purchase date"
+                                    aria-label="Select expense date"
                                 >
                                     <CalendarDays size={14} />
                                 </button>
@@ -2379,7 +2384,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="space-y-2">
                             <div className="grid grid-cols-[1fr_88px] gap-1.5 items-end">
                                 <div className="relative">
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Expense Name</label>
                                     <input
                                         value={purchaseEntry.productName}
                                         onFocus={() => setShowPurchaseProductSuggestions(true)}
@@ -2391,7 +2396,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             }
                                         }}
                                         onChange={(e) => handleEntryProductQueryChange('purchase', e.target.value)}
-                                        placeholder="Type product / scan barcode"
+                                        placeholder="Type expense name"
                                         className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
                                     />
                                     {showPurchaseProductSuggestions && purchaseProductSuggestions.length > 0 && (
@@ -2412,23 +2417,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             ))}
                                         </div>
                                     )}
-                                </div>
-                                <div>
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Qty</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        step="1"
-                                        value={purchaseEntry.quantity}
-                                        onChange={(e) => {
-                                            const nextQty = e.target.value.replace(/[^\d]/g, '');
-                                            setPurchaseEntry((prev) => ({ ...prev, quantity: nextQty || '1' }));
-                                            setPurchaseEntryErrors((prev) => ({ ...prev, qty: '' }));
-                                        }}
-                                        className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 ${purchaseEntryErrors.qty ? 'border-rose-300' : 'border-slate-200'}`}
-                                        aria-invalid={Boolean(purchaseEntryErrors.qty)}
-                                    />
-                                    {purchaseEntryErrors.qty && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.qty}</p>}
                                 </div>
                             </div>
 
@@ -2481,7 +2469,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
                         <div className="flex items-center justify-end">
                             <button type="submit" className="rounded-lg text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 text-xs font-semibold">
-                                Save Purchase Entry
+                                Save Expense Entry
                             </button>
                         </div>
                     </form>
