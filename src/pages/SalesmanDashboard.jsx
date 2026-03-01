@@ -475,6 +475,12 @@ export default function SalesmanDashboard({ adminView = false }) {
     const [transactionDraft, setTransactionDraft] = useState(null);
     const [transactionFormError, setTransactionFormError] = useState('');
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
+    const [adminDateFilter, setAdminDateFilter] = useState('today');
+    const [adminFilterDate, setAdminFilterDate] = useState(todayIsoDate());
+    const [adminFilterMonth, setAdminFilterMonth] = useState(todayIsoDate().slice(0, 7));
+    const [adminFilterYear, setAdminFilterYear] = useState(String(new Date().getFullYear()));
+    const [adminCustomFrom, setAdminCustomFrom] = useState(todayIsoDate());
+    const [adminCustomTo, setAdminCustomTo] = useState(todayIsoDate());
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
     const canEditTransactions = adminView || Boolean(
@@ -504,29 +510,134 @@ export default function SalesmanDashboard({ adminView = false }) {
     }, [adminView, navigate, role, user]);
 
 
-    const dayStart = useMemo(() => {
+    const todayStart = useMemo(() => {
         const d = new Date();
         d.setHours(0, 0, 0, 0);
         return d;
-    }, [transactions]);
+    }, []);
+
+    const todayEnd = useMemo(() => {
+        const d = new Date(todayStart);
+        d.setHours(23, 59, 59, 999);
+        return d;
+    }, [todayStart]);
+
+    const dashboardRange = useMemo(() => {
+        if (!adminView) {
+            return { start: todayStart, end: todayEnd, label: 'Today' };
+        }
+
+        const parseDateStart = (iso) => {
+            const dt = new Date(`${String(iso || '').trim()}T00:00:00`);
+            if (Number.isNaN(dt.getTime())) return null;
+            return dt;
+        };
+        const toEndOfDay = (date) => {
+            const next = new Date(date);
+            next.setHours(23, 59, 59, 999);
+            return next;
+        };
+
+        if (adminDateFilter === 'date') {
+            const start = parseDateStart(adminFilterDate) || todayStart;
+            return { start, end: toEndOfDay(start), label: `Date: ${start.toLocaleDateString('de-DE')}` };
+        }
+
+        if (adminDateFilter === 'week') {
+            const anchor = parseDateStart(adminFilterDate) || todayStart;
+            const day = anchor.getDay();
+            const diffToMonday = day === 0 ? -6 : 1 - day;
+            const start = new Date(anchor);
+            start.setDate(anchor.getDate() + diffToMonday);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(start);
+            end.setDate(start.getDate() + 6);
+            end.setHours(23, 59, 59, 999);
+            return { start, end, label: `Week: ${start.toLocaleDateString('de-DE')} - ${end.toLocaleDateString('de-DE')}` };
+        }
+
+        if (adminDateFilter === 'month') {
+            const [yearRaw, monthRaw] = String(adminFilterMonth || '').split('-');
+            const year = parseInt(yearRaw, 10);
+            const monthIndex = (parseInt(monthRaw, 10) || 1) - 1;
+            if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) {
+                return { start: todayStart, end: todayEnd, label: 'Today' };
+            }
+            const start = new Date(year, monthIndex, 1, 0, 0, 0, 0);
+            const end = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
+            return { start, end, label: `Month: ${start.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}` };
+        }
+
+        if (adminDateFilter === 'year') {
+            const year = parseInt(adminFilterYear, 10);
+            if (!Number.isFinite(year)) {
+                return { start: todayStart, end: todayEnd, label: 'Today' };
+            }
+            const start = new Date(year, 0, 1, 0, 0, 0, 0);
+            const end = new Date(year, 11, 31, 23, 59, 59, 999);
+            return { start, end, label: `Year: ${year}` };
+        }
+
+        if (adminDateFilter === 'custom') {
+            const fromDate = parseDateStart(adminCustomFrom);
+            const toDate = parseDateStart(adminCustomTo);
+            if (!fromDate && !toDate) {
+                return { start: todayStart, end: todayEnd, label: 'Today' };
+            }
+            const start = fromDate || toDate;
+            const end = toDate ? toEndOfDay(toDate) : toEndOfDay(start);
+            if (start.getTime() <= end.getTime()) {
+                return {
+                    start,
+                    end,
+                    label: `Custom: ${start.toLocaleDateString('de-DE')} - ${end.toLocaleDateString('de-DE')}`,
+                };
+            }
+            return {
+                start: new Date(end.getFullYear(), end.getMonth(), end.getDate(), 0, 0, 0, 0),
+                end: toEndOfDay(start),
+                label: `Custom: ${end.toLocaleDateString('de-DE')} - ${start.toLocaleDateString('de-DE')}`,
+            };
+        }
+
+        return { start: todayStart, end: todayEnd, label: 'Today' };
+    }, [
+        adminView,
+        adminDateFilter,
+        adminFilterDate,
+        adminFilterMonth,
+        adminFilterYear,
+        adminCustomFrom,
+        adminCustomTo,
+        todayStart,
+        todayEnd,
+    ]);
 
     const todayTransactions = useMemo(
         () => transactions.filter((txn) => {
             const dt = txn?.timestamp ? new Date(txn.timestamp) : null;
-            return dt && !Number.isNaN(dt.getTime()) && dt >= dayStart;
+            return dt && !Number.isNaN(dt.getTime()) && dt >= todayStart && dt <= todayEnd;
         }),
-        [transactions, dayStart]
+        [transactions, todayStart, todayEnd]
+    );
+
+    const rangeTransactions = useMemo(
+        () => transactions.filter((txn) => {
+            const dt = txn?.timestamp ? new Date(txn.timestamp) : null;
+            return dt && !Number.isNaN(dt.getTime()) && dt >= dashboardRange.start && dt <= dashboardRange.end;
+        }),
+        [transactions, dashboardRange]
     );
 
     const revenueTransactions = useMemo(
-        () => todayTransactions.filter((txn) => {
+        () => rangeTransactions.filter((txn) => {
             if (txn.type !== 'income') return false;
             return !isCashbookTransaction(txn);
         }),
-        [todayTransactions]
+        [rangeTransactions]
     );
     const purchaseTransactions = useMemo(
-        () => todayTransactions.filter((txn) => {
+        () => rangeTransactions.filter((txn) => {
             if (txn.type !== 'expense') return false;
             if (isCashbookTransaction(txn)) return false;
             const source = String(txn.source || '').toLowerCase();
@@ -538,7 +649,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                 || desc.includes('online order')
                 || desc.includes('online purchase');
         }),
-        [todayTransactions]
+        [rangeTransactions]
     );
 
     const revenueHistoryTransactions = useMemo(() => {
@@ -595,8 +706,8 @@ export default function SalesmanDashboard({ adminView = false }) {
 
     const staffProductionRows = useMemo(() => {
         if (!adminView) return [];
-        const startMs = dayStart.getTime();
-        const endMs = Date.now();
+        const startMs = dashboardRange.start.getTime();
+        const endMs = Math.min(dashboardRange.end.getTime(), Date.now());
         const logsByStaff = new Map();
 
         (attendanceLogs || []).forEach((log) => {
@@ -664,12 +775,12 @@ export default function SalesmanDashboard({ adminView = false }) {
                 isOnline: profileOnline || isOnlineFromLogs,
             };
         }).sort((a, b) => b.earned - a.earned);
-    }, [adminView, attendanceLogs, dayStart, salesmen, transactions]);
+    }, [adminView, attendanceLogs, dashboardRange, salesmen, transactions]);
 
     const activityLogsToday = useMemo(() => {
         if (!adminView) return [];
-        const startMs = dayStart.getTime();
-        const nowMs = Date.now();
+        const startMs = dashboardRange.start.getTime();
+        const nowMs = Math.min(dashboardRange.end.getTime(), Date.now());
         const staffNameById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), String(staff?.name || 'Staff')]));
 
         return (attendanceLogs || [])
@@ -690,7 +801,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                         : '--:--',
                 };
             });
-    }, [adminView, attendanceLogs, dayStart, salesmen]);
+    }, [adminView, attendanceLogs, dashboardRange, salesmen]);
 
     useEffect(() => {
         const endpoint = import.meta.env.VITE_CF_DO_STATS_URL;
@@ -720,7 +831,7 @@ export default function SalesmanDashboard({ adminView = false }) {
         };
     }, []);
 
-    const activeStats = realtimeStats || fallbackStats;
+    const activeStats = adminView ? fallbackStats : (realtimeStats || fallbackStats);
 
     const salesL1OptionsRaw = getLevel1Categories('sales') || [];
     const salesL1Options = salesL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
@@ -1760,6 +1871,94 @@ export default function SalesmanDashboard({ adminView = false }) {
 
             <main className="max-w-7xl mx-auto px-3 pt-4 pb-6 space-y-3">
 
+                {adminView && (
+                    <section className="rounded-2xl border border-blue-100 bg-white p-3 shadow-sm">
+                        <div className="flex flex-wrap items-end gap-2">
+                            <div className="min-w-[170px]">
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Calendar Filter</label>
+                                <div className="relative">
+                                    <select
+                                        value={adminDateFilter}
+                                        onChange={(e) => setAdminDateFilter(e.target.value)}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    >
+                                        <option value="today">Today</option>
+                                        <option value="date">Date</option>
+                                        <option value="week">Week</option>
+                                        <option value="month">Month</option>
+                                        <option value="year">Year</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                    <CalendarDays size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                                </div>
+                            </div>
+
+                            {(adminDateFilter === 'date' || adminDateFilter === 'week') && (
+                                <div className="min-w-[150px]">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Select Date</label>
+                                    <input
+                                        type="date"
+                                        value={adminFilterDate}
+                                        onChange={(e) => setAdminFilterDate(e.target.value)}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    />
+                                </div>
+                            )}
+
+                            {adminDateFilter === 'month' && (
+                                <div className="min-w-[150px]">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Select Month</label>
+                                    <input
+                                        type="month"
+                                        value={adminFilterMonth}
+                                        onChange={(e) => setAdminFilterMonth(e.target.value)}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    />
+                                </div>
+                            )}
+
+                            {adminDateFilter === 'year' && (
+                                <div className="min-w-[120px]">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Select Year</label>
+                                    <input
+                                        type="number"
+                                        min="2000"
+                                        max="2099"
+                                        step="1"
+                                        value={adminFilterYear}
+                                        onChange={(e) => setAdminFilterYear(e.target.value)}
+                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                    />
+                                </div>
+                            )}
+
+                            {adminDateFilter === 'custom' && (
+                                <>
+                                    <div className="min-w-[150px]">
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">From</label>
+                                        <input
+                                            type="date"
+                                            value={adminCustomFrom}
+                                            onChange={(e) => setAdminCustomFrom(e.target.value)}
+                                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                        />
+                                    </div>
+                                    <div className="min-w-[150px]">
+                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">To</label>
+                                        <input
+                                            type="date"
+                                            value={adminCustomTo}
+                                            onChange={(e) => setAdminCustomTo(e.target.value)}
+                                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+                                        />
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <p className="mt-2 text-[11px] font-semibold text-blue-700">Showing: {dashboardRange.label}</p>
+                    </section>
+                )}
+
                 <section className="grid grid-cols-1 md:grid-cols-[0.72fr_1fr_1fr] gap-2">
                     <CompactTrendCard
                         label="Total Income"
@@ -1778,12 +1977,14 @@ export default function SalesmanDashboard({ adminView = false }) {
                     />
                 </section>
 
+                <p className="text-[11px] text-slate-500">KPI Period: {dashboardRange.label}</p>
+
                 {adminView && (
                     <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         <div className="rounded-2xl border border-violet-100 bg-white p-3 shadow-sm">
                             <div className="flex items-center justify-between gap-2 mb-2">
                                 <h3 className="text-sm font-black text-violet-700">Staff Production & Salary</h3>
-                                <span className="text-[10px] text-slate-400">Today</span>
+                                <span className="text-[10px] text-slate-400">{dashboardRange.label}</span>
                             </div>
                             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                                 {staffProductionRows.length === 0 ? (
@@ -1822,7 +2023,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                             </div>
                             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                                 {activityLogsToday.length === 0 ? (
-                                    <p className="text-xs text-slate-400">No attendance logs today.</p>
+                                    <p className="text-xs text-slate-400">No attendance logs for selected period.</p>
                                 ) : activityLogsToday.map((log) => (
                                     <div key={`activity-log-${log.id}`} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 flex items-center justify-between gap-2">
                                         <div className="min-w-0">
@@ -2206,7 +2407,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                         <h3 className="text-sm font-black text-emerald-700 mb-1">Revenue Transactions</h3>
                         <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                            {revenueHistoryTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries today</p> : revenueHistoryTransactions.map((txn) => (
+                            {revenueHistoryTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries for selected period</p> : revenueHistoryTransactions.map((txn) => (
                                 <button
                                     type="button"
                                     key={txn.id}
@@ -2228,7 +2429,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                         <h3 className="text-sm font-black text-rose-700 mb-1">Purchase Transactions History</h3>
                         <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                            {purchaseTransactions.length === 0 ? <p className="text-xs text-slate-400">No purchase transactions yet</p> : purchaseTransactions.map((txn) => (
+                            {purchaseTransactions.length === 0 ? <p className="text-xs text-slate-400">No purchase transactions for selected period</p> : purchaseTransactions.map((txn) => (
                                 <button
                                     type="button"
                                     key={txn.id}
