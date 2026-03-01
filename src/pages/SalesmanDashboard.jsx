@@ -541,6 +541,35 @@ export default function SalesmanDashboard({ adminView = false }) {
         [todayTransactions]
     );
 
+    const revenueHistoryTransactions = useMemo(() => {
+        const isMobileStockPurchase = (txn = {}) => {
+            if (String(txn.type || '').toLowerCase() !== 'expense') return false;
+            const source = String(txn.source || '').toLowerCase();
+            if (source !== 'purchase') return false;
+
+            const categoryText = extractCategoryName(txn.category).toLowerCase();
+            const subCategoryText = String(txn.subCategory || '').toLowerCase();
+            const descText = String(txn.desc || '').toLowerCase();
+            const haystack = `${categoryText} ${subCategoryText} ${descText}`;
+
+            return haystack.includes('mobile')
+                || haystack.includes('phone')
+                || haystack.includes('iphone')
+                || haystack.includes('samsung');
+        };
+
+        const mobilePurchaseRows = purchaseTransactions.filter((txn) => isMobileStockPurchase(txn));
+        const merged = [...revenueTransactions, ...mobilePurchaseRows];
+
+        return merged
+            .filter((txn, index, arr) => arr.findIndex((row) => String(row.id) === String(txn.id)) === index)
+            .sort((a, b) => {
+                const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return bMs - aMs;
+            });
+    }, [purchaseTransactions, revenueTransactions]);
+
     const fallbackStats = useMemo(() => {
         const totalRevenue = revenueTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
         const totalExpenses = purchaseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
@@ -2137,7 +2166,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                         <h3 className="text-sm font-black text-emerald-700 mb-1">Revenue Transactions</h3>
                         <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                            {revenueTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries today</p> : revenueTransactions.map((txn) => (
+                            {revenueHistoryTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries today</p> : revenueHistoryTransactions.map((txn) => (
                                 <button
                                     type="button"
                                     key={txn.id}
