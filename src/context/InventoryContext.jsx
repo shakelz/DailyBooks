@@ -5,12 +5,110 @@ import { buildProductJSON, generateId, getStockSeverity, getLevel1Categories, ge
 
 const InventoryContext = createContext(null);
 const TRANSACTION_SNAPSHOT_STORAGE_KEY = 'dailybooks_transaction_snapshots_v1';
+const CATEGORY_SCOPE_STORAGE_KEY = 'dailybooks_category_scopes_v1';
 const CATEGORY_HIERARCHY_KEY = '__categoryHierarchy';
 const PURCHASE_FROM_KEY = '__purchaseFrom';
 const PAYMENT_MODE_KEY = '__paymentMode';
+const CATEGORY_SCOPE_SALES = 'sales';
+const CATEGORY_SCOPE_REVENUE = 'revenue';
 
 function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeCategoryScope(scope) {
+    const raw = String(scope || '').trim().toLowerCase();
+    if (raw === CATEGORY_SCOPE_REVENUE || raw === 'purchase') return CATEGORY_SCOPE_REVENUE;
+    return CATEGORY_SCOPE_SALES;
+}
+
+function categoryScopeKey(level, name, parent = '') {
+    return `${String(level || '')}|${cleanText(parent)}|${cleanText(name)}`;
+}
+
+function readCategoryScopeMap(shopId) {
+    if (typeof window === 'undefined') return {};
+    const sid = cleanText(shopId);
+    if (!sid) return {};
+    try {
+        const raw = localStorage.getItem(`${CATEGORY_SCOPE_STORAGE_KEY}:${sid}`);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function writeCategoryScopeMap(shopId, map) {
+    if (typeof window === 'undefined') return;
+    const sid = cleanText(shopId);
+    if (!sid) return;
+    try {
+        localStorage.setItem(`${CATEGORY_SCOPE_STORAGE_KEY}:${sid}`, JSON.stringify(map && typeof map === 'object' ? map : {}));
+    } catch {
+        // Ignore storage failures.
+    }
+}
+
+function resolveCategoryScopeRecord(record, scopeMap = null) {
+    if (!record || typeof record !== 'object') return CATEGORY_SCOPE_SALES;
+    if (record.scope) return normalizeCategoryScope(record.scope);
+
+    const level = Number(record.level) || (record.parent ? 2 : 1);
+    const key = categoryScopeKey(level, record.name, record.parent || '');
+    if (scopeMap && scopeMap[key]) return normalizeCategoryScope(scopeMap[key]);
+
+    return CATEGORY_SCOPE_SALES;
+}
+
+function withCategoryScope(record, scopeMap = null) {
+    if (!record || typeof record !== 'object') return record;
+    return { ...record, scope: resolveCategoryScopeRecord(record, scopeMap) };
+}
+
+function applyScopeToCategoryList(list, scopeMap) {
+    if (!Array.isArray(list)) return [];
+    return list.map((item) => withCategoryScope(item, scopeMap));
+}
+
+function setCategoryScopeEntry(shopId, level, name, parentName, scope) {
+    const sid = cleanText(shopId);
+    if (!sid) return;
+    const key = categoryScopeKey(level, name, parentName || '');
+    if (!key) return;
+    const current = readCategoryScopeMap(sid);
+    current[key] = normalizeCategoryScope(scope);
+    writeCategoryScopeMap(sid, current);
+}
+
+function removeCategoryScopeEntry(shopId, level, name, parentName) {
+    const sid = cleanText(shopId);
+    if (!sid) return;
+    const key = categoryScopeKey(level, name, parentName || '');
+    const current = readCategoryScopeMap(sid);
+    if (!(key in current)) return;
+    delete current[key];
+    writeCategoryScopeMap(sid, current);
+}
+
+function removeCategoryScopeBranch(shopId, l1Name) {
+    const sid = cleanText(shopId);
+    if (!sid) return;
+    const target = cleanText(l1Name);
+    if (!target) return;
+
+    const current = readCategoryScopeMap(sid);
+    const next = { ...current };
+    delete next[categoryScopeKey(1, target, '')];
+
+    Object.keys(next).forEach((key) => {
+        const [level, parent] = key.split('|');
+        if (level === '2' && cleanText(parent) === target) {
+            delete next[key];
+        }
+    });
+
+    writeCategoryScopeMap(sid, next);
 }
 
 function withShopId(payload, shopId) {
@@ -395,13 +493,14 @@ export function InventoryProvider({ children }) {
             if (!catResult.error && Array.isArray(catResult.data)) {
                 const l1 = catResult.data.filter(c => c.level === 1) || [];
                 const l2 = catResult.data.filter(c => c.level === 2) || [];
+                const scopeMap = readCategoryScopeMap(sid);
 
-                setL1Categories(l1);
+                setL1Categories(applyScopeToCategoryList(l1, scopeMap));
 
                 const map2 = {};
                 l2.forEach(c => {
                     if (!map2[c.parent]) map2[c.parent] = [];
-                    map2[c.parent].push(c);
+                    map2[c.parent].push(withCategoryScope(c, scopeMap));
                 });
                 setL2Map(map2);
             } else {
@@ -460,7 +559,7 @@ export function InventoryProvider({ children }) {
             })
             // CATEGORIES
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
-                const newCat = payload.new;
+                const newCat = withCategoryScope(payload.new, readCategoryScopeMap(sid));
                 if (newCat.level === 1) {
                     setL1Categories(prev => {
                         if (prev.some(c => (typeof c === 'object' ? c.name : c) === newCat.name)) return prev;
@@ -475,18 +574,24 @@ export function InventoryProvider({ children }) {
                 }
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
-                const updated = payload.new;
+                const updated = withCategoryScope(payload.new, readCategoryScopeMap(sid));
                 if (updated.level === 1) {
                     setL1Categories(prev => prev.map(c => {
                         const cName = typeof c === 'object' ? c.name : c;
-                        return (typeof c === 'object' && c.id === updated.id) ? updated : (cName === updated.name ? updated : c);
+                        if ((typeof c === 'object' && c.id === updated.id) || cName === updated.name) {
+                            const currentScope = typeof c === 'object' ? c.scope : undefined;
+                            return { ...updated, scope: updated.scope || currentScope || CATEGORY_SCOPE_SALES };
+                        }
+                        return c;
                     }));
                 } else if (updated.level === 2) {
                     setL2Map(prev => {
                         const next = { ...prev };
                         if (next[updated.parent]) {
                             next[updated.parent] = next[updated.parent].map(c =>
-                                ((typeof c === 'object' && c.id === updated.id) || (typeof c === 'object' ? c.name : c) === updated.name) ? updated : c
+                                ((typeof c === 'object' && c.id === updated.id) || (typeof c === 'object' ? c.name : c) === updated.name)
+                                    ? { ...updated, scope: updated.scope || (typeof c === 'object' ? c.scope : undefined) || CATEGORY_SCOPE_SALES }
+                                    : c
                             );
                         }
                         return next;
@@ -495,6 +600,11 @@ export function InventoryProvider({ children }) {
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
                 const deletedId = payload.old.id;
+                if (payload.old?.level === 1) {
+                    removeCategoryScopeBranch(sid, payload.old?.name || '');
+                } else if (payload.old?.level === 2) {
+                    removeCategoryScopeEntry(sid, 2, payload.old?.name || '', payload.old?.parent || '');
+                }
                 setL1Categories(prev => prev.filter(c => typeof c !== 'object' || c.id !== deletedId));
                 setL2Map(prev => {
                     const next = { ...prev };
@@ -874,27 +984,52 @@ export function InventoryProvider({ children }) {
     }, [products, activeShopId]);
 
     // Stateful Category Helpers
-    const getL1Categories = useCallback(() => l1Categories, [l1Categories]);
+    const getL1Categories = useCallback((scope = 'all') => {
+        if (!scope || String(scope).toLowerCase() === 'all') return l1Categories;
+        const normalizedScope = normalizeCategoryScope(scope);
+        return l1Categories.filter((c) => {
+            if (!c || typeof c !== 'object') return normalizedScope === CATEGORY_SCOPE_SALES;
+            return normalizeCategoryScope(c.scope) === normalizedScope;
+        });
+    }, [l1Categories]);
 
-    const getL2Categories = useCallback((l1Name) => {
+    const getL2Categories = useCallback((l1Name, scope = 'all') => {
         if (!l1Name) return [];
-        return l2Map[l1Name] || getLevel2Categories(l1Name);
+        const categories = l2Map[l1Name] || getLevel2Categories(l1Name);
+        if (!scope || String(scope).toLowerCase() === 'all') return categories;
+        const normalizedScope = normalizeCategoryScope(scope);
+        return (categories || []).filter((c) => {
+            if (!c || typeof c !== 'object') return normalizedScope === CATEGORY_SCOPE_SALES;
+            return normalizeCategoryScope(c.scope) === normalizedScope;
+        });
     }, [l2Map]);
 
-    const addL1Category = useCallback(async (name, image = null) => {
+    const addL1Category = useCallback(async (name, image = null, scope = CATEGORY_SCOPE_SALES) => {
         const sid = cleanText(activeShopId);
         if (!sid) return;
 
         const trimmed = name.trim();
         if (!trimmed) return;
+        const normalizedScope = normalizeCategoryScope(scope);
         setL1Categories(prev => {
             const existing = prev.find(c => (typeof c === 'object' ? c?.name : c) === trimmed);
             if (existing) {
-                if (image) return prev.map(c => (typeof c === 'object' ? c?.name : c) === trimmed ? { ...c, name: trimmed, image } : c);
-                return prev;
+                return prev.map((c) => {
+                    if ((typeof c === 'object' ? c?.name : c) !== trimmed) return c;
+                    if (typeof c === 'object') {
+                        return {
+                            ...c,
+                            name: trimmed,
+                            image: image || c.image || '',
+                            scope: normalizedScope,
+                        };
+                    }
+                    return { name: trimmed, image: image || '', scope: normalizedScope };
+                });
             }
-            return [...prev, { name: trimmed, image }];
+            return [...prev, { name: trimmed, image, scope: normalizedScope }];
         });
+        setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
 
         // Sync to cloud
         const { data: existing } = await supabase
@@ -911,24 +1046,34 @@ export function InventoryProvider({ children }) {
         }
     }, [activeShopId]);
 
-    const addL2Category = useCallback(async (l1Name, name, image = null) => {
+    const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES) => {
         const sid = cleanText(activeShopId);
         if (!sid) return;
 
         const trimmed = name.trim();
         if (!trimmed || !l1Name) return;
+        const normalizedScope = normalizeCategoryScope(scope);
         setL2Map(prev => {
             const currentList = prev[l1Name] || getLevel2Categories(l1Name);
             const existing = currentList.find(c => (typeof c === 'object' ? c?.name : c) === trimmed);
             if (existing) {
-                if (image) {
-                    const updatedList = currentList.map(c => (typeof c === 'object' ? c?.name : c) === trimmed ? { ...c, name: trimmed, image } : c);
-                    return { ...prev, [l1Name]: updatedList };
-                }
-                return prev;
+                const updatedList = currentList.map((c) => {
+                    if ((typeof c === 'object' ? c?.name : c) !== trimmed) return c;
+                    if (typeof c === 'object') {
+                        return {
+                            ...c,
+                            name: trimmed,
+                            image: image || c.image || '',
+                            scope: normalizedScope,
+                        };
+                    }
+                    return { name: trimmed, image: image || '', parent: l1Name, scope: normalizedScope };
+                });
+                return { ...prev, [l1Name]: updatedList };
             }
-            return { ...prev, [l1Name]: [...currentList, { name: trimmed, image }] };
+            return { ...prev, [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, scope: normalizedScope }] };
         });
+        setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
 
         // Sync to cloud
         const { data: existing } = await supabase
@@ -970,6 +1115,7 @@ export function InventoryProvider({ children }) {
                 delete next[trimmed];
                 return next;
             });
+            removeCategoryScopeBranch(sid, trimmed);
             await supabase.from('categories').delete().eq('shop_id', sid).eq('name', trimmed).eq('level', 1);
             // Delete associated L2 categories in DB
             await supabase.from('categories').delete().eq('shop_id', sid).eq('parent', trimmed).eq('level', 2);
@@ -978,6 +1124,7 @@ export function InventoryProvider({ children }) {
                 const currentList = prev[parentName] || [];
                 return { ...prev, [parentName]: currentList.filter(c => (typeof c === 'object' ? c?.name : c) !== trimmed) };
             });
+            removeCategoryScopeEntry(sid, 2, trimmed, parentName);
             await supabase.from('categories').delete().eq('shop_id', sid).eq('name', trimmed).eq('parent', parentName).eq('level', 2);
         }
     }, [activeShopId]);

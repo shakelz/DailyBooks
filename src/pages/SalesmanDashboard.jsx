@@ -692,11 +692,14 @@ export default function SalesmanDashboard({ adminView = false }) {
 
     const activeStats = realtimeStats || fallbackStats;
 
-    const l1OptionsRaw = getLevel1Categories() || [];
-    const l1Options = l1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
-    const salesSubCategoryOptionsRaw = salesEntry.category ? (getLevel2Categories(salesEntry.category) || []) : [];
+    const salesL1OptionsRaw = getLevel1Categories('sales') || [];
+    const salesL1Options = salesL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+    const revenueL1OptionsRaw = getLevel1Categories('revenue') || [];
+    const revenueL1Options = revenueL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+
+    const salesSubCategoryOptionsRaw = salesEntry.category ? (getLevel2Categories(salesEntry.category, 'sales') || []) : [];
     const salesSubCategoryOptions = salesSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
-    const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category) || []) : [];
+    const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category, 'revenue') || []) : [];
     const purchaseSubCategoryOptions = purchaseSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
 
     const resolveProductSuggestions = (query, level1, level2) => {
@@ -1130,12 +1133,14 @@ export default function SalesmanDashboard({ adminView = false }) {
                         h2,p { margin: 0; }
                         .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
                         .line { border-top:1px dashed #000; margin:8px 0; }
+                        .doc-title { font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
+                        .shop-title { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
                     </style>
                 </head>
                 <body>
-                    <h2>${toSafe(receiptShopName)}</h2>
+                    <p class="doc-title">ABHOLSCHEIN</p>
+                    <h2 class="shop-title">${toSafe(receiptShopName)}</h2>
                     ${receiptShopAddress ? `<p>${toSafe(receiptShopAddress)}</p>` : ''}
-                    ${receiptShopPhone ? `<p>Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
                     <div class="line"></div>
                     <p>Kundenbeleg</p>
                     <p>${createdAt.toLocaleString('de-DE')}</p>
@@ -1148,13 +1153,9 @@ export default function SalesmanDashboard({ adminView = false }) {
                     <div class="row"><span>Problem</span><span>${toSafe(job.problem || job.issueType || '-')}</span></div>
                     <div class="row"><span>Status</span><span>Ausstehend</span></div>
                     <div class="line"></div>
-                    <div class="row"><span>Kostenvoranschlag</span><span>EUR ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
-                    <div class="row"><span>Anzahlung</span><span>EUR ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
-                    <div class="row"><span>Endbetrag</span><span>EUR ${(parseFloat(job.finalAmount) || 0).toFixed(2)}</span></div>
-                    <div class="row"><span>Ersatzteile</span><span>EUR ${(parseFloat(job.partsCost) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Estimated Cost</span><span>EUR ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Advance Paid</span><span>EUR ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
                     <div class="row"><span>Lieferdatum</span><span>${toSafe(job.deliveryDate || '-')}</span></div>
-                    <div class="row"><span>Erstellt</span><span>${toSafe(formatDisplayDate(job.createdAt || ''))}</span></div>
-                    <div class="row"><span>Notiz</span><span>${toSafe(job.notes || '-')}</span></div>
                     <div class="line"></div>
                     <p style="font-size:10px">Bitte diesen Kundenbeleg zur Abholung mitbringen.</p>
                 </body>
@@ -1896,11 +1897,11 @@ export default function SalesmanDashboard({ adminView = false }) {
 
                             <div>
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
-                                {l1Options.length === 0 ? (
+                                {salesL1Options.length === 0 ? (
                                     <p className="text-xs text-slate-400">No categories available</p>
                                 ) : (
                                     <div className="flex flex-wrap gap-1.5">
-                                        {l1Options.map((name) => (
+                                        {salesL1Options.map((name) => (
                                             <button
                                                 key={`sales-cat-chip-${name}`}
                                                 type="button"
@@ -2074,11 +2075,11 @@ export default function SalesmanDashboard({ adminView = false }) {
 
                             <div>
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
-                                {l1Options.length === 0 ? (
+                                {revenueL1Options.length === 0 ? (
                                     <p className="text-xs text-slate-400">No categories available</p>
                                 ) : (
                                     <div className="flex flex-wrap gap-1.5">
-                                        {l1Options.map((name) => (
+                                        {revenueL1Options.map((name) => (
                                             <button
                                                 key={`purchase-cat-chip-${name}`}
                                                 type="button"
@@ -2881,7 +2882,7 @@ export default function SalesmanDashboard({ adminView = false }) {
                                                         className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-xs ${onlineOrderErrors.category ? 'border-rose-300' : 'border-slate-200'}`}
                                                     >
                                                         <option value="">Select category</option>
-                                                        {l1Options.map((name) => <option key={`online-${name}`} value={name}>{name}</option>)}
+                                                        {revenueL1Options.map((name) => <option key={`online-${name}`} value={name}>{name}</option>)}
                                                     </select>
                                                     {onlineOrderErrors.category && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.category}</p>}
                                                 </div>

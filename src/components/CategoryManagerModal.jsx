@@ -8,6 +8,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const [activeTab, setActiveTab] = useState('add');
 
     // ── ADD CATEGORY STATE ──
+    const [addScope, setAddScope] = useState('sales');
     const [mainCatSelect, setMainCatSelect] = useState('');
     const [newMainCatStr, setNewMainCatStr] = useState('');
     const [subCatSelect, setSubCatSelect] = useState('');
@@ -16,6 +17,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const fileInputRef = useRef(null);
 
     // ── UPDATE CATEGORY STATE ──
+    const [updateScope, setUpdateScope] = useState('sales');
     const [selectedUpdateL1, setSelectedUpdateL1] = useState('');
     const [selectedUpdateL2, setSelectedUpdateL2] = useState('');
     const [editingCategory, setEditingCategory] = useState(null);
@@ -23,9 +25,10 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const [updateImagePreview, setUpdateImagePreview] = useState(null);
     const updateFileInputRef = useRef(null);
 
-    const l1Categories = getLevel1Categories();
-    const l2Categories = mainCatSelect && mainCatSelect !== 'NEW_ADD' ? getLevel2Categories(mainCatSelect) : [];
-    const updateL2Categories = selectedUpdateL1 ? getLevel2Categories(selectedUpdateL1) : [];
+    const addL1Categories = getLevel1Categories(addScope);
+    const l2Categories = mainCatSelect && mainCatSelect !== 'NEW_ADD' ? getLevel2Categories(mainCatSelect, addScope) : [];
+    const updateL1Categories = getLevel1Categories(updateScope);
+    const updateL2Categories = selectedUpdateL1 ? getLevel2Categories(selectedUpdateL1, updateScope) : [];
 
     // Reset when tab changes
     useEffect(() => {
@@ -34,10 +37,23 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setSubCatSelect('');
         setNewSubCatStr('');
         setImagePreview(null);
+        setAddScope('sales');
         setSelectedUpdateL1('');
         setSelectedUpdateL2('');
         setEditingCategory(null);
+        setUpdateScope('sales');
     }, [activeTab, isOpen]);
+
+    useEffect(() => {
+        setMainCatSelect('');
+        setSubCatSelect('');
+    }, [addScope]);
+
+    useEffect(() => {
+        setSelectedUpdateL1('');
+        setSelectedUpdateL2('');
+        setEditingCategory(null);
+    }, [updateScope]);
 
     if (!isOpen) return null;
 
@@ -59,10 +75,10 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             finalMainCat = newMainCatStr.trim();
             if (!finalMainCat) return alert("Main Category name required!");
 
-            const exists = l1Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalMainCat.toLowerCase());
+            const exists = addL1Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalMainCat.toLowerCase());
             if (exists) return alert("This Main Category already exists!");
 
-            await addLevel1Category(finalMainCat, subCatSelect === 'NEW_ADD' ? null : imagePreview);
+            await addLevel1Category(finalMainCat, subCatSelect === 'NEW_ADD' ? null : imagePreview, addScope);
         } else if (!finalMainCat) {
             return alert("Please select or add a Main Category!");
         }
@@ -71,11 +87,11 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             const finalSubCat = newSubCatStr.trim();
             if (!finalSubCat) return alert("Sub Category name required!");
 
-            const existingL2s = getLevel2Categories(finalMainCat) || [];
+            const existingL2s = getLevel2Categories(finalMainCat, addScope) || [];
             const exists = existingL2s.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalSubCat.toLowerCase());
             if (exists) return alert("This Sub Category already exists under the selected Main Category!");
 
-            await addLevel2Category(finalMainCat, finalSubCat, imagePreview);
+            await addLevel2Category(finalMainCat, finalSubCat, imagePreview, addScope);
         } else if (mainCatSelect !== 'NEW_ADD') {
             return alert("Select ➕ Add New... to create a new category. To update existing categories, use the Update tab.");
         }
@@ -103,9 +119,9 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         // Since update logic isn't fully implemented in InventoryContext for renaming,
         // we'll at least overwrite the image or re-add it (which acts like an upsert).
         if (editingCategory.isL1) {
-            addLevel1Category(updateName.trim(), updateImagePreview);
+            addLevel1Category(updateName.trim(), updateImagePreview, updateScope);
         } else {
-            addLevel2Category(selectedUpdateL1, updateName.trim(), null);
+            addLevel2Category(selectedUpdateL1, updateName.trim(), null, updateScope);
         }
         setEditingCategory(null);
         alert("Category Updated!");
@@ -160,6 +176,25 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                     {/* ═══ ADD TAB ═══ */}
                     {activeTab === 'add' && (
                         <form onSubmit={handleAddSubmit} className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Category Type</label>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setAddScope('sales')}
+                                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${addScope === 'sales' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
+                                    >
+                                        Sales
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAddScope('revenue')}
+                                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${addScope === 'revenue' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
+                                    >
+                                        Revenue / Purchase
+                                    </button>
+                                </div>
+                            </div>
 
                             {/* Main Category */}
                             <div>
@@ -174,7 +209,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                     className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold focus:outline-none focus:border-emerald-400 cursor-pointer"
                                 >
                                     <option value="">-- Select Main Category --</option>
-                                    {l1Categories.map(c => {
+                                    {addL1Categories.map(c => {
                                         const name = typeof c === 'object' ? c.name : c;
                                         return <option key={name} value={name}>{name}</option>;
                                     })}
@@ -203,7 +238,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                 >
                                     <option value="">-- No Sub Category --</option>
                                     {mainCatSelect && mainCatSelect !== 'NEW_ADD' && (
-                                        (getLevel2Categories(mainCatSelect) || []).map(c => {
+                                        (getLevel2Categories(mainCatSelect, addScope) || []).map(c => {
                                             const name = typeof c === 'object' ? c.name : c;
                                             return <option key={name} value={name}>{name}</option>;
                                         })
@@ -251,9 +286,29 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                             {!editingCategory ? (
                                 <>
                                     <div>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Category Type</label>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setUpdateScope('sales')}
+                                                className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${updateScope === 'sales' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:border-blue-300'}`}
+                                            >
+                                                Sales
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setUpdateScope('revenue')}
+                                                className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${updateScope === 'revenue' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
+                                            >
+                                                Revenue / Purchase
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div>
                                         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">1. Select Main Category</label>
                                         <div className="flex flex-wrap gap-2">
-                                            {l1Categories.map(c => {
+                                            {updateL1Categories.map(c => {
                                                 const name = typeof c === 'object' ? c.name : c;
                                                 const isActive = selectedUpdateL1 === name;
                                                 return (
