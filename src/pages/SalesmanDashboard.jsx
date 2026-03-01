@@ -100,7 +100,7 @@ function extractCategoryName(category) {
     return category.level1 || '';
 }
 
-function buildTransactionDraft(txn = {}) {
+function buildTransactionDraft(txn = {}, defaultShowTax = true) {
     return {
         desc: String(txn.desc || ''),
         category: extractCategoryName(txn.category) || '',
@@ -108,6 +108,7 @@ function buildTransactionDraft(txn = {}) {
         quantity: String(Math.max(1, parseInt(txn.quantity || '1', 10) || 1)),
         paymentMethod: String(txn.paymentMethod || 'Cash'),
         notes: String(txn.notes || ''),
+        includeTax: txn.includeTax === undefined ? Boolean(defaultShowTax) : Boolean(txn.includeTax),
     };
 }
 
@@ -424,6 +425,7 @@ export default function SalesmanDashboard({ adminView = false }) {
         addTransaction,
         updateTransaction,
         adjustStock,
+        getStockSeverity,
         getLevel1Categories,
         getLevel2Categories,
     } = useInventory();
@@ -473,7 +475,7 @@ export default function SalesmanDashboard({ adminView = false }) {
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
-    const canEditTransactions = Boolean(
+    const canEditTransactions = adminView || Boolean(
         user?.canEditTransactions
         ?? user?.permissions?.canEditTransactions
         ?? false
@@ -911,7 +913,7 @@ export default function SalesmanDashboard({ adminView = false }) {
             issuedAt: txnDate,
             receiptNo: txn.transactionId || txn.id || '-',
             paymentMethod: txn.paymentMethod || 'Cash',
-            showTax: billShowTax,
+            showTax: txn.includeTax === undefined ? billShowTax : Boolean(txn.includeTax),
             items: [
                 {
                     name: txn.desc || 'Transaktion',
@@ -1020,7 +1022,7 @@ export default function SalesmanDashboard({ adminView = false }) {
     const openTransactionDetailModal = (txn) => {
         if (!txn) return;
         setSelectedTransaction(txn);
-        setTransactionDraft(buildTransactionDraft(txn));
+        setTransactionDraft(buildTransactionDraft(txn, billShowTax));
         setTransactionFormError('');
         setShowTransactionDetailModal(true);
     };
@@ -1056,11 +1058,12 @@ export default function SalesmanDashboard({ adminView = false }) {
                 amount: nextAmount,
                 quantity: nextQty,
                 notes: String(transactionDraft.notes || ''),
+                includeTax: Boolean(transactionDraft.includeTax),
             };
             const updated = await updateTransaction(selectedTransaction.id, payload);
             const mergedTxn = { ...(selectedTransaction || {}), ...payload, ...(updated || {}) };
             setSelectedTransaction(mergedTxn);
-            setTransactionDraft(buildTransactionDraft(mergedTxn));
+            setTransactionDraft(buildTransactionDraft(mergedTxn, billShowTax));
             setToast('Transaction updated');
             setTimeout(() => setToast(''), 1800);
         } catch (error) {
@@ -1080,6 +1083,7 @@ export default function SalesmanDashboard({ adminView = false }) {
             amount: parseFloat(transactionDraft.amount) || 0,
             quantity: Math.max(1, parseInt(transactionDraft.quantity || '1', 10) || 1),
             notes: transactionDraft.notes,
+            includeTax: Boolean(transactionDraft.includeTax),
         });
     };
 
@@ -1285,7 +1289,9 @@ export default function SalesmanDashboard({ adminView = false }) {
             notes: resolved.stock ? `Stock: ${resolved.stock}` : '',
         });
         setQuickSaleCart([]);
-        setShowQuickSaleModal(true);
+        setSelectedProduct(product);
+        setShowTransactionModal(true);
+        setShowQuickSaleModal(false);
         setShowTopBarcodeMatches(false);
     };
 
@@ -2284,6 +2290,21 @@ export default function SalesmanDashboard({ adminView = false }) {
                                     Edit access is disabled for your account. Ask admin to enable transaction editing.
                                 </p>
                             )}
+                            <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                                <div>
+                                    <p className="text-[11px] font-semibold text-slate-700">Tax Inclusion in Bill</p>
+                                    <p className="text-[10px] text-slate-500">Show or hide Netto/USt lines on receipt</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    disabled={!canEditTransactions}
+                                    onClick={() => setTransactionDraft((prev) => prev ? ({ ...prev, includeTax: !prev.includeTax }) : prev)}
+                                    className={`relative h-6 w-11 rounded-full transition-colors ${transactionDraft.includeTax ? 'bg-emerald-500' : 'bg-slate-300'} ${!canEditTransactions ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                    title="Toggle tax lines in printed bill"
+                                >
+                                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${transactionDraft.includeTax ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                </button>
+                            </div>
                             {transactionFormError && <p className="text-[11px] text-rose-600">{transactionFormError}</p>}
 
                             <div className="flex items-center justify-between gap-2">
@@ -2348,7 +2369,29 @@ export default function SalesmanDashboard({ adminView = false }) {
                                 {mobileInventoryProducts.length === 0 ? (
                                     <p className="text-xs text-slate-400 p-2">No mobile products found in inventory.</p>
                                 ) : mobileInventoryProducts.map((item) => (
-                                    <div key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center justify-between gap-3">
+                                    <div
+                                        key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}
+                                        className={`rounded-lg border px-3 py-2 flex items-center justify-between gap-3 ${(() => {
+                                            const stockValue = Number(item.snapshot.stock) || 0;
+                                            const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                            const redThreshold = Number(alertCfg.red);
+                                            const yellowThreshold = Number(alertCfg.yellow);
+                                            const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                            const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                            const severity = stockValue <= 0
+                                                ? 'red'
+                                                : hasRed && stockValue <= redThreshold
+                                                    ? 'red'
+                                                    : hasYellow && stockValue <= yellowThreshold
+                                                        ? 'yellow'
+                                                        : getStockSeverity(stockValue);
+                                            return severity === 'red'
+                                                ? 'border-red-200 bg-red-50/30'
+                                                : severity === 'yellow'
+                                                    ? 'border-amber-200 bg-amber-50/30'
+                                                    : 'border-slate-200 bg-white';
+                                        })()}`}
+                                    >
                                         <div className="flex items-center gap-2 min-w-0">
                                             {item.snapshot.image ? (
                                                 <img src={item.snapshot.image} alt={item.snapshot.name || 'Mobile'} className="w-11 h-11 rounded-md object-cover border border-slate-200 flex-shrink-0" />
@@ -2357,7 +2400,28 @@ export default function SalesmanDashboard({ adminView = false }) {
                                             )}
                                             <div className="min-w-0">
                                                 <p className="text-xs font-bold text-slate-700 truncate">{item.snapshot.name || 'Mobile'}</p>
-                                                <p className="text-[10px] text-slate-500 truncate">{item.snapshot.barcode || 'No barcode'} | Stock {item.snapshot.stock} | {priceTag(item.snapshot.sellingPrice || 0)}</p>
+                                                <p className="text-[10px] text-slate-500 truncate">
+                                                    {item.snapshot.barcode || 'No barcode'} | Stock <span className={`${(() => {
+                                                        const stockValue = Number(item.snapshot.stock) || 0;
+                                                        const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                                        const redThreshold = Number(alertCfg.red);
+                                                        const yellowThreshold = Number(alertCfg.yellow);
+                                                        const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                                        const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                                        const severity = stockValue <= 0
+                                                            ? 'red'
+                                                            : hasRed && stockValue <= redThreshold
+                                                                ? 'red'
+                                                                : hasYellow && stockValue <= yellowThreshold
+                                                                    ? 'yellow'
+                                                                    : getStockSeverity(stockValue);
+                                                        return severity === 'red'
+                                                            ? 'text-red-600 font-bold'
+                                                            : severity === 'yellow'
+                                                                ? 'text-amber-600 font-bold'
+                                                                : 'text-emerald-600 font-semibold';
+                                                    })()}`}>{item.snapshot.stock}</span> | {priceTag(item.snapshot.sellingPrice || 0)}
+                                                </p>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
@@ -2415,7 +2479,28 @@ export default function SalesmanDashboard({ adminView = false }) {
                             <div className="grid grid-cols-2 gap-2 text-xs">
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Category</p><p className="font-semibold text-slate-700">{selectedMobileInventoryItem.snapshot.category || '-'}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Sub Category</p><p className="font-semibold text-slate-700">{selectedMobileInventoryItem.snapshot.subCategory || '-'}</p></div>
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Stock</p><p className="font-semibold text-slate-700">{selectedMobileInventoryItem.snapshot.stock}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Stock</p><p className={`font-semibold ${(() => {
+                                    const stockValue = Number(selectedMobileInventoryItem.snapshot.stock) || 0;
+                                    const alertCfg = selectedMobileInventoryItem.raw?.stockAlert && typeof selectedMobileInventoryItem.raw.stockAlert === 'object'
+                                        ? selectedMobileInventoryItem.raw.stockAlert
+                                        : {};
+                                    const redThreshold = Number(alertCfg.red);
+                                    const yellowThreshold = Number(alertCfg.yellow);
+                                    const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                    const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                    const severity = stockValue <= 0
+                                        ? 'red'
+                                        : hasRed && stockValue <= redThreshold
+                                            ? 'red'
+                                            : hasYellow && stockValue <= yellowThreshold
+                                                ? 'yellow'
+                                                : getStockSeverity(stockValue);
+                                    return severity === 'red'
+                                        ? 'text-red-600'
+                                        : severity === 'yellow'
+                                            ? 'text-amber-600'
+                                            : 'text-emerald-600';
+                                })()}`}>{selectedMobileInventoryItem.snapshot.stock}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Selling Price</p><p className="font-semibold text-emerald-700">{priceTag(selectedMobileInventoryItem.snapshot.sellingPrice || 0)}</p></div>
                             </div>
 
