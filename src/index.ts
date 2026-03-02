@@ -1,5 +1,23 @@
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
+type D1Result<T = Record<string, JsonValue>> = {
+  results?: T[];
+};
+
+interface D1PreparedStatement {
+  bind(...values: unknown[]): D1PreparedStatement;
+  all<T = Record<string, JsonValue>>(): Promise<D1Result<T>>;
+  run(): Promise<unknown>;
+}
+
+interface D1Database {
+  prepare(query: string): D1PreparedStatement;
+}
+
+interface Fetcher {
+  fetch(input: Request | string | URL, init?: RequestInit): Promise<Response>;
+}
+
 type Filter = {
   op?: string;
   column?: string;
