@@ -18,8 +18,8 @@ name = "STAFF_TRACKER"
 class_name = "StaffTracker"
 
 [[migrations]]
-tag = "v1"
-new_classes = ["StaffTracker"]
+tag = "v2"
+new_sqlite_classes = ["StaffTracker"]
 
 [env.preview.vars]
 APP_ENV = "preview"
