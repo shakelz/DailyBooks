@@ -619,28 +619,6 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
   }
 }
 
-async function handlePunchOutPost(request: Request, env: Env): Promise<Response> {
-  let body: PunchInRequest;
-  try {
-    body = (await request.json()) as PunchInRequest;
-  } catch {
-    return json({ data: null, error: { message: 'Invalid JSON body.' } }, 400);
-  }
-
-  const nextBody: PunchInRequest = {
-    ...body,
-    type: 'OUT',
-  };
-
-  const proxiedRequest = new Request('https://worker.internal/api/punch-in', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(nextBody),
-  });
-
-  return handlePunchInPost(proxiedRequest, env);
-}
-
 async function handleAttendancePost(request: Request, env: Env): Promise<Response> {
   let body: PunchInRequest;
   try {
@@ -666,65 +644,6 @@ async function handleAttendancePost(request: Request, env: Env): Promise<Respons
   });
 
   return handlePunchInPost(proxiedRequest, env);
-}
-
-async function handlePunchStateGet(request: Request, env: Env): Promise<Response> {
-  const db = env.carefone_db;
-  if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
-
-  const url = new URL(request.url);
-  const shopId = String(url.searchParams.get('shop_id') || '').trim();
-  const userId = String(url.searchParams.get('user_id') || '').trim();
-
-  if (!shopId || !userId) {
-    return json({ data: null, error: { message: 'shop_id and user_id are required.' } }, 400);
-  }
-
-  try {
-    const openResult = await db.prepare(`
-      SELECT id, check_in, check_out, updated_at
-      FROM "attendance"
-      WHERE shop_id = ?
-        AND user_id = ?
-        AND check_in IS NOT NULL
-        AND check_in <> ''
-        AND (check_out IS NULL OR check_out = '')
-      ORDER BY COALESCE(NULLIF(check_in, ''), created_at) DESC
-      LIMIT 1
-    `).bind(shopId, userId).all<Record<string, JsonValue>>();
-
-    const openRow = Array.isArray(openResult?.results) && openResult.results.length > 0
-      ? openResult.results[0]
-      : null;
-
-    const latestResult = await db.prepare(`
-      SELECT id, check_in, check_out, updated_at
-      FROM "attendance"
-      WHERE shop_id = ?
-        AND user_id = ?
-      ORDER BY COALESCE(NULLIF(check_out, ''), NULLIF(check_in, ''), created_at) DESC
-      LIMIT 1
-    `).bind(shopId, userId).all<Record<string, JsonValue>>();
-
-    const latestRow = Array.isArray(latestResult?.results) && latestResult.results.length > 0
-      ? latestResult.results[0]
-      : null;
-
-    return json({
-      data: {
-        user_id: userId,
-        shop_id: shopId,
-        is_punched_in: Boolean(openRow),
-        open_attendance_id: openRow?.id || null,
-        check_in: openRow?.check_in || latestRow?.check_in || null,
-        check_out: latestRow?.check_out || null,
-        updated_at: openRow?.updated_at || latestRow?.updated_at || null,
-      },
-      error: null,
-    });
-  } catch (error) {
-    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to resolve punch state.' } }, 400);
-  }
 }
 
 async function handleUserStatusGet(request: Request, env: Env): Promise<Response> {
@@ -981,18 +900,6 @@ export default {
 
     if (url.pathname === '/api/attendance' && request.method === 'POST') {
       return handleAttendancePost(request, env);
-    }
-
-    if (url.pathname === '/api/punch-in' && request.method === 'POST') {
-      return handlePunchInPost(request, env);
-    }
-
-    if (url.pathname === '/api/punch-out' && request.method === 'POST') {
-      return handlePunchOutPost(request, env);
-    }
-
-    if (url.pathname === '/api/punch-state' && request.method === 'GET') {
-      return handlePunchStateGet(request, env);
     }
 
     if (url.pathname === '/api/user-status' && request.method === 'GET') {
