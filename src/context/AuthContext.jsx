@@ -498,6 +498,17 @@ function getCurrentPunchState(logs = [], userId = '') {
     const uid = asString(userId);
     if (!uid) return false;
 
+    // Prefer structured attendance state: any open check-in without check-out means currently punched in.
+    const openAttendanceRow = (Array.isArray(logs) ? logs : []).some((log) => {
+        const logUserId = asString(log?.userId || log?.workerId || log?.user_id || log?.worker_id);
+        if (logUserId !== uid) return false;
+        const checkIn = asString(log?.check_in || log?.checkIn);
+        const checkOut = asString(log?.check_out || log?.checkOut);
+        return Boolean(checkIn) && !Boolean(checkOut);
+    });
+
+    if (openAttendanceRow) return true;
+
     const ordered = (Array.isArray(logs) ? logs : [])
         .filter((log) => asString(log?.userId || log?.workerId) === uid)
         .map((log) => ({
