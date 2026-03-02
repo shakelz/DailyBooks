@@ -873,6 +873,55 @@ async function handlePunchStateGet(request: Request, env: Env): Promise<Response
   }
 }
 
+async function handleUserStatusGet(request: Request, env: Env): Promise<Response> {
+  const db = env.carefone_db;
+  if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
+
+  const url = new URL(request.url);
+  const shopId = String(url.searchParams.get('shop_id') || '').trim();
+  const userId = String(url.searchParams.get('user_id') || '').trim();
+
+  if (!shopId || !userId) {
+    return json({ data: null, error: { message: 'shop_id and user_id are required.' } }, 400);
+  }
+
+  try {
+    const openResult = await db.prepare(`
+      SELECT id, check_in, check_out, created_at, updated_at
+      FROM "attendance"
+      WHERE shop_id = ?
+        AND user_id = ?
+        AND check_in IS NOT NULL
+        AND check_in <> ''
+        AND (check_out IS NULL OR check_out = '')
+      ORDER BY COALESCE(NULLIF(check_in, ''), created_at) DESC
+      LIMIT 1
+    `).bind(shopId, userId).all<Record<string, JsonValue>>();
+
+    const openRow = Array.isArray(openResult?.results) && openResult.results.length > 0
+      ? openResult.results[0]
+      : null;
+
+    return json({
+      data: {
+        user_id: userId,
+        shop_id: shopId,
+        is_punched_in: Boolean(openRow),
+        active_attendance: openRow ? {
+          id: openRow.id || null,
+          punch_in_time: openRow.check_in || null,
+          punch_out_time: openRow.check_out || null,
+          created_at: openRow.created_at || null,
+          updated_at: openRow.updated_at || null,
+        } : null,
+      },
+      error: null,
+    });
+  } catch (error) {
+    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to resolve user status.' } }, 400);
+  }
+}
+
 async function ensureAppStateTable(db: D1Database): Promise<void> {
   await db.prepare(`
     CREATE TABLE IF NOT EXISTS "app_state" (
@@ -1038,6 +1087,10 @@ export default {
 
     if (url.pathname === '/api/punch-state' && request.method === 'GET') {
       return handlePunchStateGet(request, env);
+    }
+
+    if (url.pathname === '/api/user-status' && request.method === 'GET') {
+      return handleUserStatusGet(request, env);
     }
 
     if (url.pathname === '/api/staff-status/ws' && request.method === 'GET') {

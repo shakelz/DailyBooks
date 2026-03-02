@@ -284,13 +284,13 @@ async function requestPunchIn({ userId, shopId, type, timestamp, note = '' }) {
     };
 }
 
-async function requestPunchState({ shopId, userId }) {
+async function requestUserStatus({ shopId, userId }) {
     const sid = asString(shopId);
     const uid = asString(userId);
     if (!sid || !uid) return { data: null, error: 'shop_id and user_id are required' };
 
     const base = resolveApiBase();
-    const endpoint = `${base}/api/punch-state?shop_id=${encodeURIComponent(sid)}&user_id=${encodeURIComponent(uid)}`;
+    const endpoint = `${base}/api/user-status?shop_id=${encodeURIComponent(sid)}&user_id=${encodeURIComponent(uid)}`;
     const response = await fetch(endpoint, { method: 'GET' });
 
     let payload = null;
@@ -301,7 +301,7 @@ async function requestPunchState({ shopId, userId }) {
     }
 
     if (!response.ok) {
-        return { data: null, error: asString(payload?.error?.message) || 'Failed to load punch state.' };
+        return { data: null, error: asString(payload?.error?.message) || 'Failed to load user status.' };
     }
 
     return {
@@ -1568,6 +1568,26 @@ export function AuthProvider({ children }) {
     }, []);
 
     useEffect(() => {
+        if (role !== 'salesman' || !user?.id || !activeShopId) return;
+
+        let cancelled = false;
+
+        const bootstrapPunchState = async () => {
+            const { data } = await requestUserStatus({ shopId: activeShopId, userId: user.id });
+            if (cancelled || !data) return;
+            const dbState = asBoolean(data.is_punched_in);
+            const resolvedState = resolvePunchStateWithOverride(dbState, activeShopId, user.id);
+            setIsPunchedIn(resolvedState);
+            writePunchStateToSession(activeShopId, user.id, resolvedState);
+        };
+
+        bootstrapPunchState();
+        return () => {
+            cancelled = true;
+        };
+    }, [role, user?.id, activeShopId, resolvePunchStateWithOverride]);
+
+    useEffect(() => {
         const sid = asString(activeShopId);
         if (!sid) {
             setAttendanceLogs([]);
@@ -1596,9 +1616,9 @@ export function AuthProvider({ children }) {
                 setAttendanceLogs(formattedLogs);
                 if (role === 'salesman' && user?.id) {
                     let punchState = getCurrentPunchState(formattedLogs, user.id);
-                    const { data: dbPunchState } = await requestPunchState({ shopId: sid, userId: user.id });
-                    if (dbPunchState && typeof dbPunchState === 'object') {
-                        punchState = asBoolean(dbPunchState.is_punched_in);
+                    const { data: dbUserStatus } = await requestUserStatus({ shopId: sid, userId: user.id });
+                    if (dbUserStatus && typeof dbUserStatus === 'object') {
+                        punchState = asBoolean(dbUserStatus.is_punched_in);
                     }
                     const resolvedPunchState = resolvePunchStateWithOverride(punchState, sid, user.id);
                     setIsPunchedIn(resolvedPunchState);
@@ -1607,9 +1627,9 @@ export function AuthProvider({ children }) {
             } else {
                 setAttendanceLogs([]);
                 if (role === 'salesman' && user?.id) {
-                    const { data: dbPunchState } = await requestPunchState({ shopId: sid, userId: user.id });
-                    if (dbPunchState && typeof dbPunchState === 'object') {
-                        const punchState = asBoolean(dbPunchState.is_punched_in);
+                    const { data: dbUserStatus } = await requestUserStatus({ shopId: sid, userId: user.id });
+                    if (dbUserStatus && typeof dbUserStatus === 'object') {
+                        const punchState = asBoolean(dbUserStatus.is_punched_in);
                         const resolvedPunchState = resolvePunchStateWithOverride(punchState, sid, user.id);
                         setIsPunchedIn(resolvedPunchState);
                         writePunchStateToSession(sid, user.id, resolvedPunchState);
@@ -1784,13 +1804,6 @@ export function AuthProvider({ children }) {
                 if (cachedState !== null) {
                     const resolvedCached = resolvePunchStateWithOverride(cachedState, activeShopId, user.id);
                     setIsPunchedIn(resolvedCached);
-                } else {
-                    const fallbackState = resolvePunchStateWithOverride(
-                        asBoolean(user.is_online ?? user.isOnline ?? user.online),
-                        activeShopId,
-                        user.id
-                    );
-                    setIsPunchedIn(fallbackState);
                 }
             }
         } else {
@@ -2071,10 +2084,10 @@ export function AuthProvider({ children }) {
                     setRole('salesman');
                     setUser(normalized);
                     setActiveShopIdState(normalized.shop_id);
-                    // Fetch actual punch state from DB instead of deriving from is_online
+                    // Fetch actual punch state from attendance source of truth
                     try {
-                        const { data: punchData } = await requestPunchState({ shopId: normalized.shop_id, userId: normalized.id });
-                        setIsPunchedIn(punchData ? asBoolean(punchData.is_punched_in) : false);
+                        const { data: userStatusData } = await requestUserStatus({ shopId: normalized.shop_id, userId: normalized.id });
+                        setIsPunchedIn(userStatusData ? asBoolean(userStatusData.is_punched_in) : false);
                     } catch {
                         setIsPunchedIn(false);
                     }
@@ -2094,13 +2107,13 @@ export function AuthProvider({ children }) {
                     setRole('salesman');
                     setUser(withMeta);
                     if (withMeta.shop_id) setActiveShopIdState(asString(withMeta.shop_id));
-                    // Fetch actual punch state from DB instead of deriving from is_online
+                    // Fetch actual punch state from attendance source of truth
                     try {
                         const sid = asString(withMeta.shop_id);
                         const uid = asString(withMeta.id);
                         if (sid && uid) {
-                            const { data: punchData } = await requestPunchState({ shopId: sid, userId: uid });
-                            setIsPunchedIn(punchData ? asBoolean(punchData.is_punched_in) : false);
+                            const { data: userStatusData } = await requestUserStatus({ shopId: sid, userId: uid });
+                            setIsPunchedIn(userStatusData ? asBoolean(userStatusData.is_punched_in) : false);
                         } else {
                             setIsPunchedIn(false);
                         }
