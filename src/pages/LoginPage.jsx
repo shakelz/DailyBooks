@@ -26,7 +26,7 @@ export default function LoginPage() {
             navigate('/salesman', { replace: true });
             return;
         }
-        if ((authRole === 'admin' || authRole === 'superadmin') && authUser) {
+        if ((authRole === 'admin' || authRole === 'superadmin' || authRole === 'superuser') && authUser) {
             navigate('/admin/dashboard', { replace: true });
         }
     }, [authRole, authUser, navigate]);

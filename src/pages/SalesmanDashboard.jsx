@@ -501,7 +501,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return;
         }
         const normalizedRole = String(role || '').toLowerCase();
-        const isAdminRole = normalizedRole === 'admin' || normalizedRole === 'superadmin';
+        const isAdminRole = normalizedRole === 'admin' || normalizedRole === 'superadmin' || normalizedRole === 'superuser';
         if (!adminView && normalizedRole !== 'salesman') {
             navigate('/');
             return;

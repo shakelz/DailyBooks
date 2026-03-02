@@ -3,7 +3,8 @@ import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
-const ADMIN_ROLES = ['superadmin', 'admin'];
+const GLOBAL_ADMIN_ROLES = ['superadmin', 'superuser'];
+const ADMIN_ROLES = [...GLOBAL_ADMIN_ROLES, 'admin'];
 const AUTH_SESSION_KEY = 'dailybooks_auth_session_v1';
 const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
@@ -611,8 +612,8 @@ export function AuthProvider({ children }) {
 
     const [salesmen, setSalesmen] = useState([]);
 
-    const isSuperAdmin = role === 'superadmin';
-    const isAdminLike = role === 'superadmin' || role === 'admin';
+    const isSuperAdmin = GLOBAL_ADMIN_ROLES.includes(role);
+    const isAdminLike = GLOBAL_ADMIN_ROLES.includes(role) || role === 'admin';
     const activeShopMeta = useMemo(() => getShopMeta(shopMetaMap, activeShopId), [shopMetaMap, activeShopId]);
     const billShowTax = activeShopMeta.billShowTax === undefined ? true : asBoolean(activeShopMeta.billShowTax);
 
@@ -742,7 +743,7 @@ export function AuthProvider({ children }) {
             return [];
         }
 
-        if (role === 'superadmin') {
+        if (GLOBAL_ADMIN_ROLES.includes(role)) {
             const { data, error } = await supabase.from('shops').select('*').order('name', { ascending: true });
             if (error || !Array.isArray(data)) {
                 setShops([]);
@@ -760,7 +761,7 @@ export function AuthProvider({ children }) {
             const preferredExists = preferred && merged.some(s => s.id === preferred);
             if (preferredExists) {
                 setActiveShopIdState(preferred);
-            } else if (merged.length > 0) {
+            } else if (role === 'superadmin' && merged.length > 0) {
                 setActiveShopIdState(merged[0].id);
             } else {
                 setActiveShopIdState('');
@@ -891,8 +892,8 @@ export function AuthProvider({ children }) {
     }, [isSuperAdmin, user, activeShopId]);
 
     const createShop = useCallback(async ({ shopName, location, address, ownerEmail, telephone }) => {
-        if (role !== 'superadmin') {
-            throw new Error('Only superadmin can create shops.');
+        if (!GLOBAL_ADMIN_ROLES.includes(role)) {
+            throw new Error('Only superadmin/superuser can create shops.');
         }
 
         const name = asString(shopName);
@@ -1012,8 +1013,8 @@ export function AuthProvider({ children }) {
     }, [role, activeShopId, patchShopMeta, shopMetaMap]);
 
     const updateShop = useCallback(async (shopId, updates = {}) => {
-        if (role !== 'superadmin') {
-            throw new Error('Only superadmin can update shops.');
+        if (!GLOBAL_ADMIN_ROLES.includes(role)) {
+            throw new Error('Only superadmin/superuser can update shops.');
         }
 
         const sid = asString(shopId);
@@ -1243,8 +1244,8 @@ export function AuthProvider({ children }) {
     }, [role, user, shops, patchShopMeta, shopMetaMap]);
 
     const deleteShop = useCallback(async (shopId) => {
-        if (role !== 'superadmin') {
-            throw new Error('Only superadmin can delete shops.');
+        if (!GLOBAL_ADMIN_ROLES.includes(role)) {
+            throw new Error('Only superadmin/superuser can delete shops.');
         }
 
         const sid = asString(shopId);
@@ -1625,7 +1626,7 @@ export function AuthProvider({ children }) {
                 setUser(normalized);
                 if (normalized.shop_id) {
                     setActiveShopIdState(normalized.shop_id);
-                } else if (normalized.role !== 'superadmin') {
+                } else if (!GLOBAL_ADMIN_ROLES.includes(normalized.role)) {
                     setActiveShopIdState('');
                 }
                 persistAuthSession(normalized.role, normalized);

@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS shops (
 
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
-  shop_id TEXT NOT NULL,
+  shop_id TEXT,
   name TEXT NOT NULL,
   email TEXT,
   role TEXT NOT NULL,

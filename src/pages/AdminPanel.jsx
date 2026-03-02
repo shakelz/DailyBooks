@@ -67,7 +67,9 @@ export default function AdminPanel() {
         { label: 'Insights', route: '/admin/insights', icon: <TrendingUp size={20} /> },
         { label: 'Repairs', route: '/admin/repairs', icon: <Wrench size={20} /> },
         { label: 'Expenses', route: '/admin/expenses', icon: <FileText size={20} /> },
-        (role !== 'salesman') ? { label: 'Settings', route: '/admin/settings', icon: <Settings size={20} /> } : null,
+        (role === 'superuser')
+            ? { label: 'Manage All Shops', route: '/admin/settings', icon: <Settings size={20} /> }
+            : ((role !== 'salesman') ? { label: 'Settings', route: '/admin/settings', icon: <Settings size={20} /> } : null),
     ].filter(Boolean);
     const mobileBottomItems = [
         { label: 'Home', route: '/admin/dashboard', icon: <LayoutDashboard size={18} /> },
@@ -200,6 +202,9 @@ export default function AdminPanel() {
                                         onChange={(e) => setActiveShopId(e.target.value)}
                                         className="text-sm font-semibold text-slate-700 bg-transparent outline-none"
                                     >
+                                        {role === 'superuser' ? (
+                                            <option value="">Global View (All Shops)</option>
+                                        ) : null}
                                         {shops.length === 0 ? (
                                             <option value="">No Shops</option>
                                         ) : (

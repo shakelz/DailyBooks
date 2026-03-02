@@ -318,7 +318,7 @@ async function handleAdminLoginRequest(request: Request, env: Env): Promise<Resp
     const sql = `
       SELECT *
       FROM "profiles"
-      WHERE "role" IN ('admin', 'superadmin')
+      WHERE "role" IN ('admin', 'superadmin', 'superuser')
         AND (LOWER("email") = ? OR "name" = ?)
       LIMIT 1
     `;
