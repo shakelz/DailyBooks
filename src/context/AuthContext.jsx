@@ -11,6 +11,9 @@ const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
 const AUTH_SHOP_STATE_KEY = 'dailybooks_auth_shop_v1';
 const SALESMAN_META_STORAGE_KEY = 'dailybooks_salesman_meta_v1';
 const SHOP_META_STORAGE_KEY = 'dailybooks_shop_meta_v1';
+const SLOW_MOVING_DAYS_KEY = 'dailybooks_slow_moving_days_v1';
+const AUTO_LOCK_ENABLED_KEY = 'dailybooks_auto_lock_enabled_v1';
+const AUTO_LOCK_TIMEOUT_KEY = 'dailybooks_auto_lock_timeout_v1';
 
 const volatileAuthStore = {
     role: '',
@@ -30,15 +33,9 @@ async function ensureSupabaseSession() {
         return { ok: true, error: null };
     }
 
-    const { data, error } = await supabase.auth.signInAnonymously();
-    if (error) {
-        // Anonymous auth can be disabled in Supabase projects.
-        // App-level profile login should still work in that case.
-        setAuthTokenFromSupabaseSession(null);
-        return { ok: true, error: null };
-    }
-
-    setAuthTokenFromSupabaseSession(data?.session || null);
+    // Do not force anonymous signup; many projects disable it and it causes noisy 422 errors.
+    // App-level profile authentication can still run without a Supabase auth session.
+    setAuthTokenFromSupabaseSession(null);
     return { ok: true, error: null };
 }
 
@@ -390,7 +387,15 @@ async function requestStaffStatus(shopId) {
 }
 
 function readLocalJSON(key, fallback) {
-    return fallback;
+    if (typeof window === 'undefined') return fallback;
+    try {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        return parsed ?? fallback;
+    } catch {
+        return fallback;
+    }
 }
 
 function sanitizeSalesmanMeta(meta = {}) {
@@ -885,9 +890,18 @@ export function AuthProvider({ children }) {
 
     // ── Persistent Config Data ──
     const [adminPassword, setAdminPassword] = useState('');
-    const [slowMovingDays, setSlowMovingDays] = useState(30);
-    const [autoLockEnabled, setAutoLockEnabled] = useState(true);
-    const [autoLockTimeout, setAutoLockTimeout] = useState(120);
+    const [slowMovingDays, setSlowMovingDays] = useState(() => {
+        const parsed = parseInt(readStorage(SLOW_MOVING_DAYS_KEY, '30'), 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+    });
+    const [autoLockEnabled, setAutoLockEnabled] = useState(() => {
+        const raw = readStorage(AUTO_LOCK_ENABLED_KEY, 'true');
+        return asBoolean(raw === '' ? true : raw);
+    });
+    const [autoLockTimeout, setAutoLockTimeout] = useState(() => {
+        const parsed = parseInt(readStorage(AUTO_LOCK_TIMEOUT_KEY, '120'), 10);
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : 120;
+    });
 
     const [salesmen, setSalesmen] = useState([]);
 
@@ -971,6 +985,26 @@ export function AuthProvider({ children }) {
     useEffect(() => {
         writeAuthState(AUTH_SHOP_STATE_KEY, activeShopId || '');
     }, [activeShopId]);
+
+    useEffect(() => {
+        writeStorage(SLOW_MOVING_DAYS_KEY, String(slowMovingDays));
+    }, [slowMovingDays]);
+
+    useEffect(() => {
+        writeStorage(AUTO_LOCK_ENABLED_KEY, String(asBoolean(autoLockEnabled)));
+    }, [autoLockEnabled]);
+
+    useEffect(() => {
+        writeStorage(AUTO_LOCK_TIMEOUT_KEY, String(Math.max(0, asNumber(autoLockTimeout, 120))));
+    }, [autoLockTimeout]);
+
+    useEffect(() => {
+        writeStorage(SALESMAN_META_STORAGE_KEY, JSON.stringify(salesmanMetaMap || {}));
+    }, [salesmanMetaMap]);
+
+    useEffect(() => {
+        writeStorage(SHOP_META_STORAGE_KEY, JSON.stringify(shopMetaMap || {}));
+    }, [shopMetaMap]);
 
     // ── Live Broadcasting for Settings ──
     const broadcastSetting = useCallback(async (key, value) => {

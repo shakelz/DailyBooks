@@ -1024,17 +1024,53 @@ export function InventoryProvider({ children }) {
         setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
 
         // Sync to cloud
-        const { data: existing } = await supabase
+        let existing = null;
+        let hasScopeColumn = true;
+        const scopedSelect = await supabase
             .from('categories')
             .select('id')
             .eq('shop_id', sid)
             .eq('name', trimmed)
             .eq('level', 1)
+            .eq('scope', normalizedScope)
             .maybeSingle();
-        if (existing) {
-            if (image) await supabase.from('categories').update({ image }).eq('id', existing.id).eq('shop_id', sid);
+
+        if (!scopedSelect.error) {
+            existing = scopedSelect.data || null;
         } else {
-            await supabase.from('categories').insert([{ id: makeCategoryId(), name: trimmed, image: image || '', level: 1, parent: null, shop_id: sid }]);
+            const scopedErrMsg = String(scopedSelect.error?.message || '').toLowerCase();
+            hasScopeColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('scope'));
+            if (!hasScopeColumn) {
+                const fallbackSelect = await supabase
+                    .from('categories')
+                    .select('id')
+                    .eq('shop_id', sid)
+                    .eq('name', trimmed)
+                    .eq('level', 1)
+                    .maybeSingle();
+                existing = fallbackSelect.data || null;
+            }
+        }
+
+        if (existing) {
+            const updatePayload = {
+                ...(image ? { image } : {}),
+                ...(hasScopeColumn ? { scope: normalizedScope } : {})
+            };
+            if (Object.keys(updatePayload).length > 0) {
+                await supabase.from('categories').update(updatePayload).eq('id', existing.id).eq('shop_id', sid);
+            }
+        } else {
+            const insertPayload = {
+                id: makeCategoryId(),
+                name: trimmed,
+                image: image || '',
+                level: 1,
+                parent: null,
+                shop_id: sid,
+                ...(hasScopeColumn ? { scope: normalizedScope } : {})
+            };
+            await supabase.from('categories').insert([insertPayload]);
         }
     }, [activeShopId]);
 
@@ -1068,18 +1104,55 @@ export function InventoryProvider({ children }) {
         setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
 
         // Sync to cloud
-        const { data: existing } = await supabase
+        let existing = null;
+        let hasScopeColumn = true;
+        const scopedSelect = await supabase
             .from('categories')
             .select('id')
             .eq('shop_id', sid)
             .eq('name', trimmed)
             .eq('parent', l1Name)
             .eq('level', 2)
+            .eq('scope', normalizedScope)
             .maybeSingle();
-        if (existing) {
-            if (image) await supabase.from('categories').update({ image }).eq('id', existing.id).eq('shop_id', sid);
+
+        if (!scopedSelect.error) {
+            existing = scopedSelect.data || null;
         } else {
-            await supabase.from('categories').insert([{ id: makeCategoryId(), name: trimmed, parent: l1Name, image: image || '', level: 2, shop_id: sid }]);
+            const scopedErrMsg = String(scopedSelect.error?.message || '').toLowerCase();
+            hasScopeColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('scope'));
+            if (!hasScopeColumn) {
+                const fallbackSelect = await supabase
+                    .from('categories')
+                    .select('id')
+                    .eq('shop_id', sid)
+                    .eq('name', trimmed)
+                    .eq('parent', l1Name)
+                    .eq('level', 2)
+                    .maybeSingle();
+                existing = fallbackSelect.data || null;
+            }
+        }
+
+        if (existing) {
+            const updatePayload = {
+                ...(image ? { image } : {}),
+                ...(hasScopeColumn ? { scope: normalizedScope } : {})
+            };
+            if (Object.keys(updatePayload).length > 0) {
+                await supabase.from('categories').update(updatePayload).eq('id', existing.id).eq('shop_id', sid);
+            }
+        } else {
+            const insertPayload = {
+                id: makeCategoryId(),
+                name: trimmed,
+                parent: l1Name,
+                image: image || '',
+                level: 2,
+                shop_id: sid,
+                ...(hasScopeColumn ? { scope: normalizedScope } : {})
+            };
+            await supabase.from('categories').insert([insertPayload]);
         }
     }, [activeShopId]);
 

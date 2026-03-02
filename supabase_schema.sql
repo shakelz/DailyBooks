@@ -76,6 +76,7 @@ create table if not exists public.categories (
     name text not null,
     parent text,
     image text,
+    scope text default 'sales',
     level integer,
     timestamp timestamptz default now(),
     created_at timestamptz not null default now(),
