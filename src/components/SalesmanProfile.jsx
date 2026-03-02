@@ -2,7 +2,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function SalesmanProfile({ isOpen, onClose }) {
-    const { user, isPunchedIn, handlePunch, logout, attendanceLogs } = useAuth();
+    const { user, isPunchedIn, punchIn, punchOut, logout, attendanceLogs } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const isOnLatestDashboard = location.pathname.includes('/salesman/latest-dashboard');
@@ -15,7 +15,14 @@ export default function SalesmanProfile({ isOpen, onClose }) {
     if (!isOpen) return null;
 
     const onPunchCommand = (type) => {
-        handlePunch(type);
+        const normalizedType = String(type || '').toUpperCase();
+        if (normalizedType === 'IN') {
+            punchIn();
+            return;
+        }
+        if (normalizedType === 'OUT') {
+            punchOut();
+        }
     };
 
     const handleLogout = () => {

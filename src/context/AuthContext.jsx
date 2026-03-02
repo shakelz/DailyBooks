@@ -214,9 +214,9 @@ async function requestAttendanceLogs(shopId) {
     };
 }
 
-async function requestPunchIn({ userId, shopId, type, timestamp, note = '', userName = '' }) {
+async function requestAttendanceAction({ userId, shopId, type, timestamp, note = '', userName = '' }) {
     const base = resolveApiBase();
-    const endpoint = `${base}/api/punch-in`;
+    const endpoint = `${base}/api/attendance`;
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -1495,35 +1495,58 @@ export function AuthProvider({ children }) {
         fetchAttendanceState(activeShopId, role, user?.id);
     }, [activeShopId, role, user?.id, fetchAttendanceState]);
 
-    const handlePunch = async (type) => {
+    const punchIn = useCallback(async () => {
         if (!user || !activeShopId) return;
-
-        const nextOnline = asString(type).toUpperCase() === 'IN';
-        const previousOnline = asBoolean(isPunchedIn);
-
-        // Simple click behavior: IN => online, OUT => offline
-        setIsPunchedIn(nextOnline);
-
         const ts = new Date();
-        const { error } = await requestPunchIn({
+
+        const { error } = await requestAttendanceAction({
             userId: user.id,
             shopId: activeShopId,
-            type,
+            type: 'IN',
             timestamp: ts.toISOString(),
             note: '',
             userName: user.name || ''
         });
 
         if (error) {
-            console.error('Failed to punch attendance:', error);
-            setIsPunchedIn(previousOnline);
+            console.error('Failed to punch IN:', error);
             return;
         }
 
         await fetchAttendanceState(activeShopId, role, user?.id);
-    };
+    }, [activeShopId, fetchAttendanceState, role, user]);
 
-    const addAttendanceLog = (_userObj, type) => handlePunch(type);
+    const punchOut = useCallback(async () => {
+        if (!user || !activeShopId) return;
+        const ts = new Date();
+
+        const { error } = await requestAttendanceAction({
+            userId: user.id,
+            shopId: activeShopId,
+            type: 'OUT',
+            timestamp: ts.toISOString(),
+            note: '',
+            userName: user.name || ''
+        });
+
+        if (error) {
+            console.error('Failed to punch OUT:', error);
+            return;
+        }
+
+        await fetchAttendanceState(activeShopId, role, user?.id);
+    }, [activeShopId, fetchAttendanceState, role, user]);
+
+    const addAttendanceLog = (_userObj, type) => {
+        const normalizedType = asString(type).toUpperCase();
+        if (normalizedType === 'IN') {
+            punchIn();
+            return;
+        }
+        if (normalizedType === 'OUT') {
+            punchOut();
+        }
+    };
 
     const updateAttendanceLog = useCallback(async (id, updates) => {
         const sid = asString(activeShopId);
@@ -2032,7 +2055,8 @@ export function AuthProvider({ children }) {
         clearAllAlerts,
 
         attendanceLogs,
-        handlePunch,
+        punchIn,
+        punchOut,
         isPunchedIn,
         addAttendanceLog,
         updateAttendanceLog,

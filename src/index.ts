@@ -461,6 +461,25 @@ async function handleAttendanceGet(request: Request, env: Env): Promise<Response
   }
 }
 
+async function syncProfileOnlineFromAttendance(db: D1Database, shopId: string, userId: string): Promise<void> {
+  const openResult = await db.prepare(`
+    SELECT id
+    FROM "attendance"
+    WHERE shop_id = ?
+      AND user_id = ?
+      AND check_in IS NOT NULL
+      AND check_in <> ''
+      AND (check_out IS NULL OR check_out = '')
+    LIMIT 1
+  `).bind(shopId, userId).all<Record<string, JsonValue>>();
+
+  const hasOpenAttendance = Array.isArray(openResult?.results) && openResult.results.length > 0;
+
+  await db.prepare(
+    `UPDATE "profiles" SET "is_online" = ?, "updated_at" = datetime('now') WHERE "id" = ?`
+  ).bind(hasOpenAttendance ? 1 : 0, userId).run();
+}
+
 async function handlePunchInPost(request: Request, env: Env): Promise<Response> {
   const db = env.carefone_db;
   if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
@@ -531,11 +550,6 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
     let attendanceId: string = crypto.randomUUID();
 
     if (type === 'IN') {
-      // Mark user online in profiles (D1 source of truth)
-      await db.prepare(
-        `UPDATE "profiles" SET "is_online" = 1, "updated_at" = datetime('now') WHERE "id" = ?`
-      ).bind(userId).run();
-
       await db.prepare(`
         INSERT INTO "attendance" (id, shop_id, user_id, date, check_in, status, note, updated_at)
         VALUES (?, ?, ?, ?, ?, 'present', ?, datetime('now'))
@@ -573,11 +587,10 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
         return json({ data: null, error: { message: 'Cannot punch out without an active punch in.' } }, 400);
       }
 
-      // Mark user offline in profiles (D1 source of truth)
-      await db.prepare(
-        `UPDATE "profiles" SET "is_online" = 0, "updated_at" = datetime('now') WHERE "id" = ?`
-      ).bind(userId).run();
     }
+
+    // Strict consistency: profiles.is_online is always derived from attendance table state
+    await syncProfileOnlineFromAttendance(db, shopId, userId);
 
     const result = await db.prepare(`
       SELECT a.*, p.name AS user_name
@@ -623,6 +636,33 @@ async function handlePunchOutPost(request: Request, env: Env): Promise<Response>
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(nextBody),
+  });
+
+  return handlePunchInPost(proxiedRequest, env);
+}
+
+async function handleAttendancePost(request: Request, env: Env): Promise<Response> {
+  let body: PunchInRequest;
+  try {
+    body = (await request.json()) as PunchInRequest;
+  } catch {
+    return json({ data: null, error: { message: 'Invalid JSON body.' } }, 400);
+  }
+
+  const type = String(body?.type || '').trim().toUpperCase();
+  if (type !== 'IN' && type !== 'OUT') {
+    return json({ data: null, error: { message: 'type must be IN or OUT.' } }, 400);
+  }
+
+  const normalizedBody: PunchInRequest = {
+    ...body,
+    type,
+  };
+
+  const proxiedRequest = new Request('https://worker.internal/api/attendance', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(normalizedBody),
   });
 
   return handlePunchInPost(proxiedRequest, env);
@@ -937,6 +977,10 @@ export default {
 
     if (url.pathname === '/api/attendance' && request.method === 'GET') {
       return handleAttendanceGet(request, env);
+    }
+
+    if (url.pathname === '/api/attendance' && request.method === 'POST') {
+      return handleAttendancePost(request, env);
     }
 
     if (url.pathname === '/api/punch-in' && request.method === 'POST') {
