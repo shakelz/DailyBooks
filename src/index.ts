@@ -18,22 +18,6 @@ interface Fetcher {
   fetch(input: Request | string | URL, init?: RequestInit): Promise<Response>;
 }
 
-interface DurableObjectId {}
-
-interface DurableObjectStub {
-  fetch(input: Request | string | URL, init?: RequestInit): Promise<Response>;
-}
-
-interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-
-interface DurableObjectState {
-  acceptWebSocket(ws: WebSocket): void;
-  getWebSockets(): WebSocket[];
-}
-
 type Filter = {
   op?: string;
   column?: string;
@@ -77,7 +61,6 @@ type PunchInRequest = {
 
 type Env = {
   carefone_db?: D1Database;
-  STAFF_TRACKER?: DurableObjectNamespace;
   APP_ENV?: string;
   CF_PAGES_BRANCH?: string;
   CF_PAGES_COMMIT_SHA?: string;
@@ -117,231 +100,6 @@ function json(data: unknown, status = 200): Response {
 
 function normalizeShopId(input: unknown): string {
   return String(input || '').trim();
-}
-
-function getStaffTrackerStub(env: Env, shopId: string): DurableObjectStub | null {
-  if (!env.STAFF_TRACKER) return null;
-  const sid = normalizeShopId(shopId) || 'global';
-  const id = env.STAFF_TRACKER.idFromName(`shop:${sid}`);
-  return env.STAFF_TRACKER.get(id);
-}
-
-async function broadcastStaffStatus(env: Env, payload: Record<string, JsonValue>): Promise<void> {
-  const shopId = normalizeShopId(payload.shop_id);
-  if (!shopId) return;
-  const stub = getStaffTrackerStub(env, shopId);
-  if (!stub) return;
-  await stub.fetch('https://staff-tracker.internal/broadcast', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-}
-
-export class StaffTracker {
-  private readonly state: DurableObjectState;
-  private readonly env: Env;
-  private readonly sockets = new Map<WebSocket, { shopId: string; userId: string; role: string }>();
-  private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-  constructor(state: DurableObjectState, env: Env) {
-    this.state = state;
-    this.env = env;
-  }
-
-  private getSocketMeta(ws: WebSocket): { shopId: string; userId: string; role: string } {
-    const inMemory = this.sockets.get(ws);
-    if (inMemory) return inMemory;
-
-    const attachment = (ws as unknown as { deserializeAttachment?: () => unknown }).deserializeAttachment?.();
-    const meta = attachment && typeof attachment === 'object'
-      ? attachment as { shopId?: string; userId?: string; role?: string }
-      : {};
-    return {
-      shopId: normalizeShopId(meta.shopId),
-      userId: String(meta.userId || '').trim(),
-      role: String(meta.role || '').trim(),
-    };
-  }
-
-  private sendToShop(shopId: string, payload: Record<string, JsonValue>): void {
-    const sid = normalizeShopId(shopId);
-    for (const ws of this.state.getWebSockets()) {
-      const meta = this.getSocketMeta(ws);
-      if (meta.shopId !== sid) continue;
-      try {
-        ws.send(JSON.stringify(payload));
-      } catch {
-        this.sockets.delete(ws);
-      }
-    }
-  }
-
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (request.method === 'GET' && url.pathname.endsWith('/connect')) {
-      if (request.headers.get('Upgrade') !== 'websocket') {
-        return new Response('Expected websocket', { status: 426 });
-      }
-
-      const shopId = normalizeShopId(url.searchParams.get('shop_id'));
-      if (!shopId) {
-        return new Response('shop_id is required', { status: 400 });
-      }
-
-      const userId = String(url.searchParams.get('user_id') || '').trim();
-      const role = String(url.searchParams.get('role') || '').trim();
-
-      const pair = new (globalThis as unknown as { WebSocketPair: new () => [WebSocket, WebSocket] }).WebSocketPair();
-      const client = pair[0];
-      const server = pair[1];
-
-      this.state.acceptWebSocket(server);
-      const meta = { shopId, userId, role };
-      this.sockets.set(server, meta);
-      (server as unknown as { serializeAttachment?: (value: unknown) => void }).serializeAttachment?.(meta);
-
-      try {
-        server.send(JSON.stringify({ type: 'connected', shop_id: shopId, timestamp: new Date().toISOString() }));
-      } catch {
-        this.sockets.delete(server);
-      }
-
-      // Mark user online in DB — only for non-salesman roles (admins).
-      // Salesmen connect for real-time punch_status messages but their
-      // WS connection should NOT flip the is_online indicator.
-      if (userId && role !== 'salesman') {
-        // Cancel any pending grace-period offline timer for this user
-        const pendingTimer = this.disconnectTimers.get(userId);
-        if (pendingTimer) {
-          clearTimeout(pendingTimer);
-          this.disconnectTimers.delete(userId);
-        }
-
-        const db = this.env.carefone_db;
-        if (db) {
-          try {
-            await db.prepare(
-              `UPDATE "profiles" SET "is_online" = 1, "updated_at" = datetime('now') WHERE "id" = ?`
-            ).bind(userId).run();
-          } catch { /* ignore */ }
-        }
-        this.sendToShop(shopId, {
-          type: 'staff_status',
-          shop_id: shopId,
-          user_id: userId,
-          is_online: true,
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
-    }
-
-    if (request.method === 'POST' && url.pathname.endsWith('/broadcast')) {
-      let payload: Record<string, JsonValue>;
-      try {
-        payload = await request.json() as Record<string, JsonValue>;
-      } catch {
-        return json({ ok: false, error: 'Invalid JSON body.' }, 400);
-      }
-      const shopId = normalizeShopId(payload.shop_id);
-      if (!shopId) {
-        return json({ ok: false, error: 'shop_id is required.' }, 400);
-      }
-      this.sendToShop(shopId, {
-        type: 'staff_status',
-        timestamp: new Date().toISOString(),
-        ...payload,
-      });
-      return json({ ok: true });
-    }
-
-    return new Response('Not found', { status: 404 });
-  }
-
-  async webSocketClose(ws: WebSocket): Promise<void> {
-    const meta = this.getSocketMeta(ws);
-    this.sockets.delete(ws);
-
-    const userId = meta.userId;
-    const shopId = meta.shopId;
-    const role = meta.role;
-    if (!userId || !shopId) return;
-
-    // Salesmen don't affect is_online — skip DB/broadcast
-    if (role === 'salesman') return;
-
-    // Check if the user still has other active WS connections
-    const allSockets = this.state.getWebSockets();
-    const hasOtherConnection = allSockets.some((otherWs) => {
-      if (otherWs === ws) return false;
-      const otherMeta = this.getSocketMeta(otherWs);
-      return otherMeta.userId === userId;
-    });
-    if (hasOtherConnection) return;
-
-    // Grace period: wait 5 seconds before marking offline.
-    // If the user reconnects within this window (e.g. page refresh),
-    // the connect handler cancels this timer and the user stays online.
-    const existingTimer = this.disconnectTimers.get(userId);
-    if (existingTimer) clearTimeout(existingTimer);
-
-    const timer = setTimeout(async () => {
-      this.disconnectTimers.delete(userId);
-
-      // Re-check: user may have reconnected during the grace period
-      const currentSockets = this.state.getWebSockets();
-      const reconnected = currentSockets.some((s) => {
-        const m = this.getSocketMeta(s);
-        return m.userId === userId;
-      });
-      if (reconnected) return;
-
-      // Mark user offline in DB — do NOT touch the attendance table
-      const db = this.env.carefone_db;
-      if (db) {
-        try {
-          await db.prepare(
-            `UPDATE "profiles" SET "is_online" = 0, "updated_at" = datetime('now') WHERE "id" = ?`
-          ).bind(userId).run();
-        } catch { /* ignore */ }
-      }
-
-      // Broadcast online-status change
-      this.sendToShop(shopId, {
-        type: 'staff_status',
-        shop_id: shopId,
-        user_id: userId,
-        is_online: false,
-        timestamp: new Date().toISOString(),
-      });
-    }, 5000);
-
-    this.disconnectTimers.set(userId, timer);
-  }
-
-  webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): void {
-    const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
-    if (text === 'ping') {
-      try {
-        ws.send('pong');
-      } catch {
-        this.sockets.delete(ws);
-      }
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(text) as Record<string, JsonValue>;
-      if (String(parsed.type || '') === 'ping') {
-        ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
-      }
-    } catch {
-      return;
-    }
-  }
 }
 
 function normalizeFilters(rawFilters: Filter[] = []): Required<Filter>[] {
@@ -828,17 +586,6 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
       return json({ data: null, error: { message: 'Punch record saved but could not be loaded.' } }, 500);
     }
 
-    await broadcastStaffStatus(env, {
-      type: 'punch_status',
-      shop_id: shopId,
-      user_id: userId,
-      user_name: String(profile.name || row.user_name || ''),
-      is_punched_in: type === 'IN',
-      action: type,
-      attendance_id: attendanceId,
-      timestamp,
-    });
-
     const savedEvents = expandAttendanceEvents(row);
     const responseEvent = savedEvents.find((event) => String(event.type) === type)
       || savedEvents[savedEvents.length - 1]
@@ -1183,31 +930,6 @@ export default {
 
     if (url.pathname === '/api/staff-online' && request.method === 'GET') {
       return handleStaffOnlineGet(request, env);
-    }
-
-    if (url.pathname === '/api/staff-status/ws' && request.method === 'GET') {
-      const shopId = normalizeShopId(url.searchParams.get('shop_id'));
-      if (!shopId) {
-        return json({ error: { message: 'shop_id is required.' } }, 400);
-      }
-      const stub = getStaffTrackerStub(env, shopId);
-      if (!stub) {
-        return json({ error: { message: 'Durable Object binding `STAFF_TRACKER` is missing.' } }, 500);
-      }
-      const connectUrl = new URL('https://staff-tracker.internal/connect');
-      connectUrl.search = url.search;
-      return stub.fetch(new Request(connectUrl.toString(), request));
-    }
-
-    if (url.pathname === '/api/staff-status/emit' && request.method === 'POST') {
-      let payload: Record<string, JsonValue>;
-      try {
-        payload = await request.json() as Record<string, JsonValue>;
-      } catch {
-        return json({ ok: false, error: { message: 'Invalid JSON body.' } }, 400);
-      }
-      await broadcastStaffStatus(env, payload);
-      return json({ ok: true });
     }
 
     if (url.pathname === '/api/logout' && request.method === 'POST') {

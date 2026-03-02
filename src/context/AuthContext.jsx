@@ -188,21 +188,6 @@ function resolveApiBase() {
     return asString(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, '');
 }
 
-function resolveWsBase() {
-    const apiBase = resolveApiBase();
-    if (apiBase) {
-        if (apiBase.startsWith('https://')) return `wss://${apiBase.slice('https://'.length)}`;
-        if (apiBase.startsWith('http://')) return `ws://${apiBase.slice('http://'.length)}`;
-        return apiBase;
-    }
-    if (typeof window !== 'undefined') {
-        return window.location.protocol === 'https:'
-            ? `wss://${window.location.host}`
-            : `ws://${window.location.host}`;
-    }
-    return '';
-}
-
 async function requestAdminLogin({ identifier, password }) {
     const base = resolveApiBase();
     const endpoint = `${base}/api/auth/admin-login`;
@@ -307,31 +292,6 @@ async function requestUserStatus({ shopId, userId }) {
 
     return {
         data: payload?.data && typeof payload.data === 'object' ? payload.data : null,
-        error: asString(payload?.error?.message) || null
-    };
-}
-
-async function requestStaffOnline(shopId) {
-    const sid = asString(shopId);
-    if (!sid) return { data: [], error: 'shop_id is required' };
-
-    const base = resolveApiBase();
-    const endpoint = `${base}/api/staff-online?shop_id=${encodeURIComponent(sid)}`;
-    const response = await fetch(endpoint, { method: 'GET' });
-
-    let payload = null;
-    try {
-        payload = await response.json();
-    } catch {
-        payload = null;
-    }
-
-    if (!response.ok) {
-        return { data: [], error: asString(payload?.error?.message) || 'Failed to load staff online status.' };
-    }
-
-    return {
-        data: Array.isArray(payload?.data) ? payload.data : [],
         error: asString(payload?.error?.message) || null
     };
 }
@@ -1695,152 +1655,6 @@ export function AuthProvider({ children }) {
         };
     }, [activeShopId, role, user?.id, resolvePunchStateWithOverride]);
 
-    // Sync staff is_online from D1 on mount (source of truth for admin view)
-    useEffect(() => {
-        if (!isAdminLike) return;
-        const sid = asString(activeShopId);
-        if (!sid) return;
-
-        let cancelled = false;
-
-        const syncOnlineFromD1 = async () => {
-            const { data } = await requestStaffOnline(sid);
-            if (cancelled || !Array.isArray(data)) return;
-            setSalesmen((prev) => prev.map((staff) => {
-                const match = data.find((d) => String(d.user_id) === String(staff.id));
-                if (!match) return staff;
-                const isOnline = asBoolean(match.is_online);
-                return { ...staff, is_online: isOnline, isOnline, online: isOnline };
-            }));
-        };
-
-        syncOnlineFromD1();
-        return () => { cancelled = true; };
-    }, [isAdminLike, activeShopId]);
-
-    useEffect(() => {
-        if (!role || !user) return undefined;
-        const sid = asString(activeShopId);
-        if (!sid) return undefined;
-
-        const wsBase = resolveWsBase();
-        if (!wsBase) return undefined;
-
-        let socket = null;
-        let reconnectTimer = null;
-        let closedByVisibility = false;
-
-        // Handle online/offline status from DO heartbeat (WebSocket connect/disconnect)
-        const applyOnlineStatus = (message = {}) => {
-            const msgUserId = asString(message.user_id || message.userId || message.workerId);
-            if (!msgUserId) return;
-            const isOnline = asBoolean(message.is_online ?? message.isOnline ?? message.online);
-
-            setSalesmen((prev) => prev.map((staff) => {
-                if (String(staff.id) !== msgUserId) return staff;
-                return { ...staff, is_online: isOnline, isOnline, online: isOnline };
-            }));
-        };
-
-        // Handle punch status broadcasts (punch in/out from the API)
-        const applyPunchStatus = (message = {}) => {
-            const msgUserId = asString(message.user_id || message.userId || message.workerId);
-            if (!msgUserId) return;
-            const isPunchedIn = asBoolean(message.is_punched_in);
-            const action = asString(message.action).toUpperCase();
-
-            // Update isPunchedIn for the current salesman user
-            if (role === 'salesman' && String(user?.id) === msgUserId) {
-                setIsPunchedIn(isPunchedIn);
-                writePunchStateToSession(sid, msgUserId, isPunchedIn);
-            }
-
-            // For admin view: no-op on salesmen.is_online — punch does not affect online status
-            // Attendance logs will be refreshed by the polling interval
-        };
-
-        const connect = () => {
-            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-                return;
-            }
-
-            const query = new URLSearchParams({
-                shop_id: sid,
-                user_id: asString(user?.id),
-                role: asString(role)
-            });
-
-            socket = new WebSocket(`${wsBase}/api/staff-status/ws?${query.toString()}`);
-
-            socket.onmessage = (event) => {
-                try {
-                    const payload = JSON.parse(event.data || '{}');
-                    const eventType = asString(payload.type);
-                    const eventShopId = asString(payload.shop_id);
-                    if (eventShopId && eventShopId !== sid) return;
-
-                    if (eventType === 'staff_status') {
-                        applyOnlineStatus(payload);
-                    } else if (eventType === 'punch_status') {
-                        applyPunchStatus(payload);
-                    }
-                } catch {
-                    return;
-                }
-            };
-
-            socket.onclose = () => {
-                socket = null;
-                if (closedByVisibility) return;
-                reconnectTimer = setTimeout(connect, 1500);
-            };
-        };
-
-        const closeSocket = () => {
-            if (!socket) return;
-            closedByVisibility = true;
-            try { socket.close(1000, 'cleanup'); } catch { /* ignore */ }
-            socket = null;
-        };
-
-        // Firefox + Chrome: explicitly close WS on page unload so the DO can
-        // mark the user offline immediately rather than waiting for TCP timeout.
-        const handleBeforeUnload = () => {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                try { socket.close(1000, 'page_unload'); } catch { /* ignore */ }
-            }
-        };
-
-        const handleVisibilityChange = () => {
-            if (typeof document === 'undefined') return;
-            if (document.visibilityState === 'visible') {
-                closedByVisibility = false;
-                if (!socket) connect();
-                return;
-            }
-            closeSocket();
-        };
-
-        connect();
-        if (typeof window !== 'undefined') {
-            window.addEventListener('beforeunload', handleBeforeUnload);
-        }
-        if (typeof document !== 'undefined') {
-            document.addEventListener('visibilitychange', handleVisibilityChange);
-        }
-
-        return () => {
-            if (reconnectTimer) clearTimeout(reconnectTimer);
-            if (typeof window !== 'undefined') {
-                window.removeEventListener('beforeunload', handleBeforeUnload);
-            }
-            if (typeof document !== 'undefined') {
-                document.removeEventListener('visibilitychange', handleVisibilityChange);
-            }
-            closeSocket();
-        };
-    }, [role, user, activeShopId]);
-
     useEffect(() => {
         if (user && role === 'salesman') {
             const hasAnyUserLogs = attendanceLogs.some((l) => String(l.userId || l.workerId) === String(user.id));
@@ -1931,9 +1745,7 @@ export function AuthProvider({ children }) {
         const nextOnline = type === 'IN';
         rememberRecentPunchState(activeShopId, user.id, nextOnline);
         writePunchStateToSession(activeShopId, user.id, nextOnline);
-        // NOTE: We no longer update user.is_online or salesmen.is_online here.
-        // is_online is decoupled from attendance and managed by the Durable Object
-        // WebSocket heartbeat (connect/disconnect). Punch only affects isPunchedIn.
+        // NOTE: is_online is now read from D1 on page load. Punch only affects isPunchedIn.
 
         // Auto-save salary transaction on punch OUT
         if (type === 'OUT') {

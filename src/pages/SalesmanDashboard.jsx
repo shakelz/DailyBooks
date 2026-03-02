@@ -743,8 +743,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const totalHours = totalMs / 3600000;
             const earned = totalHours * hourlyRate;
             const paid = salaryByStaff[sid] || 0;
-            const isOnlineFromLogs = openInMs !== null;
-            const profileOnline = String(staff?.is_online ?? staff?.isOnline ?? staff?.online).toLowerCase() === 'true';
+            // Staff is "online" if they have an open punch-in (no matching OUT)
+            const isPunchedIn = openInMs !== null;
 
             return {
                 id: sid,
@@ -752,7 +752,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 totalHours,
                 earned,
                 paid,
-                isOnline: profileOnline || isOnlineFromLogs,
+                isOnline: isPunchedIn,
             };
         }).sort((a, b) => b.earned - a.earned);
     }, [adminView, attendanceLogs, dashboardRange, salesmen, transactions]);
@@ -2105,7 +2105,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         <div className="flex items-center justify-between gap-2">
                                             <p className="text-xs font-bold text-slate-700 truncate">{staff.name}</p>
                                             <span className={`text-[10px] font-semibold ${staff.isOnline ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                                {staff.isOnline ? 'Online' : 'Offline'}
+                                                {staff.isOnline ? 'Punched In' : 'Punched Out'}
                                             </span>
                                         </div>
                                         <div className="mt-1 grid grid-cols-3 gap-2 text-[11px]">
