@@ -279,7 +279,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, note =
             .eq('shop_id', sid)
             .eq('user_id', uid)
             .not('check_in', 'is', null)
-            .or('check_out.is.null,check_out.eq.')
+            .is('check_out', null)
             .order('check_in', { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -313,7 +313,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, note =
         .eq('shop_id', sid)
         .eq('user_id', uid)
         .not('check_in', 'is', null)
-        .or('check_out.is.null,check_out.eq.')
+        .is('check_out', null)
         .limit(1);
 
     await supabase
@@ -335,7 +335,7 @@ async function requestUserStatus({ shopId, userId }) {
         .eq('shop_id', sid)
         .eq('user_id', uid)
         .not('check_in', 'is', null)
-        .or('check_out.is.null,check_out.eq.')
+        .is('check_out', null)
         .order('check_in', { ascending: false })
         .limit(1)
         .maybeSingle();

@@ -204,7 +204,7 @@ create table if not exists public.attendance (
 
 create index if not exists idx_attendance_shop_user on public.attendance(shop_id, user_id);
 create index if not exists idx_attendance_open on public.attendance(shop_id, user_id)
-where check_in is not null and (check_out is null or check_out::text = '');
+where check_in is not null and check_out is null;
 create index if not exists idx_attendance_checkin on public.attendance(check_in desc);
 
 drop trigger if exists trg_attendance_updated_at on public.attendance;
@@ -229,7 +229,7 @@ begin
         where a.user_id = target_user_id
             and a.shop_id = target_shop_id
             and a.check_in is not null
-            and (a.check_out is null or a.check_out::text = '')
+            and a.check_out is null
     ) into has_open;
 
     update public.profiles
