@@ -757,14 +757,23 @@ export function AuthProvider({ children }) {
             const merged = enriched.map((shop) => mergeShopMeta(shop, shopMetaMap));
             setShops(merged);
 
+            // Prefer an explicitly provided preferredShopId, then current activeShopId, then user's mapped shop
             const preferred = asString(preferredShopId || activeShopId || user.shop_id);
             const preferredExists = preferred && merged.some(s => s.id === preferred);
+
+            // Only update active shop when we have a clear preferred or when no active shop is set.
             if (preferredExists) {
                 setActiveShopIdState(preferred);
-            } else if (role === 'superadmin' && merged.length > 0) {
-                setActiveShopIdState(merged[0].id);
-            } else {
-                setActiveShopIdState('');
+            } else if (!asString(activeShopId)) {
+                // If there is exactly one shop, default to it.
+                if (merged.length === 1) {
+                    setActiveShopIdState(merged[0].id);
+                } else if (merged.length > 0) {
+                    // Otherwise, set the first shop only when no active shop is already set.
+                    setActiveShopIdState(merged[0].id);
+                } else {
+                    setActiveShopIdState('');
+                }
             }
             return merged;
         }
