@@ -284,6 +284,32 @@ async function requestPunchIn({ userId, shopId, type, timestamp, note = '' }) {
     };
 }
 
+async function requestPunchState({ shopId, userId }) {
+    const sid = asString(shopId);
+    const uid = asString(userId);
+    if (!sid || !uid) return { data: null, error: 'shop_id and user_id are required' };
+
+    const base = resolveApiBase();
+    const endpoint = `${base}/api/punch-state?shop_id=${encodeURIComponent(sid)}&user_id=${encodeURIComponent(uid)}`;
+    const response = await fetch(endpoint, { method: 'GET' });
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        return { data: null, error: asString(payload?.error?.message) || 'Failed to load punch state.' };
+    }
+
+    return {
+        data: payload?.data && typeof payload.data === 'object' ? payload.data : null,
+        error: asString(payload?.error?.message) || null
+    };
+}
+
 function readLocalJSON(key, fallback) {
     return fallback;
 }
@@ -1532,12 +1558,24 @@ export function AuthProvider({ children }) {
                 const formattedLogs = data.map(formatAttendance);
                 setAttendanceLogs(formattedLogs);
                 if (role === 'salesman' && user?.id) {
-                    const punchState = getCurrentPunchState(formattedLogs, user.id);
+                    let punchState = getCurrentPunchState(formattedLogs, user.id);
+                    const { data: dbPunchState } = await requestPunchState({ shopId: sid, userId: user.id });
+                    if (dbPunchState && typeof dbPunchState === 'object') {
+                        punchState = asBoolean(dbPunchState.is_punched_in);
+                    }
                     setIsPunchedIn(punchState);
                     writePunchStateToSession(sid, user.id, punchState);
                 }
             } else {
                 setAttendanceLogs([]);
+                if (role === 'salesman' && user?.id) {
+                    const { data: dbPunchState } = await requestPunchState({ shopId: sid, userId: user.id });
+                    if (dbPunchState && typeof dbPunchState === 'object') {
+                        const punchState = asBoolean(dbPunchState.is_punched_in);
+                        setIsPunchedIn(punchState);
+                        writePunchStateToSession(sid, user.id, punchState);
+                    }
+                }
             }
         };
         fetchAttendance();
