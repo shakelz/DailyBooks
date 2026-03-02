@@ -604,7 +604,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         event?.preventDefault();
         const enteredPin = String(unlockPin || '').trim();
         const userPin = String(user?.pin || '').trim();
-        if (enteredPin && userPin && enteredPin === userPin) {
+        const userPassword = String(user?.password || '').trim();
+        if (enteredPin && ((userPin && enteredPin === userPin) || (userPassword && enteredPin === userPassword))) {
             setIsLocked(false);
             setUnlockPin('');
             setUnlockError(false);
@@ -615,6 +616,21 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setUnlockPin('');
         setTimeout(() => setUnlockError(false), 1500);
     };
+
+    useEffect(() => {
+        if (!isLocked) return;
+        const entered = String(unlockPin || '').trim();
+        if (!entered) return;
+        const userPin = String(user?.pin || '').trim();
+        const userPassword = String(user?.password || '').trim();
+        const isValid = (userPin && entered === userPin) || (userPassword && entered === userPassword);
+        if (!isValid) return;
+
+        setIsLocked(false);
+        setUnlockPin('');
+        setUnlockError(false);
+        writeLastActivityAt(Date.now());
+    }, [isLocked, unlockPin, user?.pin, user?.password]);
 
 
     const todayStart = useMemo(() => {
@@ -3769,9 +3785,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             <input
                                 type="password"
                                 value={unlockPin}
-                                onChange={(e) => setUnlockPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                                onChange={(e) => setUnlockPin(String(e.target.value || '').slice(0, 64))}
                                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-lg font-black tracking-[0.4em] outline-none focus:border-violet-500"
-                                placeholder="••••"
+                                placeholder="PIN / Password"
                                 autoFocus
                             />
                             {unlockError && <p className="text-[11px] text-rose-600">Incorrect PIN</p>}
