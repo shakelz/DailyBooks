@@ -1498,6 +1498,12 @@ export function AuthProvider({ children }) {
     const handlePunch = async (type) => {
         if (!user || !activeShopId) return;
 
+        const nextOnline = asString(type).toUpperCase() === 'IN';
+        const previousOnline = asBoolean(isPunchedIn);
+
+        // Simple click behavior: IN => online, OUT => offline
+        setIsPunchedIn(nextOnline);
+
         const ts = new Date();
         const { error } = await requestPunchIn({
             userId: user.id,
@@ -1510,6 +1516,7 @@ export function AuthProvider({ children }) {
 
         if (error) {
             console.error('Failed to punch attendance:', error);
+            setIsPunchedIn(previousOnline);
             return;
         }
 
