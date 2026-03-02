@@ -18,6 +18,22 @@ interface Fetcher {
   fetch(input: Request | string | URL, init?: RequestInit): Promise<Response>;
 }
 
+interface DurableObjectId {}
+
+interface DurableObjectStub {
+  fetch(input: Request | string | URL, init?: RequestInit): Promise<Response>;
+}
+
+interface DurableObjectNamespace {
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): DurableObjectStub;
+}
+
+interface DurableObjectState {
+  acceptWebSocket(ws: WebSocket): void;
+  getWebSockets(): WebSocket[];
+}
+
 type Filter = {
   op?: string;
   column?: string;
@@ -50,8 +66,17 @@ type StateRequest = {
   user_id?: string;
 };
 
+type PunchInRequest = {
+  user_id?: string;
+  shop_id?: string;
+  type?: string;
+  timestamp?: string;
+  note?: string;
+};
+
 type Env = {
   carefone_db?: D1Database;
+  STAFF_TRACKER?: DurableObjectNamespace;
   APP_ENV?: string;
   CF_PAGES_BRANCH?: string;
   CF_PAGES_COMMIT_SHA?: string;
@@ -87,6 +112,149 @@ function json(data: unknown, status = 200): Response {
       'cache-control': 'no-store',
     },
   });
+}
+
+function normalizeShopId(input: unknown): string {
+  return String(input || '').trim();
+}
+
+function getStaffTrackerStub(env: Env, shopId: string): DurableObjectStub | null {
+  if (!env.STAFF_TRACKER) return null;
+  const sid = normalizeShopId(shopId) || 'global';
+  const id = env.STAFF_TRACKER.idFromName(`shop:${sid}`);
+  return env.STAFF_TRACKER.get(id);
+}
+
+async function broadcastStaffStatus(env: Env, payload: Record<string, JsonValue>): Promise<void> {
+  const shopId = normalizeShopId(payload.shop_id);
+  if (!shopId) return;
+  const stub = getStaffTrackerStub(env, shopId);
+  if (!stub) return;
+  await stub.fetch('https://staff-tracker.internal/broadcast', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export class StaffTracker {
+  private readonly state: DurableObjectState;
+  private readonly env: Env;
+  private readonly sockets = new Map<WebSocket, { shopId: string; userId: string; role: string }>();
+
+  constructor(state: DurableObjectState, env: Env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  private getSocketMeta(ws: WebSocket): { shopId: string; userId: string; role: string } {
+    const inMemory = this.sockets.get(ws);
+    if (inMemory) return inMemory;
+
+    const attachment = (ws as unknown as { deserializeAttachment?: () => unknown }).deserializeAttachment?.();
+    const meta = attachment && typeof attachment === 'object'
+      ? attachment as { shopId?: string; userId?: string; role?: string }
+      : {};
+    return {
+      shopId: normalizeShopId(meta.shopId),
+      userId: String(meta.userId || '').trim(),
+      role: String(meta.role || '').trim(),
+    };
+  }
+
+  private sendToShop(shopId: string, payload: Record<string, JsonValue>): void {
+    const sid = normalizeShopId(shopId);
+    for (const ws of this.state.getWebSockets()) {
+      const meta = this.getSocketMeta(ws);
+      if (meta.shopId !== sid) continue;
+      try {
+        ws.send(JSON.stringify(payload));
+      } catch {
+        this.sockets.delete(ws);
+      }
+    }
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (request.method === 'GET' && url.pathname.endsWith('/connect')) {
+      if (request.headers.get('Upgrade') !== 'websocket') {
+        return new Response('Expected websocket', { status: 426 });
+      }
+
+      const shopId = normalizeShopId(url.searchParams.get('shop_id'));
+      if (!shopId) {
+        return new Response('shop_id is required', { status: 400 });
+      }
+
+      const userId = String(url.searchParams.get('user_id') || '').trim();
+      const role = String(url.searchParams.get('role') || '').trim();
+
+      const pair = new (globalThis as unknown as { WebSocketPair: new () => [WebSocket, WebSocket] }).WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+
+      this.state.acceptWebSocket(server);
+      const meta = { shopId, userId, role };
+      this.sockets.set(server, meta);
+      (server as unknown as { serializeAttachment?: (value: unknown) => void }).serializeAttachment?.(meta);
+
+      try {
+        server.send(JSON.stringify({ type: 'connected', shop_id: shopId, timestamp: new Date().toISOString() }));
+      } catch {
+        this.sockets.delete(server);
+      }
+
+      return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
+    }
+
+    if (request.method === 'POST' && url.pathname.endsWith('/broadcast')) {
+      let payload: Record<string, JsonValue>;
+      try {
+        payload = await request.json() as Record<string, JsonValue>;
+      } catch {
+        return json({ ok: false, error: 'Invalid JSON body.' }, 400);
+      }
+      const shopId = normalizeShopId(payload.shop_id);
+      if (!shopId) {
+        return json({ ok: false, error: 'shop_id is required.' }, 400);
+      }
+      this.sendToShop(shopId, {
+        type: 'staff_status',
+        timestamp: new Date().toISOString(),
+        ...payload,
+      });
+      return json({ ok: true });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+
+  async webSocketClose(ws: WebSocket): Promise<void> {
+    this.sockets.delete(ws);
+  }
+
+  webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): void {
+    const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
+    if (text === 'ping') {
+      try {
+        ws.send('pong');
+      } catch {
+        this.sockets.delete(ws);
+      }
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(text) as Record<string, JsonValue>;
+      if (String(parsed.type || '') === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
+      }
+    } catch {
+      return;
+    }
+  }
 }
 
 function normalizeFilters(rawFilters: Filter[] = []): Required<Filter>[] {
@@ -350,6 +518,222 @@ function normalizeStateInput(input: StateRequest = {}): { key: string; shopId: s
   };
 }
 
+function normalizeTimestamp(input?: string): string {
+  const raw = String(input || '').trim();
+  if (!raw) return new Date().toISOString();
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+  return parsed.toISOString();
+}
+
+function isoDate(timestamp: string): string {
+  return timestamp.slice(0, 10);
+}
+
+function computeHours(checkIn?: string, checkOut?: string): number {
+  const inMs = new Date(String(checkIn || '')).getTime();
+  const outMs = new Date(String(checkOut || '')).getTime();
+  if (!Number.isFinite(inMs) || !Number.isFinite(outMs) || outMs <= inMs) return 0;
+  return Math.round(((outMs - inMs) / 3600000) * 100) / 100;
+}
+
+function toAttendanceEvent(row: Record<string, JsonValue>): Record<string, JsonValue> {
+  const checkIn = String(row.check_in || '').trim();
+  const checkOut = String(row.check_out || '').trim();
+  const timestamp = checkOut || checkIn || String(row.created_at || '').trim();
+  const type = checkOut ? 'OUT' : 'IN';
+  const userId = String(row.user_id || '').trim();
+  const userName = String(row.user_name || '').trim();
+
+  return {
+    ...row,
+    userId,
+    workerId: userId,
+    userName,
+    workerName: userName,
+    type,
+    timestamp,
+    note: String(row.note || ''),
+  };
+}
+
+async function handleAttendanceGet(request: Request, env: Env): Promise<Response> {
+  const db = env.carefone_db;
+  if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
+
+  const url = new URL(request.url);
+  const shopId = String(url.searchParams.get('shop_id') || '').trim();
+  if (!shopId) {
+    return json({ data: null, error: { message: 'shop_id is required.' } }, 400);
+  }
+
+  try {
+    const result = await db.prepare(`
+      SELECT
+        a.*,
+        p.name AS user_name
+      FROM "attendance" a
+      LEFT JOIN "profiles" p ON p.id = a.user_id
+      WHERE a.shop_id = ?
+      ORDER BY COALESCE(NULLIF(a.check_out, ''), NULLIF(a.check_in, ''), a.created_at) DESC
+    `).bind(shopId).all<Record<string, JsonValue>>();
+
+    const rows = (result?.results || []) as Record<string, JsonValue>[];
+    const data = rows.map(toAttendanceEvent);
+    return json({ data, error: null });
+  } catch (error) {
+    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to load attendance.' } }, 400);
+  }
+}
+
+async function handlePunchInPost(request: Request, env: Env): Promise<Response> {
+  const db = env.carefone_db;
+  if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
+
+  let body: PunchInRequest;
+  try {
+    body = (await request.json()) as PunchInRequest;
+  } catch {
+    return json({ data: null, error: { message: 'Invalid JSON body.' } }, 400);
+  }
+
+  const userId = String(body?.user_id || '').trim();
+  const shopId = String(body?.shop_id || '').trim();
+  const type = String(body?.type || '').trim().toUpperCase();
+  const note = String(body?.note || '').trim();
+  const timestamp = normalizeTimestamp(body?.timestamp);
+
+  if (!userId || !shopId || (type !== 'IN' && type !== 'OUT')) {
+    return json({ data: null, error: { message: 'user_id, shop_id and type(IN/OUT) are required.' } }, 400);
+  }
+
+  try {
+    const profileResult = await db.prepare(`
+      SELECT id, shop_id, name
+      FROM "profiles"
+      WHERE id = ?
+      LIMIT 1
+    `).bind(userId).all<Record<string, JsonValue>>();
+
+    const profile = Array.isArray(profileResult?.results) && profileResult.results.length > 0
+      ? profileResult.results[0]
+      : null;
+
+    if (!profile) {
+      return json({ data: null, error: { message: 'Profile not found for user_id.' } }, 404);
+    }
+
+    const profileShopId = String(profile.shop_id || '').trim();
+    if (profileShopId && profileShopId !== shopId) {
+      return json({ data: null, error: { message: 'Profile shop_id does not match target shop_id.' } }, 403);
+    }
+
+    const attendanceDate = isoDate(timestamp);
+    let attendanceId: string = crypto.randomUUID();
+
+    if (type === 'IN') {
+      await db.prepare(`
+        INSERT INTO "attendance" (id, shop_id, user_id, date, check_in, status, note, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'present', ?, datetime('now'))
+      `).bind(attendanceId, shopId, userId, attendanceDate, timestamp, note).run();
+    } else {
+      const openResult = await db.prepare(`
+        SELECT id, check_in
+        FROM "attendance"
+        WHERE shop_id = ?
+          AND user_id = ?
+          AND (check_out IS NULL OR check_out = '')
+        ORDER BY COALESCE(NULLIF(check_in, ''), created_at) DESC
+        LIMIT 1
+      `).bind(shopId, userId).all<Record<string, JsonValue>>();
+
+      const openRow = Array.isArray(openResult?.results) && openResult.results.length > 0
+        ? openResult.results[0]
+        : null;
+
+      if (openRow?.id) {
+        attendanceId = String(openRow.id);
+        const hours = computeHours(String(openRow.check_in || ''), timestamp);
+        await db.prepare(`
+          UPDATE "attendance"
+          SET check_out = ?,
+              hours = ?,
+              status = 'present',
+              note = CASE WHEN ? = '' THEN note ELSE ? END,
+              updated_at = datetime('now')
+          WHERE id = ?
+        `).bind(timestamp, hours, note, note, attendanceId).run();
+      } else {
+        await db.prepare(`
+          INSERT INTO "attendance" (id, shop_id, user_id, date, check_out, status, note, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'present', ?, datetime('now'))
+        `).bind(attendanceId, shopId, userId, attendanceDate, timestamp, note).run();
+      }
+    }
+
+    const isOnline = type === 'IN' ? 1 : 0;
+    await db.prepare(`
+      UPDATE "profiles"
+      SET "is_online" = ?,
+          "updated_at" = datetime('now')
+      WHERE "id" = ? AND "shop_id" = ?
+    `).bind(isOnline, userId, shopId).run();
+
+    const result = await db.prepare(`
+      SELECT a.*, p.name AS user_name
+      FROM "attendance" a
+      LEFT JOIN "profiles" p ON p.id = a.user_id
+      WHERE a.id = ?
+      LIMIT 1
+    `).bind(attendanceId).all<Record<string, JsonValue>>();
+
+    const row = Array.isArray(result?.results) && result.results.length > 0
+      ? result.results[0]
+      : null;
+
+    if (!row) {
+      return json({ data: null, error: { message: 'Punch record saved but could not be loaded.' } }, 500);
+    }
+
+    await broadcastStaffStatus(env, {
+      type: 'staff_status',
+      shop_id: shopId,
+      user_id: userId,
+      user_name: String(profile.name || row.user_name || ''),
+      is_online: Boolean(isOnline),
+      action: type,
+      attendance_id: attendanceId,
+      timestamp,
+    });
+
+    return json({ data: toAttendanceEvent(row), error: null });
+  } catch (error) {
+    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to save punch-in.' } }, 400);
+  }
+}
+
+async function handlePunchOutPost(request: Request, env: Env): Promise<Response> {
+  let body: PunchInRequest;
+  try {
+    body = (await request.json()) as PunchInRequest;
+  } catch {
+    return json({ data: null, error: { message: 'Invalid JSON body.' } }, 400);
+  }
+
+  const nextBody: PunchInRequest = {
+    ...body,
+    type: 'OUT',
+  };
+
+  const proxiedRequest = new Request('https://worker.internal/api/punch-in', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(nextBody),
+  });
+
+  return handlePunchInPost(proxiedRequest, env);
+}
+
 async function ensureAppStateTable(db: D1Database): Promise<void> {
   await db.prepare(`
     CREATE TABLE IF NOT EXISTS "app_state" (
@@ -499,6 +883,47 @@ export default {
 
     if (url.pathname === '/api/state' && request.method === 'DELETE') {
       return handleStateDelete(request, env);
+    }
+
+    if (url.pathname === '/api/attendance' && request.method === 'GET') {
+      return handleAttendanceGet(request, env);
+    }
+
+    if (url.pathname === '/api/punch-in' && request.method === 'POST') {
+      return handlePunchInPost(request, env);
+    }
+
+    if (url.pathname === '/api/punch-out' && request.method === 'POST') {
+      return handlePunchOutPost(request, env);
+    }
+
+    if (url.pathname === '/api/staff-status/ws' && request.method === 'GET') {
+      const shopId = normalizeShopId(url.searchParams.get('shop_id'));
+      if (!shopId) {
+        return json({ error: { message: 'shop_id is required.' } }, 400);
+      }
+      const stub = getStaffTrackerStub(env, shopId);
+      if (!stub) {
+        return json({ error: { message: 'Durable Object binding `STAFF_TRACKER` is missing.' } }, 500);
+      }
+      const connectUrl = new URL('https://staff-tracker.internal/connect');
+      connectUrl.search = url.search;
+      return stub.fetch(new Request(connectUrl.toString(), request));
+    }
+
+    if (url.pathname === '/api/staff-status/emit' && request.method === 'POST') {
+      let payload: Record<string, JsonValue>;
+      try {
+        payload = await request.json() as Record<string, JsonValue>;
+      } catch {
+        return json({ ok: false, error: { message: 'Invalid JSON body.' } }, 400);
+      }
+      await broadcastStaffStatus(env, payload);
+      return json({ ok: true });
+    }
+
+    if (url.pathname === '/api/logout' && request.method === 'POST') {
+      return json({ success: true, data: { loggedOut: true }, error: null });
     }
 
     return env.ASSETS.fetch(request);

@@ -13,6 +13,14 @@ database_id = "f6d5d10a-b71d-4e83-a0a3-4fd1baca4b68"
 [vars]
 APP_ENV = "production"
 
+[[durable_objects.bindings]]
+name = "STAFF_TRACKER"
+class_name = "StaffTracker"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["StaffTracker"]
+
 [env.preview.vars]
 APP_ENV = "preview"
 

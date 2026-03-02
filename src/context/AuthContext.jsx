@@ -6,7 +6,7 @@ const AuthContext = createContext(null);
 const GLOBAL_ADMIN_ROLES = ['superadmin', 'superuser'];
 const ADMIN_ROLES = [...GLOBAL_ADMIN_ROLES, 'admin'];
 const AUTH_SESSION_KEY = 'dailybooks_auth_session_v1';
-const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const AUTH_TOKEN_KEY = 'token';
 const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
 const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
 const AUTH_SHOP_STATE_KEY = 'dailybooks_auth_shop_v1';
@@ -26,7 +26,7 @@ const DEFAULT_SALESMAN_PERMISSIONS = {
 };
 
 function readAuthSession() {
-    const raw = volatileAuthStore.session;
+    const raw = volatileAuthStore.session || readStorage(AUTH_SESSION_KEY, '');
     if (!raw) return null;
     const parsed = typeof raw === 'string' ? safeParseJSON(raw, null) : raw;
     return parsed && typeof parsed === 'object' ? parsed : null;
@@ -34,38 +34,41 @@ function readAuthSession() {
 
 function isAuthSessionValid() {
     const session = readAuthSession();
-    if (!session) return false;
-    const expiresAt = Number(session.expiresAt || 0);
-    if (!expiresAt || Date.now() > expiresAt) {
-        volatileAuthStore.session = null;
-        return false;
-    }
-    return true;
+    const token = readStorage(AUTH_TOKEN_KEY, '');
+    return Boolean(session && token);
 }
 
 function persistAuthSession(role, user) {
+    const token = `${asString(user?.id) || 'user'}:${Date.now()}`;
     volatileAuthStore.session = {
         role: asString(role),
         userId: asString(user?.id),
-        expiresAt: Date.now() + AUTH_SESSION_TTL_MS,
+        token,
     };
+    writeStorage(AUTH_TOKEN_KEY, token);
+    writeStorage(AUTH_SESSION_KEY, JSON.stringify(volatileAuthStore.session));
 }
 
 function clearAuthSession() {
     volatileAuthStore.session = null;
+    removeStorage(AUTH_SESSION_KEY);
+    removeStorage(AUTH_TOKEN_KEY);
 }
 
 function clearPersistedAuthState() {
     volatileAuthStore.role = '';
     volatileAuthStore.user = '';
     volatileAuthStore.shop = '';
+    removeStorage(AUTH_ROLE_STATE_KEY);
+    removeStorage(AUTH_USER_STATE_KEY);
+    removeStorage(AUTH_SHOP_STATE_KEY);
 }
 
 function readAuthState(key, fallback = '') {
     let value = '';
-    if (key === AUTH_ROLE_STATE_KEY) value = volatileAuthStore.role;
-    if (key === AUTH_USER_STATE_KEY) value = volatileAuthStore.user;
-    if (key === AUTH_SHOP_STATE_KEY) value = volatileAuthStore.shop;
+    if (key === AUTH_ROLE_STATE_KEY) value = volatileAuthStore.role || readStorage(AUTH_ROLE_STATE_KEY, '');
+    if (key === AUTH_USER_STATE_KEY) value = volatileAuthStore.user || readStorage(AUTH_USER_STATE_KEY, '');
+    if (key === AUTH_SHOP_STATE_KEY) value = volatileAuthStore.shop || readStorage(AUTH_SHOP_STATE_KEY, '');
     return value ?? fallback;
 }
 
@@ -74,6 +77,35 @@ function writeAuthState(key, value) {
     if (key === AUTH_ROLE_STATE_KEY) volatileAuthStore.role = normalized;
     if (key === AUTH_USER_STATE_KEY) volatileAuthStore.user = normalized;
     if (key === AUTH_SHOP_STATE_KEY) volatileAuthStore.shop = normalized;
+    writeStorage(key, normalized);
+}
+
+function readStorage(key, fallback = '') {
+    if (typeof window === 'undefined') return fallback;
+    try {
+        const value = window.localStorage.getItem(key);
+        return value ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function writeStorage(key, value) {
+    if (typeof window === 'undefined') return;
+    try {
+        window.localStorage.setItem(key, value === null || value === undefined ? '' : String(value));
+    } catch {
+        return;
+    }
+}
+
+function removeStorage(key) {
+    if (typeof window === 'undefined') return;
+    try {
+        window.localStorage.removeItem(key);
+    } catch {
+        return;
+    }
 }
 
 function safeParseJSON(value, fallback) {
@@ -105,6 +137,21 @@ function resolveApiBase() {
     return asString(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, '');
 }
 
+function resolveWsBase() {
+    const apiBase = resolveApiBase();
+    if (apiBase) {
+        if (apiBase.startsWith('https://')) return `wss://${apiBase.slice('https://'.length)}`;
+        if (apiBase.startsWith('http://')) return `ws://${apiBase.slice('http://'.length)}`;
+        return apiBase;
+    }
+    if (typeof window !== 'undefined') {
+        return window.location.protocol === 'https:'
+            ? `wss://${window.location.host}`
+            : `ws://${window.location.host}`;
+    }
+    return '';
+}
+
 async function requestAdminLogin({ identifier, password }) {
     const base = resolveApiBase();
     const endpoint = `${base}/api/auth/admin-login`;
@@ -127,6 +174,63 @@ async function requestAdminLogin({ identifier, password }) {
 
     const profile = payload?.data && typeof payload.data === 'object' ? payload.data : null;
     return { profile, error: null };
+}
+
+async function requestAttendanceLogs(shopId) {
+    const sid = asString(shopId);
+    if (!sid) return { data: [], error: 'shop_id is required' };
+
+    const base = resolveApiBase();
+    const endpoint = `${base}/api/attendance?shop_id=${encodeURIComponent(sid)}`;
+    const response = await fetch(endpoint, { method: 'GET' });
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        return { data: [], error: asString(payload?.error?.message) || 'Failed to load attendance.' };
+    }
+
+    return {
+        data: Array.isArray(payload?.data) ? payload.data : [],
+        error: asString(payload?.error?.message) || null
+    };
+}
+
+async function requestPunchIn({ userId, shopId, type, timestamp, note = '' }) {
+    const base = resolveApiBase();
+    const endpoint = `${base}/api/punch-in`;
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+            user_id: asString(userId),
+            shop_id: asString(shopId),
+            type: asString(type).toUpperCase(),
+            timestamp: asString(timestamp),
+            note: asString(note)
+        })
+    });
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        return { data: null, error: asString(payload?.error?.message) || 'Failed to save punch.' };
+    }
+
+    return {
+        data: payload?.data && typeof payload.data === 'object' ? payload.data : null,
+        error: asString(payload?.error?.message) || null
+    };
 }
 
 function readLocalJSON(key, fallback) {
@@ -568,17 +672,6 @@ async function listSalesmenByPin(pinValue) {
     return data.filter((row) => asString(row.pin || row.passcode || row.pin_code || row.pass_code) === safePin);
 }
 
-async function persistSalesmanOnlineStatus({ userId, shopId, isOnline }) {
-    const uid = asString(userId);
-    const sid = asString(shopId);
-    if (!uid) return false;
-
-    let query = supabase.from('profiles').update({ is_online: asBoolean(isOnline) }).eq('id', uid);
-    if (sid) query = query.eq('shop_id', sid);
-    const { error } = await query;
-    return !error;
-}
-
 export function AuthProvider({ children }) {
     const initialAuthState = (() => {
         if (isAuthSessionValid()) {
@@ -669,9 +762,7 @@ export function AuthProvider({ children }) {
     useEffect(() => {
         if (role && user) {
             persistAuthSession(role, user);
-            return;
         }
-        clearAuthSession();
     }, [role, user]);
 
     useEffect(() => {
@@ -1332,22 +1423,21 @@ export function AuthProvider({ children }) {
         }
 
         const formatAttendance = (dbLog) => {
-            const dObj = new Date(dbLog.timestamp);
+            const timestamp = asString(dbLog.timestamp || dbLog.check_out || dbLog.check_in || dbLog.created_at);
+            const dObj = new Date(timestamp);
             return {
                 ...dbLog,
-                userId: asString(dbLog.workerId || dbLog.userId || dbLog.worker_id || dbLog.user_id),
-                userName: asString(dbLog.workerName || dbLog.userName || dbLog.worker_name || dbLog.user_name),
-                date: dObj.toLocaleDateString('en-PK'),
-                time: dObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
+                timestamp,
+                type: asString(dbLog.type) || (asString(dbLog.check_out) ? 'OUT' : 'IN'),
+                userId: asString(dbLog.userId || dbLog.workerId || dbLog.worker_id || dbLog.user_id),
+                userName: asString(dbLog.userName || dbLog.workerName || dbLog.worker_name || dbLog.user_name),
+                date: Number.isNaN(dObj.getTime()) ? asString(dbLog.date) : dObj.toLocaleDateString('en-PK'),
+                time: Number.isNaN(dObj.getTime()) ? asString(dbLog.time) : dObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
             };
         };
 
         const fetchAttendance = async () => {
-            const { data, error } = await supabase
-                .from('attendance')
-                .select('*')
-                .eq('shop_id', sid)
-                .order('timestamp', { ascending: false });
+            const { data, error } = await requestAttendanceLogs(sid);
             if (!error && data) {
                 setAttendanceLogs(data.map(formatAttendance));
             } else {
@@ -1387,6 +1477,97 @@ export function AuthProvider({ children }) {
     }, [activeShopId]);
 
     useEffect(() => {
+        if (!isAdminLike) return undefined;
+        const sid = asString(activeShopId);
+        if (!sid) return undefined;
+
+        const wsBase = resolveWsBase();
+        if (!wsBase) return undefined;
+
+        let socket = null;
+        let reconnectTimer = null;
+        let closedByVisibility = false;
+
+        const applyStaffStatus = (message = {}) => {
+            const userId = asString(message.user_id || message.userId || message.workerId);
+            if (!userId) return;
+            const statusValue = message.is_online ?? message.isOnline ?? message.online;
+            const isOnline = asBoolean(statusValue);
+
+            setSalesmen((prev) => prev.map((staff) => {
+                if (String(staff.id) !== userId) return staff;
+                return {
+                    ...staff,
+                    is_online: isOnline,
+                    isOnline,
+                    online: isOnline
+                };
+            }));
+        };
+
+        const connect = () => {
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                return;
+            }
+
+            const query = new URLSearchParams({
+                shop_id: sid,
+                user_id: asString(user?.id),
+                role: asString(role)
+            });
+
+            socket = new WebSocket(`${wsBase}/api/staff-status/ws?${query.toString()}`);
+
+            socket.onmessage = (event) => {
+                try {
+                    const payload = JSON.parse(event.data || '{}');
+                    if (asString(payload.type) !== 'staff_status') return;
+                    if (asString(payload.shop_id) && asString(payload.shop_id) !== sid) return;
+                    applyStaffStatus(payload);
+                } catch {
+                    return;
+                }
+            };
+
+            socket.onclose = () => {
+                socket = null;
+                if (closedByVisibility) return;
+                reconnectTimer = setTimeout(connect, 1500);
+            };
+        };
+
+        const closeSocket = () => {
+            if (!socket) return;
+            closedByVisibility = true;
+            socket.close();
+            socket = null;
+        };
+
+        const handleVisibilityChange = () => {
+            if (typeof document === 'undefined') return;
+            if (document.visibilityState === 'visible') {
+                closedByVisibility = false;
+                if (!socket) connect();
+                return;
+            }
+            closeSocket();
+        };
+
+        connect();
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+        }
+
+        return () => {
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', handleVisibilityChange);
+            }
+            closeSocket();
+        };
+    }, [isAdminLike, activeShopId, role, user?.id]);
+
+    useEffect(() => {
         if (user && role === 'salesman') {
             const myLogs = attendanceLogs.filter((l) => String(l.userId) === String(user.id));
             if (myLogs.length > 0) {
@@ -1421,19 +1602,43 @@ export function AuthProvider({ children }) {
         setAttendanceLogs(prev => [uiLog, ...prev]);
         setIsPunchedIn(type === 'IN');
 
-        const { error } = await supabase.from('attendance').insert([{
-            id: uiLog.id,
-            workerId: String(user.id),
-            workerName: user.name,
+        const { data: savedLog, error } = await requestPunchIn({
+            userId: user.id,
+            shopId: activeShopId,
             type,
-            shop_id: activeShopId,
             timestamp: uiLog.timestamp,
             note: ''
-        }]);
+        });
 
         if (error) {
             console.error('Failed to punch attendance:', error);
+            setAttendanceLogs((prev) => prev.filter((l) => String(l.id) !== String(uiLog.id)));
+            setIsPunchedIn(type !== 'IN');
             return;
+        }
+
+        if (savedLog) {
+            const normalizedSaved = {
+                ...savedLog,
+                userId: asString(savedLog.userId || savedLog.workerId || savedLog.user_id),
+                userName: asString(savedLog.userName || savedLog.workerName || savedLog.user_name),
+                workerId: asString(savedLog.workerId || savedLog.userId || savedLog.user_id),
+                workerName: asString(savedLog.workerName || savedLog.userName || savedLog.user_name),
+                timestamp: asString(savedLog.timestamp),
+                type: asString(savedLog.type || type),
+                date: asString(savedLog.timestamp)
+                    ? new Date(savedLog.timestamp).toLocaleDateString('en-PK')
+                    : uiLog.date,
+                time: asString(savedLog.timestamp)
+                    ? new Date(savedLog.timestamp).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
+                    : uiLog.time,
+                note: asString(savedLog.note)
+            };
+
+            setAttendanceLogs((prev) => {
+                const filtered = prev.filter((l) => String(l.id) !== String(uiLog.id) && String(l.id) !== String(normalizedSaved.id));
+                return [normalizedSaved, ...filtered].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            });
         }
 
         const nextOnline = type === 'IN';
@@ -1455,12 +1660,6 @@ export function AuthProvider({ children }) {
                 online: nextOnline
             };
         }));
-        await persistSalesmanOnlineStatus({
-            userId: user.id,
-            shopId: activeShopId,
-            isOnline: nextOnline
-        });
-
         // Auto-save salary transaction on punch OUT
         if (type === 'OUT') {
             const todayStr = ts.toLocaleDateString('en-PK');
@@ -1580,11 +1779,6 @@ export function AuthProvider({ children }) {
             setIsPunchedIn(nextOnline);
             setUser((prev) => prev ? { ...prev, is_online: nextOnline, isOnline: nextOnline, online: nextOnline } : prev);
         }
-        await persistSalesmanOnlineStatus({
-            userId: targetUserId,
-            shopId: sid,
-            isOnline: nextOnline
-        });
     }, [activeShopId, attendanceLogs, role, user]);
 
     const deleteAttendanceLog = useCallback(async (id) => {
@@ -1619,11 +1813,6 @@ export function AuthProvider({ children }) {
             setIsPunchedIn(nextOnline);
             setUser((prev) => prev ? { ...prev, is_online: nextOnline, isOnline: nextOnline, online: nextOnline } : prev);
         }
-        await persistSalesmanOnlineStatus({
-            userId: targetUserId,
-            shopId: sid,
-            isOnline: nextOnline
-        });
     }, [activeShopId, attendanceLogs, role, user]);
 
     // ── Auth Logic ──
