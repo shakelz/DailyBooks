@@ -905,6 +905,11 @@ export function AuthProvider({ children }) {
         if (!name) throw new Error('Shop name is required.');
         if (!email) throw new Error('Owner email is required.');
 
+        const existingOwner = await trySelectProfileByField('email', email, ADMIN_ROLES);
+        if (existingOwner) {
+            throw new Error('Owner email is already linked to an admin account.');
+        }
+
         let createdShop = null;
         let shopError = null;
         const shopPayloads = buildShopInsertPayloads({
@@ -1064,6 +1069,16 @@ export function AuthProvider({ children }) {
 
         if (hasName && !nextName) {
             throw new Error('Shop name is required.');
+        }
+
+        if (hasOwner && nextOwnerEmail) {
+            const existingOwner = await trySelectProfileByField('email', nextOwnerEmail, ADMIN_ROLES);
+            if (existingOwner) {
+                const existingOwnerShopId = asString(existingOwner.shop_id);
+                if (existingOwnerShopId && existingOwnerShopId !== sid) {
+                    throw new Error('Owner email is already linked to another shop admin account.');
+                }
+            }
         }
 
         if (!shouldUpdateShopTable && !shouldUpdateOwnerProfile) {
