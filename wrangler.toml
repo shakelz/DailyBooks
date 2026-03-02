@@ -14,6 +14,10 @@ database_id = "f6d5d10a-b71d-4e83-a0a3-4fd1baca4b68"
 [vars]
 APP_ENV = "production"
 
+[[migrations]]
+tag = "v3"
+deleted_classes = ["StaffTracker"]
+
 [env.preview.vars]
 APP_ENV = "preview"
 
