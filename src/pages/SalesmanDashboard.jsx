@@ -566,7 +566,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const revenueTransactions = useMemo(
         () => rangeTransactions.filter((txn) => {
             if (txn.type !== 'income') return false;
-            return !isCashbookTransaction(txn);
+            if (isCashbookTransaction(txn)) return false;
+            const source = String(txn.source || '').toLowerCase();
+            const desc = String(txn.desc || '').toLowerCase();
+            if (source === 'purchase' || source === 'expense' || source === 'online-order' || source === 'repair-parts') {
+                return false;
+            }
+            if (desc.includes('purchase') || desc.includes('expense') || desc.includes('online order')) {
+                return false;
+            }
+            return true;
         }),
         [rangeTransactions]
     );
@@ -641,9 +650,32 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         [purchaseTransactions, productLookup]
     );
 
+    const pendingOnlineOrderRemainingInRange = useMemo(() => {
+        const startMs = dashboardRange.start.getTime();
+        const endMs = dashboardRange.end.getTime();
+        return (Array.isArray(onlineOrders) ? onlineOrders : []).reduce((sum, order) => {
+            const status = String(order?.status || '').toLowerCase();
+            if (status && status !== 'ordered') return sum;
+
+            const orderDateCandidate = String(order?.orderDate || '').trim();
+            const createdAtCandidate = String(order?.createdAt || '').trim();
+            const dateRaw = orderDateCandidate
+                ? `${orderDateCandidate}T12:00:00`
+                : createdAtCandidate;
+            const dateMs = Date.parse(dateRaw);
+            if (!Number.isFinite(dateMs) || dateMs < startMs || dateMs > endMs) return sum;
+
+            const totalCost = Number(order?.totalCost ?? order?.amount) || 0;
+            const advanceAmount = Math.max(0, Number(order?.advanceAmount) || 0);
+            const remainingAmount = Math.max(0, totalCost - advanceAmount);
+            return sum + remainingAmount;
+        }, 0);
+    }, [dashboardRange, onlineOrders]);
+
     const fallbackStats = useMemo(() => {
         const totalRevenue = nonMobileRevenueTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-        const totalExpenses = nonMobilePurchaseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+        const totalExpenses = nonMobilePurchaseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
+            + pendingOnlineOrderRemainingInRange;
         return {
             totals: {
                 revenue: totalRevenue,
@@ -651,7 +683,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 income: totalRevenue - totalExpenses,
             },
         };
-    }, [nonMobilePurchaseTransactions, nonMobileRevenueTransactions]);
+    }, [nonMobilePurchaseTransactions, nonMobileRevenueTransactions, pendingOnlineOrderRemainingInRange]);
 
     const revenueBreakdown = useMemo(() => buildPaymentBreakdown(nonMobileRevenueTransactions), [nonMobileRevenueTransactions]);
     const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(nonMobilePurchaseTransactions), [nonMobilePurchaseTransactions]);

@@ -64,9 +64,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
 
     const [imagePreview, setImagePreview] = useState(null); // Product Image
     const [imageFile, setImageFile] = useState(null); // Product Image file for Storage upload
-    const [catImagePreview, setCatImagePreview] = useState(null); // Category Image
     const fileInputRef = useRef(null);
-    const catFileInputRef = useRef(null);
 
     const [errors, setErrors] = useState({});
     const [submitted, setSubmitted] = useState(false);
@@ -157,21 +155,11 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 setProductUrl(''); setNotes('');
                 setImagePreview(null);
                 setImageFile(null);
-                setCatImagePreview(null); // Will be set by category logic
                 setErrors({}); setSubmitted(false);
                 setCustomChips([]);
             }
         }
     }, [isOpen, initialData]);
-
-    const { getCategoryImage } = useInventory();
-
-    useEffect(() => {
-        if (isOpen && level1) {
-            const img = getCategoryImage(level1, level2);
-            setCatImagePreview(img);
-        }
-    }, [level1, level2, isOpen, getCategoryImage]);
 
     const l1Categories = getLevel1Categories();
     const l2Categories = level1 ? getLevel2Categories(level1) : [];
@@ -228,15 +216,6 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             }
         };
     }, [imagePreview]);
-
-    const handleCategoryImageChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => setCatImagePreview(reader.result);
-            reader.readAsDataURL(file);
-        }
-    };
 
     const validate = () => {
         const errs = {};
@@ -384,10 +363,10 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
 
             // Save Custom Categories or Update Images
             if (level1 || customL1) {
-                addLevel1Category(customL1 || level1, catImagePreview);
+                addLevel1Category(customL1 || level1);
             }
             if (level2 || customL2) {
-                addLevel2Category(level1 || customL1, customL2 || level2, catImagePreview);
+                addLevel2Category(level1 || customL1, customL2 || level2);
             }
 
             // Reset
@@ -400,7 +379,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             setStockRed(''); setStockYellow(''); setStockGreen('');
             setActiveChips([]); setDynamicFields({});
             setProductUrl(''); setNotes('');
-            setImagePreview(null); setImageFile(null); setCatImagePreview(null); setErrors({}); setSubmitted(false);
+            setImagePreview(null); setImageFile(null); setErrors({}); setSubmitted(false);
             setCustomChips([]);
 
             setTimeout(() => {
