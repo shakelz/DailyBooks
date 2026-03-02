@@ -23,6 +23,7 @@ import {
     CheckCircle,
     XCircle
 } from 'lucide-react';
+import { getServerState, setServerState } from '../../serverStateClient';
 
 const PURCHASE_LINKS_STORAGE_KEY = 'dailybooks_purchase_links_v1';
 
@@ -318,26 +319,35 @@ export default function InventoryTab() {
     const linksStorageKey = `${PURCHASE_LINKS_STORAGE_KEY}:${String(activeShopId || '')}`;
 
     useEffect(() => {
-        try {
+        let cancelled = false;
+        const loadLinks = async () => {
             if (!activeShopId) {
-                setImportantLinks([]);
+                if (!cancelled) setImportantLinks([]);
                 return;
             }
-            const raw = localStorage.getItem(linksStorageKey);
-            const parsed = raw ? JSON.parse(raw) : [];
-            setImportantLinks(Array.isArray(parsed) ? parsed : []);
-        } catch {
-            setImportantLinks([]);
-        }
+            const { value } = await getServerState({
+                key: linksStorageKey,
+                shopId: String(activeShopId),
+                userId: '',
+            });
+            if (cancelled) return;
+            setImportantLinks(Array.isArray(value) ? value : []);
+        };
+
+        loadLinks();
+        return () => {
+            cancelled = true;
+        };
     }, [activeShopId, linksStorageKey]);
 
     useEffect(() => {
         if (!activeShopId) return;
-        try {
-            localStorage.setItem(linksStorageKey, JSON.stringify(importantLinks));
-        } catch {
-            // Ignore storage write errors.
-        }
+        setServerState({
+            key: linksStorageKey,
+            value: Array.isArray(importantLinks) ? importantLinks : [],
+            shopId: String(activeShopId),
+            userId: '',
+        });
     }, [importantLinks, activeShopId, linksStorageKey]);
 
     const normalizeLinkUrl = useCallback((url) => {

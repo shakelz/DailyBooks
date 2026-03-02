@@ -15,8 +15,6 @@ export default class ErrorBoundary extends React.Component {
     }
 
     handleReset = () => {
-        localStorage.removeItem('inventory');
-        localStorage.removeItem('transactions');
         window.location.reload();
     };
 
@@ -30,7 +28,7 @@ export default class ErrorBoundary extends React.Component {
                         </div>
                         <h1 className="text-xl font-bold text-red-600 mb-2">Something went wrong</h1>
                         <p className="text-sm text-slate-500 mb-6">
-                            The application encountered a critical error. This usually happens due to corrupted local data.
+                            The application encountered a critical error. Reloading usually resolves transient state issues.
                         </p>
                         <div className="p-3 bg-slate-50 rounded-lg text-left text-xs font-mono text-slate-600 mb-6 overflow-x-auto">
                             {this.state.error?.toString()}
@@ -42,7 +40,7 @@ export default class ErrorBoundary extends React.Component {
                             Reset App Data & Reload
                         </button>
                         <p className="mt-4 text-[10px] text-slate-400">
-                            Warning: This will clear all locally saved inventory/transactions.
+                            This will reload the app and re-sync data from server.
                         </p>
                     </div>
                 </div>

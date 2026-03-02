@@ -38,6 +38,18 @@ type DbSpec = {
   onConflict?: string;
 };
 
+type AdminLoginRequest = {
+  identifier?: string;
+  password?: string;
+};
+
+type StateRequest = {
+  key?: string;
+  value?: JsonValue;
+  shop_id?: string;
+  user_id?: string;
+};
+
 type Env = {
   carefone_db?: D1Database;
   APP_ENV?: string;
@@ -281,6 +293,186 @@ function handleRuntimeRequest(env: Env, request: Request): Response {
   });
 }
 
+async function handleAdminLoginRequest(request: Request, env: Env): Promise<Response> {
+  const db = env.carefone_db;
+  if (!db) {
+    return json({ success: false, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
+  }
+
+  let body: AdminLoginRequest;
+  try {
+    body = (await request.json()) as AdminLoginRequest;
+  } catch {
+    return json({ success: false, error: { message: 'Invalid JSON body.' } }, 400);
+  }
+
+  const identifier = String(body?.identifier || '').trim();
+  const password = String(body?.password || '').trim();
+
+  if (!identifier || !password) {
+    return json({ success: false, error: { message: 'Identifier and password are required.' } }, 400);
+  }
+
+  try {
+    const identifierLower = identifier.toLowerCase();
+    const sql = `
+      SELECT *
+      FROM "profiles"
+      WHERE "role" IN ('admin', 'superadmin')
+        AND (LOWER("email") = ? OR "name" = ?)
+      LIMIT 1
+    `;
+
+    const result = await db.prepare(sql).bind(identifierLower, identifier).all<Record<string, JsonValue>>();
+    const profile = Array.isArray(result?.results) && result.results.length > 0 ? result.results[0] : null;
+
+    if (!profile) {
+      return json({ success: false, error: { message: 'Invalid credentials.' } }, 401);
+    }
+
+    const storedPassword = String(profile.password || '').trim();
+    if (!storedPassword || storedPassword !== password) {
+      return json({ success: false, error: { message: 'Invalid credentials.' } }, 401);
+    }
+
+    return json({ success: true, data: profile });
+  } catch (error) {
+    return json({ success: false, error: { message: (error as Error)?.message || 'Auth query failed.' } }, 400);
+  }
+}
+
+function normalizeStateInput(input: StateRequest = {}): { key: string; shopId: string; userId: string; value: JsonValue | null } {
+  return {
+    key: String(input.key || '').trim(),
+    shopId: String(input.shop_id || '').trim(),
+    userId: String(input.user_id || '').trim(),
+    value: input.value ?? null,
+  };
+}
+
+async function ensureAppStateTable(db: D1Database): Promise<void> {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS "app_state" (
+      "state_key" TEXT NOT NULL,
+      "shop_id" TEXT NOT NULL DEFAULT '',
+      "user_id" TEXT NOT NULL DEFAULT '',
+      "state_value" TEXT,
+      "updated_at" TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY ("state_key", "shop_id", "user_id")
+    )
+  `).run();
+}
+
+async function handleStateGet(request: Request, env: Env): Promise<Response> {
+  const db = env.carefone_db;
+  if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
+
+  const url = new URL(request.url);
+  const input = normalizeStateInput({
+    key: url.searchParams.get('key') || '',
+    shop_id: url.searchParams.get('shop_id') || '',
+    user_id: url.searchParams.get('user_id') || '',
+  });
+
+  if (!input.key) {
+    return json({ data: null, error: { message: 'State key is required.' } }, 400);
+  }
+
+  try {
+    await ensureAppStateTable(db);
+    const result = await db
+      .prepare(`
+        SELECT "state_value", "updated_at"
+        FROM "app_state"
+        WHERE "state_key" = ? AND "shop_id" = ? AND "user_id" = ?
+        LIMIT 1
+      `)
+      .bind(input.key, input.shopId, input.userId)
+      .all<{ state_value?: string; updated_at?: string }>();
+
+    const row = Array.isArray(result?.results) && result.results.length > 0 ? result.results[0] : null;
+    let parsedValue: JsonValue | null = null;
+    if (row?.state_value) {
+      try {
+        parsedValue = JSON.parse(row.state_value) as JsonValue;
+      } catch {
+        parsedValue = null;
+      }
+    }
+
+    return json({ data: { key: input.key, value: parsedValue, updated_at: row?.updated_at || null }, error: null });
+  } catch (error) {
+    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to get server state.' } }, 400);
+  }
+}
+
+async function handleStateUpsert(request: Request, env: Env): Promise<Response> {
+  const db = env.carefone_db;
+  if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
+
+  let body: StateRequest;
+  try {
+    body = (await request.json()) as StateRequest;
+  } catch {
+    return json({ data: null, error: { message: 'Invalid JSON body.' } }, 400);
+  }
+
+  const input = normalizeStateInput(body);
+  if (!input.key) {
+    return json({ data: null, error: { message: 'State key is required.' } }, 400);
+  }
+
+  try {
+    await ensureAppStateTable(db);
+    const serialized = JSON.stringify(input.value);
+    await db
+      .prepare(`
+        INSERT INTO "app_state" ("state_key", "shop_id", "user_id", "state_value", "updated_at")
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT ("state_key", "shop_id", "user_id")
+        DO UPDATE SET "state_value" = excluded."state_value", "updated_at" = datetime('now')
+      `)
+      .bind(input.key, input.shopId, input.userId, serialized)
+      .run();
+
+    return json({ data: { key: input.key, saved: true }, error: null });
+  } catch (error) {
+    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to save server state.' } }, 400);
+  }
+}
+
+async function handleStateDelete(request: Request, env: Env): Promise<Response> {
+  const db = env.carefone_db;
+  if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
+
+  let body: StateRequest;
+  try {
+    body = (await request.json()) as StateRequest;
+  } catch {
+    return json({ data: null, error: { message: 'Invalid JSON body.' } }, 400);
+  }
+
+  const input = normalizeStateInput(body);
+  if (!input.key) {
+    return json({ data: null, error: { message: 'State key is required.' } }, 400);
+  }
+
+  try {
+    await ensureAppStateTable(db);
+    await db
+      .prepare(`
+        DELETE FROM "app_state"
+        WHERE "state_key" = ? AND "shop_id" = ? AND "user_id" = ?
+      `)
+      .bind(input.key, input.shopId, input.userId)
+      .run();
+
+    return json({ data: { key: input.key, deleted: true }, error: null });
+  } catch (error) {
+    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to delete server state.' } }, 400);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -291,6 +483,22 @@ export default {
 
     if (url.pathname === '/api/runtime' && request.method === 'GET') {
       return handleRuntimeRequest(env, request);
+    }
+
+    if (url.pathname === '/api/auth/admin-login' && request.method === 'POST') {
+      return handleAdminLoginRequest(request, env);
+    }
+
+    if (url.pathname === '/api/state' && request.method === 'GET') {
+      return handleStateGet(request, env);
+    }
+
+    if (url.pathname === '/api/state' && request.method === 'POST') {
+      return handleStateUpsert(request, env);
+    }
+
+    if (url.pathname === '/api/state' && request.method === 'DELETE') {
+      return handleStateDelete(request, env);
     }
 
     return env.ASSETS.fetch(request);

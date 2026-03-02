@@ -35,36 +35,19 @@ export default function DummyDataGenerator() {
         setGenerating(true);
         setStatus('Wiping old database...');
 
-        // 1. Clear LocalStorage using correct keys per app architecture
-        localStorage.removeItem('transactions');
-        localStorage.removeItem('inventory');
-        localStorage.removeItem('products'); // Legacy safety
-        localStorage.removeItem('users'); // Legacy safety
-        localStorage.removeItem('salesmen');
-        localStorage.removeItem('categories_l1');
-        localStorage.removeItem('categories_l2');
-        localStorage.removeItem('attendanceLogs');
-
-        // 2. Seed Inventory
+        // 1. Seed Inventory
         setStatus('Seeding Inventory...');
-        localStorage.setItem('inventory', JSON.stringify(DUMMY_PRODUCTS));
+        setProducts(DUMMY_PRODUCTS);
 
-        // 3. Seed Categories
+        // 2. Seed Categories
         setStatus('Seeding Categories...');
-        const catL1 = ['Phones', 'Accessories', 'Repairs'];
-        const catL2 = {
-            'Phones': ['Apple', 'Samsung', 'Google'],
-            'Accessories': ['Cases', 'Cables', 'Protection', 'Chargers'],
-            'Repairs': ['Screens', 'Batteries']
-        };
-        localStorage.setItem('categories_l1', JSON.stringify(catL1));
-        localStorage.setItem('categories_l2', JSON.stringify(catL2));
+        // Categories are now DB-driven via InventoryContext.
 
-        // 4. Seed Staff
+        // 3. Seed Staff
         setStatus('Seeding Staff...');
-        localStorage.setItem('salesmen', JSON.stringify(DUMMY_SALESMEN));
+        // Staff is now DB-driven via AuthContext.
 
-        // 5. Generate Transactions and Attendance Logs (Last 90 Days)
+        // 4. Generate Transactions and Attendance Logs (Last 90 Days)
         setStatus('Generating 3 Months History...');
         const generatedTxns = [];
         const generatedLogs = [];
@@ -239,8 +222,7 @@ export default function DummyDataGenerator() {
             }
         }
 
-        localStorage.setItem('transactions', JSON.stringify(generatedTxns));
-        localStorage.setItem('attendanceLogs', JSON.stringify(generatedLogs));
+        setTransactions(generatedTxns);
 
         setStatus('Database populated! Reloading...');
         setTimeout(() => {

@@ -1,26 +1,16 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 
 // ══════════════════════════════════════════════════════════
 // DailyBooks — Cart Context (Multi-Item Billing)
-// Persists cart to localStorage, supports add/edit/remove/clear
+// In-memory cart state, supports add/edit/remove/clear
 // ══════════════════════════════════════════════════════════
 
 const CartContext = createContext(null);
 
 export function CartProvider({ children }) {
-    const [cart, setCart] = useState(() => {
-        try {
-            const saved = localStorage.getItem('dailybooks_cart');
-            return saved ? JSON.parse(saved) : [];
-        } catch { return []; }
-    });
+    const [cart, setCart] = useState([]);
 
     const [editingCartItem, setEditingCartItem] = useState(null); // cartItemId or null
-
-    // Persist to localStorage
-    useEffect(() => {
-        localStorage.setItem('dailybooks_cart', JSON.stringify(cart));
-    }, [cart]);
 
     const addToCart = useCallback((item) => {
         const cartItem = {

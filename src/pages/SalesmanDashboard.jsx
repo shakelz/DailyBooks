@@ -10,6 +10,7 @@ import RepairModal from '../components/RepairModal';
 import SmartCategoryForm from '../components/SmartCategoryForm';
 import TransactionModal from '../components/TransactionModal';
 import { useRepairs } from '../context/RepairsContext';
+import { getServerState, setServerState } from '../serverStateClient';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
@@ -1746,21 +1747,42 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem(onlineOrderStorageKey(user));
-            const parsed = raw ? JSON.parse(raw) : [];
-            setOnlineOrders(Array.isArray(parsed) ? parsed : []);
-        } catch {
-            setOnlineOrders([]);
-        }
+        let cancelled = false;
+        const loadOrders = async () => {
+            const shopId = String(user?.shop_id || '');
+            const userId = String(user?.id || '');
+            if (!shopId || !userId) {
+                if (!cancelled) setOnlineOrders([]);
+                return;
+            }
+
+            const { value } = await getServerState({
+                key: onlineOrderStorageKey(user),
+                shopId,
+                userId,
+            });
+
+            if (cancelled) return;
+            setOnlineOrders(Array.isArray(value) ? value : []);
+        };
+
+        loadOrders();
+        return () => {
+            cancelled = true;
+        };
     }, [user]);
 
     useEffect(() => {
-        try {
-            localStorage.setItem(onlineOrderStorageKey(user), JSON.stringify(onlineOrders));
-        } catch {
-            // Ignore localStorage quota errors for non-critical UI state.
-        }
+        const shopId = String(user?.shop_id || '');
+        const userId = String(user?.id || '');
+        if (!shopId || !userId) return;
+
+        setServerState({
+            key: onlineOrderStorageKey(user),
+            value: Array.isArray(onlineOrders) ? onlineOrders : [],
+            shopId,
+            userId,
+        });
     }, [onlineOrders, user]);
 
     useEffect(() => {

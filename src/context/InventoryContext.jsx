@@ -11,6 +11,8 @@ const PURCHASE_FROM_KEY = '__purchaseFrom';
 const PAYMENT_MODE_KEY = '__paymentMode';
 const CATEGORY_SCOPE_SALES = 'sales';
 const CATEGORY_SCOPE_REVENUE = 'revenue';
+const inMemoryCategoryScopeByShop = new Map();
+let inMemoryTransactionSnapshots = {};
 
 function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
@@ -27,27 +29,16 @@ function categoryScopeKey(level, name, parent = '') {
 }
 
 function readCategoryScopeMap(shopId) {
-    if (typeof window === 'undefined') return {};
     const sid = cleanText(shopId);
     if (!sid) return {};
-    try {
-        const raw = localStorage.getItem(`${CATEGORY_SCOPE_STORAGE_KEY}:${sid}`);
-        const parsed = raw ? JSON.parse(raw) : {};
-        return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-        return {};
-    }
+    const current = inMemoryCategoryScopeByShop.get(sid);
+    return current && typeof current === 'object' ? { ...current } : {};
 }
 
 function writeCategoryScopeMap(shopId, map) {
-    if (typeof window === 'undefined') return;
     const sid = cleanText(shopId);
     if (!sid) return;
-    try {
-        localStorage.setItem(`${CATEGORY_SCOPE_STORAGE_KEY}:${sid}`, JSON.stringify(map && typeof map === 'object' ? map : {}));
-    } catch {
-        // Ignore storage failures.
-    }
+    inMemoryCategoryScopeByShop.set(sid, map && typeof map === 'object' ? { ...map } : {});
 }
 
 function resolveCategoryScopeRecord(record, scopeMap = null) {
@@ -282,23 +273,13 @@ function buildInventoryPayload(product, includeId = false, shopId = '') {
 }
 
 function readTransactionSnapshots() {
-    if (typeof window === 'undefined') return {};
-    try {
-        const raw = localStorage.getItem(TRANSACTION_SNAPSHOT_STORAGE_KEY);
-        const parsed = raw ? JSON.parse(raw) : {};
-        return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-        return {};
-    }
+    return inMemoryTransactionSnapshots && typeof inMemoryTransactionSnapshots === 'object'
+        ? { ...inMemoryTransactionSnapshots }
+        : {};
 }
 
 function writeTransactionSnapshots(next) {
-    if (typeof window === 'undefined') return;
-    try {
-        localStorage.setItem(TRANSACTION_SNAPSHOT_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-        // If storage quota is full, we silently skip snapshot persistence.
-    }
+    inMemoryTransactionSnapshots = next && typeof next === 'object' ? { ...next } : {};
 }
 
 function saveTransactionSnapshot(txnId, snapshot) {

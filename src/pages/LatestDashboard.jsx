@@ -18,15 +18,7 @@ import CompleteRepairModal from '../components/admin/CompleteRepairModal';
 import { useRepairs } from '../context/RepairsContext';
 
 const SALESMAN_LOCK_NAMESPACE = 'dailybooks_salesman_lock_v1';
-
-function getSessionStorageSafe() {
-    try {
-        if (typeof window === 'undefined') return null;
-        return window.sessionStorage;
-    } catch {
-        return null;
-    }
-}
+const volatileLockState = new Map();
 
 // ══════════════════════════════════════════════════════════
 // DailyBooks — Salesman Dashboard
@@ -156,12 +148,10 @@ export default function LatestDashboard() {
     const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
 
     const readLastActivityAt = useCallback(() => {
-        const storage = getSessionStorageSafe();
-        if (!storage) return Date.now();
-        const raw = storage.getItem(lockStateKey);
+        const raw = volatileLockState.get(lockStateKey);
         if (!raw) return Date.now();
         try {
-            const parsed = JSON.parse(raw);
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
             return Number(parsed?.lastActivityAt) || Date.now();
         } catch {
             return Date.now();
@@ -169,11 +159,9 @@ export default function LatestDashboard() {
     }, [lockStateKey]);
 
     const writeLastActivityAt = useCallback((nextLastActivityAt = Date.now()) => {
-        const storage = getSessionStorageSafe();
-        if (!storage) return;
-        storage.setItem(lockStateKey, JSON.stringify({
+        volatileLockState.set(lockStateKey, {
             lastActivityAt: Number(nextLastActivityAt) || Date.now()
-        }));
+        });
     }, [lockStateKey]);
 
     // ═══════════════════ COMPUTED ═══════════════════

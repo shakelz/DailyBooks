@@ -12,26 +12,22 @@ const AUTH_SHOP_STATE_KEY = 'dailybooks_auth_shop_v1';
 const SALESMAN_META_STORAGE_KEY = 'dailybooks_salesman_meta_v1';
 const SHOP_META_STORAGE_KEY = 'dailybooks_shop_meta_v1';
 
+const volatileAuthStore = {
+    session: null,
+    role: '',
+    user: '',
+    shop: ''
+};
+
 const DEFAULT_SALESMAN_PERMISSIONS = {
     canEditTransactions: false,
     canBulkEdit: false
 };
 
-function getSessionStorage() {
-    try {
-        if (typeof window === 'undefined') return null;
-        return window.sessionStorage;
-    } catch {
-        return null;
-    }
-}
-
 function readAuthSession() {
-    const storage = getSessionStorage();
-    if (!storage) return null;
-    const raw = storage.getItem(AUTH_SESSION_KEY);
+    const raw = volatileAuthStore.session;
     if (!raw) return null;
-    const parsed = safeParseJSON(raw, null);
+    const parsed = typeof raw === 'string' ? safeParseJSON(raw, null) : raw;
     return parsed && typeof parsed === 'object' ? parsed : null;
 }
 
@@ -40,59 +36,43 @@ function isAuthSessionValid() {
     if (!session) return false;
     const expiresAt = Number(session.expiresAt || 0);
     if (!expiresAt || Date.now() > expiresAt) {
-        const storage = getSessionStorage();
-        if (storage) storage.removeItem(AUTH_SESSION_KEY);
+        volatileAuthStore.session = null;
         return false;
     }
     return true;
 }
 
 function persistAuthSession(role, user) {
-    const storage = getSessionStorage();
-    if (!storage) return;
-    const payload = {
+    volatileAuthStore.session = {
         role: asString(role),
         userId: asString(user?.id),
         expiresAt: Date.now() + AUTH_SESSION_TTL_MS,
     };
-    storage.setItem(AUTH_SESSION_KEY, JSON.stringify(payload));
 }
 
 function clearAuthSession() {
-    const storage = getSessionStorage();
-    if (!storage) return;
-    storage.removeItem(AUTH_SESSION_KEY);
+    volatileAuthStore.session = null;
 }
 
 function clearPersistedAuthState() {
-    const storage = getSessionStorage();
-    if (storage) {
-        storage.removeItem(AUTH_ROLE_STATE_KEY);
-        storage.removeItem(AUTH_USER_STATE_KEY);
-        storage.removeItem(AUTH_SHOP_STATE_KEY);
-    }
-
-    // Cleanup legacy keys kept in localStorage by older versions.
-    localStorage.removeItem('role');
-    localStorage.removeItem('user');
-    localStorage.removeItem('activeShopId');
+    volatileAuthStore.role = '';
+    volatileAuthStore.user = '';
+    volatileAuthStore.shop = '';
 }
 
 function readAuthState(key, fallback = '') {
-    const storage = getSessionStorage();
-    if (!storage) return fallback;
-    const value = storage.getItem(key);
+    let value = '';
+    if (key === AUTH_ROLE_STATE_KEY) value = volatileAuthStore.role;
+    if (key === AUTH_USER_STATE_KEY) value = volatileAuthStore.user;
+    if (key === AUTH_SHOP_STATE_KEY) value = volatileAuthStore.shop;
     return value ?? fallback;
 }
 
 function writeAuthState(key, value) {
-    const storage = getSessionStorage();
-    if (!storage) return;
-    if (value === null || value === undefined || value === '') {
-        storage.removeItem(key);
-        return;
-    }
-    storage.setItem(key, value);
+    const normalized = value === null || value === undefined ? '' : String(value);
+    if (key === AUTH_ROLE_STATE_KEY) volatileAuthStore.role = normalized;
+    if (key === AUTH_USER_STATE_KEY) volatileAuthStore.user = normalized;
+    if (key === AUTH_SHOP_STATE_KEY) volatileAuthStore.shop = normalized;
 }
 
 function safeParseJSON(value, fallback) {
@@ -120,14 +100,36 @@ function asNumber(value, fallback = 0) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function readLocalJSON(key, fallback) {
+function resolveApiBase() {
+    return asString(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, '');
+}
+
+async function requestAdminLogin({ identifier, password }) {
+    const base = resolveApiBase();
+    const endpoint = `${base}/api/auth/admin-login`;
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ identifier, password })
+    });
+
+    let payload = null;
     try {
-        const raw = localStorage.getItem(key);
-        const parsed = safeParseJSON(raw, fallback);
-        return parsed && typeof parsed === 'object' ? parsed : fallback;
+        payload = await response.json();
     } catch {
-        return fallback;
+        payload = null;
     }
+
+    if (!response.ok || !payload?.success) {
+        return { profile: null, error: asString(payload?.error?.message) || 'Invalid credentials' };
+    }
+
+    const profile = payload?.data && typeof payload.data === 'object' ? payload.data : null;
+    return { profile, error: null };
+}
+
+function readLocalJSON(key, fallback) {
+    return fallback;
 }
 
 function sanitizeSalesmanMeta(meta = {}) {
@@ -336,46 +338,15 @@ function buildShopInsertPayloads({ name, location, address, ownerEmail, telephon
     const safeAddress = asString(address);
     const safeOwnerEmail = asString(ownerEmail).toLowerCase();
     const safeTelephone = asString(telephone);
+    if (!safeName) return [];
 
-    const nameVariants = safeName ? [{ name: safeName }, { shop_name: safeName }] : [];
-    const locationVariants = safeLocation ? [{ location: safeLocation }, {}] : [{}];
-    const addressVariants = safeAddress ? [{ address: safeAddress }, { location: safeAddress }, {}] : [{}];
-    const ownerVariants = safeOwnerEmail ? [{ owner_email: safeOwnerEmail }, { ownerEmail: safeOwnerEmail }, {}] : [{}];
-    const telephoneVariants = safeTelephone
-        ? [
-            { telephone: safeTelephone },
-            { phone: safeTelephone },
-            { shop_phone: safeTelephone },
-            { telephone_number: safeTelephone },
-            { phone_number: safeTelephone },
-            { contact_number: safeTelephone },
-            { mobile: safeTelephone },
-            { telefon: safeTelephone },
-            { tel: safeTelephone },
-            {}
-        ]
-        : [{}];
-
-    const payloads = [];
-    nameVariants.forEach((namePayload) => {
-        locationVariants.forEach((locationPayload) => {
-            addressVariants.forEach((addressPayload) => {
-                ownerVariants.forEach((ownerPayload) => {
-                    telephoneVariants.forEach((telephonePayload) => {
-                        payloads.push(cleanPayload({
-                            ...namePayload,
-                            ...locationPayload,
-                            ...addressPayload,
-                            ...ownerPayload,
-                            ...telephonePayload
-                        }));
-                    });
-                });
-            });
-        });
-    });
-
-    return dedupePayloads(payloads.filter((payload) => Object.keys(payload).length > 0));
+    return [cleanPayload({
+        name: safeName,
+        location: safeLocation,
+        address: safeAddress,
+        owner_email: safeOwnerEmail,
+        telephone: safeTelephone
+    })];
 }
 
 function cleanPayload(payload) {
@@ -418,79 +389,24 @@ function buildTimestampFromTime(baseTimestamp, timeValue) {
 }
 
 function buildShopUpdatePayloads({ name, location, address, ownerEmail, telephone }) {
-    const email = ownerEmail === undefined ? undefined : asString(ownerEmail).toLowerCase();
-    const safeName = name === undefined ? undefined : asString(name);
-    const safeLocation = location === undefined ? undefined : asString(location);
-    const safeAddress = address === undefined ? undefined : asString(address);
-    const safeTelephone = telephone === undefined ? undefined : asString(telephone);
-
-    const nameVariants = safeName === undefined ? [{}] : [{ name: safeName }, { shop_name: safeName }];
-    const locationVariants = safeLocation === undefined ? [{}] : [{ location: safeLocation }, {}];
-    const addressVariants = safeAddress === undefined ? [{}] : [{ address: safeAddress }, { location: safeAddress }, {}];
-    const ownerVariants = email === undefined ? [{}] : [{ owner_email: email }, { ownerEmail: email }, {}];
-    const telephoneVariants = safeTelephone === undefined
-        ? [{}]
-        : [
-            { telephone: safeTelephone },
-            { phone: safeTelephone },
-            { shop_phone: safeTelephone },
-            { telephone_number: safeTelephone },
-            { phone_number: safeTelephone },
-            { contact_number: safeTelephone },
-            { mobile: safeTelephone },
-            { telefon: safeTelephone },
-            { tel: safeTelephone },
-            {}
-        ];
-
-    const candidates = [];
-    nameVariants.forEach((namePayload) => {
-        locationVariants.forEach((locationPayload) => {
-            addressVariants.forEach((addressPayload) => {
-                ownerVariants.forEach((ownerPayload) => {
-                    telephoneVariants.forEach((telephonePayload) => {
-                        candidates.push(cleanPayload({
-                            ...namePayload,
-                            ...locationPayload,
-                            ...addressPayload,
-                            ...ownerPayload,
-                            ...telephonePayload
-                        }));
-                    });
-                });
-            });
-        });
+    const payload = cleanPayload({
+        ...(name === undefined ? {} : { name: asString(name) }),
+        ...(location === undefined ? {} : { location: asString(location) }),
+        ...(address === undefined ? {} : { address: asString(address) }),
+        ...(ownerEmail === undefined ? {} : { owner_email: asString(ownerEmail).toLowerCase() }),
+        ...(telephone === undefined ? {} : { telephone: asString(telephone) }),
     });
 
-    const unique = dedupePayloads(candidates.filter((payload) => Object.keys(payload).length > 0));
-    return unique.filter((payload) => {
-        const hasName = Object.prototype.hasOwnProperty.call(payload, 'name') || Object.prototype.hasOwnProperty.call(payload, 'shop_name');
-        const hasLocation = Object.prototype.hasOwnProperty.call(payload, 'location') || Object.prototype.hasOwnProperty.call(payload, 'address');
-        const hasOwner = Object.prototype.hasOwnProperty.call(payload, 'owner_email') || Object.prototype.hasOwnProperty.call(payload, 'ownerEmail');
-        const hasTelephone = Object.prototype.hasOwnProperty.call(payload, 'telephone')
-            || Object.prototype.hasOwnProperty.call(payload, 'phone')
-            || Object.prototype.hasOwnProperty.call(payload, 'shop_phone');
-        return hasName || hasLocation || hasOwner || hasTelephone;
-    });
+    return Object.keys(payload).length ? [payload] : [];
 }
 
 function buildShopOwnerProfileUpdatePayloads({ ownerEmail, ownerPassword }) {
-    const email = ownerEmail === undefined ? undefined : asString(ownerEmail).toLowerCase();
-    const password = ownerPassword === undefined ? undefined : asString(ownerPassword);
-
-    const emailVariants = email === undefined ? [{}] : [{ email }];
-    const passwordVariants = password === undefined
-        ? [{}]
-        : [{ password }, { adminPassword: password }, { passcode: password }, { pass_code: password }];
-
-    const candidates = [];
-    emailVariants.forEach((emailPayload) => {
-        passwordVariants.forEach((passwordPayload) => {
-            candidates.push(cleanPayload({ ...emailPayload, ...passwordPayload }));
-        });
+    const payload = cleanPayload({
+        ...(ownerEmail === undefined ? {} : { email: asString(ownerEmail).toLowerCase() }),
+        ...(ownerPassword === undefined ? {} : { password: asString(ownerPassword) }),
     });
 
-    return dedupePayloads(candidates.filter((payload) => Object.keys(payload).length > 0));
+    return Object.keys(payload).length ? [payload] : [];
 }
 
 function buildProfileInsertPayloads({
@@ -505,63 +421,22 @@ function buildProfileInsertPayloads({
     includePin = true
 }) {
     const safeName = asString(name) || 'User';
-    const loginIdentity = asString(email) || safeName;
     const safePin = asString(pin);
     const safePassword = asString(password);
     const profileId = makeRowId();
 
-    const nameKeyVariants = [
-        { name: safeName },
-        { full_name: safeName },
-        { workerName: safeName },
-        // Avoid relying on optional username column in tenant schemas.
-        { name: loginIdentity },
-    ];
-    const shopKeyVariants = [
-        { shop_id: shopId },
-    ];
-    const pinFieldVariants = (!includePin || !safePin)
-        ? [{}]
-        : [{ pin: safePin }, { passcode: safePin }, { pin_code: safePin }, { pass_code: safePin }, {}];
-    const passwordFieldVariants = (!includePassword || !safePassword)
-        ? [{}]
-        : [{ password: safePassword }, { adminPassword: safePassword }, { passcode: safePassword }, { pass_code: safePassword }, {}];
-
-    const basePayloads = [];
-    shopKeyVariants.forEach((shopKeys) => {
-        nameKeyVariants.forEach((nameKeys) => {
-            const core = {
-                id: profileId,
-                ...shopKeys,
-                ...nameKeys,
-                role
-            };
-            const emailVariants = email ? [{ ...core, email }, core] : [core];
-
-            emailVariants.forEach((emailVariant) => {
-                pinFieldVariants.forEach((pinVariant) => {
-                    passwordFieldVariants.forEach((passwordVariant) => {
-                        basePayloads.push({ ...emailVariant, ...pinVariant, ...passwordVariant });
-                    });
-                });
-            });
-        });
-    });
-
-    const variants = [];
-    basePayloads.forEach((base) => {
-        variants.push({ ...base, active: true, hourly_rate: hourlyRate });
-        variants.push({ ...base, active: true, hourlyRate: hourlyRate });
-        variants.push({ ...base, is_active: true, hourly_rate: hourlyRate });
-        variants.push({ ...base, is_active: true, hourlyRate: hourlyRate });
-        variants.push({ ...base, hourly_rate: hourlyRate });
-        variants.push({ ...base, hourlyRate: hourlyRate });
-        variants.push({ ...base, active: true });
-        variants.push({ ...base, is_active: true });
-        variants.push({ ...base });
-    });
-
-    return dedupePayloads(variants);
+    return [cleanPayload({
+        id: profileId,
+        shop_id: asString(shopId),
+        role,
+        name: safeName,
+        email: asString(email).toLowerCase(),
+        hourlyRate,
+        active: true,
+        is_online: false,
+        ...(includePin && safePin ? { pin: safePin } : {}),
+        ...(includePassword && safePassword ? { password: safePassword } : {}),
+    })];
 }
 
 function buildManagerProfilePayloads({ ownerName, ownerEmail, shopId, tempPin, tempPassword }) {
@@ -590,77 +465,22 @@ function buildSalesmanInsertPayloads({ name, pin, shopId, hourlyRate = 12.5 }) {
 }
 
 function buildProfileUpdatePayloads(updates = {}) {
-    const staticFields = {};
-    const fieldVariants = [];
-
-    Object.entries(updates).forEach(([key, rawValue]) => {
-        if (rawValue === undefined) return;
-
-        if (key === 'hourlyRate') {
-            fieldVariants.push([{ hourlyRate: rawValue }, { hourly_rate: rawValue }]);
-            return;
-        }
-        if (key === 'active') {
-            fieldVariants.push([{ active: rawValue }, { is_active: rawValue }]);
-            return;
-        }
-        if (key === 'photo') {
-            fieldVariants.push([{ photo: rawValue }, { avatar_url: rawValue }]);
-            return;
-        }
-        if (key === 'pin') {
-            const safePin = asString(rawValue);
-            fieldVariants.push([
-                { pin: safePin },
-                { passcode: safePin },
-                { pin_code: safePin },
-                { pass_code: safePin }
-            ]);
-            return;
-        }
-        if (key === 'name') {
-            const safeName = asString(rawValue);
-            fieldVariants.push([
-                { name: safeName },
-                { full_name: safeName },
-                { workerName: safeName }
-            ]);
-            return;
-        }
-        if (key === 'is_online' || key === 'isOnline' || key === 'online') {
-            const safeOnline = asBoolean(rawValue);
-            fieldVariants.push([
-                { is_online: safeOnline },
-                { isOnline: safeOnline },
-                { online: safeOnline }
-            ]);
-            return;
-        }
-
-        staticFields[key] = rawValue;
+    const payload = cleanPayload({
+        ...(updates.name === undefined ? {} : { name: asString(updates.name) }),
+        ...(updates.email === undefined ? {} : { email: asString(updates.email).toLowerCase() }),
+        ...(updates.role === undefined ? {} : { role: asString(updates.role) }),
+        ...(updates.shop_id === undefined ? {} : { shop_id: asString(updates.shop_id) }),
+        ...(updates.pin === undefined ? {} : { pin: asString(updates.pin) }),
+        ...(updates.password === undefined ? {} : { password: asString(updates.password) }),
+        ...(updates.hourlyRate === undefined ? {} : { hourlyRate: Number(updates.hourlyRate) || 0 }),
+        ...(updates.active === undefined ? {} : { active: asBoolean(updates.active) }),
+        ...(updates.photo === undefined ? {} : { photo: asString(updates.photo) }),
+        ...((updates.is_online === undefined && updates.isOnline === undefined && updates.online === undefined)
+            ? {}
+            : { is_online: asBoolean(updates.is_online ?? updates.isOnline ?? updates.online) }),
     });
 
-    const variants = [{ ...updates }];
-    const composeVariants = (index, acc) => {
-        if (index >= fieldVariants.length) {
-            variants.push({ ...staticFields, ...acc });
-            return;
-        }
-        fieldVariants[index].forEach((candidate) => {
-            composeVariants(index + 1, { ...acc, ...candidate });
-        });
-    };
-    composeVariants(0, {});
-
-    const cleaned = variants.map((payload) => {
-        const next = { ...payload };
-        Object.keys(next).forEach((key) => {
-            if (next[key] === undefined) delete next[key];
-        });
-        return next;
-    });
-
-    return dedupePayloads(cleaned);
+    return Object.keys(payload).length ? [payload] : [];
 }
 
 async function trySelectProfileByField(field, value, roles) {
@@ -751,25 +571,10 @@ async function persistSalesmanOnlineStatus({ userId, shopId, isOnline }) {
     const sid = asString(shopId);
     if (!uid) return false;
 
-    const payloadVariants = [
-        { is_online: asBoolean(isOnline) },
-        { isOnline: asBoolean(isOnline) },
-        { online: asBoolean(isOnline) }
-    ];
-
-    for (const payload of payloadVariants) {
-        let query = supabase.from('profiles').update(payload).eq('id', uid);
-        if (sid) query = query.eq('shop_id', sid);
-        const { error } = await query;
-        if (!error) return true;
-
-        const message = asString(error?.message).toLowerCase();
-        if (message.includes('schema cache') || message.includes('column')) {
-            continue;
-        }
-    }
-
-    return false;
+    let query = supabase.from('profiles').update({ is_online: asBoolean(isOnline) }).eq('id', uid);
+    if (sid) query = query.eq('shop_id', sid);
+    const { error } = await query;
+    return !error;
 }
 
 export function AuthProvider({ children }) {
@@ -798,13 +603,10 @@ export function AuthProvider({ children }) {
     const [shopMetaMap, setShopMetaMap] = useState(() => readLocalJSON(SHOP_META_STORAGE_KEY, {}));
 
     // ── Persistent Config Data ──
-    const [adminPassword, setAdminPassword] = useState(() => localStorage.getItem('adminPassword') || 'admin123');
-    const [slowMovingDays, setSlowMovingDays] = useState(() => parseInt(localStorage.getItem('slowMovingDays'), 10) || 30);
-    const [autoLockEnabled, setAutoLockEnabled] = useState(() => {
-        const saved = localStorage.getItem('autoLockEnabled');
-        return saved !== null ? saved === 'true' : true;
-    });
-    const [autoLockTimeout, setAutoLockTimeout] = useState(() => parseInt(localStorage.getItem('autoLockTimeout'), 10) || 120);
+    const [adminPassword, setAdminPassword] = useState('');
+    const [slowMovingDays, setSlowMovingDays] = useState(30);
+    const [autoLockEnabled, setAutoLockEnabled] = useState(true);
+    const [autoLockTimeout, setAutoLockTimeout] = useState(120);
 
     const [salesmen, setSalesmen] = useState([]);
 
@@ -882,33 +684,6 @@ export function AuthProvider({ children }) {
         writeAuthState(AUTH_SHOP_STATE_KEY, activeShopId || '');
     }, [activeShopId]);
 
-    useEffect(() => { localStorage.setItem('adminPassword', adminPassword); }, [adminPassword]);
-    useEffect(() => { localStorage.setItem('slowMovingDays', String(slowMovingDays)); }, [slowMovingDays]);
-    useEffect(() => { localStorage.setItem('autoLockEnabled', String(autoLockEnabled)); }, [autoLockEnabled]);
-    useEffect(() => { localStorage.setItem('autoLockTimeout', String(autoLockTimeout)); }, [autoLockTimeout]);
-    useEffect(() => { localStorage.setItem(SALESMAN_META_STORAGE_KEY, JSON.stringify(salesmanMetaMap)); }, [salesmanMetaMap]);
-    useEffect(() => { localStorage.setItem(SHOP_META_STORAGE_KEY, JSON.stringify(shopMetaMap)); }, [shopMetaMap]);
-
-    // ── Storage Event Listener for Cross-Tab Sync ──
-    useEffect(() => {
-        const handleStorageChange = (e) => {
-            if (e.key === 'salesmen' && e.newValue) {
-                // Salesmen are loaded from DB; ignore localStorage salesmen sync.
-            }
-            if (e.key === SALESMAN_META_STORAGE_KEY && e.newValue) {
-                const parsed = safeParseJSON(e.newValue, {});
-                if (parsed && typeof parsed === 'object') setSalesmanMetaMap(parsed);
-            }
-            if (e.key === SHOP_META_STORAGE_KEY && e.newValue) {
-                const parsed = safeParseJSON(e.newValue, {});
-                if (parsed && typeof parsed === 'object') setShopMetaMap(parsed);
-            }
-            if (e.key === 'adminPassword' && e.newValue) setAdminPassword(e.newValue);
-        };
-        window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, []);
-
     // ── Live Broadcasting for Settings ──
     const broadcastSetting = useCallback(async (key, value) => {
         await supabase.channel('public:settings').send({
@@ -923,7 +698,6 @@ export function AuthProvider({ children }) {
             .on('broadcast', { event: 'settings_sync' }, (payload) => {
                 const { key, value } = payload.payload;
                 if (key === 'salesmen') setSalesmen(value);
-                else if (key === 'adminPassword') setAdminPassword(value);
                 else if (key === 'slowMovingDays') setSlowMovingDays(value);
                 else if (key === 'autoLockEnabled') setAutoLockEnabled(value);
                 else if (key === 'autoLockTimeout') setAutoLockTimeout(value);
@@ -1830,48 +1604,29 @@ export function AuthProvider({ children }) {
             if (userData.role === 'admin') {
                 const identifier = asString(userData.username || userData.email || userData.name);
                 const password = asString(userData.password);
-                let profile = null;
-
-                // Try multiple profile fields to stay compatible with older schemas.
-                profile = await trySelectProfileByField('email', identifier.toLowerCase(), ADMIN_ROLES)
-                    || await trySelectProfileByField('name', identifier, ADMIN_ROLES)
-                    || await trySelectProfileByField('full_name', identifier, ADMIN_ROLES)
-                    || await trySelectProfileByField('workerName', identifier, ADMIN_ROLES);
-
-                if (profile) {
-                    const normalized = normalizeUserFromProfile(profile);
-                    const storedPass = asString(profile.password || profile.adminPassword || profile.passcode);
-                    if (storedPass && storedPass !== password) {
-                        return { success: false, message: 'Invalid credentials' };
-                    }
-                    if (!storedPass && password !== adminPassword) {
-                        return { success: false, message: 'Invalid credentials' };
-                    }
-                    if (normalized.role === 'admin' && !asString(normalized.shop_id)) {
-                        return { success: false, message: 'Shop admin is not linked to any shop.' };
-                    }
-
-                    setRole(normalized.role);
-                    setUser(normalized);
-                    if (normalized.shop_id) {
-                        setActiveShopIdState(normalized.shop_id);
-                    } else if (normalized.role !== 'superadmin') {
-                        setActiveShopIdState('');
-                    }
-                    persistAuthSession(normalized.role, normalized);
-                    return { success: true, role: normalized.role };
+                const { profile, error } = await requestAdminLogin({ identifier, password });
+                if (error || !profile) {
+                    return { success: false, message: 'Invalid Admin credentials' };
                 }
 
-                // Legacy fallback
-                if (password === adminPassword) {
-                    setRole('superadmin');
-                    const fallbackSuperAdmin = { id: 'local-superadmin', name: 'Admin', role: 'superadmin', shop_id: '' };
-                    setUser(fallbackSuperAdmin);
-                    persistAuthSession('superadmin', fallbackSuperAdmin);
-                    return { success: true, role: 'superadmin' };
+                const normalized = normalizeUserFromProfile(profile);
+                if (!normalized || !ADMIN_ROLES.includes(normalized.role)) {
+                    return { success: false, message: 'Invalid Admin credentials' };
+                }
+                if (normalized.role === 'admin' && !asString(normalized.shop_id)) {
+                    return { success: false, message: 'Shop admin is not linked to any shop.' };
                 }
 
-                return { success: false, message: 'Invalid Admin credentials' };
+                setRole(normalized.role);
+                setUser(normalized);
+                if (normalized.shop_id) {
+                    setActiveShopIdState(normalized.shop_id);
+                } else if (normalized.role !== 'superadmin') {
+                    setActiveShopIdState('');
+                }
+                persistAuthSession(normalized.role, normalized);
+                return { success: true, role: normalized.role };
+
             }
 
             if (userData.role === 'salesman') {
@@ -1916,7 +1671,7 @@ export function AuthProvider({ children }) {
         } finally {
             setAuthLoading(false);
         }
-    }, [adminPassword, salesmen, activeShopId, salesmanMetaMap]);
+    }, [salesmen, activeShopId, salesmanMetaMap]);
 
     const logout = () => {
         clearAuthSession();
@@ -1932,9 +1687,27 @@ export function AuthProvider({ children }) {
     };
 
     // ── Management Functions ──
-    const updateAdminPassword = (newPass) => {
-        setAdminPassword(newPass);
-        broadcastSetting('adminPassword', newPass);
+    const updateAdminPassword = async (newPass) => {
+        const nextPass = asString(newPass);
+        const userId = asString(user?.id);
+        if (!nextPass) {
+            throw new Error('Password is required.');
+        }
+        if (!userId || !ADMIN_ROLES.includes(asString(user?.role))) {
+            throw new Error('Only logged-in admin users can change password.');
+        }
+
+        const { error } = await supabase
+            .from('profiles')
+            .update({ password: nextPass })
+            .eq('id', userId);
+
+        if (error) {
+            throw new Error(error.message || 'Failed to update admin password.');
+        }
+
+        setUser((prev) => (prev ? { ...prev, password: nextPass } : prev));
+        setAdminPassword('');
     };
 
     const addSalesman = async (name, pin, extra = {}) => {
