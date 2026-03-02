@@ -1033,10 +1033,10 @@ export function InventoryProvider({ children }) {
             .eq('name', trimmed)
             .eq('level', 1)
             .eq('scope', normalizedScope)
-            .maybeSingle();
+            .limit(1);
 
         if (!scopedSelect.error) {
-            existing = scopedSelect.data || null;
+            existing = Array.isArray(scopedSelect.data) ? (scopedSelect.data[0] || null) : null;
         } else {
             const scopedErrMsg = String(scopedSelect.error?.message || '').toLowerCase();
             hasScopeColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('scope'));
@@ -1047,8 +1047,8 @@ export function InventoryProvider({ children }) {
                     .eq('shop_id', sid)
                     .eq('name', trimmed)
                     .eq('level', 1)
-                    .maybeSingle();
-                existing = fallbackSelect.data || null;
+                    .limit(1);
+                existing = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
             }
         }
 
@@ -1070,7 +1070,26 @@ export function InventoryProvider({ children }) {
                 shop_id: sid,
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
-            await supabase.from('categories').insert([insertPayload]);
+            const { error: insertError } = await supabase.from('categories').insert([insertPayload]);
+            if (insertError) {
+                const fallbackSelect = await supabase
+                    .from('categories')
+                    .select('id')
+                    .eq('shop_id', sid)
+                    .eq('name', trimmed)
+                    .eq('level', 1)
+                    .limit(1);
+                const fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
+                if (fallbackExisting) {
+                    const updatePayload = {
+                        ...(image ? { image } : {}),
+                        ...(hasScopeColumn ? { scope: normalizedScope } : {})
+                    };
+                    if (Object.keys(updatePayload).length > 0) {
+                        await supabase.from('categories').update(updatePayload).eq('id', fallbackExisting.id).eq('shop_id', sid);
+                    }
+                }
+            }
         }
     }, [activeShopId]);
 
@@ -1114,10 +1133,10 @@ export function InventoryProvider({ children }) {
             .eq('parent', l1Name)
             .eq('level', 2)
             .eq('scope', normalizedScope)
-            .maybeSingle();
+            .limit(1);
 
         if (!scopedSelect.error) {
-            existing = scopedSelect.data || null;
+            existing = Array.isArray(scopedSelect.data) ? (scopedSelect.data[0] || null) : null;
         } else {
             const scopedErrMsg = String(scopedSelect.error?.message || '').toLowerCase();
             hasScopeColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('scope'));
@@ -1129,8 +1148,8 @@ export function InventoryProvider({ children }) {
                     .eq('name', trimmed)
                     .eq('parent', l1Name)
                     .eq('level', 2)
-                    .maybeSingle();
-                existing = fallbackSelect.data || null;
+                    .limit(1);
+                existing = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
             }
         }
 
@@ -1152,7 +1171,27 @@ export function InventoryProvider({ children }) {
                 shop_id: sid,
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
-            await supabase.from('categories').insert([insertPayload]);
+            const { error: insertError } = await supabase.from('categories').insert([insertPayload]);
+            if (insertError) {
+                const fallbackSelect = await supabase
+                    .from('categories')
+                    .select('id')
+                    .eq('shop_id', sid)
+                    .eq('name', trimmed)
+                    .eq('parent', l1Name)
+                    .eq('level', 2)
+                    .limit(1);
+                const fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
+                if (fallbackExisting) {
+                    const updatePayload = {
+                        ...(image ? { image } : {}),
+                        ...(hasScopeColumn ? { scope: normalizedScope } : {})
+                    };
+                    if (Object.keys(updatePayload).length > 0) {
+                        await supabase.from('categories').update(updatePayload).eq('id', fallbackExisting.id).eq('shop_id', sid);
+                    }
+                }
+            }
         }
     }, [activeShopId]);
 

@@ -148,7 +148,14 @@ export default function LatestDashboard() {
     const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
 
     const readLastActivityAt = useCallback(() => {
-        const raw = volatileLockState.get(lockStateKey);
+        let raw = volatileLockState.get(lockStateKey);
+        if (!raw) {
+            try {
+                raw = localStorage.getItem(lockStateKey);
+            } catch {
+                raw = null;
+            }
+        }
         if (!raw) return Date.now();
         try {
             const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -158,10 +165,35 @@ export default function LatestDashboard() {
         }
     }, [lockStateKey]);
 
-    const writeLastActivityAt = useCallback((nextLastActivityAt = Date.now()) => {
-        volatileLockState.set(lockStateKey, {
-            lastActivityAt: Number(nextLastActivityAt) || Date.now()
-        });
+    const readPersistedLockFlag = useCallback(() => {
+        let raw = volatileLockState.get(lockStateKey);
+        if (!raw) {
+            try {
+                raw = localStorage.getItem(lockStateKey);
+            } catch {
+                raw = null;
+            }
+        }
+        if (!raw) return false;
+        try {
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return Boolean(parsed?.isLocked);
+        } catch {
+            return false;
+        }
+    }, [lockStateKey]);
+
+    const writeLockState = useCallback((nextLastActivityAt = Date.now(), nextIsLocked = false) => {
+        const payload = {
+            lastActivityAt: Number(nextLastActivityAt) || Date.now(),
+            isLocked: Boolean(nextIsLocked),
+        };
+        volatileLockState.set(lockStateKey, payload);
+        try {
+            localStorage.setItem(lockStateKey, JSON.stringify(payload));
+        } catch {
+            // Ignore storage errors.
+        }
     }, [lockStateKey]);
 
     // ═══════════════════ COMPUTED ═══════════════════
@@ -412,7 +444,7 @@ export default function LatestDashboard() {
         if (!user?.id) return;
         if (!autoLockEnabled) {
             setIsLocked(false);
-            writeLastActivityAt(Date.now());
+            writeLockState(Date.now(), false);
             return;
         }
 
@@ -420,14 +452,16 @@ export default function LatestDashboard() {
         const lastActivityAt = readLastActivityAt();
         const now = Date.now();
         const elapsedMs = now - lastActivityAt;
-        const shouldLock = elapsedMs >= timeoutMs;
+        const persistedLocked = readPersistedLockFlag();
+        const shouldLock = persistedLocked || elapsedMs >= timeoutMs;
         setIsLocked(shouldLock);
+        writeLockState(lastActivityAt, shouldLock);
 
         if (!shouldLock) {
             // Keep existing idle progress across refresh.
-            writeLastActivityAt(lastActivityAt);
+            writeLockState(lastActivityAt, false);
         }
-    }, [autoLockEnabled, autoLockTimeout, readLastActivityAt, user?.id, writeLastActivityAt]);
+    }, [autoLockEnabled, autoLockTimeout, readLastActivityAt, readPersistedLockFlag, user?.id, writeLockState]);
 
     useEffect(() => {
         if (!autoLockEnabled || !user?.id) return;
@@ -435,6 +469,7 @@ export default function LatestDashboard() {
         const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
         const lockScreen = () => {
             setIsLocked(true);
+            writeLockState(readLastActivityAt(), true);
         };
 
         const scheduleFromLastActivity = () => {
@@ -454,7 +489,7 @@ export default function LatestDashboard() {
             if (isLocked) return;
             clearTimeout(debounceRef.current);
             debounceRef.current = setTimeout(() => {
-                writeLastActivityAt(Date.now());
+                writeLockState(Date.now(), false);
                 scheduleFromLastActivity();
             }, 150);
         };
@@ -477,7 +512,7 @@ export default function LatestDashboard() {
             clearTimeout(lockTimerRef.current);
             clearTimeout(debounceRef.current);
         };
-    }, [autoLockEnabled, autoLockTimeout, isLocked, readLastActivityAt, user?.id, writeLastActivityAt]);
+    }, [autoLockEnabled, autoLockTimeout, isLocked, readLastActivityAt, user?.id, writeLockState]);
 
     const handleUnlock = (e) => {
         e?.preventDefault();
@@ -485,13 +520,17 @@ export default function LatestDashboard() {
             setIsLocked(false);
             setUnlockPin('');
             setUnlockError(false);
-            writeLastActivityAt(Date.now());
+            writeLockState(Date.now(), false);
         } else {
             setUnlockError(true);
             setUnlockPin('');
             setTimeout(() => setUnlockError(false), 1500);
         }
     };
+
+    useEffect(() => {
+        writeLockState(readLastActivityAt(), isLocked);
+    }, [isLocked, readLastActivityAt, writeLockState]);
 
     // ═══════════════════ RENDER ═══════════════════
 
@@ -1026,7 +1065,7 @@ export default function LatestDashboard() {
                                                 setIsLocked(false);
                                                 setUnlockPin('');
                                                 setUnlockError(false);
-                                                writeLastActivityAt(Date.now());
+                                                writeLockState(Date.now(), false);
                                             } else {
                                                 setUnlockError(true);
                                                 setUnlockPin('');

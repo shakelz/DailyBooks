@@ -495,16 +495,52 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
 
     const readLastActivityAt = () => {
-        const raw = volatileLockState.get(lockStateKey);
+        let raw = volatileLockState.get(lockStateKey);
+        if (!raw) {
+            try {
+                raw = localStorage.getItem(lockStateKey);
+            } catch {
+                raw = null;
+            }
+        }
         if (!raw) return Date.now();
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        return Number(parsed?.lastActivityAt) || Date.now();
+        try {
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return Number(parsed?.lastActivityAt) || Date.now();
+        } catch {
+            return Date.now();
+        }
     };
 
-    const writeLastActivityAt = (nextLastActivityAt = Date.now()) => {
-        volatileLockState.set(lockStateKey, {
-            lastActivityAt: Number(nextLastActivityAt) || Date.now()
-        });
+    const readPersistedLockFlag = () => {
+        let raw = volatileLockState.get(lockStateKey);
+        if (!raw) {
+            try {
+                raw = localStorage.getItem(lockStateKey);
+            } catch {
+                raw = null;
+            }
+        }
+        if (!raw) return false;
+        try {
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return Boolean(parsed?.isLocked);
+        } catch {
+            return false;
+        }
+    };
+
+    const writeLockState = (nextLastActivityAt = Date.now(), nextIsLocked = isLocked) => {
+        const payload = {
+            lastActivityAt: Number(nextLastActivityAt) || Date.now(),
+            isLocked: Boolean(nextIsLocked),
+        };
+        volatileLockState.set(lockStateKey, payload);
+        try {
+            localStorage.setItem(lockStateKey, JSON.stringify(payload));
+        } catch {
+            // Ignore storage issues; volatile cache still works for current session.
+        }
     };
     const canEditTransactions = adminView || Boolean(
         user?.canEditTransactions
@@ -536,7 +572,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!user?.id || adminView) return;
         if (!autoLockEnabled) {
             setIsLocked(false);
-            writeLastActivityAt(Date.now());
+            writeLockState(Date.now(), false);
             return;
         }
 
@@ -544,11 +580,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const lastActivityAt = readLastActivityAt();
         const now = Date.now();
         const elapsedMs = now - lastActivityAt;
-        const shouldLock = elapsedMs >= timeoutMs;
+        const persistedLocked = readPersistedLockFlag();
+        const shouldLock = persistedLocked || elapsedMs >= timeoutMs;
         setIsLocked(shouldLock);
+        writeLockState(lastActivityAt, shouldLock);
 
         if (!shouldLock) {
-            writeLastActivityAt(lastActivityAt);
+            writeLockState(lastActivityAt, false);
         }
     }, [adminView, autoLockEnabled, autoLockTimeout, user?.id]);
 
@@ -556,7 +594,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!autoLockEnabled || !user?.id || adminView) return;
 
         const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
-        const lockScreen = () => setIsLocked(true);
+        const lockScreen = () => {
+            setIsLocked(true);
+            writeLockState(readLastActivityAt(), true);
+        };
 
         const scheduleFromLastActivity = () => {
             clearTimeout(lockTimerRef.current);
@@ -575,7 +616,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             if (isLocked) return;
             clearTimeout(lockDebounceRef.current);
             lockDebounceRef.current = setTimeout(() => {
-                writeLastActivityAt(Date.now());
+                writeLockState(Date.now(), false);
                 scheduleFromLastActivity();
             }, 150);
         };
@@ -609,7 +650,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             setIsLocked(false);
             setUnlockPin('');
             setUnlockError(false);
-            writeLastActivityAt(Date.now());
+            writeLockState(Date.now(), false);
             return;
         }
         setUnlockError(true);
@@ -629,8 +670,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setIsLocked(false);
         setUnlockPin('');
         setUnlockError(false);
-        writeLastActivityAt(Date.now());
+        writeLockState(Date.now(), false);
     }, [isLocked, unlockPin, user?.pin, user?.password]);
+
+    useEffect(() => {
+        writeLockState(readLastActivityAt(), isLocked);
+    }, [isLocked]);
 
 
     const todayStart = useMemo(() => {
