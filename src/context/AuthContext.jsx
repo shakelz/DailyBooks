@@ -534,45 +534,6 @@ function buildTimestampFromTime(baseTimestamp, timeValue) {
     return base.toISOString();
 }
 
-function getCurrentPunchState(logs = [], userId = '') {
-    const uid = asString(userId);
-    if (!uid) return false;
-
-    // Prefer structured attendance state: any open check-in without check-out means currently punched in.
-    const openAttendanceRow = (Array.isArray(logs) ? logs : []).some((log) => {
-        const logUserId = asString(log?.userId || log?.workerId || log?.user_id || log?.worker_id);
-        if (logUserId !== uid) return false;
-        const checkIn = asString(log?.check_in || log?.checkIn);
-        const checkOut = asString(log?.check_out || log?.checkOut);
-        return Boolean(checkIn) && !Boolean(checkOut);
-    });
-
-    if (openAttendanceRow) return true;
-
-    const ordered = (Array.isArray(logs) ? logs : [])
-        .filter((log) => asString(log?.userId || log?.workerId) === uid)
-        .map((log) => ({
-            ...log,
-            type: asString(log?.type).toUpperCase(),
-            ts: new Date(asString(log?.timestamp)).getTime()
-        }))
-        .filter((log) => Number.isFinite(log.ts) && (log.type === 'IN' || log.type === 'OUT'))
-        .sort((a, b) => a.ts - b.ts);
-
-    let openSessions = 0;
-    ordered.forEach((log) => {
-        if (log.type === 'IN') {
-            openSessions += 1;
-            return;
-        }
-        if (log.type === 'OUT') {
-            openSessions = Math.max(0, openSessions - 1);
-        }
-    });
-
-    return openSessions > 0;
-}
-
 function buildShopUpdatePayloads({ name, location, address, ownerEmail, telephone }) {
     const payload = cleanPayload({
         ...(name === undefined ? {} : { name: asString(name) }),
@@ -1493,30 +1454,12 @@ export function AuthProvider({ children }) {
     const [attendanceLogs, setAttendanceLogs] = useState([]);
     const [isPunchedIn, setIsPunchedIn] = useState(false);
 
-    // Bootstrap punch state from D1 on mount
-    useEffect(() => {
-        if (role !== 'salesman' || !user?.id || !activeShopId) return;
-
-        let cancelled = false;
-
-        const bootstrapPunchState = async () => {
-            const { data } = await requestUserStatus({ shopId: activeShopId, userId: user.id });
-            if (cancelled || !data) return;
-            setIsPunchedIn(asBoolean(data.is_punched_in));
-        };
-
-        bootstrapPunchState();
-        return () => {
-            cancelled = true;
-        };
-    }, [role, user?.id, activeShopId]);
-
-    useEffect(() => {
-        const sid = asString(activeShopId);
+    const fetchAttendanceState = useCallback(async (shopIdArg, roleArg, userIdArg) => {
+        const sid = asString(shopIdArg);
         if (!sid) {
             setAttendanceLogs([]);
             setIsPunchedIn(false);
-            return undefined;
+            return;
         }
 
         const formatAttendance = (dbLog) => {
@@ -1533,200 +1476,44 @@ export function AuthProvider({ children }) {
             };
         };
 
-        const fetchAttendance = async () => {
-            const { data, error } = await requestAttendanceLogs(sid);
-            if (!error && data) {
-                const formattedLogs = data.map(formatAttendance);
-                setAttendanceLogs(formattedLogs);
-                if (role === 'salesman' && user?.id) {
-                    // Always fetch DB truth for punch state
-                    const { data: dbUserStatus } = await requestUserStatus({ shopId: sid, userId: user.id });
-                    if (dbUserStatus && typeof dbUserStatus === 'object') {
-                        setIsPunchedIn(asBoolean(dbUserStatus.is_punched_in));
-                    } else {
-                        setIsPunchedIn(getCurrentPunchState(formattedLogs, user.id));
-                    }
-                }
-            } else {
-                setAttendanceLogs([]);
-                if (role === 'salesman' && user?.id) {
-                    const { data: dbUserStatus } = await requestUserStatus({ shopId: sid, userId: user.id });
-                    if (dbUserStatus && typeof dbUserStatus === 'object') {
-                        setIsPunchedIn(asBoolean(dbUserStatus.is_punched_in));
-                    }
-                }
-            }
-        };
-        fetchAttendance();
-        const attendancePollTimer = setInterval(fetchAttendance, 5000);
+        const { data, error } = await requestAttendanceLogs(sid);
+        const formattedLogs = !error && Array.isArray(data) ? data.map(formatAttendance) : [];
+        setAttendanceLogs(formattedLogs);
 
-        const isSameShop = (row) => asString(row?.shop_id) === sid;
+        if (asString(roleArg) === 'salesman' && asString(userIdArg)) {
+            const { data: dbUserStatus } = await requestUserStatus({ shopId: sid, userId: asString(userIdArg) });
+            setIsPunchedIn(asBoolean(dbUserStatus?.is_punched_in));
+            return;
+        }
 
-        const attendanceSubscription = supabase.channel(`public:attendance:${sid}`)
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'attendance' }, (payload) => {
-                if (!isSameShop(payload.new)) return;
-                const newLog = formatAttendance(payload.new);
-                setAttendanceLogs(prev => {
-                    if (prev.some(l => String(l.id) === String(newLog.id))) return prev;
-                    return [newLog, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-                });
-            })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'attendance' }, (payload) => {
-                if (!isSameShop(payload.new)) return;
-                const updated = formatAttendance(payload.new);
-                setAttendanceLogs(prev => prev.map(l => String(l.id) === String(updated.id) ? { ...l, ...updated } : l));
-            })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'attendance' }, (payload) => {
-                const oldShopId = asString(payload.old?.shop_id);
-                if (oldShopId && oldShopId !== sid) return;
-                setAttendanceLogs(prev => prev.filter(l => String(l.id) !== String(payload.old.id)));
-            })
-            .subscribe();
-
-        return () => {
-            clearInterval(attendancePollTimer);
-            supabase.removeChannel(attendanceSubscription);
-        };
-    }, [activeShopId, role, user?.id]);
-
-    // Derive punch state from attendance logs when they change
-    useEffect(() => {
-        if (user && role === 'salesman') {
-            const hasAnyUserLogs = attendanceLogs.some((l) => String(l.userId || l.workerId) === String(user.id));
-            if (hasAnyUserLogs) {
-                setIsPunchedIn(getCurrentPunchState(attendanceLogs, user.id));
-            }
-            // If no logs, leave state as-is (bootstrap effect handles initial DB fetch)
-        } else {
+        if (asString(roleArg) !== 'salesman') {
             setIsPunchedIn(false);
         }
-    }, [attendanceLogs, user, role, activeShopId]);
+    }, []);
+
+    useEffect(() => {
+        fetchAttendanceState(activeShopId, role, user?.id);
+    }, [activeShopId, role, user?.id, fetchAttendanceState]);
 
     const handlePunch = async (type) => {
         if (!user || !activeShopId) return;
 
-        const previousPunchState = asBoolean(isPunchedIn);
-        const nextPunchState = type === 'IN';
         const ts = new Date();
-        const uiLog = {
-            id: crypto.randomUUID(),
-            userId: user.id,
-            userName: user.name,
-            workerId: String(user.id),
-            workerName: user.name,
-            type,
-            shop_id: activeShopId,
-            timestamp: ts.toISOString(),
-            date: ts.toLocaleDateString('en-PK'),
-            time: ts.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            note: ''
-        };
-
-        setAttendanceLogs(prev => [uiLog, ...prev]);
-        setIsPunchedIn(nextPunchState);
-
-        const { data: savedLog, error } = await requestPunchIn({
+        const { error } = await requestPunchIn({
             userId: user.id,
             shopId: activeShopId,
             type,
-            timestamp: uiLog.timestamp,
+            timestamp: ts.toISOString(),
             note: '',
             userName: user.name || ''
         });
 
         if (error) {
             console.error('Failed to punch attendance:', error);
-            setAttendanceLogs((prev) => prev.filter((l) => String(l.id) !== String(uiLog.id)));
-            setIsPunchedIn(previousPunchState);
             return;
         }
 
-        if (savedLog) {
-            const normalizedSaved = {
-                ...savedLog,
-                userId: asString(savedLog.userId || savedLog.workerId || savedLog.user_id),
-                userName: asString(savedLog.userName || savedLog.workerName || savedLog.user_name),
-                workerId: asString(savedLog.workerId || savedLog.userId || savedLog.user_id),
-                workerName: asString(savedLog.workerName || savedLog.userName || savedLog.user_name),
-                timestamp: asString(savedLog.timestamp),
-                type: asString(savedLog.type || type),
-                date: asString(savedLog.timestamp)
-                    ? new Date(savedLog.timestamp).toLocaleDateString('en-PK')
-                    : uiLog.date,
-                time: asString(savedLog.timestamp)
-                    ? new Date(savedLog.timestamp).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
-                    : uiLog.time,
-                note: asString(savedLog.note)
-            };
-
-            setAttendanceLogs((prev) => {
-                const filtered = prev.filter((l) => String(l.id) !== String(uiLog.id) && String(l.id) !== String(normalizedSaved.id));
-                return [normalizedSaved, ...filtered].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-            });
-        }
-
-        // NOTE: is_online is set by the API (D1). Punch only affects isPunchedIn.
-
-        // Auto-save salary transaction on punch OUT
-        if (type === 'OUT') {
-            const salesman = salesmen.find(s => String(s.id) === String(user.id));
-            if (salesman) {
-                const shiftStartMs = new Date(asString(savedLog?.check_in)).getTime();
-                const shiftEndMs = new Date(asString(savedLog?.check_out || savedLog?.timestamp || ts.toISOString())).getTime();
-                const hasValidRange = Number.isFinite(shiftStartMs) && Number.isFinite(shiftEndMs) && shiftEndMs > shiftStartMs;
-
-                let hoursWorked = hasValidRange ? (shiftEndMs - shiftStartMs) / 3600000 : 0;
-
-                if (!hasValidRange) {
-                    const latestIn = [...attendanceLogs]
-                        .filter(l => String(l.userId) === String(user.id) && String(l.type).toUpperCase() === 'IN')
-                        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
-                    if (latestIn?.timestamp) {
-                        const fallbackStart = new Date(latestIn.timestamp).getTime();
-                        if (Number.isFinite(fallbackStart)) {
-                            hoursWorked = (ts.getTime() - fallbackStart) / 3600000;
-                        }
-                    }
-                }
-
-                const hourlyRate = parseFloat(salesman.hourlyRate) || 12.5;
-                const sessionSalary = hoursWorked * hourlyRate;
-
-                if (sessionSalary > 0.001) {
-                    const salaryTxn = {
-                        id: String(Date.now()),
-                        desc: `Salary: ${salesman.name} (${hoursWorked.toFixed(1)}h @ €${hourlyRate}/hr)`,
-                        amount: parseFloat(sessionSalary.toFixed(2)),
-                        type: 'expense',
-                        category: 'Salary',
-                        isFixedExpense: true,
-                        date: ts.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                        time: ts.toLocaleTimeString('en-US', { hour12: false }),
-                        timestamp: ts.toISOString(),
-                        source: 'payroll-auto',
-                        workerId: String(salesman.id),
-                        salesmanName: salesman.name,
-                        shop_id: activeShopId
-                    };
-
-                    const { error: salaryError } = await supabase.from('transactions').insert([salaryTxn]);
-
-                    if (salaryError) {
-                        const fallbackTxn = {
-                            id: `sal-${Date.now()}`,
-                            shop_id: activeShopId,
-                            user_id: String(salesman.id),
-                            type: 'expense',
-                            source: 'payroll-auto',
-                            amount: parseFloat(sessionSalary.toFixed(2)),
-                            note: `Salary: ${salesman.name} (${hoursWorked.toFixed(1)}h @ €${hourlyRate}/hr)`,
-                            date: ts.toISOString().slice(0, 10)
-                        };
-                        await supabase.from('transactions').insert([fallbackTxn]);
-                    }
-                }
-            }
-        }
+        await fetchAttendanceState(activeShopId, role, user?.id);
     };
 
     const addAttendanceLog = (_userObj, type) => handlePunch(type);
