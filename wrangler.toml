@@ -1,0 +1,17 @@
+name = "dailybooks"
+compatibility_date = "2026-03-02"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dailybooks"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[vars]
+APP_ENV = "production"
+
+[env.preview.vars]
+APP_ENV = "preview"
+
+[env.production.vars]
+APP_ENV = "production"
