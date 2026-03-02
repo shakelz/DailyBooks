@@ -537,16 +537,21 @@ function computeHours(checkIn?: string, checkOut?: string): number {
   return Math.round(((outMs - inMs) / 3600000) * 100) / 100;
 }
 
-function toAttendanceEvent(row: Record<string, JsonValue>): Record<string, JsonValue> {
+function toAttendanceEvent(row: Record<string, JsonValue>, typeOverride?: 'IN' | 'OUT'): Record<string, JsonValue> {
   const checkIn = String(row.check_in || '').trim();
   const checkOut = String(row.check_out || '').trim();
-  const timestamp = checkOut || checkIn || String(row.created_at || '').trim();
-  const type = checkOut ? 'OUT' : 'IN';
+  const type = typeOverride || (checkOut ? 'OUT' : 'IN');
+  const timestamp = type === 'IN'
+    ? (checkIn || checkOut || String(row.created_at || '').trim())
+    : (checkOut || checkIn || String(row.created_at || '').trim());
   const userId = String(row.user_id || '').trim();
   const userName = String(row.user_name || '').trim();
+  const attendanceId = String(row.id || '').trim();
 
   return {
     ...row,
+    id: attendanceId ? `${attendanceId}:${type}` : `${type}:${timestamp}`,
+    attendance_id: attendanceId,
     userId,
     workerId: userId,
     userName,
@@ -555,6 +560,25 @@ function toAttendanceEvent(row: Record<string, JsonValue>): Record<string, JsonV
     timestamp,
     note: String(row.note || ''),
   };
+}
+
+function expandAttendanceEvents(row: Record<string, JsonValue>): Record<string, JsonValue>[] {
+  const checkIn = String(row.check_in || '').trim();
+  const checkOut = String(row.check_out || '').trim();
+  const events: Record<string, JsonValue>[] = [];
+
+  if (checkIn) {
+    events.push(toAttendanceEvent(row, 'IN'));
+  }
+  if (checkOut) {
+    events.push(toAttendanceEvent(row, 'OUT'));
+  }
+
+  if (!events.length) {
+    events.push(toAttendanceEvent(row));
+  }
+
+  return events;
 }
 
 async function handleAttendanceGet(request: Request, env: Env): Promise<Response> {
@@ -579,7 +603,13 @@ async function handleAttendanceGet(request: Request, env: Env): Promise<Response
     `).bind(shopId).all<Record<string, JsonValue>>();
 
     const rows = (result?.results || []) as Record<string, JsonValue>[];
-    const data = rows.map(toAttendanceEvent);
+    const data = rows
+      .flatMap(expandAttendanceEvents)
+      .sort((a, b) => {
+        const aMs = new Date(String(a.timestamp || '')).getTime();
+        const bMs = new Date(String(b.timestamp || '')).getTime();
+        return bMs - aMs;
+      });
     return json({ data, error: null });
   } catch (error) {
     return json({ data: null, error: { message: (error as Error)?.message || 'Failed to load attendance.' } }, 400);
@@ -706,7 +736,12 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
       timestamp,
     });
 
-    return json({ data: toAttendanceEvent(row), error: null });
+    const savedEvents = expandAttendanceEvents(row);
+    const responseEvent = savedEvents.find((event) => String(event.type) === type)
+      || savedEvents[savedEvents.length - 1]
+      || toAttendanceEvent(row);
+
+    return json({ data: responseEvent, error: null });
   } catch (error) {
     return json({ data: null, error: { message: (error as Error)?.message || 'Failed to save punch-in.' } }, 400);
   }

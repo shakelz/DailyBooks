@@ -1662,38 +1662,60 @@ export function AuthProvider({ children }) {
         }));
         // Auto-save salary transaction on punch OUT
         if (type === 'OUT') {
-            const todayStr = ts.toLocaleDateString('en-PK');
             const salesman = salesmen.find(s => String(s.id) === String(user.id));
             if (salesman) {
-                const myLogsToday = attendanceLogs
-                    .filter(l => String(l.userId) === String(user.id) && l.date === todayStr)
-                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                const shiftStartMs = new Date(asString(savedLog?.check_in)).getTime();
+                const shiftEndMs = new Date(asString(savedLog?.check_out || savedLog?.timestamp || ts.toISOString())).getTime();
+                const hasValidRange = Number.isFinite(shiftStartMs) && Number.isFinite(shiftEndMs) && shiftEndMs > shiftStartMs;
 
-                const latestIn = myLogsToday.find(l => l.type === 'IN');
-                if (latestIn?.timestamp) {
-                    const shiftStart = new Date(latestIn.timestamp).getTime();
-                    const nowMs = ts.getTime();
-                    const hoursWorked = (nowMs - shiftStart) / 3600000;
-                    const hourlyRate = parseFloat(salesman.hourlyRate) || 12.5;
-                    const sessionSalary = hoursWorked * hourlyRate;
+                let hoursWorked = hasValidRange ? (shiftEndMs - shiftStartMs) / 3600000 : 0;
 
-                    if (sessionSalary > 0.001) {
-                        const salaryTxn = {
-                            id: String(Date.now()),
-                            desc: `Salary: ${salesman.name} (${hoursWorked.toFixed(1)}h @ €${hourlyRate}/hr)`,
-                            amount: parseFloat(sessionSalary.toFixed(2)),
+                if (!hasValidRange) {
+                    const latestIn = [...attendanceLogs]
+                        .filter(l => String(l.userId) === String(user.id) && String(l.type).toUpperCase() === 'IN')
+                        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+                    if (latestIn?.timestamp) {
+                        const fallbackStart = new Date(latestIn.timestamp).getTime();
+                        if (Number.isFinite(fallbackStart)) {
+                            hoursWorked = (ts.getTime() - fallbackStart) / 3600000;
+                        }
+                    }
+                }
+
+                const hourlyRate = parseFloat(salesman.hourlyRate) || 12.5;
+                const sessionSalary = hoursWorked * hourlyRate;
+
+                if (sessionSalary > 0.001) {
+                    const salaryTxn = {
+                        id: String(Date.now()),
+                        desc: `Salary: ${salesman.name} (${hoursWorked.toFixed(1)}h @ €${hourlyRate}/hr)`,
+                        amount: parseFloat(sessionSalary.toFixed(2)),
+                        type: 'expense',
+                        category: 'Salary',
+                        isFixedExpense: true,
+                        date: ts.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                        time: ts.toLocaleTimeString('en-US', { hour12: false }),
+                        timestamp: ts.toISOString(),
+                        source: 'payroll-auto',
+                        workerId: String(salesman.id),
+                        salesmanName: salesman.name,
+                        shop_id: activeShopId
+                    };
+
+                    const { error: salaryError } = await supabase.from('transactions').insert([salaryTxn]);
+
+                    if (salaryError) {
+                        const fallbackTxn = {
+                            id: `sal-${Date.now()}`,
+                            shop_id: activeShopId,
+                            user_id: String(salesman.id),
                             type: 'expense',
-                            category: 'Salary',
-                            isFixedExpense: true,
-                            date: ts.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                            time: ts.toLocaleTimeString('en-US', { hour12: false }),
-                            timestamp: ts.toISOString(),
                             source: 'payroll-auto',
-                            workerId: String(salesman.id),
-                            salesmanName: salesman.name,
-                            shop_id: activeShopId
+                            amount: parseFloat(sessionSalary.toFixed(2)),
+                            note: `Salary: ${salesman.name} (${hoursWorked.toFixed(1)}h @ €${hourlyRate}/hr)`,
+                            date: ts.toISOString().slice(0, 10)
                         };
-                        await supabase.from('transactions').insert([salaryTxn]);
+                        await supabase.from('transactions').insert([fallbackTxn]);
                     }
                 }
             }
