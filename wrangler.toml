@@ -8,7 +8,7 @@ directory = "./dist"
 [[d1_databases]]
 binding = "carefone_db"
 database_name = "carefone-db"
-database_id = "xxxx-xxxx-xxxx"
+database_id = "f6d5d10a-b71d-4e83-a0a3-4fd1baca4b68"
 
 [vars]
 APP_ENV = "production"
