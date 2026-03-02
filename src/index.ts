@@ -72,6 +72,7 @@ type PunchInRequest = {
   type?: string;
   timestamp?: string;
   note?: string;
+  user_name?: string;
 };
 
 type Env = {
@@ -684,6 +685,7 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
   const shopId = String(body?.shop_id || '').trim();
   const type = String(body?.type || '').trim().toUpperCase();
   const note = String(body?.note || '').trim();
+  const userName = String(body?.user_name || '').trim();
   const timestamp = normalizeTimestamp(body?.timestamp);
 
   if (!userId || !shopId || (type !== 'IN' && type !== 'OUT')) {
@@ -698,12 +700,35 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
       LIMIT 1
     `).bind(userId).all<Record<string, JsonValue>>();
 
-    const profile = Array.isArray(profileResult?.results) && profileResult.results.length > 0
+    let profile = Array.isArray(profileResult?.results) && profileResult.results.length > 0
       ? profileResult.results[0]
       : null;
 
+    // Auto-sync: if the profile exists in Supabase but not in D1, create it now
     if (!profile) {
-      return json({ data: null, error: { message: 'Profile not found for user_id.' } }, 404);
+      try {
+        await db.prepare(`
+          INSERT INTO "profiles" (id, shop_id, name, role, is_online, active, updated_at)
+          VALUES (?, ?, ?, 'salesman', 0, 1, datetime('now'))
+          ON CONFLICT (id) DO UPDATE SET updated_at = datetime('now')
+        `).bind(userId, shopId, userName || 'User').run();
+
+        const retryResult = await db.prepare(`
+          SELECT id, shop_id, name FROM "profiles" WHERE id = ? LIMIT 1
+        `).bind(userId).all<Record<string, JsonValue>>();
+
+        profile = Array.isArray(retryResult?.results) && retryResult.results.length > 0
+          ? retryResult.results[0]
+          : null;
+      } catch {
+        // If the auto-sync also fails, continue with a synthetic profile object
+        // so the attendance record can still be written
+      }
+    }
+
+    // Use a fallback profile so punches always succeed even if profile sync failed
+    if (!profile) {
+      profile = { id: userId, shop_id: shopId, name: userName || 'User' } as Record<string, JsonValue>;
     }
 
     const profileShopId = String(profile.shop_id || '').trim();

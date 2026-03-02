@@ -252,7 +252,7 @@ async function requestAttendanceLogs(shopId) {
     };
 }
 
-async function requestPunchIn({ userId, shopId, type, timestamp, note = '' }) {
+async function requestPunchIn({ userId, shopId, type, timestamp, note = '', userName = '' }) {
     const base = resolveApiBase();
     const endpoint = `${base}/api/punch-in`;
     const response = await fetch(endpoint, {
@@ -263,7 +263,8 @@ async function requestPunchIn({ userId, shopId, type, timestamp, note = '' }) {
             shop_id: asString(shopId),
             type: asString(type).toUpperCase(),
             timestamp: asString(timestamp),
-            note: asString(note)
+            note: asString(note),
+            user_name: asString(userName)
         })
     });
 
@@ -1842,7 +1843,8 @@ export function AuthProvider({ children }) {
             shopId: activeShopId,
             type,
             timestamp: uiLog.timestamp,
-            note: ''
+            note: '',
+            userName: user.name || ''
         });
 
         if (error) {
