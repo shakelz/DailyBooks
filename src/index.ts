@@ -531,6 +531,11 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
     let attendanceId: string = crypto.randomUUID();
 
     if (type === 'IN') {
+      // Mark user online in profiles (D1 source of truth)
+      await db.prepare(
+        `UPDATE "profiles" SET "is_online" = 1, "updated_at" = datetime('now') WHERE "id" = ?`
+      ).bind(userId).run();
+
       await db.prepare(`
         INSERT INTO "attendance" (id, shop_id, user_id, date, check_in, status, note, updated_at)
         VALUES (?, ?, ?, ?, ?, 'present', ?, datetime('now'))
@@ -568,6 +573,11 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
           VALUES (?, ?, ?, ?, ?, 'present', ?, datetime('now'))
         `).bind(attendanceId, shopId, userId, attendanceDate, timestamp, note).run();
       }
+
+      // Mark user offline in profiles (D1 source of truth)
+      await db.prepare(
+        `UPDATE "profiles" SET "is_online" = 0, "updated_at" = datetime('now') WHERE "id" = ?`
+      ).bind(userId).run();
     }
 
     const result = await db.prepare(`
@@ -727,7 +737,7 @@ async function handleUserStatusGet(request: Request, env: Env): Promise<Response
   }
 }
 
-async function handleStaffOnlineGet(request: Request, env: Env): Promise<Response> {
+async function handleStaffStatusGet(request: Request, env: Env): Promise<Response> {
   const db = env.carefone_db;
   if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
 
@@ -738,22 +748,40 @@ async function handleStaffOnlineGet(request: Request, env: Env): Promise<Respons
   }
 
   try {
+    // Fetch profiles with their punch status from attendance table
     const result = await db.prepare(`
-      SELECT id, name, is_online
-      FROM "profiles"
-      WHERE shop_id = ?
+      SELECT
+        p.id,
+        p.name,
+        p.role,
+        p.is_online,
+        CASE WHEN a.id IS NOT NULL THEN 1 ELSE 0 END AS is_punched_in,
+        a.check_in AS last_punch_in,
+        a.id AS open_attendance_id
+      FROM "profiles" p
+      LEFT JOIN "attendance" a
+        ON a.user_id = p.id
+        AND a.shop_id = p.shop_id
+        AND a.check_in IS NOT NULL
+        AND a.check_in <> ''
+        AND (a.check_out IS NULL OR a.check_out = '')
+      WHERE p.shop_id = ?
     `).bind(shopId).all<Record<string, JsonValue>>();
 
     const rows = (result?.results || []) as Record<string, JsonValue>[];
     const staff = rows.map((row) => ({
       user_id: String(row.id || ''),
       name: String(row.name || ''),
+      role: String(row.role || ''),
       is_online: Boolean(row.is_online),
+      is_punched_in: Boolean(row.is_punched_in),
+      last_punch_in: row.last_punch_in || null,
+      open_attendance_id: row.open_attendance_id || null,
     }));
 
     return json({ data: staff, error: null });
   } catch (error) {
-    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to load staff online status.' } }, 400);
+    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to load staff status.' } }, 400);
   }
 }
 
@@ -928,8 +956,8 @@ export default {
       return handleUserStatusGet(request, env);
     }
 
-    if (url.pathname === '/api/staff-online' && request.method === 'GET') {
-      return handleStaffOnlineGet(request, env);
+    if ((url.pathname === '/api/staff-status' || url.pathname === '/api/staff-online') && request.method === 'GET') {
+      return handleStaffStatusGet(request, env);
     }
 
     if (url.pathname === '/api/logout' && request.method === 'POST') {
