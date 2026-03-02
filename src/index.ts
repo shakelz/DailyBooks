@@ -206,6 +206,26 @@ export class StaffTracker {
         this.sockets.delete(server);
       }
 
+      // Mark user online in DB (heartbeat-based is_online)
+      if (userId) {
+        const db = this.env.carefone_db;
+        if (db) {
+          try {
+            await db.prepare(
+              `UPDATE "profiles" SET "is_online" = 1, "updated_at" = datetime('now') WHERE "id" = ?`
+            ).bind(userId).run();
+          } catch { /* ignore */ }
+        }
+        // Broadcast online-status to the shop
+        this.sendToShop(shopId, {
+          type: 'staff_status',
+          shop_id: shopId,
+          user_id: userId,
+          is_online: true,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
     }
 
@@ -232,7 +252,40 @@ export class StaffTracker {
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {
+    const meta = this.getSocketMeta(ws);
     this.sockets.delete(ws);
+
+    const userId = meta.userId;
+    const shopId = meta.shopId;
+    if (!userId || !shopId) return;
+
+    // Check if the user still has other active WS connections
+    const allSockets = this.state.getWebSockets();
+    const hasOtherConnection = allSockets.some((otherWs) => {
+      if (otherWs === ws) return false;
+      const otherMeta = this.getSocketMeta(otherWs);
+      return otherMeta.userId === userId;
+    });
+    if (hasOtherConnection) return;
+
+    // Mark user offline in DB — do NOT touch the attendance table
+    const db = this.env.carefone_db;
+    if (db) {
+      try {
+        await db.prepare(
+          `UPDATE "profiles" SET "is_online" = 0, "updated_at" = datetime('now') WHERE "id" = ?`
+        ).bind(userId).run();
+      } catch { /* ignore */ }
+    }
+
+    // Broadcast online-status change
+    this.sendToShop(shopId, {
+      type: 'staff_status',
+      shop_id: shopId,
+      user_id: userId,
+      is_online: false,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): void {
@@ -701,14 +754,6 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
       }
     }
 
-    const isOnline = type === 'IN' ? 1 : 0;
-    await db.prepare(`
-      UPDATE "profiles"
-      SET "is_online" = ?,
-          "updated_at" = datetime('now')
-      WHERE "id" = ? AND "shop_id" = ?
-    `).bind(isOnline, userId, shopId).run();
-
     const result = await db.prepare(`
       SELECT a.*, p.name AS user_name
       FROM "attendance" a
@@ -726,11 +771,11 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
     }
 
     await broadcastStaffStatus(env, {
-      type: 'staff_status',
+      type: 'punch_status',
       shop_id: shopId,
       user_id: userId,
       user_name: String(profile.name || row.user_name || ''),
-      is_online: Boolean(isOnline),
+      is_punched_in: type === 'IN',
       action: type,
       attendance_id: attendanceId,
       timestamp,

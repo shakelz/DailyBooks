@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
@@ -608,6 +608,20 @@ function getCurrentPunchState(logs = [], userId = '') {
     });
 
     return openSessions > 0;
+}
+
+function applyRecentPunchOverride(baseState, override = null, shopId = '', userId = '', maxAgeMs = 30000) {
+    const candidateState = asBoolean(baseState);
+    if (!override || typeof override !== 'object') return candidateState;
+
+    const overrideShopId = asString(override.shopId);
+    const overrideUserId = asString(override.userId);
+    if (!overrideShopId || !overrideUserId) return candidateState;
+    if (overrideShopId !== asString(shopId) || overrideUserId !== asString(userId)) return candidateState;
+
+    const ageMs = Date.now() - asNumber(override.at, 0);
+    if (!Number.isFinite(ageMs) || ageMs > maxAgeMs) return candidateState;
+    return asBoolean(override.isPunchedIn);
 }
 
 function buildShopUpdatePayloads({ name, location, address, ownerEmail, telephone }) {
@@ -1529,6 +1543,29 @@ export function AuthProvider({ children }) {
     // ── Attendance State ──
     const [attendanceLogs, setAttendanceLogs] = useState([]);
     const [isPunchedIn, setIsPunchedIn] = useState(false);
+    const recentPunchOverrideRef = useRef(null);
+
+    const resolvePunchStateWithOverride = useCallback((baseState, shopId, userId) => {
+        const override = recentPunchOverrideRef.current;
+        const ageMs = Date.now() - asNumber(override?.at, 0);
+        if (override && (!Number.isFinite(ageMs) || ageMs > 30000)) {
+            recentPunchOverrideRef.current = null;
+        }
+        return applyRecentPunchOverride(baseState, recentPunchOverrideRef.current, shopId, userId, 30000);
+    }, []);
+
+    const rememberRecentPunchState = useCallback((shopId, userId, stateValue) => {
+        recentPunchOverrideRef.current = {
+            shopId: asString(shopId),
+            userId: asString(userId),
+            isPunchedIn: asBoolean(stateValue),
+            at: Date.now()
+        };
+    }, []);
+
+    const clearRecentPunchState = useCallback(() => {
+        recentPunchOverrideRef.current = null;
+    }, []);
 
     useEffect(() => {
         const sid = asString(activeShopId);
@@ -1563,8 +1600,9 @@ export function AuthProvider({ children }) {
                     if (dbPunchState && typeof dbPunchState === 'object') {
                         punchState = asBoolean(dbPunchState.is_punched_in);
                     }
-                    setIsPunchedIn(punchState);
-                    writePunchStateToSession(sid, user.id, punchState);
+                    const resolvedPunchState = resolvePunchStateWithOverride(punchState, sid, user.id);
+                    setIsPunchedIn(resolvedPunchState);
+                    writePunchStateToSession(sid, user.id, resolvedPunchState);
                 }
             } else {
                 setAttendanceLogs([]);
@@ -1572,8 +1610,9 @@ export function AuthProvider({ children }) {
                     const { data: dbPunchState } = await requestPunchState({ shopId: sid, userId: user.id });
                     if (dbPunchState && typeof dbPunchState === 'object') {
                         const punchState = asBoolean(dbPunchState.is_punched_in);
-                        setIsPunchedIn(punchState);
-                        writePunchStateToSession(sid, user.id, punchState);
+                        const resolvedPunchState = resolvePunchStateWithOverride(punchState, sid, user.id);
+                        setIsPunchedIn(resolvedPunchState);
+                        writePunchStateToSession(sid, user.id, resolvedPunchState);
                     }
                 }
             }
@@ -1608,10 +1647,10 @@ export function AuthProvider({ children }) {
             clearInterval(attendancePollTimer);
             supabase.removeChannel(attendanceSubscription);
         };
-    }, [activeShopId, role, user?.id]);
+    }, [activeShopId, role, user?.id, resolvePunchStateWithOverride]);
 
     useEffect(() => {
-        if (!isAdminLike) return undefined;
+        if (!role || !user) return undefined;
         const sid = asString(activeShopId);
         if (!sid) return undefined;
 
@@ -1622,21 +1661,33 @@ export function AuthProvider({ children }) {
         let reconnectTimer = null;
         let closedByVisibility = false;
 
-        const applyStaffStatus = (message = {}) => {
-            const userId = asString(message.user_id || message.userId || message.workerId);
-            if (!userId) return;
-            const statusValue = message.is_online ?? message.isOnline ?? message.online;
-            const isOnline = asBoolean(statusValue);
+        // Handle online/offline status from DO heartbeat (WebSocket connect/disconnect)
+        const applyOnlineStatus = (message = {}) => {
+            const msgUserId = asString(message.user_id || message.userId || message.workerId);
+            if (!msgUserId) return;
+            const isOnline = asBoolean(message.is_online ?? message.isOnline ?? message.online);
 
             setSalesmen((prev) => prev.map((staff) => {
-                if (String(staff.id) !== userId) return staff;
-                return {
-                    ...staff,
-                    is_online: isOnline,
-                    isOnline,
-                    online: isOnline
-                };
+                if (String(staff.id) !== msgUserId) return staff;
+                return { ...staff, is_online: isOnline, isOnline, online: isOnline };
             }));
+        };
+
+        // Handle punch status broadcasts (punch in/out from the API)
+        const applyPunchStatus = (message = {}) => {
+            const msgUserId = asString(message.user_id || message.userId || message.workerId);
+            if (!msgUserId) return;
+            const isPunchedIn = asBoolean(message.is_punched_in);
+            const action = asString(message.action).toUpperCase();
+
+            // Update isPunchedIn for the current salesman user
+            if (role === 'salesman' && String(user?.id) === msgUserId) {
+                setIsPunchedIn(isPunchedIn);
+                writePunchStateToSession(sid, msgUserId, isPunchedIn);
+            }
+
+            // For admin view: no-op on salesmen.is_online — punch does not affect online status
+            // Attendance logs will be refreshed by the polling interval
         };
 
         const connect = () => {
@@ -1655,9 +1706,15 @@ export function AuthProvider({ children }) {
             socket.onmessage = (event) => {
                 try {
                     const payload = JSON.parse(event.data || '{}');
-                    if (asString(payload.type) !== 'staff_status') return;
-                    if (asString(payload.shop_id) && asString(payload.shop_id) !== sid) return;
-                    applyStaffStatus(payload);
+                    const eventType = asString(payload.type);
+                    const eventShopId = asString(payload.shop_id);
+                    if (eventShopId && eventShopId !== sid) return;
+
+                    if (eventType === 'staff_status') {
+                        applyOnlineStatus(payload);
+                    } else if (eventType === 'punch_status') {
+                        applyPunchStatus(payload);
+                    }
                 } catch {
                     return;
                 }
@@ -1673,8 +1730,16 @@ export function AuthProvider({ children }) {
         const closeSocket = () => {
             if (!socket) return;
             closedByVisibility = true;
-            socket.close();
+            try { socket.close(1000, 'cleanup'); } catch { /* ignore */ }
             socket = null;
+        };
+
+        // Firefox + Chrome: explicitly close WS on page unload so the DO can
+        // mark the user offline immediately rather than waiting for TCP timeout.
+        const handleBeforeUnload = () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                try { socket.close(1000, 'page_unload'); } catch { /* ignore */ }
+            }
         };
 
         const handleVisibilityChange = () => {
@@ -1688,42 +1753,57 @@ export function AuthProvider({ children }) {
         };
 
         connect();
+        if (typeof window !== 'undefined') {
+            window.addEventListener('beforeunload', handleBeforeUnload);
+        }
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', handleVisibilityChange);
         }
 
         return () => {
             if (reconnectTimer) clearTimeout(reconnectTimer);
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('beforeunload', handleBeforeUnload);
+            }
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', handleVisibilityChange);
             }
             closeSocket();
         };
-    }, [isAdminLike, activeShopId, role, user?.id]);
+    }, [role, user, activeShopId]);
 
     useEffect(() => {
         if (user && role === 'salesman') {
             const hasAnyUserLogs = attendanceLogs.some((l) => String(l.userId || l.workerId) === String(user.id));
             if (hasAnyUserLogs) {
-                const nextState = getCurrentPunchState(attendanceLogs, user.id);
+                const nextState = resolvePunchStateWithOverride(getCurrentPunchState(attendanceLogs, user.id), activeShopId, user.id);
                 setIsPunchedIn(nextState);
                 writePunchStateToSession(activeShopId, user.id, nextState);
             } else {
                 const cachedState = readPunchStateFromSession(activeShopId, user.id);
                 if (cachedState !== null) {
-                    setIsPunchedIn(cachedState);
+                    const resolvedCached = resolvePunchStateWithOverride(cachedState, activeShopId, user.id);
+                    setIsPunchedIn(resolvedCached);
                 } else {
-                    setIsPunchedIn(asBoolean(user.is_online ?? user.isOnline ?? user.online));
+                    const fallbackState = resolvePunchStateWithOverride(
+                        asBoolean(user.is_online ?? user.isOnline ?? user.online),
+                        activeShopId,
+                        user.id
+                    );
+                    setIsPunchedIn(fallbackState);
                 }
             }
         } else {
             setIsPunchedIn(false);
+            clearRecentPunchState();
         }
-    }, [attendanceLogs, user, role, activeShopId]);
+    }, [attendanceLogs, user, role, activeShopId, clearRecentPunchState, resolvePunchStateWithOverride]);
 
     const handlePunch = async (type) => {
         if (!user || !activeShopId) return;
 
+        const previousPunchState = asBoolean(isPunchedIn);
+        const nextPunchState = type === 'IN';
         const ts = new Date();
         const uiLog = {
             id: crypto.randomUUID(),
@@ -1739,9 +1819,10 @@ export function AuthProvider({ children }) {
             note: ''
         };
 
+        rememberRecentPunchState(activeShopId, user.id, nextPunchState);
         setAttendanceLogs(prev => [uiLog, ...prev]);
-        setIsPunchedIn(type === 'IN');
-        writePunchStateToSession(activeShopId, user.id, type === 'IN');
+        setIsPunchedIn(nextPunchState);
+        writePunchStateToSession(activeShopId, user.id, nextPunchState);
 
         const { data: savedLog, error } = await requestPunchIn({
             userId: user.id,
@@ -1754,8 +1835,9 @@ export function AuthProvider({ children }) {
         if (error) {
             console.error('Failed to punch attendance:', error);
             setAttendanceLogs((prev) => prev.filter((l) => String(l.id) !== String(uiLog.id)));
-            setIsPunchedIn(type !== 'IN');
-            writePunchStateToSession(activeShopId, user.id, type !== 'IN');
+            rememberRecentPunchState(activeShopId, user.id, previousPunchState);
+            setIsPunchedIn(previousPunchState);
+            writePunchStateToSession(activeShopId, user.id, previousPunchState);
             return;
         }
 
@@ -1784,25 +1866,12 @@ export function AuthProvider({ children }) {
         }
 
         const nextOnline = type === 'IN';
+        rememberRecentPunchState(activeShopId, user.id, nextOnline);
         writePunchStateToSession(activeShopId, user.id, nextOnline);
-        setUser((prev) => {
-            if (!prev) return prev;
-            return {
-                ...prev,
-                is_online: nextOnline,
-                isOnline: nextOnline,
-                online: nextOnline
-            };
-        });
-        setSalesmen((prev) => prev.map((staff) => {
-            if (String(staff.id) !== String(user.id)) return staff;
-            return {
-                ...staff,
-                is_online: nextOnline,
-                isOnline: nextOnline,
-                online: nextOnline
-            };
-        }));
+        // NOTE: We no longer update user.is_online or salesmen.is_online here.
+        // is_online is decoupled from attendance and managed by the Durable Object
+        // WebSocket heartbeat (connect/disconnect). Punch only affects isPunchedIn.
+
         // Auto-save salary transaction on punch OUT
         if (type === 'OUT') {
             const salesman = salesmen.find(s => String(s.id) === String(user.id));
@@ -1915,34 +1984,21 @@ export function AuthProvider({ children }) {
         if (error) {
             throw new Error(error.message || 'Failed to update attendance log.');
         }
+        // Recalculate isPunchedIn for the target user (attendance-only, NOT is_online)
         const targetUserId = asString(existingLog.userId || existingLog.workerId);
         if (!targetUserId) return;
 
-        const nextLogsForUser = attendanceLogs
-            .map((l) => {
-                if (String(l.id) !== String(id)) return l;
-                return {
-                    ...l,
-                    type: resolvedType,
-                    timestamp: resolvedTimestamp
-                };
-            })
-            .filter((l) => asString(l.userId || l.workerId) === targetUserId)
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        const nextOnline = nextLogsForUser.length > 0 ? nextLogsForUser[0].type === 'IN' : false;
-        setSalesmen((prev) => prev.map((staff) => {
-            if (String(staff.id) !== targetUserId) return staff;
-            return {
-                ...staff,
-                is_online: nextOnline,
-                isOnline: nextOnline,
-                online: nextOnline
-            };
-        }));
         if (role === 'salesman' && String(user?.id) === targetUserId) {
-            setIsPunchedIn(nextOnline);
-            setUser((prev) => prev ? { ...prev, is_online: nextOnline, isOnline: nextOnline, online: nextOnline } : prev);
+            const nextLogsForUser = attendanceLogs
+                .map((l) => {
+                    if (String(l.id) !== String(id)) return l;
+                    return { ...l, type: resolvedType, timestamp: resolvedTimestamp };
+                })
+                .filter((l) => asString(l.userId || l.workerId) === targetUserId)
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            const nextPunched = nextLogsForUser.length > 0 ? nextLogsForUser[0].type === 'IN' : false;
+            setIsPunchedIn(nextPunched);
         }
     }, [activeShopId, attendanceLogs, role, user]);
 
@@ -1958,25 +2014,15 @@ export function AuthProvider({ children }) {
             throw new Error(error.message || 'Failed to delete attendance log.');
         }
 
-        if (!targetUserId) return;
-        const nextLogsForUser = attendanceLogs
-            .filter((l) => String(l.id) !== String(id))
-            .filter((l) => asString(l.userId || l.workerId) === targetUserId)
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        // Recalculate isPunchedIn (attendance-only, NOT is_online)
+        if (targetUserId && role === 'salesman' && String(user?.id) === targetUserId) {
+            const nextLogsForUser = attendanceLogs
+                .filter((l) => String(l.id) !== String(id))
+                .filter((l) => asString(l.userId || l.workerId) === targetUserId)
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-        const nextOnline = nextLogsForUser.length > 0 ? nextLogsForUser[0].type === 'IN' : false;
-        setSalesmen((prev) => prev.map((staff) => {
-            if (String(staff.id) !== targetUserId) return staff;
-            return {
-                ...staff,
-                is_online: nextOnline,
-                isOnline: nextOnline,
-                online: nextOnline
-            };
-        }));
-        if (role === 'salesman' && String(user?.id) === targetUserId) {
-            setIsPunchedIn(nextOnline);
-            setUser((prev) => prev ? { ...prev, is_online: nextOnline, isOnline: nextOnline, online: nextOnline } : prev);
+            const nextPunched = nextLogsForUser.length > 0 ? nextLogsForUser[0].type === 'IN' : false;
+            setIsPunchedIn(nextPunched);
         }
     }, [activeShopId, attendanceLogs, role, user]);
 
@@ -2025,7 +2071,13 @@ export function AuthProvider({ children }) {
                     setRole('salesman');
                     setUser(normalized);
                     setActiveShopIdState(normalized.shop_id);
-                    setIsPunchedIn(asBoolean(normalized.is_online ?? normalized.isOnline ?? normalized.online));
+                    // Fetch actual punch state from DB instead of deriving from is_online
+                    try {
+                        const { data: punchData } = await requestPunchState({ shopId: normalized.shop_id, userId: normalized.id });
+                        setIsPunchedIn(punchData ? asBoolean(punchData.is_punched_in) : false);
+                    } catch {
+                        setIsPunchedIn(false);
+                    }
                     persistAuthSession('salesman', normalized);
                     return { success: true, role: 'salesman' };
                 }
@@ -2042,7 +2094,19 @@ export function AuthProvider({ children }) {
                     setRole('salesman');
                     setUser(withMeta);
                     if (withMeta.shop_id) setActiveShopIdState(asString(withMeta.shop_id));
-                    setIsPunchedIn(asBoolean(withMeta.is_online ?? withMeta.isOnline ?? withMeta.online));
+                    // Fetch actual punch state from DB instead of deriving from is_online
+                    try {
+                        const sid = asString(withMeta.shop_id);
+                        const uid = asString(withMeta.id);
+                        if (sid && uid) {
+                            const { data: punchData } = await requestPunchState({ shopId: sid, userId: uid });
+                            setIsPunchedIn(punchData ? asBoolean(punchData.is_punched_in) : false);
+                        } else {
+                            setIsPunchedIn(false);
+                        }
+                    } catch {
+                        setIsPunchedIn(false);
+                    }
                     persistAuthSession('salesman', withMeta);
                     return { success: true, role: 'salesman' };
                 }
@@ -2060,6 +2124,7 @@ export function AuthProvider({ children }) {
         clearAuthSession();
         clearPersistedAuthState();
         removeSessionStorage(PUNCH_STATE_SESSION_KEY);
+        clearRecentPunchState();
         setRole(null);
         setUser(null);
         setActiveShopIdState('');
