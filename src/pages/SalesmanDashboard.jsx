@@ -589,33 +589,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     );
 
     const revenueHistoryTransactions = useMemo(() => {
-        const isMobileStockPurchase = (txn = {}) => {
-            if (String(txn.type || '').toLowerCase() !== 'expense') return false;
-            const source = String(txn.source || '').toLowerCase();
-            if (source !== 'purchase') return false;
-
-            const categoryText = extractCategoryName(txn.category).toLowerCase();
-            const subCategoryText = String(txn.subCategory || '').toLowerCase();
-            const descText = String(txn.desc || '').toLowerCase();
-            const haystack = `${categoryText} ${subCategoryText} ${descText}`;
-
-            return haystack.includes('mobile')
-                || haystack.includes('phone')
-                || haystack.includes('iphone')
-                || haystack.includes('samsung');
-        };
-
-        const mobilePurchaseRows = purchaseTransactions.filter((txn) => isMobileStockPurchase(txn));
-        const merged = [...revenueTransactions, ...mobilePurchaseRows];
-
-        return merged
-            .filter((txn, index, arr) => arr.findIndex((row) => String(row.id) === String(txn.id)) === index)
+        return revenueTransactions
             .sort((a, b) => {
                 const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
                 const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
                 return bMs - aMs;
             });
-    }, [purchaseTransactions, revenueTransactions]);
+    }, [revenueTransactions]);
 
     const productLookup = useMemo(() => {
         return (products || []).reduce((acc, product) => {

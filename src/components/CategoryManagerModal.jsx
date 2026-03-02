@@ -13,8 +13,6 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const [newMainCatStr, setNewMainCatStr] = useState('');
     const [subCatSelect, setSubCatSelect] = useState('');
     const [newSubCatStr, setNewSubCatStr] = useState('');
-    const [imagePreview, setImagePreview] = useState(null);
-    const fileInputRef = useRef(null);
 
     // ── UPDATE CATEGORY STATE ──
     const [updateScope, setUpdateScope] = useState('sales');
@@ -36,7 +34,6 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setNewMainCatStr('');
         setSubCatSelect('');
         setNewSubCatStr('');
-        setImagePreview(null);
         setAddScope('sales');
         setSelectedUpdateL1('');
         setSelectedUpdateL2('');
@@ -78,7 +75,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             const exists = addL1Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalMainCat.toLowerCase());
             if (exists) return alert("This Main Category already exists!");
 
-            await addLevel1Category(finalMainCat, subCatSelect === 'NEW_ADD' ? null : imagePreview, addScope);
+            await addLevel1Category(finalMainCat, null, addScope);
         } else if (!finalMainCat) {
             return alert("Please select or add a Main Category!");
         }
@@ -91,7 +88,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             const exists = existingL2s.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalSubCat.toLowerCase());
             if (exists) return alert("This Sub Category already exists under the selected Main Category!");
 
-            await addLevel2Category(finalMainCat, finalSubCat, imagePreview, addScope);
+            await addLevel2Category(finalMainCat, finalSubCat, null, addScope);
         } else if (mainCatSelect !== 'NEW_ADD') {
             return alert("Select ➕ Add New... to create a new category. To update existing categories, use the Update tab.");
         }
@@ -100,7 +97,6 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setNewMainCatStr('');
         setSubCatSelect('');
         setNewSubCatStr('');
-        setImagePreview(null);
         alert("Category Added Successfully!");
     };
 
@@ -256,22 +252,6 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                         className="w-full mt-2 px-4 py-2.5 rounded-xl bg-white border border-emerald-200 text-sm font-bold focus:outline-none focus:border-emerald-500 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200"
                                     />
                                 )}
-                            </div>
-
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block mt-2">Image / Icon (Optional)</label>
-                                <div onClick={() => fileInputRef.current?.click()}
-                                    className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 hover:border-emerald-400 transition-all overflow-hidden relative">
-                                    {imagePreview ? (
-                                        <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                                    ) : (
-                                        <>
-                                            <span className="text-2xl mb-1">📷</span>
-                                            <span className="text-[10px] font-bold text-slate-400">Upload</span>
-                                        </>
-                                    )}
-                                    <input type="file" ref={fileInputRef} onChange={e => handleImageChange(e, setImagePreview)} className="hidden" accept="image/*" />
-                                </div>
                             </div>
 
                             <button type="submit" className="w-full py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/30">

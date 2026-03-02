@@ -128,6 +128,7 @@ create table if not exists public.repairs (
     "deviceModel" text,
     imei text,
     problem text,
+    "advanceAmount" numeric default 0,
     status text default 'pending',
     "estimatedCost" numeric default 0,
     "finalAmount" numeric default 0,

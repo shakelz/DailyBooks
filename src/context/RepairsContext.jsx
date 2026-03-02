@@ -4,6 +4,17 @@ import { useAuth } from './AuthContext';
 
 const RepairsContext = createContext(null);
 
+function stripUnsupportedRepairFields(payload = {}) {
+    const next = { ...(payload || {}) };
+    delete next.advanceAmount;
+    return next;
+}
+
+function isMissingColumnError(error, columnName) {
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('column') && message.includes(String(columnName || '').toLowerCase());
+}
+
 export function RepairsProvider({ children }) {
     const { activeShopId } = useAuth();
     const [repairJobs, setRepairJobs] = useState([]);
@@ -101,7 +112,17 @@ export function RepairsProvider({ children }) {
         setRepairJobs(prev => [newJob, ...prev]);
 
         // Supabase DB Update
-        await supabase.from('repairs').insert([newJob]);
+        let payloadForInsert = { ...newJob };
+        let { error: insertError } = await supabase.from('repairs').insert([payloadForInsert]);
+        if (insertError && isMissingColumnError(insertError, 'advanceAmount')) {
+            payloadForInsert = stripUnsupportedRepairFields(payloadForInsert);
+            const retry = await supabase.from('repairs').insert([payloadForInsert]);
+            insertError = retry.error;
+        }
+        if (insertError) {
+            setRepairJobs(prev => prev.filter(job => String(job.id) !== String(newJob.id)));
+            throw new Error(insertError.message || 'Failed to save repair job.');
+        }
 
         // Broadcast Fallback
         supabase.channel(`public:repairs:${sid}`).send({
@@ -133,7 +154,16 @@ export function RepairsProvider({ children }) {
         }));
 
         // Supabase DB Update
-        await supabase.from('repairs').update(payload).eq('id', strId).eq('shop_id', sid);
+        let dbPayload = { ...payload };
+        let { error: updateError } = await supabase.from('repairs').update(dbPayload).eq('id', strId).eq('shop_id', sid);
+        if (updateError && isMissingColumnError(updateError, 'advanceAmount')) {
+            dbPayload = stripUnsupportedRepairFields(dbPayload);
+            const retry = await supabase.from('repairs').update(dbPayload).eq('id', strId).eq('shop_id', sid);
+            updateError = retry.error;
+        }
+        if (updateError) {
+            throw new Error(updateError.message || 'Failed to update repair job.');
+        }
 
         // Broadcast Fallback
         supabase.channel(`public:repairs:${sid}`).send({
