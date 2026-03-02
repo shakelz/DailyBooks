@@ -1,5 +1,7 @@
 ﻿import { useState, useRef, useMemo, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 import { CURRENCY_CONFIG } from '../utils/currency';
 
 // 3-Level Hierarchy + 14 Chips + Custom Chips + Stock Alert
@@ -19,6 +21,7 @@ const HIDDEN_SPEC_KEYS = ['imei', 'color', 'condition', 'compatibility', 'qualit
 const PAYMENT_MODE_OPTIONS = ['Cash', 'Visa', 'Online'];
 
 export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialData = null }) {
+    const { activeShopId } = useAuth();
     const {
         lookupBarcode, addProduct, updateProduct,
         getLevel1Categories, getLevel2Categories,
@@ -60,6 +63,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
     const [newChipName, setNewChipName] = useState('');
 
     const [imagePreview, setImagePreview] = useState(null); // Product Image
+    const [imageFile, setImageFile] = useState(null); // Product Image file for Storage upload
     const [catImagePreview, setCatImagePreview] = useState(null); // Category Image
     const fileInputRef = useRef(null);
     const catFileInputRef = useRef(null);
@@ -104,6 +108,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 setProductUrl(initialData.productUrl || '');
                 setNotes(initialData.notes || '');
                 if (initialData.image) setImagePreview(initialData.image);
+                setImageFile(null);
 
                 // Chips & Attributes
                 if (initialData.attributes) {
@@ -151,6 +156,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                 setActiveChips([]); setDynamicFields({});
                 setProductUrl(''); setNotes('');
                 setImagePreview(null);
+                setImageFile(null);
                 setCatImagePreview(null); // Will be set by category logic
                 setErrors({}); setSubmitted(false);
                 setCustomChips([]);
@@ -209,11 +215,19 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
     const handleImageChange = (e) => {
         const file = e.target.files[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => setImagePreview(reader.result);
-            reader.readAsDataURL(file);
+            const objectUrl = URL.createObjectURL(file);
+            setImagePreview(objectUrl);
+            setImageFile(file);
         }
     };
+
+    useEffect(() => {
+        return () => {
+            if (imagePreview && typeof imagePreview === 'string' && imagePreview.startsWith('blob:')) {
+                URL.revokeObjectURL(imagePreview);
+            }
+        };
+    }, [imagePreview]);
 
     const handleCategoryImageChange = (e) => {
         const file = e.target.files[0];
@@ -250,13 +264,89 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
         return Object.keys(errs).length === 0;
     };
 
+    const uploadProductImageIfNeeded = async (productId) => {
+        if (!imageFile) {
+            const current = typeof imagePreview === 'string' ? imagePreview.trim() : '';
+            if (!current || current.startsWith('data:image/')) return null;
+            return current;
+        }
+
+        const compressImageForIcon = async (file) => {
+            const fileType = String(file?.type || '').toLowerCase();
+            if (!file || !fileType.startsWith('image/')) return file;
+
+            const imageElement = await new Promise((resolve, reject) => {
+                const objectUrl = URL.createObjectURL(file);
+                const image = new Image();
+                image.onload = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    resolve(image);
+                };
+                image.onerror = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    reject(new Error('Invalid image file'));
+                };
+                image.src = objectUrl;
+            });
+
+            const maxSide = 192;
+            const sourceWidth = Number(imageElement.naturalWidth || imageElement.width || 0);
+            const sourceHeight = Number(imageElement.naturalHeight || imageElement.height || 0);
+            if (!sourceWidth || !sourceHeight) return file;
+
+            const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+            const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+            const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            const context = canvas.getContext('2d');
+            if (!context) return file;
+
+            context.drawImage(imageElement, 0, 0, targetWidth, targetHeight);
+
+            const compressedBlob = await new Promise((resolve) => {
+                canvas.toBlob((blob) => resolve(blob), 'image/webp', 0.72);
+            });
+
+            if (!compressedBlob) return file;
+
+            const baseName = String(file.name || 'product-image').replace(/\.[^/.]+$/, '');
+            return new File([compressedBlob], `${baseName}.webp`, { type: 'image/webp' });
+        };
+
+        const fileToUpload = await compressImageForIcon(imageFile);
+
+        const sid = String(activeShopId || '').trim() || 'default-shop';
+        const extensionFromName = String(fileToUpload.name || '').split('.').pop()?.toLowerCase();
+        const extensionFromType = String(fileToUpload.type || '').split('/').pop()?.toLowerCase();
+        const fileExt = extensionFromName || extensionFromType || 'jpg';
+        const safeExt = String(fileExt || 'jpg').replace(/[^a-z0-9]/gi, '') || 'jpg';
+        const storagePath = `${sid}/${String(productId)}-${Date.now()}.${safeExt}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('inventory-images')
+            .upload(storagePath, fileToUpload, { upsert: true, contentType: fileToUpload.type || undefined });
+
+        if (uploadError) {
+            throw new Error(`Image upload failed. Create public bucket 'inventory-images' in Supabase Storage. (${uploadError.message})`);
+        }
+
+        const { data } = supabase.storage.from('inventory-images').getPublicUrl(storagePath);
+        return data?.publicUrl || null;
+    };
+
     const handleSubmit = async (e) => {
         if (e) e.preventDefault();
         setSubmitted(true);
         if (!validate()) return;
 
+        const productId = (initialData && initialData.id) ? initialData.id : generateId('PRD');
+        const resolvedImageUrl = await uploadProductImageIfNeeded(productId);
+
         const productData = {
-            id: (initialData && initialData.id) ? initialData.id : generateId('PRD'),
+            id: productId,
             model: '',
             name: name.trim() || `${level1} ${level2}`.trim(),
             desc: name.trim() || `${level1} ${level2}`.trim(),
@@ -279,7 +369,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             attributes: { ...dynamicFields },
             productUrl: productUrl.trim() || null,
             notes: notes.trim(),
-            image: imagePreview || null,
+            image: resolvedImageUrl,
         };
 
         try {
@@ -310,7 +400,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             setStockRed(''); setStockYellow(''); setStockGreen('');
             setActiveChips([]); setDynamicFields({});
             setProductUrl(''); setNotes('');
-            setImagePreview(null); setCatImagePreview(null); setErrors({}); setSubmitted(false);
+            setImagePreview(null); setImageFile(null); setCatImagePreview(null); setErrors({}); setSubmitted(false);
             setCustomChips([]);
 
             setTimeout(() => {

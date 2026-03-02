@@ -18,6 +18,10 @@ function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function isDataImageUri(value) {
+    return /^data:image\//i.test(cleanText(value));
+}
+
 function normalizeCategoryScope(scope) {
     const raw = String(scope || '').trim().toLowerCase();
     if (raw === CATEGORY_SCOPE_REVENUE || raw === 'purchase') return CATEGORY_SCOPE_REVENUE;
@@ -249,7 +253,7 @@ function buildInventoryPayload(product, includeId = false, shopId = '') {
         delete payloadAttributes[PAYMENT_MODE_KEY];
     }
 
-    if (imageValue) {
+    if (imageValue && !isDataImageUri(imageValue)) {
         payloadAttributes.image = imageValue;
     } else {
         delete payloadAttributes.image;

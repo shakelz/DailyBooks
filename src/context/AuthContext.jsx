@@ -546,6 +546,8 @@ function normalizeShop(shop) {
         location: asString(shop.location || shop.address || ''),
         address: asString(shop.address || shop.location || ''),
         owner_email: asString(shop.owner_email || shop.ownerEmail || ''),
+        owner_password: asString(shop.owner_password || shop.password || ''),
+        password: asString(shop.password || shop.owner_password || ''),
         telephone: resolvedTelephone,
         phone: resolvedTelephone,
     };
@@ -581,24 +583,36 @@ async function attachShopOwnerCredentials(shopList = []) {
         });
     });
 
-    return normalizedShops.map((shop) => {
+    const enrichedShops = normalizedShops.map((shop) => {
         const owner = ownersByShop.get(asString(shop.id));
         if (!owner) return shop;
         return {
             ...shop,
             owner_email: shop.owner_email || owner.owner_email,
-            owner_password: owner.owner_password || '',
+            owner_password: owner.owner_password || asString(shop.password) || '',
+            password: asString(shop.password) || owner.owner_password || '',
             owner_profile_id: owner.owner_profile_id || '',
         };
     });
+
+    await Promise.all(enrichedShops.map(async (shop) => {
+        const sid = asString(shop.id);
+        const currentPassword = asString(shop.password);
+        const ownerPassword = asString(shop.owner_password);
+        if (!sid || currentPassword || !ownerPassword) return;
+        await supabase.from('shops').update({ password: ownerPassword }).eq('id', sid);
+    }));
+
+    return enrichedShops;
 }
 
-function buildShopInsertPayloads({ name, location, address, ownerEmail, telephone }) {
+function buildShopInsertPayloads({ name, location, address, ownerEmail, telephone, ownerPassword }) {
     const safeName = asString(name);
     const safeLocation = asString(location);
     const safeAddress = asString(address);
     const safeOwnerEmail = asString(ownerEmail).toLowerCase();
     const safeTelephone = asString(telephone);
+    const safeOwnerPassword = asString(ownerPassword);
     if (!safeName) return [];
 
     return [cleanPayload({
@@ -607,7 +621,8 @@ function buildShopInsertPayloads({ name, location, address, ownerEmail, telephon
         location: safeLocation,
         address: safeAddress,
         owner_email: safeOwnerEmail,
-        telephone: safeTelephone
+        telephone: safeTelephone,
+        password: safeOwnerPassword,
     })];
 }
 
@@ -650,13 +665,14 @@ function buildTimestampFromTime(baseTimestamp, timeValue) {
     return base.toISOString();
 }
 
-function buildShopUpdatePayloads({ name, location, address, ownerEmail, telephone }) {
+function buildShopUpdatePayloads({ name, location, address, ownerEmail, telephone, ownerPassword }) {
     const payload = cleanPayload({
         ...(name === undefined ? {} : { name: asString(name) }),
         ...(location === undefined ? {} : { location: asString(location) }),
         ...(address === undefined ? {} : { address: asString(address) }),
         ...(ownerEmail === undefined ? {} : { owner_email: asString(ownerEmail).toLowerCase() }),
         ...(telephone === undefined ? {} : { telephone: asString(telephone) }),
+        ...(ownerPassword === undefined ? {} : { password: asString(ownerPassword) }),
     });
 
     return Object.keys(payload).length ? [payload] : [];
@@ -1170,6 +1186,7 @@ export function AuthProvider({ children }) {
             throw new Error('Owner email is already linked to an admin account.');
         }
 
+        const generatedOwnerPassword = Math.random().toString(36).slice(-8);
         let createdShop = null;
         let shopError = null;
         const shopPayloads = buildShopInsertPayloads({
@@ -1177,7 +1194,8 @@ export function AuthProvider({ children }) {
             location: shopLocation,
             address: shopAddress,
             ownerEmail: email,
-            telephone: shopTelephone
+            telephone: shopTelephone,
+            ownerPassword: generatedOwnerPassword
         });
 
         for (const payload of shopPayloads) {
@@ -1199,7 +1217,7 @@ export function AuthProvider({ children }) {
         }
         const ownerName = email.split('@')[0] || name;
         const tempPin = String(Math.floor(1000 + Math.random() * 9000));
-        const tempPassword = Math.random().toString(36).slice(-8);
+        const tempPassword = generatedOwnerPassword;
 
         let createdProfile = null;
         let profileError = null;
@@ -1230,13 +1248,18 @@ export function AuthProvider({ children }) {
             ...createdShop,
             owner_email: createdShop.owner_email || email,
             owner_password: getProfilePassword(createdProfile) || tempPassword,
+            password: getProfilePassword(createdProfile) || tempPassword,
             owner_profile_id: asString(createdProfile.id),
         };
         const resolvedAddress = asString(shopAddress || createdShopWithCredentials.address || createdShopWithCredentials.location);
         const resolvedTelephone = asString(shopTelephone || createdShopWithCredentials.telephone || createdShopWithCredentials.phone || '');
 
-        if (resolvedTelephone) {
-            await supabase.from('shops').update({ telephone: resolvedTelephone }).eq('id', shopId);
+        const syncShopPayload = {
+            password: createdShopWithCredentials.owner_password || tempPassword,
+            ...(resolvedTelephone ? { telephone: resolvedTelephone } : {})
+        };
+        if (Object.keys(syncShopPayload).length > 0) {
+            await supabase.from('shops').update(syncShopPayload).eq('id', shopId);
         }
 
         patchShopMeta(shopId, { address: resolvedAddress, telephone: resolvedTelephone, billShowTax: true });
@@ -1324,7 +1347,7 @@ export function AuthProvider({ children }) {
             ? asString(updates.ownerPassword ?? updates.owner_password)
             : undefined;
         const shouldUpdateOwnerPassword = hasOwnerPassword && !!nextOwnerPassword;
-        const shouldUpdateShopTable = hasName || hasLocation || hasAddress || hasTelephone || hasOwner;
+        const shouldUpdateShopTable = hasName || hasLocation || hasAddress || hasTelephone || hasOwner || hasOwnerPassword;
         const shouldUpdateOwnerProfile = hasOwner || shouldUpdateOwnerPassword;
 
         if (hasName && !nextName) {
@@ -1353,7 +1376,8 @@ export function AuthProvider({ children }) {
                 location: nextLocation,
                 address: nextAddress,
                 ownerEmail: nextOwnerEmail,
-                telephone: nextTelephone
+                telephone: nextTelephone,
+                ownerPassword: shouldUpdateOwnerPassword ? nextOwnerPassword : undefined
             });
 
             if (payloads.length === 0) {
@@ -1456,6 +1480,9 @@ export function AuthProvider({ children }) {
             owner_password: shouldUpdateOwnerPassword
                 ? nextOwnerPassword
                 : asString(getProfilePassword(updatedOwnerProfile) || updatedShop?.owner_password || currentShop?.owner_password),
+            password: shouldUpdateOwnerPassword
+                ? nextOwnerPassword
+                : asString(updatedShop?.password || currentShop?.password || getProfilePassword(updatedOwnerProfile)),
             address: hasAddress
                 ? nextAddress
                 : asString(updatedShop?.address || currentShop?.address || updatedShop?.location || currentShop?.location),
@@ -1483,6 +1510,16 @@ export function AuthProvider({ children }) {
                     || ''
                 ),
         };
+
+        if (shouldUpdateOwnerPassword) {
+            const { error } = await supabase
+                .from('shops')
+                .update({ password: nextOwnerPassword })
+                .eq('id', sid);
+            if (error) {
+                throw new Error(error.message || 'Failed to sync shop password.');
+            }
+        }
 
         if (hasAddress || hasTelephone) {
             patchShopMeta(sid, {
