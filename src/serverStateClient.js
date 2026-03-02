@@ -1,58 +1,59 @@
-function resolveApiBase() {
-	const configured = String(import.meta.env.VITE_API_BASE_URL || '').trim();
-	if (configured) return configured.replace(/\/$/, '');
-	return '';
-}
-
-const API_BASE_URL = resolveApiBase();
-
-function buildQuery(params = {}) {
-	const search = new URLSearchParams();
-	Object.entries(params).forEach(([key, value]) => {
-		if (value === undefined || value === null || value === '') return;
-		search.set(key, String(value));
-	});
-	const query = search.toString();
-	return query ? `?${query}` : '';
-}
+import { supabase } from './supabaseClient';
 
 export async function getServerState({ key, shopId = '', userId = '' }) {
 	if (!key) return { value: null, error: { message: 'State key is required.' } };
-	const endpoint = `${API_BASE_URL}/api/state${buildQuery({ key, shop_id: shopId, user_id: userId })}`;
-	const response = await fetch(endpoint, { method: 'GET' });
-	const payload = await response.json().catch(() => null);
-	if (!response.ok) {
-		return { value: null, error: payload?.error || { message: `Request failed (${response.status})` } };
+
+	const { data, error } = await supabase
+		.from('app_state')
+		.select('state_value, updated_at')
+		.eq('state_key', String(key))
+		.eq('shop_id', String(shopId || ''))
+		.eq('user_id', String(userId || ''))
+		.limit(1)
+		.maybeSingle();
+
+	if (error) {
+		return { value: null, error: { message: error.message || 'Failed to load server state.' } };
 	}
-	return { value: payload?.data?.value ?? null, error: null };
+
+	return { value: data?.state_value ?? null, error: null };
 }
 
 export async function setServerState({ key, value, shopId = '', userId = '' }) {
 	if (!key) return { error: { message: 'State key is required.' } };
-	const endpoint = `${API_BASE_URL}/api/state`;
-	const response = await fetch(endpoint, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ key, value, shop_id: shopId, user_id: userId })
-	});
-	const payload = await response.json().catch(() => null);
-	if (!response.ok) {
-		return { error: payload?.error || { message: `Request failed (${response.status})` } };
+
+	const payload = {
+		state_key: String(key),
+		shop_id: String(shopId || ''),
+		user_id: String(userId || ''),
+		state_value: value,
+		updated_at: new Date().toISOString(),
+	};
+
+	const { error } = await supabase
+		.from('app_state')
+		.upsert(payload, { onConflict: 'state_key,shop_id,user_id' });
+
+	if (error) {
+		return { error: { message: error.message || 'Failed to save server state.' } };
 	}
+
 	return { error: null };
 }
 
 export async function deleteServerState({ key, shopId = '', userId = '' }) {
 	if (!key) return { error: { message: 'State key is required.' } };
-	const endpoint = `${API_BASE_URL}/api/state`;
-	const response = await fetch(endpoint, {
-		method: 'DELETE',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ key, shop_id: shopId, user_id: userId })
-	});
-	const payload = await response.json().catch(() => null);
-	if (!response.ok) {
-		return { error: payload?.error || { message: `Request failed (${response.status})` } };
+
+	const { error } = await supabase
+		.from('app_state')
+		.delete()
+		.eq('state_key', String(key))
+		.eq('shop_id', String(shopId || ''))
+		.eq('user_id', String(userId || ''));
+
+	if (error) {
+		return { error: { message: error.message || 'Failed to delete server state.' } };
 	}
+
 	return { error: null };
 }

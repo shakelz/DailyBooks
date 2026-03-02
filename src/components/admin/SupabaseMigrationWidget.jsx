@@ -34,7 +34,7 @@ export default function SupabaseMigrationWidget() {
                     <h3 className="text-xl font-bold mb-1">Migrate Local Data to Supabase</h3>
                     <p className="text-indigo-200 text-sm mb-4">
                         Local browser storage migration is no longer required.
-                        Data is now written directly to server-side Cloudflare D1 endpoints.
+                        Data is now written directly to Supabase.
                     </p>
 
                     {status === 'idle' && (

@@ -5,7 +5,6 @@ const AuthContext = createContext(null);
 
 const GLOBAL_ADMIN_ROLES = ['superadmin', 'superuser'];
 const ADMIN_ROLES = [...GLOBAL_ADMIN_ROLES, 'admin'];
-const AUTH_SESSION_KEY = 'dailybooks_auth_session_v1';
 const AUTH_TOKEN_KEY = 'token';
 const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
 const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
@@ -14,7 +13,6 @@ const SALESMAN_META_STORAGE_KEY = 'dailybooks_salesman_meta_v1';
 const SHOP_META_STORAGE_KEY = 'dailybooks_shop_meta_v1';
 
 const volatileAuthStore = {
-    session: null,
     role: '',
     user: '',
     shop: ''
@@ -25,33 +23,26 @@ const DEFAULT_SALESMAN_PERMISSIONS = {
     canBulkEdit: false
 };
 
-function readAuthSession() {
-    const raw = volatileAuthStore.session || readStorage(AUTH_SESSION_KEY, '');
-    if (!raw) return null;
-    const parsed = typeof raw === 'string' ? safeParseJSON(raw, null) : raw;
-    return parsed && typeof parsed === 'object' ? parsed : null;
+async function ensureSupabaseSession() {
+    const { data: existing } = await supabase.auth.getSession();
+    if (existing?.session) {
+        setAuthTokenFromSupabaseSession(existing.session);
+        return { ok: true, error: null };
+    }
+
+    const { data, error } = await supabase.auth.signInAnonymously();
+    if (error) return { ok: false, error: error.message || 'Failed to establish auth session.' };
+
+    setAuthTokenFromSupabaseSession(data?.session || null);
+    return { ok: true, error: null };
 }
 
-function isAuthSessionValid() {
-    const session = readAuthSession();
-    const token = readStorage(AUTH_TOKEN_KEY, '');
-    return Boolean(session && token);
-}
-
-function persistAuthSession(role, user) {
-    const token = `${asString(user?.id) || 'user'}:${Date.now()}`;
-    volatileAuthStore.session = {
-        role: asString(role),
-        userId: asString(user?.id),
-        token,
-    };
-    writeStorage(AUTH_TOKEN_KEY, token);
-    writeStorage(AUTH_SESSION_KEY, JSON.stringify(volatileAuthStore.session));
-}
-
-function clearAuthSession() {
-    volatileAuthStore.session = null;
-    removeStorage(AUTH_SESSION_KEY);
+function setAuthTokenFromSupabaseSession(session) {
+    const token = asString(session?.access_token);
+    if (token) {
+        writeStorage(AUTH_TOKEN_KEY, token);
+        return;
+    }
     removeStorage(AUTH_TOKEN_KEY);
 }
 
@@ -161,31 +152,43 @@ function asNumber(value, fallback = 0) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function resolveApiBase() {
-    return asString(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, '');
-}
-
 async function requestAdminLogin({ identifier, password }) {
-    const base = resolveApiBase();
-    const endpoint = `${base}/api/auth/admin-login`;
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ identifier, password })
-    });
-
-    let payload = null;
-    try {
-        payload = await response.json();
-    } catch {
-        payload = null;
+    const identifierNormalized = asString(identifier).toLowerCase();
+    const passwordNormalized = asString(password);
+    if (!identifierNormalized || !passwordNormalized) {
+        return { profile: null, error: 'Identifier and password are required' };
     }
 
-    if (!response.ok || !payload?.success) {
-        return { profile: null, error: asString(payload?.error?.message) || 'Invalid credentials' };
+    let profile = null;
+    const { data: byEmail } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('role', ['admin', 'superadmin', 'superuser'])
+        .eq('email', identifierNormalized)
+        .limit(1)
+        .maybeSingle();
+
+    if (byEmail) {
+        profile = byEmail;
+    } else {
+        const { data: byName } = await supabase
+            .from('profiles')
+            .select('*')
+            .in('role', ['admin', 'superadmin', 'superuser'])
+            .eq('name', asString(identifier))
+            .limit(1)
+            .maybeSingle();
+        profile = byName;
     }
 
-    const profile = payload?.data && typeof payload.data === 'object' ? payload.data : null;
+    if (!profile) {
+        return { profile: null, error: 'Invalid credentials' };
+    }
+
+    if (asString(profile.password) !== passwordNormalized) {
+        return { profile: null, error: 'Invalid credentials' };
+    }
+
     return { profile, error: null };
 }
 
@@ -193,58 +196,132 @@ async function requestAttendanceLogs(shopId) {
     const sid = asString(shopId);
     if (!sid) return { data: [], error: 'shop_id is required' };
 
-    const base = resolveApiBase();
-    const endpoint = `${base}/api/attendance?shop_id=${encodeURIComponent(sid)}`;
-    const response = await fetch(endpoint, { method: 'GET' });
+    const { data: rows, error } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('shop_id', sid)
+        .order('updated_at', { ascending: false });
 
-    let payload = null;
-    try {
-        payload = await response.json();
-    } catch {
-        payload = null;
+    if (error) {
+        return { data: [], error: asString(error.message) || 'Failed to load attendance.' };
     }
 
-    if (!response.ok) {
-        return { data: [], error: asString(payload?.error?.message) || 'Failed to load attendance.' };
+    const userIds = Array.from(new Set((Array.isArray(rows) ? rows : []).map((row) => asString(row?.user_id)).filter(Boolean)));
+    let profileNameById = {};
+    if (userIds.length) {
+        const { data: profileRows } = await supabase
+            .from('profiles')
+            .select('id,name')
+            .in('id', userIds);
+
+        profileNameById = (Array.isArray(profileRows) ? profileRows : []).reduce((acc, row) => {
+            acc[asString(row?.id)] = asString(row?.name);
+            return acc;
+        }, {});
     }
 
-    return {
-        data: Array.isArray(payload?.data) ? payload.data : [],
-        error: asString(payload?.error?.message) || null
-    };
+    const expanded = (Array.isArray(rows) ? rows : []).flatMap((row) => {
+        const userName = asString(row?.user_name || profileNameById[asString(row?.user_id)] || '');
+        const base = {
+            ...row,
+            user_name: userName,
+            userId: asString(row?.user_id),
+            userName,
+            workerId: asString(row?.user_id),
+            workerName: userName,
+        };
+
+        const events = [];
+        if (asString(row?.check_in)) {
+            events.push({ ...base, id: `${asString(row?.id)}:IN`, type: 'IN', timestamp: asString(row?.check_in) });
+        }
+        if (asString(row?.check_out)) {
+            events.push({ ...base, id: `${asString(row?.id)}:OUT`, type: 'OUT', timestamp: asString(row?.check_out) });
+        }
+        if (!events.length) {
+            events.push({ ...base, id: asString(row?.id), type: 'IN', timestamp: asString(row?.created_at) });
+        }
+        return events;
+    });
+
+    return { data: expanded, error: null };
 }
 
 async function requestAttendanceAction({ userId, shopId, type, timestamp, note = '', userName = '' }) {
-    const base = resolveApiBase();
-    const endpoint = `${base}/api/attendance`;
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-            user_id: asString(userId),
-            shop_id: asString(shopId),
-            type: asString(type).toUpperCase(),
-            timestamp: asString(timestamp),
-            note: asString(note),
-            user_name: asString(userName)
-        })
-    });
+    const uid = asString(userId);
+    const sid = asString(shopId);
+    const punchType = asString(type).toUpperCase();
+    const ts = asString(timestamp) || new Date().toISOString();
 
-    let payload = null;
-    try {
-        payload = await response.json();
-    } catch {
-        payload = null;
+    if (!uid || !sid || (punchType !== 'IN' && punchType !== 'OUT')) {
+        return { data: null, error: 'user_id, shop_id and type(IN/OUT) are required.' };
     }
 
-    if (!response.ok) {
-        return { data: null, error: asString(payload?.error?.message) || 'Failed to save punch.' };
+    if (punchType === 'IN') {
+        const attendanceId = crypto.randomUUID();
+        const { error: inError } = await supabase
+            .from('attendance')
+            .insert([{
+                id: attendanceId,
+                shop_id: sid,
+                user_id: uid,
+                date: ts.slice(0, 10),
+                check_in: ts,
+                status: 'present',
+                note: asString(note),
+            }]);
+
+        if (inError) return { data: null, error: asString(inError.message) || 'Failed to punch in.' };
+    } else {
+        const { data: openRow, error: openError } = await supabase
+            .from('attendance')
+            .select('id,check_in')
+            .eq('shop_id', sid)
+            .eq('user_id', uid)
+            .not('check_in', 'is', null)
+            .or('check_out.is.null,check_out.eq.')
+            .order('check_in', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (openError) return { data: null, error: asString(openError.message) || 'Failed to punch out.' };
+        if (!openRow?.id) return { data: null, error: 'Cannot punch out without an active punch in.' };
+
+        const startMs = new Date(asString(openRow.check_in)).getTime();
+        const endMs = new Date(ts).getTime();
+        const hours = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs
+            ? Math.round(((endMs - startMs) / 3600000) * 100) / 100
+            : 0;
+
+        const { error: outError } = await supabase
+            .from('attendance')
+            .update({
+                check_out: ts,
+                hours,
+                status: 'present',
+                note: asString(note),
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', openRow.id);
+
+        if (outError) return { data: null, error: asString(outError.message) || 'Failed to punch out.' };
     }
 
-    return {
-        data: payload?.data && typeof payload.data === 'object' ? payload.data : null,
-        error: asString(payload?.error?.message) || null
-    };
+    const { data: openAttendance } = await supabase
+        .from('attendance')
+        .select('id')
+        .eq('shop_id', sid)
+        .eq('user_id', uid)
+        .not('check_in', 'is', null)
+        .or('check_out.is.null,check_out.eq.')
+        .limit(1);
+
+    await supabase
+        .from('profiles')
+        .update({ is_online: Array.isArray(openAttendance) && openAttendance.length > 0 })
+        .eq('id', uid);
+
+    return { data: { type: punchType, timestamp: ts }, error: null };
 }
 
 async function requestUserStatus({ shopId, userId }) {
@@ -252,24 +329,58 @@ async function requestUserStatus({ shopId, userId }) {
     const uid = asString(userId);
     if (!sid || !uid) return { data: null, error: 'shop_id and user_id are required' };
 
-    const base = resolveApiBase();
-    const endpoint = `${base}/api/user-status?shop_id=${encodeURIComponent(sid)}&user_id=${encodeURIComponent(uid)}`;
-    const response = await fetch(endpoint, { method: 'GET' });
+    const { data: openRow, error } = await supabase
+        .from('attendance')
+        .select('id,check_in,check_out,created_at,updated_at')
+        .eq('shop_id', sid)
+        .eq('user_id', uid)
+        .not('check_in', 'is', null)
+        .or('check_out.is.null,check_out.eq.')
+        .order('check_in', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    let payload = null;
-    try {
-        payload = await response.json();
-    } catch {
-        payload = null;
-    }
-
-    if (!response.ok) {
-        return { data: null, error: asString(payload?.error?.message) || 'Failed to load user status.' };
+    if (error) {
+        return { data: null, error: asString(error.message) || 'Failed to load user status.' };
     }
 
     return {
-        data: payload?.data && typeof payload.data === 'object' ? payload.data : null,
-        error: asString(payload?.error?.message) || null
+        data: {
+            user_id: uid,
+            shop_id: sid,
+            is_punched_in: Boolean(openRow),
+            active_attendance: openRow ? {
+                id: openRow.id || null,
+                punch_in_time: openRow.check_in || null,
+                punch_out_time: openRow.check_out || null,
+                created_at: openRow.created_at || null,
+                updated_at: openRow.updated_at || null,
+            } : null,
+        },
+        error: null,
+    };
+}
+
+async function requestStaffStatus(shopId) {
+    const sid = asString(shopId);
+    if (!sid) return { data: [], error: 'shop_id is required' };
+
+    const { data: profiles, error } = await supabase
+        .from('profiles')
+        .select('id,name,role,is_online,shop_id')
+        .eq('shop_id', sid)
+        .order('name', { ascending: true });
+
+    if (error) return { data: [], error: asString(error.message) || 'Failed to load staff status.' };
+
+    return {
+        data: (Array.isArray(profiles) ? profiles : []).map((row) => ({
+            user_id: asString(row.id),
+            name: asString(row.name),
+            role: asString(row.role),
+            is_online: asBoolean(row.is_online),
+        })),
+        error: null,
     };
 }
 
@@ -714,17 +825,12 @@ async function listSalesmenByPin(pinValue) {
 
 export function AuthProvider({ children }) {
     const initialAuthState = (() => {
-        if (isAuthSessionValid()) {
-            const savedUser = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
-            return {
-                role: readAuthState(AUTH_ROLE_STATE_KEY, '') || null,
-                user: savedUser && typeof savedUser === 'object' ? savedUser : null,
-                activeShopId: readAuthState(AUTH_SHOP_STATE_KEY, '')
-            };
-        }
-
-        clearPersistedAuthState();
-        return { role: null, user: null, activeShopId: '' };
+        const savedUser = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
+        return {
+            role: readAuthState(AUTH_ROLE_STATE_KEY, '') || null,
+            user: savedUser && typeof savedUser === 'object' ? savedUser : null,
+            activeShopId: readAuthState(AUTH_SHOP_STATE_KEY, '')
+        };
     })();
 
     const [role, setRole] = useState(() => initialAuthState.role); // superadmin | admin | salesman | null
@@ -787,23 +893,38 @@ export function AuthProvider({ children }) {
     }, []);
 
     useEffect(() => {
-        if (isAuthSessionValid()) return;
-        if (role === 'salesman' && user) {
-            persistAuthSession('salesman', user);
-            return;
-        }
-        clearPersistedAuthState();
-        setRole(null);
-        setUser(null);
-        setActiveShopIdState('');
-    }, [role, user]);
+        let active = true;
 
-    // ── Persistence Effects ──
-    useEffect(() => {
-        if (role && user) {
-            persistAuthSession(role, user);
-        }
-    }, [role, user]);
+        const bootstrapAuthSession = async () => {
+            const { data } = await supabase.auth.getSession();
+            if (!active) return;
+
+            setAuthTokenFromSupabaseSession(data?.session || null);
+            if (!data?.session) {
+                clearPersistedAuthState();
+                setRole(null);
+                setUser(null);
+                setActiveShopIdState('');
+            }
+        };
+
+        bootstrapAuthSession();
+
+        const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+            setAuthTokenFromSupabaseSession(session || null);
+            if (!session) {
+                clearPersistedAuthState();
+                setRole(null);
+                setUser(null);
+                setActiveShopIdState('');
+            }
+        });
+
+        return () => {
+            active = false;
+            authListener?.subscription?.unsubscribe?.();
+        };
+    }, []);
 
     useEffect(() => {
         writeAuthState(AUTH_ROLE_STATE_KEY, role || '');
@@ -1486,6 +1607,18 @@ export function AuthProvider({ children }) {
             return;
         }
 
+        if (ADMIN_ROLES.includes(asString(roleArg))) {
+            const { data: staffRows } = await requestStaffStatus(sid);
+            if (Array.isArray(staffRows) && staffRows.length) {
+                setSalesmen((prev) => (Array.isArray(prev) ? prev : []).map((staff) => {
+                    const match = staffRows.find((row) => asString(row.user_id) === asString(staff?.id));
+                    if (!match) return staff;
+                    const isOnline = asBoolean(match.is_online);
+                    return { ...staff, is_online: isOnline, isOnline, online: isOnline };
+                }));
+            }
+        }
+
         if (asString(roleArg) !== 'salesman') {
             setIsPunchedIn(false);
         }
@@ -1642,6 +1775,11 @@ export function AuthProvider({ children }) {
     const login = useCallback(async (userData) => {
         setAuthLoading(true);
         try {
+            const sessionResult = await ensureSupabaseSession();
+            if (!sessionResult.ok) {
+                return { success: false, message: sessionResult.error || 'Unable to create auth session.' };
+            }
+
             if (userData.role === 'admin') {
                 const identifier = asString(userData.username || userData.email || userData.name);
                 const password = asString(userData.password);
@@ -1665,7 +1803,6 @@ export function AuthProvider({ children }) {
                 } else if (!GLOBAL_ADMIN_ROLES.includes(normalized.role)) {
                     setActiveShopIdState('');
                 }
-                persistAuthSession(normalized.role, normalized);
                 return { success: true, role: normalized.role };
 
             }
@@ -1690,7 +1827,6 @@ export function AuthProvider({ children }) {
                     } catch {
                         setIsPunchedIn(false);
                     }
-                    persistAuthSession('salesman', normalized);
                     return { success: true, role: 'salesman' };
                 }
 
@@ -1719,7 +1855,6 @@ export function AuthProvider({ children }) {
                     } catch {
                         setIsPunchedIn(false);
                     }
-                    persistAuthSession('salesman', withMeta);
                     return { success: true, role: 'salesman' };
                 }
 
@@ -1733,7 +1868,7 @@ export function AuthProvider({ children }) {
     }, [salesmen, activeShopId, salesmanMetaMap]);
 
     const logout = () => {
-        clearAuthSession();
+        supabase.auth.signOut().catch(() => undefined);
         clearPersistedAuthState();
         setRole(null);
         setUser(null);
