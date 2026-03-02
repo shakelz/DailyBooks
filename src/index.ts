@@ -207,8 +207,10 @@ export class StaffTracker {
         this.sockets.delete(server);
       }
 
-      // Mark user online in DB (heartbeat-based is_online)
-      if (userId) {
+      // Mark user online in DB — only for non-salesman roles (admins).
+      // Salesmen connect for real-time punch_status messages but their
+      // WS connection should NOT flip the is_online indicator.
+      if (userId && role !== 'salesman') {
         const db = this.env.carefone_db;
         if (db) {
           try {
@@ -217,7 +219,6 @@ export class StaffTracker {
             ).bind(userId).run();
           } catch { /* ignore */ }
         }
-        // Broadcast online-status to the shop
         this.sendToShop(shopId, {
           type: 'staff_status',
           shop_id: shopId,
@@ -258,7 +259,11 @@ export class StaffTracker {
 
     const userId = meta.userId;
     const shopId = meta.shopId;
+    const role = meta.role;
     if (!userId || !shopId) return;
+
+    // Salesmen don't affect is_online — skip DB/broadcast
+    if (role === 'salesman') return;
 
     // Check if the user still has other active WS connections
     const allSockets = this.state.getWebSockets();
