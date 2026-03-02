@@ -142,6 +142,7 @@ export class StaffTracker {
   private readonly state: DurableObjectState;
   private readonly env: Env;
   private readonly sockets = new Map<WebSocket, { shopId: string; userId: string; role: string }>();
+  private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -211,6 +212,13 @@ export class StaffTracker {
       // Salesmen connect for real-time punch_status messages but their
       // WS connection should NOT flip the is_online indicator.
       if (userId && role !== 'salesman') {
+        // Cancel any pending grace-period offline timer for this user
+        const pendingTimer = this.disconnectTimers.get(userId);
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          this.disconnectTimers.delete(userId);
+        }
+
         const db = this.env.carefone_db;
         if (db) {
           try {
@@ -274,24 +282,44 @@ export class StaffTracker {
     });
     if (hasOtherConnection) return;
 
-    // Mark user offline in DB — do NOT touch the attendance table
-    const db = this.env.carefone_db;
-    if (db) {
-      try {
-        await db.prepare(
-          `UPDATE "profiles" SET "is_online" = 0, "updated_at" = datetime('now') WHERE "id" = ?`
-        ).bind(userId).run();
-      } catch { /* ignore */ }
-    }
+    // Grace period: wait 5 seconds before marking offline.
+    // If the user reconnects within this window (e.g. page refresh),
+    // the connect handler cancels this timer and the user stays online.
+    const existingTimer = this.disconnectTimers.get(userId);
+    if (existingTimer) clearTimeout(existingTimer);
 
-    // Broadcast online-status change
-    this.sendToShop(shopId, {
-      type: 'staff_status',
-      shop_id: shopId,
-      user_id: userId,
-      is_online: false,
-      timestamp: new Date().toISOString(),
-    });
+    const timer = setTimeout(async () => {
+      this.disconnectTimers.delete(userId);
+
+      // Re-check: user may have reconnected during the grace period
+      const currentSockets = this.state.getWebSockets();
+      const reconnected = currentSockets.some((s) => {
+        const m = this.getSocketMeta(s);
+        return m.userId === userId;
+      });
+      if (reconnected) return;
+
+      // Mark user offline in DB — do NOT touch the attendance table
+      const db = this.env.carefone_db;
+      if (db) {
+        try {
+          await db.prepare(
+            `UPDATE "profiles" SET "is_online" = 0, "updated_at" = datetime('now') WHERE "id" = ?`
+          ).bind(userId).run();
+        } catch { /* ignore */ }
+      }
+
+      // Broadcast online-status change
+      this.sendToShop(shopId, {
+        type: 'staff_status',
+        shop_id: shopId,
+        user_id: userId,
+        is_online: false,
+        timestamp: new Date().toISOString(),
+      });
+    }, 5000);
+
+    this.disconnectTimers.set(userId, timer);
   }
 
   webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): void {
@@ -952,6 +980,36 @@ async function handleUserStatusGet(request: Request, env: Env): Promise<Response
   }
 }
 
+async function handleStaffOnlineGet(request: Request, env: Env): Promise<Response> {
+  const db = env.carefone_db;
+  if (!db) return json({ data: null, error: { message: 'D1 binding `carefone_db` is missing.' } }, 500);
+
+  const url = new URL(request.url);
+  const shopId = String(url.searchParams.get('shop_id') || '').trim();
+  if (!shopId) {
+    return json({ data: null, error: { message: 'shop_id is required.' } }, 400);
+  }
+
+  try {
+    const result = await db.prepare(`
+      SELECT id, name, is_online
+      FROM "profiles"
+      WHERE shop_id = ?
+    `).bind(shopId).all<Record<string, JsonValue>>();
+
+    const rows = (result?.results || []) as Record<string, JsonValue>[];
+    const staff = rows.map((row) => ({
+      user_id: String(row.id || ''),
+      name: String(row.name || ''),
+      is_online: Boolean(row.is_online),
+    }));
+
+    return json({ data: staff, error: null });
+  } catch (error) {
+    return json({ data: null, error: { message: (error as Error)?.message || 'Failed to load staff online status.' } }, 400);
+  }
+}
+
 async function ensureAppStateTable(db: D1Database): Promise<void> {
   await db.prepare(`
     CREATE TABLE IF NOT EXISTS "app_state" (
@@ -1121,6 +1179,10 @@ export default {
 
     if (url.pathname === '/api/user-status' && request.method === 'GET') {
       return handleUserStatusGet(request, env);
+    }
+
+    if (url.pathname === '/api/staff-online' && request.method === 'GET') {
+      return handleStaffOnlineGet(request, env);
     }
 
     if (url.pathname === '/api/staff-status/ws' && request.method === 'GET') {

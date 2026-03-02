@@ -311,6 +311,31 @@ async function requestUserStatus({ shopId, userId }) {
     };
 }
 
+async function requestStaffOnline(shopId) {
+    const sid = asString(shopId);
+    if (!sid) return { data: [], error: 'shop_id is required' };
+
+    const base = resolveApiBase();
+    const endpoint = `${base}/api/staff-online?shop_id=${encodeURIComponent(sid)}`;
+    const response = await fetch(endpoint, { method: 'GET' });
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        return { data: [], error: asString(payload?.error?.message) || 'Failed to load staff online status.' };
+    }
+
+    return {
+        data: Array.isArray(payload?.data) ? payload.data : [],
+        error: asString(payload?.error?.message) || null
+    };
+}
+
 function readLocalJSON(key, fallback) {
     return fallback;
 }
@@ -1669,6 +1694,29 @@ export function AuthProvider({ children }) {
             supabase.removeChannel(attendanceSubscription);
         };
     }, [activeShopId, role, user?.id, resolvePunchStateWithOverride]);
+
+    // Sync staff is_online from D1 on mount (source of truth for admin view)
+    useEffect(() => {
+        if (!isAdminLike) return;
+        const sid = asString(activeShopId);
+        if (!sid) return;
+
+        let cancelled = false;
+
+        const syncOnlineFromD1 = async () => {
+            const { data } = await requestStaffOnline(sid);
+            if (cancelled || !Array.isArray(data)) return;
+            setSalesmen((prev) => prev.map((staff) => {
+                const match = data.find((d) => String(d.user_id) === String(staff.id));
+                if (!match) return staff;
+                const isOnline = asBoolean(match.is_online);
+                return { ...staff, is_online: isOnline, isOnline, online: isOnline };
+            }));
+        };
+
+        syncOnlineFromD1();
+        return () => { cancelled = true; };
+    }, [isAdminLike, activeShopId]);
 
     useEffect(() => {
         if (!role || !user) return undefined;
