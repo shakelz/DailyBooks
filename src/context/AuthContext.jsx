@@ -341,6 +341,7 @@ function buildShopInsertPayloads({ name, location, address, ownerEmail, telephon
     if (!safeName) return [];
 
     return [cleanPayload({
+        id: makeRowId(),
         name: safeName,
         location: safeLocation,
         address: safeAddress,
@@ -927,6 +928,9 @@ export function AuthProvider({ children }) {
         }
 
         const shopId = asString(createdShop.id);
+        if (!shopId) {
+            throw new Error('Shop created without a valid id. Please re-run migration/schema and try again.');
+        }
         const ownerName = email.split('@')[0] || name;
         const tempPin = String(Math.floor(1000 + Math.random() * 9000));
         const tempPassword = Math.random().toString(36).slice(-8);
