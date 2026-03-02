@@ -122,7 +122,7 @@ export default function AdminSettings() {
         setShowAddSalesman(false); // Close add form if open
     };
 
-    const handleSaveEdit = (e) => {
+    const handleSaveEdit = async (e) => {
         e.preventDefault();
         if (!editName.trim() || editPin.length !== 4) {
             alert('Name and 4-digit PIN required.');
@@ -134,16 +134,20 @@ export default function AdminSettings() {
             return;
         }
 
-        updateSalesman(editingId, {
-            name: editName,
-            pin: editPin,
-            photo: editPhoto,
-            hourlyRate: parseFloat(editRate) || 12.50,
-            salesmanNumber: parseInt(editSalesmanNumber, 10) || 0,
-            canEditTransactions: editCanEditTransactions,
-            canBulkEdit: editCanBulkEdit
-        });
-        setEditingId(null);
+        try {
+            await updateSalesman(editingId, {
+                name: editName,
+                pin: editPin,
+                photo: editPhoto,
+                hourlyRate: parseFloat(editRate) || 12.50,
+                salesmanNumber: parseInt(editSalesmanNumber, 10) || 0,
+                canEditTransactions: editCanEditTransactions,
+                canBulkEdit: editCanBulkEdit
+            });
+            setEditingId(null);
+        } catch (error) {
+            alert(error?.message || 'Failed to update salesman.');
+        }
     };
 
     const handleCreateShop = async (e) => {

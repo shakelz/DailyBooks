@@ -417,12 +417,20 @@ function getSalesmanMeta(metaMap = {}, shopId = '', salesmanId = '') {
 
 function mergeSalesmanMeta(profile = {}, metaMap = {}) {
     if (!profile || typeof profile !== 'object') return profile;
-    const meta = getSalesmanMeta(metaMap, profile.shop_id, profile.id);
+    const sid = asString(profile.shop_id);
+    const uid = asString(profile.id);
+    const hasMeta = Boolean(metaMap?.[sid] && typeof metaMap[sid] === 'object' && metaMap[sid][uid]);
+    const meta = hasMeta ? sanitizeSalesmanMeta(metaMap[sid][uid]) : null;
+
+    const dbSalesmanNumber = Math.max(0, Math.floor(asNumber(profile.salesmanNumber ?? profile.salesman_number, 0)));
+    const dbCanEdit = asBoolean(profile.canEditTransactions ?? profile.can_edit_transactions);
+    const dbCanBulk = asBoolean(profile.canBulkEdit ?? profile.can_bulk_edit);
+
     return {
         ...profile,
-        salesmanNumber: meta.salesmanNumber || profile.salesmanNumber || 0,
-        canEditTransactions: meta.canEditTransactions,
-        canBulkEdit: meta.canBulkEdit
+        salesmanNumber: hasMeta ? (meta.salesmanNumber || dbSalesmanNumber) : dbSalesmanNumber,
+        canEditTransactions: hasMeta ? meta.canEditTransactions : dbCanEdit,
+        canBulkEdit: hasMeta ? meta.canBulkEdit : dbCanBulk
     };
 }
 
@@ -498,10 +506,13 @@ function normalizeUserFromProfile(profile) {
         role: asString(profile.role) || 'salesman',
         pin: asString(profile.pin || profile.passcode || profile.pin_code || profile.pass_code),
         hourlyRate: parseFloat(profile.hourlyRate ?? profile.hourly_rate ?? 12.5) || 12.5,
-        photo: asString(profile.photo || profile.avatar_url),
+        photo: asString(profile.avatar_url || profile.photo || profile.photo_url),
         active: profile.active !== false,
         shop_id: asString(profile.shop_id || profile.shopId),
         is_online: asBoolean(profile.is_online ?? profile.isOnline ?? profile.online),
+        salesmanNumber: Math.max(0, Math.floor(asNumber(profile.salesmanNumber ?? profile.salesman_number, 0))),
+        canEditTransactions: asBoolean(profile.canEditTransactions ?? profile.can_edit_transactions),
+        canBulkEdit: asBoolean(profile.canBulkEdit ?? profile.can_bulk_edit),
     };
 }
 
@@ -519,6 +530,9 @@ function normalizeSalesman(profile) {
         email: user.email,
         shop_id: user.shop_id,
         is_online: asBoolean(user.is_online ?? user.isOnline ?? user.online),
+        salesmanNumber: Math.max(0, Math.floor(asNumber(user.salesmanNumber, 0))),
+        canEditTransactions: asBoolean(user.canEditTransactions),
+        canBulkEdit: asBoolean(user.canBulkEdit),
     };
 }
 
@@ -752,7 +766,12 @@ function buildProfileUpdatePayloads(updates = {}) {
         ...(updates.password === undefined ? {} : { password: asString(updates.password) }),
         ...(updates.hourlyRate === undefined ? {} : { hourlyRate: Number(updates.hourlyRate) || 0 }),
         ...(updates.active === undefined ? {} : { active: asBoolean(updates.active) }),
-        ...(updates.photo === undefined ? {} : { photo: asString(updates.photo) }),
+        ...((updates.photo === undefined && updates.photoUrl === undefined && updates.avatar_url === undefined)
+            ? {}
+            : { avatar_url: asString(updates.photo ?? updates.photoUrl ?? updates.avatar_url) }),
+        ...(updates.salesmanNumber === undefined ? {} : { salesman_number: Math.max(0, Math.floor(asNumber(updates.salesmanNumber, 0))) }),
+        ...(updates.canEditTransactions === undefined ? {} : { can_edit_transactions: asBoolean(updates.canEditTransactions) }),
+        ...(updates.canBulkEdit === undefined ? {} : { can_bulk_edit: asBoolean(updates.canBulkEdit) }),
         ...((updates.is_online === undefined && updates.isOnline === undefined && updates.online === undefined)
             ? {}
             : { is_online: asBoolean(updates.is_online ?? updates.isOnline ?? updates.online) }),
@@ -1978,6 +1997,16 @@ export function AuthProvider({ children }) {
         }
 
         if (createdProfile) {
+            await supabase
+                .from('profiles')
+                .update({
+                    salesman_number: assignedNumber,
+                    can_edit_transactions: permissionPatch.canEditTransactions,
+                    can_bulk_edit: permissionPatch.canBulkEdit,
+                })
+                .eq('id', createdProfile.id)
+                .eq('shop_id', sid);
+
             const withMeta = {
                 ...createdProfile,
                 salesmanNumber: assignedNumber,
@@ -2071,9 +2100,6 @@ export function AuthProvider({ children }) {
         }
 
         const dbUpdates = { ...(updates || {}) };
-        delete dbUpdates.salesmanNumber;
-        delete dbUpdates.canEditTransactions;
-        delete dbUpdates.canBulkEdit;
         delete dbUpdates.permissions;
 
         if (nextPin) {
