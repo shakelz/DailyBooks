@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dailybooks-erp-v1';
+const CACHE_NAME = 'dailybooks-erp-v2';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -30,21 +30,48 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // SPA navigation fallback
+  // SPA navigation fallback (network-first)
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', responseClone));
+          if (response && response.ok) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', responseClone));
+          }
           return response;
         })
-        .catch(() => caches.match('/index.html'))
+        .catch(async () => {
+          const cachedShell = await caches.match('/index.html');
+          return cachedShell || Response.error();
+        })
     );
     return;
   }
 
   if (url.origin !== self.location.origin) return;
+
+  const isStaticAsset = url.pathname.startsWith('/assets/')
+    || /\.(?:js|css|map|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf)$/i.test(url.pathname);
+
+  if (isStaticAsset) {
+    // Never fall back to index.html for JS/CSS files.
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200 && response.type === 'basic') {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(event.request);
+          return cached || Response.error();
+        })
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
@@ -57,8 +84,7 @@ self.addEventListener('fetch', (event) => {
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
           }
           return response;
-        })
-        .catch(() => caches.match('/index.html'));
+        });
     })
   );
 });
