@@ -14,7 +14,6 @@ export default function PWAInstallButton() {
 
   useEffect(() => {
     const handleBeforeInstall = (event) => {
-      event.preventDefault();
       setDeferredPrompt(event);
     };
 

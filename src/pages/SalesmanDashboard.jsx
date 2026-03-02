@@ -14,6 +14,8 @@ import { getServerState, setServerState } from '../serverStateClient';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
+const SALESMAN_LOCK_NAMESPACE = 'dailybooks_salesman_lock_v1';
+const volatileLockState = new Map();
 
 const newQuickSaleItem = () => ({
     productId: '',
@@ -418,7 +420,7 @@ function CompactTrendCard({ label, value, colorClass }) {
 
 export default function SalesmanDashboard({ adminView = false, adminDashboardDateSelection = null }) {
     const navigate = useNavigate();
-    const { role, user, isPunchedIn, activeShop, billShowTax, attendanceLogs, salesmen } = useAuth();
+    const { role, user, isPunchedIn, activeShop, billShowTax, attendanceLogs, salesmen, autoLockEnabled, autoLockTimeout } = useAuth();
     const {
         products,
         transactions,
@@ -481,10 +483,29 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [transactionFormError, setTransactionFormError] = useState('');
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
     const [recentlyDeletedTxn, setRecentlyDeletedTxn] = useState(null);
+    const [isLocked, setIsLocked] = useState(false);
+    const [unlockPin, setUnlockPin] = useState('');
+    const [unlockError, setUnlockError] = useState(false);
     const deletingZeroMobileIdsRef = useRef(new Set());
     const deleteUndoTimeoutRef = useRef(null);
+    const lockTimerRef = useRef(null);
+    const lockDebounceRef = useRef(null);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
+    const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
+
+    const readLastActivityAt = () => {
+        const raw = volatileLockState.get(lockStateKey);
+        if (!raw) return Date.now();
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return Number(parsed?.lastActivityAt) || Date.now();
+    };
+
+    const writeLastActivityAt = (nextLastActivityAt = Date.now()) => {
+        volatileLockState.set(lockStateKey, {
+            lastActivityAt: Number(nextLastActivityAt) || Date.now()
+        });
+    };
     const canEditTransactions = adminView || Boolean(
         user?.canEditTransactions
         ?? user?.permissions?.canEditTransactions
@@ -510,6 +531,90 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             navigate('/');
         }
     }, [adminView, navigate, role, user]);
+
+    useEffect(() => {
+        if (!user?.id || adminView) return;
+        if (!autoLockEnabled) {
+            setIsLocked(false);
+            writeLastActivityAt(Date.now());
+            return;
+        }
+
+        const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
+        const lastActivityAt = readLastActivityAt();
+        const now = Date.now();
+        const elapsedMs = now - lastActivityAt;
+        const shouldLock = elapsedMs >= timeoutMs;
+        setIsLocked(shouldLock);
+
+        if (!shouldLock) {
+            writeLastActivityAt(lastActivityAt);
+        }
+    }, [adminView, autoLockEnabled, autoLockTimeout, user?.id]);
+
+    useEffect(() => {
+        if (!autoLockEnabled || !user?.id || adminView) return;
+
+        const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
+        const lockScreen = () => setIsLocked(true);
+
+        const scheduleFromLastActivity = () => {
+            clearTimeout(lockTimerRef.current);
+            if (isLocked) return;
+            const now = Date.now();
+            const lastActivityAt = readLastActivityAt();
+            const remainingMs = timeoutMs - (now - lastActivityAt);
+            if (remainingMs <= 0) {
+                lockScreen();
+                return;
+            }
+            lockTimerRef.current = setTimeout(lockScreen, remainingMs);
+        };
+
+        const handleActivity = () => {
+            if (isLocked) return;
+            clearTimeout(lockDebounceRef.current);
+            lockDebounceRef.current = setTimeout(() => {
+                writeLastActivityAt(Date.now());
+                scheduleFromLastActivity();
+            }, 150);
+        };
+
+        const handleVisibilityOrFocus = () => {
+            if (document.visibilityState && document.visibilityState !== 'visible') return;
+            scheduleFromLastActivity();
+        };
+
+        const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+        events.forEach((eventName) => window.addEventListener(eventName, handleActivity, { passive: true }));
+        window.addEventListener('focus', handleVisibilityOrFocus);
+        document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+        scheduleFromLastActivity();
+
+        return () => {
+            events.forEach((eventName) => window.removeEventListener(eventName, handleActivity));
+            window.removeEventListener('focus', handleVisibilityOrFocus);
+            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+            clearTimeout(lockTimerRef.current);
+            clearTimeout(lockDebounceRef.current);
+        };
+    }, [adminView, autoLockEnabled, autoLockTimeout, isLocked, user?.id]);
+
+    const handleUnlock = (event) => {
+        event?.preventDefault();
+        const enteredPin = String(unlockPin || '').trim();
+        const userPin = String(user?.pin || '').trim();
+        if (enteredPin && userPin && enteredPin === userPin) {
+            setIsLocked(false);
+            setUnlockPin('');
+            setUnlockError(false);
+            writeLastActivityAt(Date.now());
+            return;
+        }
+        setUnlockError(true);
+        setUnlockPin('');
+        setTimeout(() => setUnlockError(false), 1500);
+    };
 
 
     const todayStart = useMemo(() => {
@@ -3653,6 +3758,32 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             <SalesmanProfile isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
             <CategoryManagerModal isOpen={showCategoryModal} onClose={() => setShowCategoryModal(false)} />
             <RepairModal isOpen={showRepairModal} onClose={() => setShowRepairModal(false)} />
+
+            {isLocked && !adminView && (
+                <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/75 backdrop-blur-sm">
+                    <div className={`w-full max-w-xs mx-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl ${unlockError ? 'animate-pulse' : ''}`}>
+                        <h3 className="text-lg font-black text-slate-800">Screen Locked</h3>
+                        <p className="mt-1 text-xs text-slate-500">Enter your PIN to unlock</p>
+
+                        <form onSubmit={handleUnlock} className="mt-4 space-y-3">
+                            <input
+                                type="password"
+                                value={unlockPin}
+                                onChange={(e) => setUnlockPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-lg font-black tracking-[0.4em] outline-none focus:border-violet-500"
+                                placeholder="••••"
+                                autoFocus
+                            />
+                            {unlockError && <p className="text-[11px] text-rose-600">Incorrect PIN</p>}
+                            <button type="submit" className="w-full rounded-lg bg-violet-600 py-2.5 text-sm font-bold text-white hover:bg-violet-700">
+                                Unlock
+                            </button>
+                        </form>
+
+                        <p className="mt-3 text-[10px] text-slate-400">{user?.name || 'Salesman'} • Auto-lock {autoLockTimeout}s</p>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
