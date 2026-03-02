@@ -118,6 +118,13 @@ function isCategoryHierarchyObject(value) {
     return keys.includes('path') && (keys.includes('level1') || keys.includes('level2') || keys.includes('level3'));
 }
 
+function makeCategoryId() {
+    if (typeof globalThis !== 'undefined' && globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+    return `cat_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function stringifyAttributeValue(value) {
     if (value === null || value === undefined) return '';
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
@@ -1023,11 +1030,11 @@ export function InventoryProvider({ children }) {
             .eq('shop_id', sid)
             .eq('name', trimmed)
             .eq('level', 1)
-            .single();
+            .maybeSingle();
         if (existing) {
             if (image) await supabase.from('categories').update({ image }).eq('id', existing.id).eq('shop_id', sid);
         } else {
-            await supabase.from('categories').insert([{ name: trimmed, image: image || '', level: 1, parent: null, shop_id: sid }]);
+            await supabase.from('categories').insert([{ id: makeCategoryId(), name: trimmed, image: image || '', level: 1, parent: null, shop_id: sid }]);
         }
     }, [activeShopId]);
 
@@ -1068,11 +1075,11 @@ export function InventoryProvider({ children }) {
             .eq('name', trimmed)
             .eq('parent', l1Name)
             .eq('level', 2)
-            .single();
+            .maybeSingle();
         if (existing) {
             if (image) await supabase.from('categories').update({ image }).eq('id', existing.id).eq('shop_id', sid);
         } else {
-            await supabase.from('categories').insert([{ name: trimmed, parent: l1Name, image: image || '', level: 2, shop_id: sid }]);
+            await supabase.from('categories').insert([{ id: makeCategoryId(), name: trimmed, parent: l1Name, image: image || '', level: 2, shop_id: sid }]);
         }
     }, [activeShopId]);
 
