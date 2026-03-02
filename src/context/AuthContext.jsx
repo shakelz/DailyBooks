@@ -1718,8 +1718,22 @@ export function AuthProvider({ children }) {
     }, [activeShopId, role, user?.id, fetchAttendanceState]);
 
     const punchIn = useCallback(async () => {
-        if (!user || !activeShopId) return;
+        if (!user || !activeShopId || isPunchedIn) return;
         const ts = new Date();
+        const optimisticId = `optimistic-in-${Date.now()}-${user.id}`;
+        const optimisticLog = {
+            id: optimisticId,
+            timestamp: ts.toISOString(),
+            type: 'IN',
+            userId: asString(user.id),
+            userName: asString(user.name),
+            date: ts.toLocaleDateString('en-PK'),
+            time: ts.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            __optimistic: true
+        };
+
+        setIsPunchedIn(true);
+        setAttendanceLogs((prev) => [optimisticLog, ...(Array.isArray(prev) ? prev : [])]);
 
         const { error } = await requestAttendanceAction({
             userId: user.id,
@@ -1732,15 +1746,31 @@ export function AuthProvider({ children }) {
 
         if (error) {
             console.error('Failed to punch IN:', error);
+            setIsPunchedIn(false);
+            setAttendanceLogs((prev) => (Array.isArray(prev) ? prev : []).filter((log) => asString(log?.id) !== optimisticId));
             return;
         }
 
-        await fetchAttendanceState(activeShopId, role, user?.id);
-    }, [activeShopId, fetchAttendanceState, role, user]);
+        fetchAttendanceState(activeShopId, role, user?.id);
+    }, [activeShopId, fetchAttendanceState, isPunchedIn, role, user]);
 
     const punchOut = useCallback(async () => {
-        if (!user || !activeShopId) return;
+        if (!user || !activeShopId || !isPunchedIn) return;
         const ts = new Date();
+        const optimisticId = `optimistic-out-${Date.now()}-${user.id}`;
+        const optimisticLog = {
+            id: optimisticId,
+            timestamp: ts.toISOString(),
+            type: 'OUT',
+            userId: asString(user.id),
+            userName: asString(user.name),
+            date: ts.toLocaleDateString('en-PK'),
+            time: ts.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            __optimistic: true
+        };
+
+        setIsPunchedIn(false);
+        setAttendanceLogs((prev) => [optimisticLog, ...(Array.isArray(prev) ? prev : [])]);
 
         const { error } = await requestAttendanceAction({
             userId: user.id,
@@ -1753,11 +1783,13 @@ export function AuthProvider({ children }) {
 
         if (error) {
             console.error('Failed to punch OUT:', error);
+            setIsPunchedIn(true);
+            setAttendanceLogs((prev) => (Array.isArray(prev) ? prev : []).filter((log) => asString(log?.id) !== optimisticId));
             return;
         }
 
-        await fetchAttendanceState(activeShopId, role, user?.id);
-    }, [activeShopId, fetchAttendanceState, role, user]);
+        fetchAttendanceState(activeShopId, role, user?.id);
+    }, [activeShopId, fetchAttendanceState, isPunchedIn, role, user]);
 
     const addAttendanceLog = (_userObj, type) => {
         const normalizedType = asString(type).toUpperCase();
