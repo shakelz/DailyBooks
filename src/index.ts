@@ -546,6 +546,8 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
         FROM "attendance"
         WHERE shop_id = ?
           AND user_id = ?
+          AND check_in IS NOT NULL
+          AND check_in <> ''
           AND (check_out IS NULL OR check_out = '')
         ORDER BY COALESCE(NULLIF(check_in, ''), created_at) DESC
         LIMIT 1
@@ -568,10 +570,7 @@ async function handlePunchInPost(request: Request, env: Env): Promise<Response> 
           WHERE id = ?
         `).bind(timestamp, hours, note, note, attendanceId).run();
       } else {
-        await db.prepare(`
-          INSERT INTO "attendance" (id, shop_id, user_id, date, check_out, status, note, updated_at)
-          VALUES (?, ?, ?, ?, ?, 'present', ?, datetime('now'))
-        `).bind(attendanceId, shopId, userId, attendanceDate, timestamp, note).run();
+        return json({ data: null, error: { message: 'Cannot punch out without an active punch in.' } }, 400);
       }
 
       // Mark user offline in profiles (D1 source of truth)
