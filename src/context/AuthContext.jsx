@@ -10,6 +10,7 @@ const AUTH_TOKEN_KEY = 'token';
 const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
 const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
 const AUTH_SHOP_STATE_KEY = 'dailybooks_auth_shop_v1';
+const PUNCH_STATE_SESSION_KEY = 'dailybooks_punch_state_v1';
 const SALESMAN_META_STORAGE_KEY = 'dailybooks_salesman_meta_v1';
 const SHOP_META_STORAGE_KEY = 'dailybooks_shop_meta_v1';
 
@@ -106,6 +107,56 @@ function removeStorage(key) {
     } catch {
         return;
     }
+}
+
+function readSessionStorage(key, fallback = '') {
+    if (typeof window === 'undefined') return fallback;
+    try {
+        const value = window.sessionStorage.getItem(key);
+        return value ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function writeSessionStorage(key, value) {
+    if (typeof window === 'undefined') return;
+    try {
+        window.sessionStorage.setItem(key, value === null || value === undefined ? '' : String(value));
+    } catch {
+        return;
+    }
+}
+
+function removeSessionStorage(key) {
+    if (typeof window === 'undefined') return;
+    try {
+        window.sessionStorage.removeItem(key);
+    } catch {
+        return;
+    }
+}
+
+function buildPunchStateKey(shopId, userId) {
+    return `${asString(shopId)}::${asString(userId)}`;
+}
+
+function readPunchStateFromSession(shopId, userId) {
+    const raw = readSessionStorage(PUNCH_STATE_SESSION_KEY, '');
+    const parsed = safeParseJSON(raw, {});
+    if (!parsed || typeof parsed !== 'object') return null;
+    const key = buildPunchStateKey(shopId, userId);
+    if (!key || !Object.prototype.hasOwnProperty.call(parsed, key)) return null;
+    return asBoolean(parsed[key]);
+}
+
+function writePunchStateToSession(shopId, userId, isPunchedInValue) {
+    const key = buildPunchStateKey(shopId, userId);
+    if (!key) return;
+    const current = safeParseJSON(readSessionStorage(PUNCH_STATE_SESSION_KEY, ''), {});
+    const next = current && typeof current === 'object' ? { ...current } : {};
+    next[key] = Boolean(isPunchedInValue);
+    writeSessionStorage(PUNCH_STATE_SESSION_KEY, JSON.stringify(next));
 }
 
 function safeParseJSON(value, fallback) {
@@ -1478,7 +1529,13 @@ export function AuthProvider({ children }) {
         const fetchAttendance = async () => {
             const { data, error } = await requestAttendanceLogs(sid);
             if (!error && data) {
-                setAttendanceLogs(data.map(formatAttendance));
+                const formattedLogs = data.map(formatAttendance);
+                setAttendanceLogs(formattedLogs);
+                if (role === 'salesman' && user?.id) {
+                    const punchState = getCurrentPunchState(formattedLogs, user.id);
+                    setIsPunchedIn(punchState);
+                    writePunchStateToSession(sid, user.id, punchState);
+                }
             } else {
                 setAttendanceLogs([]);
             }
@@ -1513,7 +1570,7 @@ export function AuthProvider({ children }) {
             clearInterval(attendancePollTimer);
             supabase.removeChannel(attendanceSubscription);
         };
-    }, [activeShopId]);
+    }, [activeShopId, role, user?.id]);
 
     useEffect(() => {
         if (!isAdminLike) return undefined;
@@ -1610,14 +1667,21 @@ export function AuthProvider({ children }) {
         if (user && role === 'salesman') {
             const hasAnyUserLogs = attendanceLogs.some((l) => String(l.userId || l.workerId) === String(user.id));
             if (hasAnyUserLogs) {
-                setIsPunchedIn(getCurrentPunchState(attendanceLogs, user.id));
+                const nextState = getCurrentPunchState(attendanceLogs, user.id);
+                setIsPunchedIn(nextState);
+                writePunchStateToSession(activeShopId, user.id, nextState);
             } else {
-                setIsPunchedIn(asBoolean(user.is_online ?? user.isOnline ?? user.online));
+                const cachedState = readPunchStateFromSession(activeShopId, user.id);
+                if (cachedState !== null) {
+                    setIsPunchedIn(cachedState);
+                } else {
+                    setIsPunchedIn(asBoolean(user.is_online ?? user.isOnline ?? user.online));
+                }
             }
         } else {
             setIsPunchedIn(false);
         }
-    }, [attendanceLogs, user, role]);
+    }, [attendanceLogs, user, role, activeShopId]);
 
     const handlePunch = async (type) => {
         if (!user || !activeShopId) return;
@@ -1639,6 +1703,7 @@ export function AuthProvider({ children }) {
 
         setAttendanceLogs(prev => [uiLog, ...prev]);
         setIsPunchedIn(type === 'IN');
+        writePunchStateToSession(activeShopId, user.id, type === 'IN');
 
         const { data: savedLog, error } = await requestPunchIn({
             userId: user.id,
@@ -1652,6 +1717,7 @@ export function AuthProvider({ children }) {
             console.error('Failed to punch attendance:', error);
             setAttendanceLogs((prev) => prev.filter((l) => String(l.id) !== String(uiLog.id)));
             setIsPunchedIn(type !== 'IN');
+            writePunchStateToSession(activeShopId, user.id, type !== 'IN');
             return;
         }
 
@@ -1680,6 +1746,7 @@ export function AuthProvider({ children }) {
         }
 
         const nextOnline = type === 'IN';
+        writePunchStateToSession(activeShopId, user.id, nextOnline);
         setUser((prev) => {
             if (!prev) return prev;
             return {
@@ -1954,6 +2021,7 @@ export function AuthProvider({ children }) {
     const logout = () => {
         clearAuthSession();
         clearPersistedAuthState();
+        removeSessionStorage(PUNCH_STATE_SESSION_KEY);
         setRole(null);
         setUser(null);
         setActiveShopIdState('');
