@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
-import { buildProductJSON, generateId, getStockSeverity, getLevel1Categories, getLevel2Categories } from '../data/inventoryStore';
+import { buildProductJSON, generateId, getStockSeverity } from '../data/inventoryStore';
 
 const InventoryContext = createContext(null);
 const TRANSACTION_SNAPSHOT_STORAGE_KEY = 'dailybooks_transaction_snapshots_v1';
@@ -995,7 +995,7 @@ export function InventoryProvider({ children }) {
 
     const getL2Categories = useCallback((l1Name, scope = 'all') => {
         if (!l1Name) return [];
-        const categories = l2Map[l1Name] || getLevel2Categories(l1Name);
+        const categories = l2Map[l1Name] || [];
         if (!scope || String(scope).toLowerCase() === 'all') return categories;
         const normalizedScope = normalizeCategoryScope(scope);
         return (categories || []).filter((c) => {
@@ -1054,7 +1054,7 @@ export function InventoryProvider({ children }) {
         if (!trimmed || !l1Name) return;
         const normalizedScope = normalizeCategoryScope(scope);
         setL2Map(prev => {
-            const currentList = prev[l1Name] || getLevel2Categories(l1Name);
+            const currentList = prev[l1Name] || [];
             const existing = currentList.find(c => (typeof c === 'object' ? c?.name : c) === trimmed);
             if (existing) {
                 const updatedList = currentList.map((c) => {

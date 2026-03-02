@@ -6,51 +6,10 @@
 // ── Live Products (in-memory, starts empty) ──
 let products = [];
 
-import { DEFAULT_CATEGORY_ICONS } from './categoryIcons';
+// ── Categories (DB-first, starts empty) ──
+let level1Categories = [];
 
-// ── Level 1 Preset Categories (editable) ──
-let level1Categories = [
-    { name: 'Mobile', image: DEFAULT_CATEGORY_ICONS['Mobile'] },
-    { name: 'Accessories', image: DEFAULT_CATEGORY_ICONS['Accessories'] },
-    { name: 'Repairs', image: DEFAULT_CATEGORY_ICONS['Repairs'] },
-    { name: 'Recharge', image: DEFAULT_CATEGORY_ICONS['Recharge'] },
-    { name: 'SIM Cards', image: DEFAULT_CATEGORY_ICONS['SIM Cards'] },
-    { name: 'Tablets', image: DEFAULT_CATEGORY_ICONS['Tablets'] },
-    { name: 'Laptops', image: DEFAULT_CATEGORY_ICONS['Laptops'] },
-    { name: 'Smart Watches', image: DEFAULT_CATEGORY_ICONS['Smart Watches'] },
-    { name: 'Shop Expenses', image: DEFAULT_CATEGORY_ICONS['Shop Expenses'] },
-];
-
-let level2Map = {
-    'Mobile': [
-        { name: 'Samsung', image: null }, { name: 'iPhone', image: null },
-        { name: 'Xiaomi', image: null }, { name: 'Oppo', image: null },
-        { name: 'Vivo', image: null }, { name: 'Realme', image: null },
-        { name: 'Infinix', image: null }, { name: 'Tecno', image: null },
-        { name: 'Nokia', image: null }, { name: 'Huawei', image: null }
-    ],
-    'Accessories': [
-        { name: 'Chargers', image: null }, { name: 'Cases', image: null },
-        { name: 'Screen Guards', image: null }, { name: 'Cables', image: null },
-        { name: 'Earphones', image: null }, { name: 'Power Banks', image: null },
-        { name: 'Holders', image: null }
-    ],
-    'Repairs': [
-        { name: 'Screen Repair', image: null }, { name: 'Battery Replacement', image: null },
-        { name: 'Software Fix', image: null }, { name: 'Charging Port', image: null },
-        { name: 'Speaker/Mic', image: null }
-    ],
-    'Recharge': [
-        { name: 'Jazz', image: null }, { name: 'Ufone', image: null },
-        { name: 'Telenor', image: null }, { name: 'Zong', image: null },
-        { name: 'PTCL', image: null }, { name: 'StormFiber', image: null }
-    ],
-    'SIM Cards': [{ name: 'New SIM', image: null }, { name: 'Replacement SIM', image: null }],
-    'Tablets': [{ name: 'iPad', image: null }, { name: 'Samsung Tab', image: null }, { name: 'Huawei Tab', image: null }, { name: 'Lenovo Tab', image: null }],
-    'Laptops': [{ name: 'Dell', image: null }, { name: 'HP', image: null }, { name: 'Lenovo', image: null }, { name: 'Acer', image: null }, { name: 'MacBook', image: null }],
-    'Smart Watches': [{ name: 'Apple Watch', image: null }, { name: 'Samsung Watch', image: null }, { name: 'Amazfit', image: null }, { name: 'Noise', image: null }],
-    'Shop Expenses': [{ name: 'Rent', image: null }, { name: 'Electricity', image: null }, { name: 'Salary', image: null }, { name: 'Transport', image: null }, { name: 'Misc', image: null }],
-};
+let level2Map = {};
 
 // ── ID Generator (Universal) ──
 export function generateId(prefix = '') {

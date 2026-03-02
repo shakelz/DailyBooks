@@ -3,10 +3,6 @@ import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
-const DEFAULT_SALESMEN = [
-    { id: 1, name: 'Ali', pin: '1234', active: true, hourlyRate: 12.5, role: 'salesman' }
-];
-
 const ADMIN_ROLES = ['superadmin', 'admin'];
 const AUTH_SESSION_KEY = 'dailybooks_auth_session_v1';
 const AUTH_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
@@ -810,10 +806,7 @@ export function AuthProvider({ children }) {
     });
     const [autoLockTimeout, setAutoLockTimeout] = useState(() => parseInt(localStorage.getItem('autoLockTimeout'), 10) || 120);
 
-    const [salesmen, setSalesmen] = useState(() => {
-        const saved = safeParseJSON(localStorage.getItem('salesmen'), null);
-        return Array.isArray(saved) ? saved : DEFAULT_SALESMEN;
-    });
+    const [salesmen, setSalesmen] = useState([]);
 
     const isSuperAdmin = role === 'superadmin';
     const isAdminLike = role === 'superadmin' || role === 'admin';
@@ -893,7 +886,6 @@ export function AuthProvider({ children }) {
     useEffect(() => { localStorage.setItem('slowMovingDays', String(slowMovingDays)); }, [slowMovingDays]);
     useEffect(() => { localStorage.setItem('autoLockEnabled', String(autoLockEnabled)); }, [autoLockEnabled]);
     useEffect(() => { localStorage.setItem('autoLockTimeout', String(autoLockTimeout)); }, [autoLockTimeout]);
-    useEffect(() => { localStorage.setItem('salesmen', JSON.stringify(salesmen)); }, [salesmen]);
     useEffect(() => { localStorage.setItem(SALESMAN_META_STORAGE_KEY, JSON.stringify(salesmanMetaMap)); }, [salesmanMetaMap]);
     useEffect(() => { localStorage.setItem(SHOP_META_STORAGE_KEY, JSON.stringify(shopMetaMap)); }, [shopMetaMap]);
 
@@ -901,8 +893,7 @@ export function AuthProvider({ children }) {
     useEffect(() => {
         const handleStorageChange = (e) => {
             if (e.key === 'salesmen' && e.newValue) {
-                const parsed = safeParseJSON(e.newValue, []);
-                if (Array.isArray(parsed)) setSalesmen(parsed);
+                // Salesmen are loaded from DB; ignore localStorage salesmen sync.
             }
             if (e.key === SALESMAN_META_STORAGE_KEY && e.newValue) {
                 const parsed = safeParseJSON(e.newValue, {});
