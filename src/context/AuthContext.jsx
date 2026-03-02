@@ -31,7 +31,12 @@ async function ensureSupabaseSession() {
     }
 
     const { data, error } = await supabase.auth.signInAnonymously();
-    if (error) return { ok: false, error: error.message || 'Failed to establish auth session.' };
+    if (error) {
+        // Anonymous auth can be disabled in Supabase projects.
+        // App-level profile login should still work in that case.
+        setAuthTokenFromSupabaseSession(null);
+        return { ok: true, error: null };
+    }
 
     setAuthTokenFromSupabaseSession(data?.session || null);
     return { ok: true, error: null };
@@ -900,19 +905,13 @@ export function AuthProvider({ children }) {
             if (!active) return;
 
             setAuthTokenFromSupabaseSession(data?.session || null);
-            if (!data?.session) {
-                clearPersistedAuthState();
-                setRole(null);
-                setUser(null);
-                setActiveShopIdState('');
-            }
         };
 
         bootstrapAuthSession();
 
         const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
             setAuthTokenFromSupabaseSession(session || null);
-            if (!session) {
+            if (_event === 'SIGNED_OUT') {
                 clearPersistedAuthState();
                 setRole(null);
                 setUser(null);
