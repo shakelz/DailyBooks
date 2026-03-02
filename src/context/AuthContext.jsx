@@ -494,6 +494,34 @@ function buildTimestampFromTime(baseTimestamp, timeValue) {
     return base.toISOString();
 }
 
+function getCurrentPunchState(logs = [], userId = '') {
+    const uid = asString(userId);
+    if (!uid) return false;
+
+    const ordered = (Array.isArray(logs) ? logs : [])
+        .filter((log) => asString(log?.userId || log?.workerId) === uid)
+        .map((log) => ({
+            ...log,
+            type: asString(log?.type).toUpperCase(),
+            ts: new Date(asString(log?.timestamp)).getTime()
+        }))
+        .filter((log) => Number.isFinite(log.ts) && (log.type === 'IN' || log.type === 'OUT'))
+        .sort((a, b) => a.ts - b.ts);
+
+    let openSessions = 0;
+    ordered.forEach((log) => {
+        if (log.type === 'IN') {
+            openSessions += 1;
+            return;
+        }
+        if (log.type === 'OUT') {
+            openSessions = Math.max(0, openSessions - 1);
+        }
+    });
+
+    return openSessions > 0;
+}
+
 function buildShopUpdatePayloads({ name, location, address, ownerEmail, telephone }) {
     const payload = cleanPayload({
         ...(name === undefined ? {} : { name: asString(name) }),
@@ -1569,10 +1597,9 @@ export function AuthProvider({ children }) {
 
     useEffect(() => {
         if (user && role === 'salesman') {
-            const myLogs = attendanceLogs.filter((l) => String(l.userId) === String(user.id));
-            if (myLogs.length > 0) {
-                const latest = [...myLogs].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
-                setIsPunchedIn(latest.type === 'IN');
+            const hasAnyUserLogs = attendanceLogs.some((l) => String(l.userId || l.workerId) === String(user.id));
+            if (hasAnyUserLogs) {
+                setIsPunchedIn(getCurrentPunchState(attendanceLogs, user.id));
             } else {
                 setIsPunchedIn(asBoolean(user.is_online ?? user.isOnline ?? user.online));
             }
