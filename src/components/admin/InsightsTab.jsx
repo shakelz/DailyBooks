@@ -7,7 +7,7 @@ import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
     ComposedChart, Area, PieChart, Pie, Cell
 } from 'recharts';
-import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, Package, RefreshCw, BarChart3, Scale, Users, Wrench } from 'lucide-react';
+import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, Package, RefreshCw, BarChart3, Scale, Users, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
 import DateRangeFilter from './DateRangeFilter';
 
 function toLocalDateKey(value) {
@@ -79,6 +79,7 @@ export default function InsightsTab() {
         endDate: toInputDateString(defaultEndDate),
     });
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
+    const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
 
     // ── Helper: Calculate Business Metrics ──
     const analytics = useMemo(() => {
@@ -573,6 +574,9 @@ export default function InsightsTab() {
                             icon={<DollarSign size={24} />}
                             color="emerald"
                             trend={analytics.salesGrowth > 0 ? `+${analytics.salesGrowth.toFixed(1)}%` : null}
+                            onClick={() => setShowFinalProfitBreakdown(prev => !prev)}
+                            isActive={showFinalProfitBreakdown}
+                            hint={showFinalProfitBreakdown ? 'Hide calculation details' : 'Tap to view calculation details'}
                         />
                     </div>
                 )}
@@ -606,6 +610,37 @@ export default function InsightsTab() {
                     />
                 </div>
             </div>
+
+            {isAdminLike && showFinalProfitBreakdown && (
+                <div className="bg-white border border-emerald-100 rounded-3xl shadow-sm p-5">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Final Profit Calculation</h3>
+                        <span className="text-xs font-bold text-emerald-600">Net = Gross Profit - Fixed Expenses</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Product Profit</p>
+                            <p className="text-lg font-black text-slate-800">{priceTag(analytics.productProfit)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Service Profit</p>
+                            <p className="text-lg font-black text-slate-800">{priceTag(analytics.serviceProfit)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3">
+                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Gross Net Profit</p>
+                            <p className="text-lg font-black text-blue-700">{priceTag(analytics.totalProfit)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-red-100 bg-red-50 p-3">
+                            <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Total Fixed Expenses</p>
+                            <p className="text-lg font-black text-red-700">{priceTag(analytics.totalFixedExpenses)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 md:col-span-2 xl:col-span-2">
+                            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Final Profit (Net-Net)</p>
+                            <p className="text-2xl font-black text-emerald-700">{priceTag(analytics.finalProfit)}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ── 2. Team Performance (Salesman Leaderboard) ── */}
             <div className="bg-gradient-to-br from-indigo-900 to-slate-800 p-4 md:p-6 rounded-[2rem] shadow-xl border border-indigo-800 text-white">
@@ -1077,7 +1112,7 @@ export default function InsightsTab() {
     );
 }
 
-function MetricCard({ title, value, icon, color, trend, subtext }) {
+function MetricCard({ title, value, icon, color, trend, subtext, onClick, isActive, hint }) {
     const colorStyles = {
         emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
         blue: 'bg-blue-50 text-blue-600 border-blue-100',
@@ -1086,8 +1121,34 @@ function MetricCard({ title, value, icon, color, trend, subtext }) {
         red: 'bg-red-50 text-red-600 border-red-100',
     };
 
+    const sharedClassName = `p-4 xl:p-6 rounded-3xl border shadow-sm flex items-start justify-between bg-white border-slate-100 md:hover:border-blue-300 md:hover:shadow-md transition-all group w-full text-left ${onClick ? 'cursor-pointer' : ''} ${isActive ? 'ring-2 ring-emerald-200 border-emerald-200' : ''}`;
+
+    if (onClick) {
+        return (
+            <button type="button" onClick={onClick} className={sharedClassName}>
+                <div>
+                    <p className="text-[10px] xl:text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 xl:mb-2">{title}</p>
+                    <h3 className="text-xl xl:text-3xl font-black text-slate-800 tracking-tight whitespace-nowrap">{value}</h3>
+                    {trend && <p className={`text-[10px] xl:text-xs font-bold mt-1 xl:mt-2 flex items-center gap-1 ${trend.startsWith('-') ? 'text-red-500' : 'text-emerald-500'}`}>
+                        <TrendingUp size={12} /> {trend}
+                    </p>}
+                    {subtext && <p className="text-[9px] xl:text-[10px] text-slate-400 mt-1 font-medium">{subtext}</p>}
+                    {hint && <p className="text-[9px] xl:text-[10px] text-slate-500 mt-1 font-semibold">{hint}</p>}
+                </div>
+                <div className="flex items-center gap-2 ml-2 shrink-0">
+                    <div className={`p-3 xl:p-4 rounded-2xl ${colorStyles[color]} group-hover:scale-110 transition-transform`}>
+                        {icon}
+                    </div>
+                    <div className="text-slate-400">
+                        {isActive ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </div>
+                </div>
+            </button>
+        );
+    }
+
     return (
-        <div className={`p-4 xl:p-6 rounded-3xl border shadow-sm flex items-start justify-between bg-white border-slate-100 md:hover:border-blue-300 md:hover:shadow-md transition-all group`}>
+        <div className={sharedClassName}>
             <div>
                 <p className="text-[10px] xl:text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 xl:mb-2">{title}</p>
                 <h3 className="text-xl xl:text-3xl font-black text-slate-800 tracking-tight whitespace-nowrap">{value}</h3>
