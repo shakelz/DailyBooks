@@ -6,7 +6,7 @@ export default function AdminSettings() {
     const {
         isAdminLike, isSuperAdmin, activeShopId, shops, refreshShops, createShop, updateShop, deleteShop,
         updateAdminPassword,
-        salesmen, addSalesman, addIndependentAdmin, deleteSalesman, updateSalesman,
+        salesmen, addSalesman, deleteSalesman, updateSalesman,
         activeShop, billShowTax, setBillShowTax,
         slowMovingDays, setSlowMovingDays,
         autoLockEnabled, setAutoLockEnabled,
@@ -58,12 +58,6 @@ export default function AdminSettings() {
     const [isSavingShop, setIsSavingShop] = useState(false);
     const [deletingShopId, setDeletingShopId] = useState('');
     const [visibleShopPasswords, setVisibleShopPasswords] = useState({});
-    const [indAdminName, setIndAdminName] = useState('');
-    const [indAdminEmail, setIndAdminEmail] = useState('');
-    const [indAdminPassword, setIndAdminPassword] = useState('');
-    const [indAdminMessage, setIndAdminMessage] = useState('');
-    const [indAdminError, setIndAdminError] = useState('');
-    const [isCreatingIndAdmin, setIsCreatingIndAdmin] = useState(false);
 
     useEffect(() => {
         if (isAdminLike) {
@@ -292,38 +286,6 @@ export default function AdminSettings() {
             ...prev,
             [shopId]: !prev[shopId],
         }));
-    };
-
-    const handleCreateIndependentAdmin = async (e) => {
-        e.preventDefault();
-        setIndAdminError('');
-        setIndAdminMessage('');
-
-        if (!indAdminEmail.trim()) {
-            setIndAdminError('Admin email is required.');
-            return;
-        }
-        if (!indAdminPassword.trim() || indAdminPassword.trim().length < 4) {
-            setIndAdminError('Admin password must be at least 4 characters.');
-            return;
-        }
-
-        setIsCreatingIndAdmin(true);
-        try {
-            const created = await addIndependentAdmin({
-                name: indAdminName,
-                email: indAdminEmail,
-                password: indAdminPassword,
-            });
-            setIndAdminName('');
-            setIndAdminEmail('');
-            setIndAdminPassword('');
-            setIndAdminMessage(`Independent admin "${created?.name || 'Admin'}" created.`);
-        } catch (error) {
-            setIndAdminError(error?.message || 'Failed to create independent admin.');
-        } finally {
-            setIsCreatingIndAdmin(false);
-        }
     };
 
     return (
@@ -596,65 +558,6 @@ export default function AdminSettings() {
                             )}
                         </div>
                     </div>
-                </div>
-            )}
-
-            {isSuperAdmin && (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-                            <UserPlus size={20} />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-slate-800">Independent Admin</h2>
-                            <p className="text-xs text-slate-400">Create admin accounts not linked to any single shop.</p>
-                        </div>
-                    </div>
-
-                    <form onSubmit={handleCreateIndependentAdmin} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Name</label>
-                            <input
-                                value={indAdminName}
-                                onChange={(e) => setIndAdminName(e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                placeholder="Admin name"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
-                            <input
-                                type="email"
-                                value={indAdminEmail}
-                                onChange={(e) => setIndAdminEmail(e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                placeholder="admin@dailybooks.com"
-                                required
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
-                            <input
-                                type="text"
-                                value={indAdminPassword}
-                                onChange={(e) => setIndAdminPassword(e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                placeholder="min 4 chars"
-                                required
-                            />
-                        </div>
-                        <button
-                            type="submit"
-                            disabled={isCreatingIndAdmin}
-                            className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
-                        >
-                            <Shield size={16} />
-                            {isCreatingIndAdmin ? 'Creating...' : 'Create Admin'}
-                        </button>
-                    </form>
-
-                    {indAdminError && <p className="text-sm font-medium text-red-500">{indAdminError}</p>}
-                    {indAdminMessage && <p className="text-sm font-medium text-emerald-600">{indAdminMessage}</p>}
                 </div>
             )}
 

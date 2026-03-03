@@ -1762,6 +1762,25 @@ export function AuthProvider({ children }) {
         };
     }, [activeShopId, fetchAttendanceState, role, user?.id]);
 
+    useEffect(() => {
+        const sid = asString(activeShopId);
+        if (!sid) return;
+
+        let cancelled = false;
+        const tick = async () => {
+            if (cancelled) return;
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+            await fetchAttendanceState(sid, role, user?.id);
+        };
+
+        tick();
+        const intervalId = setInterval(tick, 3000);
+        return () => {
+            cancelled = true;
+            clearInterval(intervalId);
+        };
+    }, [activeShopId, fetchAttendanceState, role, user?.id]);
+
     const punchIn = useCallback(async () => {
         if (!user || !activeShopId || isPunchedIn) return;
         const ts = new Date();

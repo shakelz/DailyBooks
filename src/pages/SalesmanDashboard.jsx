@@ -1091,26 +1091,50 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const startMs = dashboardRange.start.getTime();
         const nowMs = Math.min(dashboardRange.end.getTime(), Date.now());
         const staffNameById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), String(staff?.name || 'Staff')]));
+        const hourlyRateById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), parseFloat(staff?.hourlyRate) || 12.5]));
 
-        return (attendanceLogs || [])
+        const inRangeLogs = (attendanceLogs || [])
             .filter((log) => {
                 const ts = getTimestampMs(log?.timestamp);
                 return Number.isFinite(ts) && ts >= startMs && ts <= nowMs;
             })
-            .sort((a, b) => getTimestampMs(b?.timestamp) - getTimestampMs(a?.timestamp))
+            .sort((a, b) => getTimestampMs(a?.timestamp) - getTimestampMs(b?.timestamp));
+
+        const openInByUser = new Map();
+        const enriched = inRangeLogs
             .map((log) => {
                 const uid = String(log?.userId || log?.workerId || '');
                 const fallbackName = staffNameById.get(uid) || 'Staff';
+                const ts = getTimestampMs(log?.timestamp);
+                const type = String(log?.type || '').toUpperCase();
+                let sessionHours = 0;
+                let sessionEarned = 0;
+
+                if (type === 'IN' && Number.isFinite(ts)) {
+                    openInByUser.set(uid, ts);
+                } else if (type === 'OUT' && Number.isFinite(ts)) {
+                    const openTs = openInByUser.get(uid);
+                    if (Number.isFinite(openTs) && ts > openTs) {
+                        sessionHours = (ts - openTs) / 3600000;
+                        const hourlyRate = hourlyRateById.get(uid) || 12.5;
+                        sessionEarned = sessionHours * hourlyRate;
+                    }
+                    openInByUser.delete(uid);
+                }
+
                 return {
                     id: String(log?.id || `${uid}-${log?.timestamp || ''}`),
                     userName: String(log?.userName || log?.workerName || fallbackName),
-                    type: String(log?.type || '').toUpperCase(),
+                    type,
                     timestamp: String(log?.timestamp || ''),
                     timeLabel: Number.isFinite(getTimestampMs(log?.timestamp))
                         ? new Date(log.timestamp).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
                         : '--:--',
+                    sessionHours,
+                    sessionEarned,
                 };
             });
+        return enriched.sort((a, b) => getTimestampMs(b?.timestamp) - getTimestampMs(a?.timestamp));
     }, [adminView, attendanceLogs, dashboardRange, salesmen]);
 
     const featuredStaff = useMemo(() => staffProductionRows[0] || null, [staffProductionRows]);
@@ -2520,10 +2544,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="rounded-2xl border border-sky-100 bg-white p-3 shadow-sm">
                             <div className="flex items-center justify-between gap-2 mb-2">
                                 <h3 className="text-sm font-black text-slate-800">ACTIVITY LOGS <span className="text-slate-500 font-semibold">{activityLogsToday.length} records</span></h3>
-                                <div className="flex items-center gap-1">
-                                    <button type="button" className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">FILTER</button>
-                                    <button type="button" className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">EXPORT</button>
-                                </div>
                             </div>
                             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                                 {activityLogsToday.length === 0 ? (
@@ -2557,7 +2577,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             </div>
                                         ) : (
                                             <div className="flex items-center justify-between gap-2">
-                                                <p className="text-[11px] text-slate-500">{log.timeLabel}</p>
+                                                <div>
+                                                    <p className="text-[11px] text-slate-500">{log.timeLabel}</p>
+                                                    {log.sessionEarned > 0 && (
+                                                        <p className="text-[11px] font-semibold text-blue-700">
+                                                            Session Earned: {priceTag(log.sessionEarned)} ({log.sessionHours.toFixed(2)}h)
+                                                        </p>
+                                                    )}
+                                                </div>
                                                 <button type="button" onClick={() => startActivityEdit(log)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">Edit</button>
                                             </div>
                                         )}
