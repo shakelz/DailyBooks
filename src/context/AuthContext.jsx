@@ -1147,19 +1147,13 @@ export function AuthProvider({ children }) {
             const preferred = asString(preferredShopId || activeShopId || user.shop_id);
             const preferredExists = preferred && merged.some(s => s.id === preferred);
 
-            // Only update active shop when we have a clear preferred or when no active shop is set.
+            // Keep active shop valid: if preferred is missing/stale, fall back to first available shop.
             if (preferredExists) {
                 setActiveShopIdState(preferred);
-            } else if (!asString(activeShopId)) {
-                // If there is exactly one shop, default to it.
-                if (merged.length === 1) {
-                    setActiveShopIdState(merged[0].id);
-                } else if (merged.length > 0) {
-                    // Otherwise, set the first shop only when no active shop is already set.
-                    setActiveShopIdState(merged[0].id);
-                } else {
-                    setActiveShopIdState('');
-                }
+            } else if (merged.length > 0) {
+                setActiveShopIdState(merged[0].id);
+            } else {
+                setActiveShopIdState('');
             }
             return merged;
         }

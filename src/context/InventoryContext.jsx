@@ -445,6 +445,29 @@ export function InventoryProvider({ children }) {
     const [l1Categories, setL1Categories] = useState([]);
     const [l2Map, setL2Map] = useState({});
 
+    const ensureActiveShopExists = useCallback(async (sid) => {
+        const safeShopId = cleanText(sid);
+        if (!safeShopId) {
+            throw new Error('No active shop selected. Please select a shop first.');
+        }
+
+        const { data, error } = await supabase
+            .from('shops')
+            .select('id')
+            .eq('id', safeShopId)
+            .limit(1);
+
+        if (error) {
+            throw new Error(error.message || 'Unable to verify selected shop.');
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+            throw new Error('Selected shop is invalid or outdated. Please refresh and select a valid shop.');
+        }
+
+        return safeShopId;
+    }, []);
+
     // ── Preload Data from Supabase ──
     useEffect(() => {
         const sid = cleanText(activeShopId);
@@ -997,8 +1020,7 @@ export function InventoryProvider({ children }) {
     }, [l2Map]);
 
     const addL1Category = useCallback(async (name, image = null, scope = CATEGORY_SCOPE_SALES) => {
-        const sid = cleanText(activeShopId);
-        if (!sid) return;
+        const sid = await ensureActiveShopExists(activeShopId);
 
         const trimmed = name.trim();
         if (!trimmed) return;
@@ -1097,11 +1119,10 @@ export function InventoryProvider({ children }) {
             return [...prev, { name: trimmed, image, scope: normalizedScope }];
         });
         setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
-    }, [activeShopId]);
+    }, [activeShopId, ensureActiveShopExists]);
 
     const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES) => {
-        const sid = cleanText(activeShopId);
-        if (!sid) return;
+        const sid = await ensureActiveShopExists(activeShopId);
 
         const trimmed = name.trim();
         if (!trimmed || !l1Name) return;
@@ -1205,7 +1226,7 @@ export function InventoryProvider({ children }) {
             return { ...prev, [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, scope: normalizedScope }] };
         });
         setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
-    }, [activeShopId]);
+    }, [activeShopId, ensureActiveShopExists]);
 
     const getCatImage = useCallback((l1, l2) => {
         if (l2 && l2Map[l1]) {
