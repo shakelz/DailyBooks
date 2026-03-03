@@ -712,9 +712,11 @@ function buildProfileInsertPayloads({
     const safePassword = asString(password);
     const profileId = makeRowId();
 
+    const sid = asString(shopId);
+
     return [cleanPayload({
         id: profileId,
-        shop_id: asString(shopId),
+        ...(sid ? { shop_id: sid } : {}),
         role,
         name: safeName,
         email: asString(email).toLowerCase(),
@@ -756,7 +758,9 @@ function buildProfileUpdatePayloads(updates = {}) {
         ...(updates.name === undefined ? {} : { name: asString(updates.name) }),
         ...(updates.email === undefined ? {} : { email: asString(updates.email).toLowerCase() }),
         ...(updates.role === undefined ? {} : { role: asString(updates.role) }),
-        ...(updates.shop_id === undefined ? {} : { shop_id: asString(updates.shop_id) }),
+        ...(updates.shop_id === undefined
+            ? {}
+            : { shop_id: updates.shop_id === null ? null : asString(updates.shop_id) }),
         ...(updates.pin === undefined ? {} : { pin: asString(updates.pin) }),
         ...(updates.password === undefined ? {} : { password: asString(updates.password) }),
         ...(updates.hourlyRate === undefined ? {} : { hourlyRate: Number(updates.hourlyRate) || 0 }),
@@ -1053,7 +1057,9 @@ export function AuthProvider({ children }) {
             return [];
         }
 
-        if (GLOBAL_ADMIN_ROLES.includes(role)) {
+        const isIndependentAdmin = asString(role) === 'admin' && !asString(user?.shop_id);
+
+        if (GLOBAL_ADMIN_ROLES.includes(role) || isIndependentAdmin) {
             const { data, error } = await supabase.from('shops').select('*').order('name', { ascending: true });
             if (error || !Array.isArray(data)) {
                 setShops([]);
@@ -1200,7 +1206,8 @@ export function AuthProvider({ children }) {
 
     const setActiveShopId = useCallback((shopId) => {
         const sid = asString(shopId);
-        if (isSuperAdmin) {
+        const isIndependentAdmin = asString(role) === 'admin' && !asString(user?.shop_id);
+        if (isSuperAdmin || isIndependentAdmin) {
             setActiveShopIdState(sid);
             return;
         }
@@ -1208,7 +1215,7 @@ export function AuthProvider({ children }) {
         // Shop-admin and salesman users are bound to their mapped shop.
         const lockedShopId = asString(user?.shop_id || activeShopId);
         setActiveShopIdState(lockedShopId || sid);
-    }, [isSuperAdmin, user, activeShopId]);
+    }, [isSuperAdmin, role, user, activeShopId]);
 
     const createShop = useCallback(async ({ shopName, location, address, ownerEmail, telephone }) => {
         if (!GLOBAL_ADMIN_ROLES.includes(role)) {
@@ -1921,10 +1928,6 @@ export function AuthProvider({ children }) {
                 if (!normalized || !ADMIN_ROLES.includes(normalized.role)) {
                     return { success: false, message: 'Invalid Admin credentials' };
                 }
-                if (normalized.role === 'admin' && !asString(normalized.shop_id)) {
-                    return { success: false, message: 'Shop admin is not linked to any shop.' };
-                }
-
                 setRole(normalized.role);
                 setUser(normalized);
                 if (normalized.shop_id) {
@@ -2122,6 +2125,52 @@ export function AuthProvider({ children }) {
         return newSalesman;
     };
 
+    const addIndependentAdmin = async ({ name, email, password }) => {
+        if (!GLOBAL_ADMIN_ROLES.includes(role)) {
+            throw new Error('Only superadmin/superuser can create independent admins.');
+        }
+
+        const adminName = asString(name) || 'Admin';
+        const adminEmail = asString(email).toLowerCase();
+        const adminPassword = asString(password);
+
+        if (!adminEmail) throw new Error('Admin email is required.');
+        if (!adminPassword || adminPassword.length < 4) throw new Error('Admin password must be at least 4 characters.');
+
+        const existingAdmin = await trySelectProfileByField('email', adminEmail, ADMIN_ROLES);
+        if (existingAdmin) {
+            throw new Error('Admin email already exists.');
+        }
+
+        const payloads = buildProfileInsertPayloads({
+            name: adminName,
+            email: adminEmail,
+            role: 'admin',
+            shopId: null,
+            password: adminPassword,
+            includePin: false,
+            includePassword: true,
+            hourlyRate: 12.5,
+        });
+
+        let created = null;
+        let insertError = null;
+        for (const payload of payloads) {
+            const { data, error } = await supabase.from('profiles').insert([payload]).select().single();
+            if (!error && data) {
+                created = normalizeUserFromProfile(data);
+                break;
+            }
+            insertError = error;
+        }
+
+        if (!created) {
+            throw new Error(insertError?.message || 'Failed to create independent admin.');
+        }
+
+        return created;
+    };
+
     const deleteSalesman = async (id) => {
         const sid = asString(activeShopId);
         if (sid) {
@@ -2308,6 +2357,7 @@ export function AuthProvider({ children }) {
 
         salesmen,
         addSalesman,
+        addIndependentAdmin,
         deleteSalesman,
         updateSalesman,
 
