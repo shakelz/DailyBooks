@@ -1035,7 +1035,6 @@ export function InventoryProvider({ children }) {
 
         if (existing) {
             const updatePayload = {
-                ...(image ? { image } : {}),
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
             if (Object.keys(updatePayload).length > 0) {
@@ -1048,7 +1047,6 @@ export function InventoryProvider({ children }) {
             const insertPayload = {
                 id: makeCategoryId(),
                 name: trimmed,
-                image: image || '',
                 level: 1,
                 parent: null,
                 shop_id: sid,
@@ -1066,7 +1064,6 @@ export function InventoryProvider({ children }) {
                 const fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
                 if (fallbackExisting) {
                     const updatePayload = {
-                        ...(image ? { image } : {}),
                         ...(hasScopeColumn ? { scope: normalizedScope } : {})
                     };
                     if (Object.keys(updatePayload).length > 0) {
@@ -1143,7 +1140,6 @@ export function InventoryProvider({ children }) {
 
         if (existing) {
             const updatePayload = {
-                ...(image ? { image } : {}),
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
             if (Object.keys(updatePayload).length > 0) {
@@ -1157,7 +1153,6 @@ export function InventoryProvider({ children }) {
                 id: makeCategoryId(),
                 name: trimmed,
                 parent: l1Name,
-                image: image || '',
                 level: 2,
                 shop_id: sid,
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
@@ -1175,7 +1170,6 @@ export function InventoryProvider({ children }) {
                 const fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
                 if (fallbackExisting) {
                     const updatePayload = {
-                        ...(image ? { image } : {}),
                         ...(hasScopeColumn ? { scope: normalizedScope } : {})
                     };
                     if (Object.keys(updatePayload).length > 0) {

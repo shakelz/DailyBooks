@@ -731,6 +731,7 @@ function buildProfileInsertPayloads({
     includePin = true
 }) {
     const safeName = asString(name) || 'User';
+    const safeEmail = asString(email).toLowerCase();
     const safePin = asString(pin);
     const safePassword = asString(password);
     const profileId = makeRowId();
@@ -742,7 +743,7 @@ function buildProfileInsertPayloads({
         ...(sid ? { shop_id: sid } : {}),
         role,
         name: safeName,
-        email: asString(email).toLowerCase(),
+        email: safeEmail || null,
         hourlyRate,
         active: true,
         is_online: false,
