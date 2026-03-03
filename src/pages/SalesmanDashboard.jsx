@@ -885,24 +885,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         [rangeTransactions]
     );
 
-    const revenueHistoryTransactions = useMemo(() => {
-        return nonMobileRevenueTransactions
-            .sort((a, b) => {
-                const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
-                const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
-                return bMs - aMs;
-            });
-    }, [nonMobileRevenueTransactions]);
-
-    const purchaseHistoryTransactions = useMemo(() => {
-        return nonMobilePurchaseTransactions
-            .sort((a, b) => {
-                const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
-                const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
-                return bMs - aMs;
-            });
-    }, [nonMobilePurchaseTransactions]);
-
     const productLookup = useMemo(() => {
         return (products || []).reduce((acc, product) => {
             const key = String(product?.id || '').trim();
@@ -946,6 +928,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         () => purchaseTransactions.filter((txn) => !isMobileTransaction(txn)),
         [purchaseTransactions, productLookup]
     );
+
+    const revenueHistoryTransactions = useMemo(() => {
+        return nonMobileRevenueTransactions
+            .sort((a, b) => {
+                const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return bMs - aMs;
+            });
+    }, [nonMobileRevenueTransactions]);
+
+    const purchaseHistoryTransactions = useMemo(() => {
+        return nonMobilePurchaseTransactions
+            .sort((a, b) => {
+                const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return bMs - aMs;
+            });
+    }, [nonMobilePurchaseTransactions]);
 
     const pendingOnlineOrderRemainingInRange = useMemo(() => {
         const startMs = dashboardRange.start.getTime();
