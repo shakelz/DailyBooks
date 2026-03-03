@@ -1003,25 +1003,6 @@ export function InventoryProvider({ children }) {
         const trimmed = name.trim();
         if (!trimmed) return;
         const normalizedScope = normalizeCategoryScope(scope);
-        setL1Categories(prev => {
-            const existing = prev.find(c => (typeof c === 'object' ? c?.name : c) === trimmed);
-            if (existing) {
-                return prev.map((c) => {
-                    if ((typeof c === 'object' ? c?.name : c) !== trimmed) return c;
-                    if (typeof c === 'object') {
-                        return {
-                            ...c,
-                            name: trimmed,
-                            image: image || c.image || '',
-                            scope: normalizedScope,
-                        };
-                    }
-                    return { name: trimmed, image: image || '', scope: normalizedScope };
-                });
-            }
-            return [...prev, { name: trimmed, image, scope: normalizedScope }];
-        });
-        setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
 
         // Sync to cloud
         let existing = null;
@@ -1058,7 +1039,10 @@ export function InventoryProvider({ children }) {
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
             if (Object.keys(updatePayload).length > 0) {
-                await supabase.from('categories').update(updatePayload).eq('id', existing.id).eq('shop_id', sid);
+                const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('id', existing.id).eq('shop_id', sid);
+                if (updateError) {
+                    throw new Error(updateError.message || 'Failed to update category.');
+                }
             }
         } else {
             const insertPayload = {
@@ -1086,25 +1070,21 @@ export function InventoryProvider({ children }) {
                         ...(hasScopeColumn ? { scope: normalizedScope } : {})
                     };
                     if (Object.keys(updatePayload).length > 0) {
-                        await supabase.from('categories').update(updatePayload).eq('id', fallbackExisting.id).eq('shop_id', sid);
+                        const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('id', fallbackExisting.id).eq('shop_id', sid);
+                        if (updateError) {
+                            throw new Error(updateError.message || 'Failed to persist category scope.');
+                        }
                     }
+                } else {
+                    throw new Error(insertError.message || 'Failed to save category.');
                 }
             }
         }
-    }, [activeShopId]);
 
-    const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES) => {
-        const sid = cleanText(activeShopId);
-        if (!sid) return;
-
-        const trimmed = name.trim();
-        if (!trimmed || !l1Name) return;
-        const normalizedScope = normalizeCategoryScope(scope);
-        setL2Map(prev => {
-            const currentList = prev[l1Name] || [];
-            const existing = currentList.find(c => (typeof c === 'object' ? c?.name : c) === trimmed);
-            if (existing) {
-                const updatedList = currentList.map((c) => {
+        setL1Categories(prev => {
+            const existingLocal = prev.find(c => (typeof c === 'object' ? c?.name : c) === trimmed);
+            if (existingLocal) {
+                return prev.map((c) => {
                     if ((typeof c === 'object' ? c?.name : c) !== trimmed) return c;
                     if (typeof c === 'object') {
                         return {
@@ -1114,13 +1094,21 @@ export function InventoryProvider({ children }) {
                             scope: normalizedScope,
                         };
                     }
-                    return { name: trimmed, image: image || '', parent: l1Name, scope: normalizedScope };
+                    return { name: trimmed, image: image || '', scope: normalizedScope };
                 });
-                return { ...prev, [l1Name]: updatedList };
             }
-            return { ...prev, [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, scope: normalizedScope }] };
+            return [...prev, { name: trimmed, image, scope: normalizedScope }];
         });
-        setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
+        setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
+    }, [activeShopId]);
+
+    const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return;
+
+        const trimmed = name.trim();
+        if (!trimmed || !l1Name) return;
+        const normalizedScope = normalizeCategoryScope(scope);
 
         // Sync to cloud
         let existing = null;
@@ -1159,7 +1147,10 @@ export function InventoryProvider({ children }) {
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
             if (Object.keys(updatePayload).length > 0) {
-                await supabase.from('categories').update(updatePayload).eq('id', existing.id).eq('shop_id', sid);
+                const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('id', existing.id).eq('shop_id', sid);
+                if (updateError) {
+                    throw new Error(updateError.message || 'Failed to update sub-category.');
+                }
             }
         } else {
             const insertPayload = {
@@ -1188,11 +1179,38 @@ export function InventoryProvider({ children }) {
                         ...(hasScopeColumn ? { scope: normalizedScope } : {})
                     };
                     if (Object.keys(updatePayload).length > 0) {
-                        await supabase.from('categories').update(updatePayload).eq('id', fallbackExisting.id).eq('shop_id', sid);
+                        const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('id', fallbackExisting.id).eq('shop_id', sid);
+                        if (updateError) {
+                            throw new Error(updateError.message || 'Failed to persist sub-category scope.');
+                        }
                     }
+                } else {
+                    throw new Error(insertError.message || 'Failed to save sub-category.');
                 }
             }
         }
+
+        setL2Map(prev => {
+            const currentList = prev[l1Name] || [];
+            const existingLocal = currentList.find(c => (typeof c === 'object' ? c?.name : c) === trimmed);
+            if (existingLocal) {
+                const updatedList = currentList.map((c) => {
+                    if ((typeof c === 'object' ? c?.name : c) !== trimmed) return c;
+                    if (typeof c === 'object') {
+                        return {
+                            ...c,
+                            name: trimmed,
+                            image: image || c.image || '',
+                            scope: normalizedScope,
+                        };
+                    }
+                    return { name: trimmed, image: image || '', parent: l1Name, scope: normalizedScope };
+                });
+                return { ...prev, [l1Name]: updatedList };
+            }
+            return { ...prev, [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, scope: normalizedScope }] };
+        });
+        setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
     }, [activeShopId]);
 
     const getCatImage = useCallback((l1, l2) => {

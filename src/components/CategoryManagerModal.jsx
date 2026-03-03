@@ -65,6 +65,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
 
     const handleAddSubmit = async (e) => {
         e.preventDefault();
+        try {
 
         let finalMainCat = mainCatSelect;
 
@@ -98,6 +99,9 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setSubCatSelect('');
         setNewSubCatStr('');
         alert("Category Added Successfully!");
+        } catch (error) {
+            alert(error?.message || 'Failed to save category in database.');
+        }
     };
 
     const startEditing = (cat, isL1) => {
@@ -108,19 +112,23 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setUpdateImagePreview(imgData);
     };
 
-    const handleUpdateSubmit = (e) => {
+    const handleUpdateSubmit = async (e) => {
         e.preventDefault();
         if (!updateName.trim()) return;
 
         // Since update logic isn't fully implemented in InventoryContext for renaming,
         // we'll at least overwrite the image or re-add it (which acts like an upsert).
-        if (editingCategory.isL1) {
-            addLevel1Category(updateName.trim(), updateImagePreview, updateScope);
-        } else {
-            addLevel2Category(selectedUpdateL1, updateName.trim(), null, updateScope);
+        try {
+            if (editingCategory.isL1) {
+                await addLevel1Category(updateName.trim(), updateImagePreview, updateScope);
+            } else {
+                await addLevel2Category(selectedUpdateL1, updateName.trim(), null, updateScope);
+            }
+            setEditingCategory(null);
+            alert("Category Updated!");
+        } catch (error) {
+            alert(error?.message || 'Failed to update category in database.');
         }
-        setEditingCategory(null);
-        alert("Category Updated!");
     };
 
     const handleDelete = async (cat, isL1) => {
