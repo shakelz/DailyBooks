@@ -93,7 +93,7 @@ export default function RepairModal({ isOpen, onClose }) {
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
         ));
         const receiptShopName = String(activeShop?.name || 'Shop').trim() || 'Shop';
-        const receiptShopAddress = String(activeShop?.address || activeShop?.location || '').trim();
+        const receiptShopAddress = String(activeShop?.address || '').trim();
         const receiptShopPhone = String(activeShop?.telephone || activeShop?.phone || '').trim();
         const parsedDelivery = job?.deliveryDate ? new Date(job.deliveryDate) : null;
         const deliveryFormatted = parsedDelivery && !Number.isNaN(parsedDelivery.getTime())

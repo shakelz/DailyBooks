@@ -80,9 +80,7 @@ export default function LatestDashboard() {
 
         // 2. Update Repair Job
         updateRepairStatus(job.id, 'completed', {
-            finalAmount,
-            partsUsed,
-            partsCost: totalPartsCost
+            partsUsed
         });
 
         // 3. Add Transaction

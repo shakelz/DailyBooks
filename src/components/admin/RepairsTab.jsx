@@ -136,9 +136,7 @@ export default function RepairsTab() {
 
         // 2. Update Repair Job
         updateRepairStatus(job.id, 'completed', {
-            finalAmount,
-            partsUsed,
-            partsCost: totalPartsCost
+            partsUsed
         });
 
         // 3. Add Transaction
@@ -258,8 +256,11 @@ export default function RepairsTab() {
                         const isOverdue = job.status !== 'completed' && job.deliveryDate && new Date(job.deliveryDate) < new Date();
 
                         // Calculate Profit for completed jobs
-                        const partsCost = parseFloat(job.partsCost) || 0;
-                        const netProfit = (parseFloat(job.finalAmount) || 0) - partsCost;
+                        const partsCost = Array.isArray(job.partsUsed)
+                            ? job.partsUsed.reduce((sum, part) => sum + ((parseFloat(part?.costPrice) || 0) * (parseInt(part?.quantity || 0, 10) || 0)), 0)
+                            : 0;
+                        const billedAmount = parseFloat(job.estimatedCost) || 0;
+                        const netProfit = billedAmount - partsCost;
 
                         return (
                             <div key={job.id} className={`bg-white rounded-2xl shadow-sm border transition-all hover:shadow-md ${isOverdue ? 'border-red-200 bg-red-50/30' : 'border-slate-100'}`}>
@@ -331,7 +332,7 @@ export default function RepairsTab() {
                                                 </span>
                                                 {job.status === 'completed' && (
                                                     <>
-                                                        <span className="text-slate-600">Gross: {priceTag(job.finalAmount)}</span>
+                                                        <span className="text-slate-600">Gross: {priceTag(billedAmount)}</span>
                                                         <span className="text-slate-600">Parts Cost: <span className="text-rose-500 font-medium">{priceTag(partsCost)}</span></span>
                                                         <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">Net Profit: {priceTag(netProfit)}</span>
                                                     </>

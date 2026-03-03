@@ -121,7 +121,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         const netEarning = serviceAmount - partsCost;
         const completedAt = printData.completedAt || new Date().toISOString();
         const receiptShopName = String(activeShop?.name || 'Shop').trim() || 'Shop';
-        const receiptShopAddress = String(activeShop?.address || activeShop?.location || '').trim();
+        const receiptShopAddress = String(activeShop?.address || '').trim();
         const receiptShopPhone = String(activeShop?.telephone || activeShop?.phone || '').trim();
 
         return `<!DOCTYPE html>

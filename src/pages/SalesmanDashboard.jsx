@@ -549,7 +549,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     );
     const requiresPunch = !adminView;
     const receiptShopName = activeShop?.name || 'Shop';
-    const receiptShopAddress = activeShop?.address || activeShop?.location || '';
+    const receiptShopAddress = activeShop?.address || '';
     const receiptShopPhone = resolveShopPhone(activeShop);
 
     useEffect(() => {
@@ -1712,12 +1712,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const completePendingRepair = async (job) => {
         if (!job?.id) return;
         try {
-            const finalAmount = Number(job.finalAmount || job.estimatedCost || 0) || 0;
+            const finalAmount = Number(job.estimatedCost || 0) || 0;
             const advanceAmount = Number(job.advanceAmount || 0) || 0;
             const remainingAmount = Math.max(0, finalAmount - advanceAmount);
             await updateRepairStatus(job.id, 'completed', {
-                completedAt: new Date().toISOString(),
-                finalAmount,
+                completedAt: new Date().toISOString()
             });
 
             await ensureRepairAdvanceTransaction(job);
@@ -3500,10 +3499,19 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         ) : null}
 
                                         <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                            {(() => {
+                                                const partsCost = Array.isArray(job.partsUsed)
+                                                    ? job.partsUsed.reduce((sum, part) => sum + ((parseFloat(part?.costPrice) || 0) * (parseInt(part?.quantity || 0, 10) || 0)), 0)
+                                                    : 0;
+                                                return (
+                                                    <>
                                             <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 text-emerald-700 font-semibold">Est: {priceTag(job.estimatedCost || 0)}</span>
                                             <span className="rounded-md bg-sky-50 border border-sky-200 px-2 py-1 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
-                                            <span className="rounded-md bg-violet-50 border border-violet-200 px-2 py-1 text-violet-700 font-semibold">Final: {priceTag(job.finalAmount || 0)}</span>
-                                            <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-1 text-orange-700 font-semibold">Parts: {priceTag(job.partsCost || 0)}</span>
+                                            <span className="rounded-md bg-violet-50 border border-violet-200 px-2 py-1 text-violet-700 font-semibold">Final: {priceTag(job.estimatedCost || 0)}</span>
+                                            <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-1 text-orange-700 font-semibold">Parts: {priceTag(partsCost)}</span>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
 
                                         <div className="flex justify-end gap-2">

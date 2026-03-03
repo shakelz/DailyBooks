@@ -194,7 +194,7 @@ export default function AdminSettings() {
         setCreatedManager(null);
         setEditingShopId(shop.id);
         setEditingShopName(shop.name || '');
-        setEditingShopAddress(shop.address || shop.location || '');
+        setEditingShopAddress(shop.address || '');
         setEditingShopTelephone(
             shop.telephone
             || shop.phone
@@ -302,7 +302,7 @@ export default function AdminSettings() {
                         <div>
                             <h2 className="text-lg font-bold text-slate-800">Bill Settings</h2>
                             <p className="text-xs text-slate-400">
-                                Shop: {activeShop.name} ({activeShop.address || activeShop.location || 'No address'})
+                                Shop: {activeShop.name} ({activeShop.address || 'No address'})
                             </p>
                         </div>
                         <button

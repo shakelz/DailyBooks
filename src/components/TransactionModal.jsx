@@ -108,7 +108,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
             .replaceAll('\'', '&#39;');
         const formatMoney = (value) => `${Number(value || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR`;
         const shopName = activeShop?.name || 'Shop';
-        const shopAddress = activeShop?.address || activeShop?.location || '';
+        const shopAddress = activeShop?.address || '';
         const shopPhone = activeShop?.telephone || activeShop?.phone || '';
 
         const popup = window.open('', 'transaction-modal-print', 'width=420,height=760');

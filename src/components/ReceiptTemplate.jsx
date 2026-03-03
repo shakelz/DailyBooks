@@ -25,7 +25,7 @@ const ReceiptTemplate = forwardRef(({
     const taxTotal = grossTotal - netTotal;
     const shouldShowTax = showTax === undefined ? billShowTax : Boolean(showTax);
     const receiptShopName = String(shopName || activeShop?.name || 'Shop').trim() || 'Shop';
-    const receiptShopAddress = String(shopAddress || activeShop?.address || activeShop?.location || '').trim();
+    const receiptShopAddress = String(shopAddress || activeShop?.address || '').trim();
     const receiptShopTelephone = String(shopTelephone || activeShop?.telephone || activeShop?.phone || '').trim();
 
     const renderIMEI = (item) => {

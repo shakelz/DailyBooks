@@ -458,7 +458,7 @@ function getShopMeta(metaMap = {}, shopId = '') {
 function mergeShopMeta(shop = {}, metaMap = {}) {
     if (!shop || typeof shop !== 'object') return shop;
     const meta = getShopMeta(metaMap, shop.id);
-    const resolvedAddress = asString(meta.address || shop.address || shop.location || '');
+    const resolvedAddress = asString(meta.address || shop.address || '');
     const resolvedTelephone = asString(
         meta.telephone
         || shop.telephone
@@ -1292,7 +1292,7 @@ export function AuthProvider({ children }) {
             password: getProfilePassword(createdProfile) || tempPassword,
             owner_profile_id: asString(createdProfile.id),
         };
-        const resolvedAddress = asString(shopAddress || createdShopWithCredentials.address || createdShopWithCredentials.location);
+        const resolvedAddress = asString(shopAddress || createdShopWithCredentials.address);
         const resolvedTelephone = asString(shopTelephone || createdShopWithCredentials.telephone || createdShopWithCredentials.phone || '');
 
         const syncShopPayload = {
@@ -1523,7 +1523,7 @@ export function AuthProvider({ children }) {
                 : asString(updatedShop?.password || currentShop?.password || getProfilePassword(updatedOwnerProfile)),
             address: hasAddress
                 ? nextAddress
-                : asString(updatedShop?.address || currentShop?.address || updatedShop?.location || currentShop?.location),
+                : asString(updatedShop?.address || currentShop?.address),
             telephone: hasTelephone
                 ? nextTelephone
                 : asString(

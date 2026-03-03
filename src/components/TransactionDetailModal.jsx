@@ -57,7 +57,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
         maximumFractionDigits: 2
     })}`;
     const receiptShopName = activeShop?.name || 'Shop';
-    const receiptShopAddress = activeShop?.address || activeShop?.location || '';
+    const receiptShopAddress = activeShop?.address || '';
     const receiptShopPhone = activeShop?.telephone || activeShop?.phone || '';
     const workerRef = String(txn?.workerId || txn?.salesmanId || '');
     const worker = salesmen.find((row) => String(row.id) === workerRef);
