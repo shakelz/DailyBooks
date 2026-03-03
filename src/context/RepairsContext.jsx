@@ -101,8 +101,6 @@ export function RepairsProvider({ children }) {
             status: 'pending', // pending | in_progress | completed
             createdAt: new Date().toISOString(),
             completedAt: null,
-            finalAmount: null,
-            partsCost: 0,
             estimatedCost: repairData.estimatedCost || 0,
             partsUsed: [],
             shop_id: sid
@@ -144,6 +142,8 @@ export function RepairsProvider({ children }) {
             ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
             ...extras,
         };
+        delete payload.finalAmount;
+        delete payload.partsCost;
 
         // Optimistic UI
         setRepairJobs(prev => prev.map(job => {

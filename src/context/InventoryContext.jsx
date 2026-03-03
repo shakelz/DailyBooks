@@ -223,6 +223,7 @@ function normalizeInventoryRecord(product) {
         purchaseFrom: normalizedPurchaseFrom,
         paymentMode: normalizedPaymentMode,
         image: cleanText(source.image) || cleanText(source.image_url) || attributeImage || '',
+        timestamp: cleanText(source.timestamp) || cleanText(source.created_at) || '',
         attributes: normalizedAttrs,
     };
 }
@@ -271,7 +272,6 @@ function buildInventoryPayload(product, includeId = false, shopId = '') {
         category: categoryHierarchy.level1 || '',
         barcode: product?.barcode ? String(product.barcode).trim() : '',
         productUrl: product?.productUrl || '',
-        timestamp: product?.timestamp || new Date().toISOString(),
         attributes: payloadAttributes,
     }, shopId);
 
@@ -329,9 +329,12 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
     const snapAttrs = snapshot.attributes && typeof snapshot.attributes === 'object' ? snapshot.attributes : {};
     const txnVerified = txn.verifiedAttributes && typeof txn.verifiedAttributes === 'object' ? txn.verifiedAttributes : {};
     const snapVerified = snapshot.verifiedAttributes && typeof snapshot.verifiedAttributes === 'object' ? snapshot.verifiedAttributes : {};
+    const resolvedTimestamp = cleanText(txn?.timestamp) || cleanText(txn?.created_at)
+        || `${cleanText(txn?.date)} ${cleanText(txn?.time)}`.trim();
 
     return {
         ...txn,
+        timestamp: resolvedTimestamp,
         barcode: txn.barcode || snapshot.barcode || snapshot?.productSnapshot?.barcode || '',
         model: txn.model || snapshot.model || snapshot?.productSnapshot?.model || '',
         brand: txn.brand || snapshot.brand || snapshot?.productSnapshot?.brand || '',
@@ -366,7 +369,6 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
         quantity: parseInt(txn?.quantity || 1, 10) || 1,
         date: txn?.date || new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
         time: txn?.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
-        timestamp: txn?.timestamp || new Date().toISOString(),
         isFixedExpense: txn?.isFixedExpense || false,
         productId: txn?.productId ? String(txn.productId) : null,
         workerId: txn?.workerId || null,
@@ -459,7 +461,7 @@ export function InventoryProvider({ children }) {
         const fetchInitialData = async () => {
             const [invResult, txnResult, catResult] = await Promise.all([
                 supabase.from('inventory').select('*').eq('shop_id', sid),
-                supabase.from('transactions').select('*').eq('shop_id', sid).order('timestamp', { ascending: false }),
+                supabase.from('transactions').select('*').eq('shop_id', sid).order('created_at', { ascending: false }),
                 supabase.from('categories').select('*').eq('shop_id', sid),
             ]);
 
@@ -474,6 +476,7 @@ export function InventoryProvider({ children }) {
             if (!txnResult.error && Array.isArray(txnResult.data)) {
                 const snapshotMap = readTransactionSnapshots();
                 const hydratedTransactions = txnResult.data.map(t => mergeTransactionWithSnapshot(t, snapshotMap));
+                hydratedTransactions.sort((a, b) => new Date(cleanText(b?.timestamp) || cleanText(b?.created_at) || 0) - new Date(cleanText(a?.timestamp) || cleanText(a?.created_at) || 0));
                 setTransactions(hydratedTransactions);
             } else {
                 setTransactions([]);
@@ -518,7 +521,7 @@ export function InventoryProvider({ children }) {
                 const mergedTxn = mergeTransactionWithSnapshot(payload.new);
                 setTransactions(prev => {
                     if (prev.some(t => String(t.id) === String(payload.new.id))) return prev;
-                    return [mergedTxn, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    return [mergedTxn, ...prev].sort((a, b) => new Date(cleanText(b?.timestamp) || cleanText(b?.created_at) || 0) - new Date(cleanText(a?.timestamp) || cleanText(a?.created_at) || 0));
                 });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
@@ -632,7 +635,7 @@ export function InventoryProvider({ children }) {
                     const mergedTxn = mergeTransactionWithSnapshot(data);
                     setTransactions(prev => {
                         if (prev.some(t => String(t.id) === String(data.id))) return prev;
-                        return [mergedTxn, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                        return [mergedTxn, ...prev].sort((a, b) => new Date(cleanText(b?.timestamp) || cleanText(b?.created_at) || 0) - new Date(cleanText(a?.timestamp) || cleanText(a?.created_at) || 0));
                     });
                 } else if (action === 'UPDATE') {
                     const mergedTxn = mergeTransactionWithSnapshot(data);

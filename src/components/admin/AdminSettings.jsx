@@ -169,7 +169,6 @@ export default function AdminSettings() {
         try {
             const result = await createShop({
                 shopName,
-                location: shopAddress,
                 address: shopAddress,
                 ownerEmail: shopOwnerEmail,
                 telephone: shopTelephone
@@ -236,7 +235,6 @@ export default function AdminSettings() {
         try {
             const payload = {
                 name: editingShopName,
-                location: editingShopAddress,
                 address: editingShopAddress,
                 telephone: editingShopTelephone,
                 ownerEmail: editingShopOwnerEmail

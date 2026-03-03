@@ -202,7 +202,7 @@ async function requestAttendanceLogs(shopId) {
         .from('attendance')
         .select('*')
         .eq('shop_id', sid)
-        .order('updated_at', { ascending: false });
+        .order('created_at', { ascending: false });
 
     if (error) {
         return { data: [], error: asString(error.message) || 'Failed to load attendance.' };
@@ -223,10 +223,9 @@ async function requestAttendanceLogs(shopId) {
     }
 
     const expanded = (Array.isArray(rows) ? rows : []).flatMap((row) => {
-        const userName = asString(row?.user_name || profileNameById[asString(row?.user_id)] || '');
+        const userName = asString(profileNameById[asString(row?.user_id)] || '');
         const base = {
             ...row,
-            user_name: userName,
             userId: asString(row?.user_id),
             userName,
             workerId: asString(row?.user_id),
@@ -249,7 +248,7 @@ async function requestAttendanceLogs(shopId) {
     return { data: expanded, error: null };
 }
 
-async function requestAttendanceAction({ userId, shopId, type, timestamp, note = '', userName = '' }) {
+async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
     const uid = asString(userId);
     const sid = asString(shopId);
     const punchType = asString(type).toUpperCase();
@@ -267,10 +266,8 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, note =
                 id: attendanceId,
                 shop_id: sid,
                 user_id: uid,
-                date: ts.slice(0, 10),
                 check_in: ts,
                 status: 'present',
-                note: asString(note),
             }]);
 
         if (inError) return { data: null, error: asString(inError.message) || 'Failed to punch in.' };
@@ -301,8 +298,6 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, note =
                 check_out: ts,
                 hours,
                 status: 'present',
-                note: asString(note),
-                updated_at: new Date().toISOString(),
             })
             .eq('id', openRow.id);
 
@@ -333,7 +328,7 @@ async function requestUserStatus({ shopId, userId }) {
 
     const { data: openRow, error } = await supabase
         .from('attendance')
-        .select('id,check_in,check_out,created_at,updated_at')
+        .select('id,check_in,check_out,created_at')
         .eq('shop_id', sid)
         .eq('user_id', uid)
         .not('check_in', 'is', null)
@@ -356,7 +351,6 @@ async function requestUserStatus({ shopId, userId }) {
                 punch_in_time: openRow.check_in || null,
                 punch_out_time: openRow.check_out || null,
                 created_at: openRow.created_at || null,
-                updated_at: openRow.updated_at || null,
             } : null,
         },
         error: null,
@@ -561,8 +555,8 @@ function normalizeShop(shop) {
         ...shop,
         id: asString(shop.id || shop.shop_id),
         name: asString(shop.name || shop.shop_name || 'Shop'),
-        location: asString(shop.location || shop.address || ''),
-        address: asString(shop.address || shop.location || ''),
+        location: asString(shop.address || ''),
+        address: asString(shop.address || ''),
         owner_email: asString(shop.owner_email || shop.ownerEmail || ''),
         owner_password: asString(shop.owner_password || shop.password || ''),
         password: asString(shop.password || shop.owner_password || ''),
@@ -624,9 +618,8 @@ async function attachShopOwnerCredentials(shopList = []) {
     return enrichedShops;
 }
 
-function buildShopInsertPayloads({ name, location, address, ownerEmail, telephone, ownerPassword }) {
+function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPassword }) {
     const safeName = asString(name);
-    const safeLocation = asString(location);
     const safeAddress = asString(address);
     const safeOwnerEmail = asString(ownerEmail).toLowerCase();
     const safeTelephone = asString(telephone);
@@ -636,7 +629,6 @@ function buildShopInsertPayloads({ name, location, address, ownerEmail, telephon
     return [cleanPayload({
         id: makeRowId(),
         name: safeName,
-        location: safeLocation,
         address: safeAddress,
         owner_email: safeOwnerEmail,
         telephone: safeTelephone,
@@ -683,10 +675,9 @@ function buildTimestampFromTime(baseTimestamp, timeValue) {
     return base.toISOString();
 }
 
-function buildShopUpdatePayloads({ name, location, address, ownerEmail, telephone, ownerPassword }) {
+function buildShopUpdatePayloads({ name, address, ownerEmail, telephone, ownerPassword }) {
     const payload = cleanPayload({
         ...(name === undefined ? {} : { name: asString(name) }),
-        ...(location === undefined ? {} : { location: asString(location) }),
         ...(address === undefined ? {} : { address: asString(address) }),
         ...(ownerEmail === undefined ? {} : { owner_email: asString(ownerEmail).toLowerCase() }),
         ...(telephone === undefined ? {} : { telephone: asString(telephone) }),
@@ -1105,7 +1096,7 @@ export function AuthProvider({ children }) {
 
         const { data, error } = await supabase.from('shops').select('*').eq('id', sid).maybeSingle();
         if (error || !data) {
-            const fallback = [mergeShopMeta({ id: sid, name: user.shopName || 'My Shop', location: '', owner_email: '' }, shopMetaMap)];
+            const fallback = [mergeShopMeta({ id: sid, name: user.shopName || 'My Shop', address: '', owner_email: '' }, shopMetaMap)];
             setShops(fallback);
             setActiveShopIdState(sid);
             return fallback;
@@ -1225,7 +1216,6 @@ export function AuthProvider({ children }) {
         }
 
         const name = asString(shopName);
-        const shopLocation = asString(location);
         const shopAddress = asString(address);
         const email = asString(ownerEmail).toLowerCase();
         const shopTelephone = asString(telephone);
@@ -1243,7 +1233,6 @@ export function AuthProvider({ children }) {
         let shopError = null;
         const shopPayloads = buildShopInsertPayloads({
             name,
-            location: shopLocation,
             address: shopAddress,
             ownerEmail: email,
             telephone: shopTelephone,
@@ -1362,7 +1351,6 @@ export function AuthProvider({ children }) {
         const currentShop = (Array.isArray(shops) ? shops : []).find((shop) => shop.id === sid) || null;
 
         const hasName = Object.prototype.hasOwnProperty.call(updates, 'name');
-        const hasLocation = Object.prototype.hasOwnProperty.call(updates, 'location');
         const hasAddress = Object.prototype.hasOwnProperty.call(updates, 'address');
         const hasTelephone = Object.prototype.hasOwnProperty.call(updates, 'telephone')
             || Object.prototype.hasOwnProperty.call(updates, 'phone')
@@ -1379,7 +1367,6 @@ export function AuthProvider({ children }) {
             || Object.prototype.hasOwnProperty.call(updates, 'owner_password');
 
         const nextName = hasName ? asString(updates.name) : undefined;
-        const nextLocation = hasLocation ? asString(updates.location) : undefined;
         const nextAddress = hasAddress ? asString(updates.address) : undefined;
         const nextTelephone = hasTelephone
             ? asString(
@@ -1399,7 +1386,7 @@ export function AuthProvider({ children }) {
             ? asString(updates.ownerPassword ?? updates.owner_password)
             : undefined;
         const shouldUpdateOwnerPassword = hasOwnerPassword && !!nextOwnerPassword;
-        const shouldUpdateShopTable = hasName || hasLocation || hasAddress || hasTelephone || hasOwner || hasOwnerPassword;
+        const shouldUpdateShopTable = hasName || hasAddress || hasTelephone || hasOwner || hasOwnerPassword;
         const shouldUpdateOwnerProfile = hasOwner || shouldUpdateOwnerPassword;
 
         if (hasName && !nextName) {
@@ -1425,7 +1412,6 @@ export function AuthProvider({ children }) {
         if (shouldUpdateShopTable) {
             const payloads = buildShopUpdatePayloads({
                 name: nextName,
-                location: nextLocation,
                 address: nextAddress,
                 ownerEmail: nextOwnerEmail,
                 telephone: nextTelephone,
@@ -1679,8 +1665,8 @@ export function AuthProvider({ children }) {
                 timestamp,
                 type: asString(dbLog.type) || (asString(dbLog.check_out) ? 'OUT' : 'IN'),
                 userId: asString(dbLog.userId || dbLog.workerId || dbLog.worker_id || dbLog.user_id),
-                userName: asString(dbLog.userName || dbLog.workerName || dbLog.worker_name || dbLog.user_name),
-                date: Number.isNaN(dObj.getTime()) ? asString(dbLog.date) : dObj.toLocaleDateString('en-PK'),
+                userName: asString(dbLog.userName || dbLog.workerName || dbLog.worker_name),
+                date: Number.isNaN(dObj.getTime()) ? '' : dObj.toLocaleDateString('en-PK'),
                 time: Number.isNaN(dObj.getTime()) ? asString(dbLog.time) : dObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
             };
         };
@@ -1768,9 +1754,7 @@ export function AuthProvider({ children }) {
             userId: user.id,
             shopId: activeShopId,
             type: 'IN',
-            timestamp: ts.toISOString(),
-            note: '',
-            userName: user.name || ''
+            timestamp: ts.toISOString()
         });
 
         if (error) {
@@ -1805,9 +1789,7 @@ export function AuthProvider({ children }) {
             userId: user.id,
             shopId: activeShopId,
             type: 'OUT',
-            timestamp: ts.toISOString(),
-            note: '',
-            userName: user.name || ''
+            timestamp: ts.toISOString()
         });
 
         if (error) {
@@ -1842,7 +1824,6 @@ export function AuthProvider({ children }) {
             || existingLog.timestamp;
 
         const resolvedType = updates.type ?? existingLog.type;
-        const resolvedNote = updates.note ?? existingLog.note ?? '';
         const resolvedDateObj = new Date(resolvedTimestamp);
         const resolvedTime = updates.time
             || (Number.isNaN(resolvedDateObj.getTime())
@@ -1855,7 +1836,6 @@ export function AuthProvider({ children }) {
                 ...l,
                 ...updates,
                 type: resolvedType,
-                note: resolvedNote,
                 time: resolvedTime,
                 timestamp: resolvedTimestamp,
                 date: Number.isNaN(resolvedDateObj.getTime())
@@ -1866,7 +1846,6 @@ export function AuthProvider({ children }) {
 
         const payload = {
             type: resolvedType,
-            note: resolvedNote,
             timestamp: resolvedTimestamp
         };
 
