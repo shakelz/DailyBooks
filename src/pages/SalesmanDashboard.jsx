@@ -315,7 +315,7 @@ function buildReceiptHtml({
 
                     <div class="line"></div>
                     <div class="row head"><span>Artikel</span><span>Betrag</span></div>
-                    ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 EUR</div></div>'}
+                    ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 €</div></div>'}
 
                     <div class="line"></div>
                     <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
@@ -1728,7 +1728,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div class="barcode-font">*${escapeHtmlSafe(barcode)}*</div>
                         <div class="product-name">${escapeHtmlSafe(productName)}</div>
                         ${specs ? `<div class="specs">${escapeHtmlSafe(specs)}</div>` : ''}
-                        <div class="price-tag">${priceValue} EUR</div>
+                        <div class="price-tag">${priceValue} €</div>
                     </div>
                     <script>
                         window.onload = function () { window.print(); window.close(); };
@@ -1908,8 +1908,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <div class="issue-box"><strong>Fehler:</strong> ${toSafe(job.problem || job.issueType || '-')}</div>
                     <div class="row"><span>Status</span><span>Ausstehend</span></div>
                     <div class="line"></div>
-                    <div class="row"><span>Kosten</span><span>EUR ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
-                    <div class="row"><span>Anzahlung</span><span>EUR ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Kosten</span><span>€ ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
+                    <div class="row"><span>Anzahlung</span><span>€ ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
                     <div class="row"><span>Abholung</span><span>${toSafe(job.deliveryDate || '-')}</span></div>
                     <div class="line"></div>
                     <p style="font-size:11px;font-weight:700;">Bitte diesen Kundenbeleg zur Abholung mitbringen.</p>
@@ -1963,9 +1963,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <div class="row"><span>Bestelldatum</span><span>${toSafe(order.orderDate || '-')}</span></div>
                     <div class="row"><span>Lieferdatum</span><span>${toSafe(order.expectedDeliveryDate || '-')}</span></div>
                     <div class="line"></div>
-                    <div class="row"><span>Kosten</span><span>EUR ${totalPrice.toFixed(2)}</span></div>
-                    <div class="row"><span>Anzahlung</span><span>EUR ${advanceAmount.toFixed(2)}</span></div>
-                    <div class="row"><strong>Restbetrag</strong><strong>EUR ${remainingAmount.toFixed(2)}</strong></div>
+                    <div class="row"><span>Kosten</span><span>€ ${totalPrice.toFixed(2)}</span></div>
+                    <div class="row"><span>Anzahlung</span><span>€ ${advanceAmount.toFixed(2)}</span></div>
+                    <div class="row"><strong>Restbetrag</strong><strong>€ ${remainingAmount.toFixed(2)}</strong></div>
                     <div class="line"></div>
                     <p style="font-size:11px;font-weight:700;">${toSafe(order.notes || '-')}</p>
                 </body>

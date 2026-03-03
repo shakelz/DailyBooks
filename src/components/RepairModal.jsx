@@ -145,8 +145,8 @@ export default function RepairModal({ isOpen, onClose }) {
         ${job.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(job.imei)}</span></div>` : ''}
         <div class="divider"></div>
         <div class="problem"><strong>Fehler:</strong> ${problemNote}</div>
-        <div class="row"><span class="label-text">Kosten:</span><span>EUR ${estimatedCost.toFixed(2)}</span></div>
-        <div class="row"><span class="label-text">Anzahlung:</span><span>EUR ${advanceAmount.toFixed(2)}</span></div>
+        <div class="row"><span class="label-text">Kosten:</span><span>€ ${estimatedCost.toFixed(2)}</span></div>
+        <div class="row"><span class="label-text">Anzahlung:</span><span>€ ${advanceAmount.toFixed(2)}</span></div>
         <div class="row"><span class="label-text">Abholung:</span><span>${deliveryFormatted}</span></div>
         <div class="divider"></div>
         <div style="font-size:14px;font-weight:900;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
