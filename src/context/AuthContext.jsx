@@ -304,19 +304,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
         if (outError) return { data: null, error: asString(outError.message) || 'Failed to punch out.' };
     }
 
-    const { data: openAttendance } = await supabase
-        .from('attendance')
-        .select('id')
-        .eq('shop_id', sid)
-        .eq('user_id', uid)
-        .not('check_in', 'is', null)
-        .is('check_out', null)
-        .limit(1);
-
-    await supabase
-        .from('profiles')
-        .update({ is_online: Array.isArray(openAttendance) && openAttendance.length > 0 })
-        .eq('id', uid);
+    await syncProfileOnlineStatus(sid, uid);
 
     return { data: { type: punchType, timestamp: ts }, error: null };
 }
@@ -673,6 +661,41 @@ function buildTimestampFromTime(baseTimestamp, timeValue) {
 
     base.setHours(hours, minutes, 0, 0);
     return base.toISOString();
+}
+
+function parseAttendanceEventId(eventId, fallbackType = 'IN') {
+    const rawId = asString(eventId);
+    if (!rawId) {
+        return { baseId: '', eventType: asString(fallbackType).toUpperCase() === 'OUT' ? 'OUT' : 'IN' };
+    }
+
+    const [baseCandidate, suffixCandidate] = rawId.split(':');
+    const suffixUpper = asString(suffixCandidate).toUpperCase();
+    const eventType = suffixUpper === 'OUT' ? 'OUT' : (suffixUpper === 'IN' ? 'IN' : (asString(fallbackType).toUpperCase() === 'OUT' ? 'OUT' : 'IN'));
+    return {
+        baseId: asString(baseCandidate || rawId),
+        eventType,
+    };
+}
+
+async function syncProfileOnlineStatus(shopId, userId) {
+    const sid = asString(shopId);
+    const uid = asString(userId);
+    if (!sid || !uid) return;
+
+    const { data: openAttendance } = await supabase
+        .from('attendance')
+        .select('id')
+        .eq('shop_id', sid)
+        .eq('user_id', uid)
+        .not('check_in', 'is', null)
+        .is('check_out', null)
+        .limit(1);
+
+    await supabase
+        .from('profiles')
+        .update({ is_online: Array.isArray(openAttendance) && openAttendance.length > 0 })
+        .eq('id', uid);
 }
 
 function buildShopUpdatePayloads({ name, address, ownerEmail, telephone, ownerPassword }) {
@@ -1826,11 +1849,13 @@ export function AuthProvider({ children }) {
         const existingLog = attendanceLogs.find((l) => String(l.id) === String(id));
         if (!existingLog) return;
 
+        const { baseId, eventType } = parseAttendanceEventId(existingLog.id, existingLog.type);
+        if (!baseId) return;
+
         const resolvedTimestamp = asString(updates.timestamp)
             || buildTimestampFromTime(existingLog.timestamp, updates.time)
             || existingLog.timestamp;
 
-        const resolvedType = updates.type ?? existingLog.type;
         const resolvedDateObj = new Date(resolvedTimestamp);
         const resolvedTime = updates.time
             || (Number.isNaN(resolvedDateObj.getTime())
@@ -1842,7 +1867,6 @@ export function AuthProvider({ children }) {
             return {
                 ...l,
                 ...updates,
-                type: resolvedType,
                 time: resolvedTime,
                 timestamp: resolvedTimestamp,
                 date: Number.isNaN(resolvedDateObj.getTime())
@@ -1851,61 +1875,75 @@ export function AuthProvider({ children }) {
             };
         }));
 
-        const payload = {
-            type: resolvedType,
-            timestamp: resolvedTimestamp
-        };
+        const payload = eventType === 'OUT'
+            ? { check_out: resolvedTimestamp }
+            : { check_in: resolvedTimestamp };
 
         const { error } = await supabase
             .from('attendance')
             .update(payload)
-            .eq('id', id)
+            .eq('id', baseId)
             .eq('shop_id', sid);
 
         if (error) {
             throw new Error(error.message || 'Failed to update attendance log.');
         }
-        // Recalculate isPunchedIn for the target user (attendance-only, NOT is_online)
+
         const targetUserId = asString(existingLog.userId || existingLog.workerId);
-        if (!targetUserId) return;
-
-        if (role === 'salesman' && String(user?.id) === targetUserId) {
-            const nextLogsForUser = attendanceLogs
-                .map((l) => {
-                    if (String(l.id) !== String(id)) return l;
-                    return { ...l, type: resolvedType, timestamp: resolvedTimestamp };
-                })
-                .filter((l) => asString(l.userId || l.workerId) === targetUserId)
-                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-            const nextPunched = nextLogsForUser.length > 0 ? nextLogsForUser[0].type === 'IN' : false;
-            setIsPunchedIn(nextPunched);
+        if (targetUserId) {
+            await syncProfileOnlineStatus(sid, targetUserId);
         }
-    }, [activeShopId, attendanceLogs, role, user]);
+
+        await fetchAttendanceState(activeShopId, role, user?.id);
+    }, [activeShopId, attendanceLogs, fetchAttendanceState, role, user]);
 
     const deleteAttendanceLog = useCallback(async (id) => {
         const sid = asString(activeShopId);
         if (!sid) return;
         const existingLog = attendanceLogs.find((l) => String(l.id) === String(id));
+        if (!existingLog) return;
+
+        const { baseId, eventType } = parseAttendanceEventId(existingLog.id, existingLog.type);
+        if (!baseId) return;
+
         const targetUserId = asString(existingLog?.userId || existingLog?.workerId);
+        const hasCompanion = attendanceLogs.some((log) => {
+            if (String(log.id) === String(existingLog.id)) return false;
+            const parsed = parseAttendanceEventId(log.id, log.type);
+            return parsed.baseId === baseId && parsed.eventType !== eventType;
+        });
 
         setAttendanceLogs(prev => prev.filter(l => String(l.id) !== String(id)));
-        const { error } = await supabase.from('attendance').delete().eq('id', id).eq('shop_id', sid);
+        let error = null;
+        if (hasCompanion) {
+            const patch = eventType === 'OUT'
+                ? { check_out: null, hours: null }
+                : { check_in: null };
+            const { error: updateError } = await supabase
+                .from('attendance')
+                .update(patch)
+                .eq('id', baseId)
+                .eq('shop_id', sid);
+            error = updateError;
+        } else {
+            const { error: deleteError } = await supabase
+                .from('attendance')
+                .delete()
+                .eq('id', baseId)
+                .eq('shop_id', sid);
+            error = deleteError;
+        }
+
         if (error) {
             throw new Error(error.message || 'Failed to delete attendance log.');
         }
 
-        // Recalculate isPunchedIn (attendance-only, NOT is_online)
-        if (targetUserId && role === 'salesman' && String(user?.id) === targetUserId) {
-            const nextLogsForUser = attendanceLogs
-                .filter((l) => String(l.id) !== String(id))
-                .filter((l) => asString(l.userId || l.workerId) === targetUserId)
-                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-            const nextPunched = nextLogsForUser.length > 0 ? nextLogsForUser[0].type === 'IN' : false;
-            setIsPunchedIn(nextPunched);
+        if (targetUserId) {
+            await syncProfileOnlineStatus(sid, targetUserId);
         }
-    }, [activeShopId, attendanceLogs, role, user]);
+
+        await fetchAttendanceState(activeShopId, role, user?.id);
+    }, [activeShopId, attendanceLogs, fetchAttendanceState, role, user]);
 
     // ── Auth Logic ──
     const login = useCallback(async (userData) => {

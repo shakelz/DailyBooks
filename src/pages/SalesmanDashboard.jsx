@@ -204,6 +204,35 @@ function getRangeOverlapMs(startMs, endMs, rangeStartMs, rangeEndMs) {
     return Math.max(0, to - from);
 }
 
+function toLocalDayKey(dateLike) {
+    const d = new Date(dateLike);
+    if (Number.isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function toDateTimeLocalValue(timestamp) {
+    const d = new Date(timestamp);
+    if (Number.isNaN(d.getTime())) return '';
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+}
+
+function buildMiniLinePath(values = [], width = 120, height = 30) {
+    if (!Array.isArray(values) || values.length === 0) return '';
+    const max = Math.max(...values, 0.0001);
+    const min = Math.min(...values, 0);
+    const range = Math.max(0.0001, max - min);
+    const stepX = values.length > 1 ? width / (values.length - 1) : width;
+    return values.map((value, index) => {
+        const x = Number((index * stepX).toFixed(2));
+        const y = Number((height - ((value - min) / range) * height).toFixed(2));
+        return `${index === 0 ? 'M' : 'L'}${x},${y}`;
+    }).join(' ');
+}
+
 function resolveShopPhone(shop = {}) {
     const safeShop = shop && typeof shop === 'object' ? shop : {};
     const candidates = [
@@ -418,9 +447,56 @@ function CompactTrendCard({ label, value, colorClass }) {
     );
 }
 
+function MiniLineChart({ values = [], active = false }) {
+    if (!active || !Array.isArray(values) || values.length === 0) {
+        return <div className="h-8 w-full rounded-md bg-slate-100" />;
+    }
+    const path = buildMiniLinePath(values, 120, 30);
+    return (
+        <svg viewBox="0 0 120 30" className="h-8 w-full">
+            <path d={path} fill="none" stroke="#0ea5e9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+
+function MiniBarChart({ values = [], active = false }) {
+    if (!active || !Array.isArray(values) || values.length === 0) {
+        return <div className="h-8 w-full rounded-md bg-slate-100" />;
+    }
+    const max = Math.max(...values, 0.0001);
+    const barCount = Math.min(values.length, 8);
+    const source = values.slice(-barCount);
+    return (
+        <div className="h-8 w-full flex items-end gap-1">
+            {source.map((value, index) => {
+                const heightPct = Math.max(8, Math.round((value / max) * 100));
+                return (
+                    <div
+                        key={`mini-bar-${index}`}
+                        className="flex-1 rounded-sm bg-sky-400/80"
+                        style={{ height: `${heightPct}%` }}
+                    />
+                );
+            })}
+        </div>
+    );
+}
+
 export default function SalesmanDashboard({ adminView = false, adminDashboardDateSelection = null }) {
     const navigate = useNavigate();
-    const { role, user, isPunchedIn, activeShop, billShowTax, attendanceLogs, salesmen, autoLockEnabled, autoLockTimeout } = useAuth();
+    const {
+        role,
+        user,
+        isPunchedIn,
+        activeShop,
+        billShowTax,
+        attendanceLogs,
+        salesmen,
+        autoLockEnabled,
+        autoLockTimeout,
+        updateAttendanceLog,
+        deleteAttendanceLog,
+    } = useAuth();
     const {
         products,
         transactions,
@@ -486,6 +562,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [isLocked, setIsLocked] = useState(false);
     const [unlockPin, setUnlockPin] = useState('');
     const [unlockError, setUnlockError] = useState(false);
+    const [editingActivityId, setEditingActivityId] = useState('');
+    const [editingActivityTime, setEditingActivityTime] = useState('');
+    const [savingActivity, setSavingActivity] = useState(false);
     const deletingZeroMobileIdsRef = useRef(new Set());
     const deleteUndoTimeoutRef = useRef(null);
     const lockTimerRef = useRef(null);
@@ -721,6 +800,25 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return { start: todayStart, end: todayEnd, label: 'Today' };
     }, [adminView, adminDashboardDateSelection, todayStart, todayEnd]);
 
+    const isCustomRangeActive = useMemo(() => {
+        if (!adminView) return false;
+        const selected = Array.isArray(adminDashboardDateSelection) ? adminDashboardDateSelection[0] : null;
+        const selectedStart = selected?.startDate ? new Date(selected.startDate) : null;
+        const selectedEnd = selected?.endDate ? new Date(selected.endDate) : null;
+        if (!selectedStart || !selectedEnd || Number.isNaN(selectedStart.getTime()) || Number.isNaN(selectedEnd.getTime())) {
+            return false;
+        }
+
+        const selectedStartDay = new Date(selectedStart);
+        const selectedEndDay = new Date(selectedEnd);
+        selectedStartDay.setHours(0, 0, 0, 0);
+        selectedEndDay.setHours(0, 0, 0, 0);
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return !(selectedStartDay.getTime() === today.getTime() && selectedEndDay.getTime() === today.getTime());
+    }, [adminView, adminDashboardDateSelection]);
+
     const rangeTransactions = useMemo(
         () => transactions.filter((txn) => {
             const dt = txn?.timestamp ? new Date(txn.timestamp) : null;
@@ -868,6 +966,40 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const endMs = Math.min(dashboardRange.end.getTime(), Date.now());
         const logsByStaff = new Map();
 
+        const daySlots = [];
+        if (isCustomRangeActive) {
+            const cursor = new Date(dashboardRange.start);
+            cursor.setHours(0, 0, 0, 0);
+            const endDay = new Date(dashboardRange.end);
+            endDay.setHours(0, 0, 0, 0);
+            while (cursor.getTime() <= endDay.getTime()) {
+                daySlots.push({
+                    key: toLocalDayKey(cursor),
+                    label: cursor.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' }),
+                });
+                cursor.setDate(cursor.getDate() + 1);
+            }
+        }
+
+        const addIntervalByDay = (bucket, intervalStartMs, intervalEndMs) => {
+            const from = Math.max(startMs, intervalStartMs);
+            const to = Math.min(endMs, intervalEndMs);
+            if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return;
+
+            let cursor = from;
+            while (cursor < to) {
+                const current = new Date(cursor);
+                const dayStart = new Date(current);
+                dayStart.setHours(0, 0, 0, 0);
+                const nextDayStart = new Date(dayStart);
+                nextDayStart.setDate(nextDayStart.getDate() + 1);
+                const segmentEnd = Math.min(to, nextDayStart.getTime());
+                const dayKey = toLocalDayKey(dayStart);
+                bucket[dayKey] = (bucket[dayKey] || 0) + Math.max(0, segmentEnd - cursor);
+                cursor = segmentEnd;
+            }
+        };
+
         (attendanceLogs || []).forEach((log) => {
             const uid = String(log?.userId || log?.workerId || '');
             if (!uid) return;
@@ -902,6 +1034,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
             let openInMs = null;
             let totalMs = 0;
+            const dailyBucketMs = {};
             staffLogs.forEach((log) => {
                 const ts = getTimestampMs(log?.timestamp);
                 if (!Number.isFinite(ts)) return;
@@ -910,19 +1043,34 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     return;
                 }
                 if (log?.type === 'OUT' && openInMs !== null) {
-                    totalMs += getRangeOverlapMs(openInMs, ts, startMs, endMs);
+                    const overlapMs = getRangeOverlapMs(openInMs, ts, startMs, endMs);
+                    totalMs += overlapMs;
+                    if (isCustomRangeActive && overlapMs > 0) {
+                        addIntervalByDay(dailyBucketMs, openInMs, ts);
+                    }
                     openInMs = null;
                 }
             });
             if (openInMs !== null) {
-                totalMs += getRangeOverlapMs(openInMs, endMs, startMs, endMs);
+                const overlapMs = getRangeOverlapMs(openInMs, endMs, startMs, endMs);
+                totalMs += overlapMs;
+                if (isCustomRangeActive && overlapMs > 0) {
+                    addIntervalByDay(dailyBucketMs, openInMs, endMs);
+                }
             }
 
             const totalHours = totalMs / 3600000;
             const earned = totalHours * hourlyRate;
             const paid = salaryByStaff[sid] || 0;
-            // Staff is "online" if they have an open punch-in (no matching OUT)
-            const isPunchedIn = openInMs !== null;
+
+            const hoursSeries = isCustomRangeActive
+                ? daySlots.map((slot) => Number(((dailyBucketMs[slot.key] || 0) / 3600000).toFixed(2)))
+                : [];
+            const earnedSeries = isCustomRangeActive
+                ? hoursSeries.map((hours) => Number((hours * hourlyRate).toFixed(2)))
+                : [];
+
+            const profileOnline = Boolean(staff?.is_online ?? staff?.isOnline ?? staff?.online);
 
             return {
                 id: sid,
@@ -930,10 +1078,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 totalHours,
                 earned,
                 paid,
-                isOnline: isPunchedIn,
+                isOnline: profileOnline,
+                hoursSeries,
+                earnedSeries,
+                chartLabels: daySlots.map((slot) => slot.label),
             };
         }).sort((a, b) => b.earned - a.earned);
-    }, [adminView, attendanceLogs, dashboardRange, salesmen, transactions]);
+    }, [adminView, attendanceLogs, dashboardRange, isCustomRangeActive, salesmen, transactions]);
 
     const activityLogsToday = useMemo(() => {
         if (!adminView) return [];
@@ -954,12 +1105,59 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     id: String(log?.id || `${uid}-${log?.timestamp || ''}`),
                     userName: String(log?.userName || log?.workerName || fallbackName),
                     type: String(log?.type || '').toUpperCase(),
+                    timestamp: String(log?.timestamp || ''),
                     timeLabel: Number.isFinite(getTimestampMs(log?.timestamp))
                         ? new Date(log.timestamp).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })
                         : '--:--',
                 };
             });
     }, [adminView, attendanceLogs, dashboardRange, salesmen]);
+
+    const featuredStaff = useMemo(() => staffProductionRows[0] || null, [staffProductionRows]);
+
+    const startActivityEdit = (log) => {
+        setEditingActivityId(String(log?.id || ''));
+        setEditingActivityTime(toDateTimeLocalValue(log?.timestamp || ''));
+    };
+
+    const saveActivityEdit = async (log) => {
+        const eventId = String(log?.id || '');
+        if (!eventId) return;
+        const next = new Date(editingActivityTime);
+        if (Number.isNaN(next.getTime())) {
+            alert('Please select a valid date/time.');
+            return;
+        }
+
+        setSavingActivity(true);
+        try {
+            await updateAttendanceLog(eventId, { timestamp: next.toISOString() });
+            setEditingActivityId('');
+            setEditingActivityTime('');
+        } catch (error) {
+            alert(error?.message || 'Failed to update activity log.');
+        } finally {
+            setSavingActivity(false);
+        }
+    };
+
+    const removeActivityLog = async (log) => {
+        const eventId = String(log?.id || '');
+        if (!eventId) return;
+        if (!window.confirm('Delete this activity log?')) return;
+        setSavingActivity(true);
+        try {
+            await deleteAttendanceLog(eventId);
+            if (editingActivityId === eventId) {
+                setEditingActivityId('');
+                setEditingActivityTime('');
+            }
+        } catch (error) {
+            alert(error?.message || 'Failed to delete activity log.');
+        } finally {
+            setSavingActivity(false);
+        }
+    };
 
     useEffect(() => {
         const endpoint = import.meta.env.VITE_CF_DO_STATS_URL;
@@ -2271,56 +2469,98 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         <div className="rounded-2xl border border-violet-100 bg-white p-3 shadow-sm">
                             <div className="flex items-center justify-between gap-2 mb-2">
-                                <h3 className="text-sm font-black text-violet-700">Staff Production & Salary</h3>
-                                <span className="text-[10px] text-slate-400">{dashboardRange.label}</span>
+                                <h3 className="text-sm font-black text-slate-800">STAFF PRODUCTION & SALARY OVERVIEW</h3>
+                                <span className="text-[11px] text-slate-500">{dashboardRange.label}</span>
                             </div>
-                            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                                {staffProductionRows.length === 0 ? (
-                                    <p className="text-xs text-slate-400">No staff activity available.</p>
-                                ) : staffProductionRows.map((staff) => (
-                                    <div key={`staff-prod-${staff.id}`} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <p className="text-xs font-bold text-slate-700 truncate">{staff.name}</p>
-                                            <span className={`text-[10px] font-semibold ${staff.isOnline ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                                {staff.isOnline ? 'Punched In' : 'Punched Out'}
-                                            </span>
+                            {!featuredStaff ? (
+                                <p className="text-xs text-slate-400">No staff activity available.</p>
+                            ) : (
+                                <>
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <div className="h-9 w-9 rounded-full bg-slate-500 text-white text-sm font-bold flex items-center justify-center">
+                                                {String(featuredStaff.name || 'S').charAt(0).toUpperCase()}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-bold text-slate-800 truncate">{featuredStaff.name}</p>
+                                                <p className="text-[11px] text-slate-500">Full-Time Employee</p>
+                                            </div>
                                         </div>
-                                        <div className="mt-1 grid grid-cols-3 gap-2 text-[11px]">
-                                            <div>
-                                                <p className="text-slate-400">Hours</p>
-                                                <p className="font-bold text-slate-700">{staff.totalHours.toFixed(2)}h</p>
+                                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${featuredStaff.isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                            <span className="relative flex h-2 w-2">
+                                                {featuredStaff.isOnline && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
+                                                <span className={`relative inline-flex h-2 w-2 rounded-full ${featuredStaff.isOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                                            </span>
+                                            {featuredStaff.isOnline ? 'ONLINE' : 'OFFLINE'}
+                                        </span>
+                                    </div>
+
+                                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        <div className="rounded-xl border border-slate-200 bg-white p-2.5">
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Hours</p>
+                                            <p className="text-3xl leading-none font-black text-blue-800 mt-1">{featuredStaff.totalHours.toFixed(2)}h</p>
+                                            <p className="text-[10px] text-slate-500 mt-1">Total Hours Worked</p>
+                                            <div className="mt-2">
+                                                <MiniLineChart values={featuredStaff.hoursSeries} active={isCustomRangeActive} />
                                             </div>
-                                            <div>
-                                                <p className="text-slate-400">Earned</p>
-                                                <p className="font-bold text-violet-700">{priceTag(staff.earned)}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-slate-400">Paid</p>
-                                                <p className="font-bold text-blue-700">{priceTag(staff.paid)}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-200 bg-white p-2.5">
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Earned</p>
+                                            <p className="text-3xl leading-none font-black text-blue-800 mt-1">{priceTag(featuredStaff.earned)}</p>
+                                            <p className="text-[10px] text-slate-500 mt-1">Total Earned (Gross)</p>
+                                            <div className="mt-2">
+                                                <MiniBarChart values={featuredStaff.earnedSeries} active={isCustomRangeActive} />
                                             </div>
                                         </div>
                                     </div>
-                                ))}
-                            </div>
+                                </>
+                            )}
                         </div>
 
                         <div className="rounded-2xl border border-sky-100 bg-white p-3 shadow-sm">
                             <div className="flex items-center justify-between gap-2 mb-2">
-                                <h3 className="text-sm font-black text-sky-700">Activity Logs</h3>
-                                <span className="text-[10px] text-slate-400">{activityLogsToday.length} records</span>
+                                <h3 className="text-sm font-black text-slate-800">ACTIVITY LOGS <span className="text-slate-500 font-semibold">{activityLogsToday.length} records</span></h3>
+                                <div className="flex items-center gap-1">
+                                    <button type="button" className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">FILTER</button>
+                                    <button type="button" className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">EXPORT</button>
+                                </div>
                             </div>
                             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                                 {activityLogsToday.length === 0 ? (
                                     <p className="text-xs text-slate-400">No attendance logs for selected period.</p>
                                 ) : activityLogsToday.map((log) => (
-                                    <div key={`activity-log-${log.id}`} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 flex items-center justify-between gap-2">
-                                        <div className="min-w-0">
-                                            <p className="text-xs font-bold text-slate-700 truncate">{log.userName}</p>
-                                            <p className="text-[11px] text-slate-400">{log.timeLabel}</p>
+                                    <div key={`activity-log-${log.id}`} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 space-y-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="min-w-0 flex items-center gap-2">
+                                                <div className="h-7 w-7 rounded-full bg-slate-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                                    {String(log.userName || 'S').charAt(0).toUpperCase()}
+                                                </div>
+                                                <p className="text-xs font-bold text-slate-700 truncate">{log.userName}</p>
+                                            </div>
+                                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${log.type === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                <span className={`h-2 w-2 rounded-full ${log.type === 'IN' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                                                {log.type === 'IN' ? 'ONLINE' : 'OFFLINE'}
+                                            </span>
                                         </div>
-                                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${log.type === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                            {log.type === 'IN' ? 'PUNCHED IN' : 'PUNCHED OUT'}
-                                        </span>
+
+                                        {editingActivityId === log.id ? (
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="datetime-local"
+                                                    value={editingActivityTime}
+                                                    onChange={(e) => setEditingActivityTime(e.target.value)}
+                                                    className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+                                                />
+                                                <button type="button" disabled={savingActivity} onClick={() => saveActivityEdit(log)} className="rounded-md bg-blue-600 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-60">Save</button>
+                                                <button type="button" disabled={savingActivity} onClick={() => setEditingActivityId('')} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">Cancel</button>
+                                                <button type="button" disabled={savingActivity} onClick={() => removeActivityLog(log)} className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700">Delete</button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-between gap-2">
+                                                <p className="text-[11px] text-slate-500">{log.timeLabel}</p>
+                                                <button type="button" onClick={() => startActivityEdit(log)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">Edit</button>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>

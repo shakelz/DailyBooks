@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
+import { useAuth } from '../../context/AuthContext';
 import { priceTag } from '../../utils/currency';
 import DateRangeFilter from './DateRangeFilter';
 
@@ -28,6 +29,25 @@ function parseTxnDate(txn) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseTs(value) {
+    const ms = Date.parse(value || '');
+    return Number.isNaN(ms) ? NaN : ms;
+}
+
+function rangeOverlapMs(startMs, endMs, rangeStartMs, rangeEndMs) {
+    const from = Math.max(startMs, rangeStartMs);
+    const to = Math.min(endMs, rangeEndMs);
+    return Math.max(0, to - from);
+}
+
+function localDayKey(ms) {
+    const d = new Date(ms);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 function isCashbookEntry(txn) {
     const type = String(txn?.type || '').toLowerCase();
     if (type !== 'income' && type !== 'expense') return false;
@@ -38,6 +58,7 @@ function isCashbookEntry(txn) {
 
 export default function ExpensesTab() {
     const { transactions, addTransaction, updateTransaction, deleteTransaction } = useInventory();
+    const { attendanceLogs, salesmen } = useAuth();
 
     const [dateSelection, setDateSelection] = useState([
         {
@@ -80,14 +101,87 @@ export default function ExpensesTab() {
     }, [dateSelection]);
 
     const rows = useMemo(() => {
-        return transactions
+        const cashbookRows = transactions
             .filter((txn) => isCashbookEntry(txn))
             .filter((txn) => {
                 const d = parseTxnDate(txn);
                 return d && d >= rangeStart && d <= rangeEnd;
             })
+            .map((txn) => ({ ...txn, isSynthetic: false }));
+
+        const staffById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), staff]));
+        const logsByStaff = new Map();
+
+        (attendanceLogs || []).forEach((log) => {
+            const sid = String(log?.userId || log?.workerId || '');
+            const ts = parseTs(log?.timestamp);
+            if (!sid || !Number.isFinite(ts)) return;
+            const existing = logsByStaff.get(sid) || [];
+            existing.push({ ...log, _ts: ts });
+            logsByStaff.set(sid, existing);
+        });
+
+        const startMs = rangeStart.getTime();
+        const endMs = rangeEnd.getTime();
+        const earningRows = [];
+
+        logsByStaff.forEach((logs, sid) => {
+            const staff = staffById.get(String(sid));
+            const hourlyRate = parseFloat(staff?.hourlyRate) || 12.5;
+            const ordered = logs.slice().sort((a, b) => a._ts - b._ts);
+            const dayBuckets = {};
+
+            let openInMs = null;
+            ordered.forEach((log) => {
+                const type = String(log?.type || '').toUpperCase();
+                if (type === 'IN') {
+                    openInMs = log._ts;
+                    return;
+                }
+                if (type === 'OUT' && openInMs !== null) {
+                    const overlapMs = rangeOverlapMs(openInMs, log._ts, startMs, endMs);
+                    if (overlapMs > 0) {
+                        let cursor = Math.max(startMs, openInMs);
+                        const maxEnd = Math.min(endMs, log._ts);
+                        while (cursor < maxEnd) {
+                            const current = new Date(cursor);
+                            current.setHours(0, 0, 0, 0);
+                            const nextDay = new Date(current);
+                            nextDay.setDate(nextDay.getDate() + 1);
+                            const segmentEnd = Math.min(maxEnd, nextDay.getTime());
+                            const key = localDayKey(cursor);
+                            dayBuckets[key] = (dayBuckets[key] || 0) + Math.max(0, segmentEnd - cursor);
+                            cursor = segmentEnd;
+                        }
+                    }
+                    openInMs = null;
+                }
+            });
+
+            Object.entries(dayBuckets).forEach(([dayKey, ms]) => {
+                const hours = ms / 3600000;
+                if (hours <= 0) return;
+                const amount = Number((hours * hourlyRate).toFixed(2));
+                const stamp = new Date(`${dayKey}T12:00:00`);
+                earningRows.push({
+                    id: `staff-earning-${sid}-${dayKey}`,
+                    desc: `Staff Earning: ${String(staff?.name || 'Staff')}`,
+                    amount,
+                    type: 'expense',
+                    category: 'Salary',
+                    paymentMethod: 'Auto',
+                    source: 'staff-earning',
+                    date: stamp.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: stamp.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                    timestamp: stamp.toISOString(),
+                    isSynthetic: true,
+                });
+            });
+        });
+
+        return [...cashbookRows, ...earningRows]
             .sort((a, b) => (parseTxnDate(b)?.getTime() || 0) - (parseTxnDate(a)?.getTime() || 0));
-    }, [transactions, rangeStart, rangeEnd]);
+    }, [transactions, attendanceLogs, salesmen, rangeStart, rangeEnd]);
 
     const totals = useMemo(() => {
         return rows.reduce((acc, txn) => {
@@ -266,18 +360,19 @@ export default function ExpensesTab() {
                 ) : rows.map((txn) => {
                     const isIncome = txn.type === 'income';
                     const active = editingId === String(txn.id);
+                    const isSynthetic = Boolean(txn.isSynthetic);
                     return (
                         <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
                             {!active ? (
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="min-w-0">
                                         <p className="text-sm font-bold text-slate-800 truncate">{txn.desc}</p>
-                                        <p className="text-[11px] text-slate-500">{txn.date} {txn.time} | {txn.category || 'General'} | {txn.paymentMethod || 'Cash'}</p>
+                                        <p className="text-[11px] text-slate-500">{txn.date} {txn.time} | {txn.category || 'General'} | {txn.paymentMethod || 'Cash'}{isSynthetic ? ' | Auto from staff production' : ''}</p>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <p className={`text-sm font-black ${isIncome ? 'text-emerald-600' : 'text-red-600'}`}>{isIncome ? '+' : '-'}{priceTag(txn.amount)}</p>
-                                        <button onClick={() => beginEdit(txn)} className="px-2 py-1 text-xs rounded border border-blue-200 bg-blue-50 text-blue-700">Edit</button>
-                                        <button onClick={() => { if (window.confirm('Delete entry?')) deleteTransaction(txn.id); }} className="px-2 py-1 text-xs rounded border border-red-200 bg-red-50 text-red-700">Delete</button>
+                                        {!isSynthetic && <button onClick={() => beginEdit(txn)} className="px-2 py-1 text-xs rounded border border-blue-200 bg-blue-50 text-blue-700">Edit</button>}
+                                        {!isSynthetic && <button onClick={() => { if (window.confirm('Delete entry?')) deleteTransaction(txn.id); }} className="px-2 py-1 text-xs rounded border border-red-200 bg-red-50 text-red-700">Delete</button>}
                                     </div>
                                 </div>
                             ) : (
