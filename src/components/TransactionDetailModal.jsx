@@ -148,10 +148,10 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                         width: 60mm;
                         margin: 0 auto;
                         padding: 0.5mm 0.8mm 0.8mm;
-                        font-size: 12px;
+                        font-size: 13px;
                         line-height: 1.4;
                         color: #000;
-                        font-weight: 600;
+                        font-weight: 700;
                     }
                     .ticket { border: 1px solid #000; padding: 1.5mm; }
                     .text-center { text-align: center; }
@@ -160,15 +160,15 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                     .divider { border-top: 1px dashed #000; margin: 8px 0; }
                     table { width: 100%; border-collapse: collapse; margin: 8px 0; }
                     td { vertical-align: top; }
-                    .fs-lg { font-size: 16px; }
-                    .footer-text { font-size: 10px; margin-top: 15px; font-weight: 700; }
+                    .fs-lg { font-size: 18px; }
+                    .footer-text { font-size: 11px; margin-top: 15px; font-weight: 800; }
                     .box { border: 1px solid #000; padding: 4px; margin: 4px 0; }
                 </style>
             </head>
             <body>
                 <div class="ticket">
                     <div class="text-center">
-                        <div style="font-size:10px; text-transform:uppercase; letter-spacing:1px; font-weight:700;">KUNDENBELEG</div>
+                        <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; font-weight:800;">KUNDENBELEG</div>
                         <div class="bold fs-lg">${esc(receiptShopName)}</div>
                         ${receiptShopAddress ? `<div style="margin-top: 4px;">${esc(receiptShopAddress)}</div>` : ''}
                         ${receiptShopPhone ? `<div style="margin-top: 2px;">Tel: ${esc(receiptShopPhone)}</div>` : ''}
@@ -176,7 +176,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
 
                     <div class="divider"></div>
 
-                    <div class="box" style="font-size: 10px;">
+                    <div class="box" style="font-size: 11px; font-weight: 700;">
                         <div>Datum: ${esc(txn.date)} ${esc(txn.time)}</div>
                         <div>Beleg-Nr: ${esc(txn.transactionId || txn.id)}</div>
                         ${groupCount > 1 ? `<div>Positionen: ${groupCount}</div>` : ''}
@@ -213,7 +213,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
 
                     <div class="divider"></div>
 
-                    <div style="margin-top: 10px; font-size: 9px;">
+                    <div style="margin-top: 10px; font-size: 10px; font-weight: 700;">
                         <div>Zahlungsart: ${esc(txn.paymentMethod || 'Bar')}</div>
                         <div style="margin-top: 8px;">
                             Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${esc(receiptShopName)}
