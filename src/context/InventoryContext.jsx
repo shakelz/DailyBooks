@@ -119,10 +119,7 @@ function isCategoryHierarchyObject(value) {
 }
 
 function makeCategoryId() {
-    if (typeof globalThis !== 'undefined' && globalThis.crypto?.randomUUID) {
-        return globalThis.crypto.randomUUID();
-    }
-    return `cat_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    return `c${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 function stringifyAttributeValue(value) {

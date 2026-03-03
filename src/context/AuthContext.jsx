@@ -260,7 +260,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, note =
     }
 
     if (punchType === 'IN') {
-        const attendanceId = crypto.randomUUID();
+        const attendanceId = makeRowId();
         const { error: inError } = await supabase
             .from('attendance')
             .insert([{
@@ -489,10 +489,9 @@ function mergeShopMeta(shop = {}, metaMap = {}) {
 }
 
 function makeRowId() {
-    if (typeof globalThis !== 'undefined' && globalThis.crypto?.randomUUID) {
-        return globalThis.crypto.randomUUID();
-    }
-    return `id_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const timePart = Date.now().toString(36).slice(-4);
+    const randomPart = Math.random().toString(36).slice(2, 6);
+    return `${timePart}${randomPart}`;
 }
 
 function normalizeUserFromProfile(profile) {
@@ -1716,6 +1715,36 @@ export function AuthProvider({ children }) {
     useEffect(() => {
         fetchAttendanceState(activeShopId, role, user?.id);
     }, [activeShopId, role, user?.id, fetchAttendanceState]);
+
+    useEffect(() => {
+        const sid = asString(activeShopId);
+        if (!sid) return;
+
+        let cancelled = false;
+        let debounce = null;
+
+        const scheduleSync = () => {
+            if (cancelled) return;
+            if (debounce) clearTimeout(debounce);
+            debounce = setTimeout(() => {
+                if (cancelled) return;
+                fetchAttendanceState(sid, role, user?.id);
+            }, 120);
+        };
+
+        const filter = `shop_id=eq.${sid}`;
+        const channel = supabase
+            .channel(`public:attendance_presence:${sid}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance', filter }, scheduleSync)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter }, scheduleSync)
+            .subscribe();
+
+        return () => {
+            cancelled = true;
+            if (debounce) clearTimeout(debounce);
+            supabase.removeChannel(channel);
+        };
+    }, [activeShopId, fetchAttendanceState, role, user?.id]);
 
     const punchIn = useCallback(async () => {
         if (!user || !activeShopId || isPunchedIn) return;
