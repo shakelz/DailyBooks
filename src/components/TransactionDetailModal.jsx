@@ -145,22 +145,23 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                     @page { size: 58mm auto; margin: 0; }
                     body {
                         font-family: 'Courier New', Courier, monospace;
-                        width: 58mm;
+                        width: 60mm;
                         margin: 0 auto;
-                        padding: 2mm;
-                        font-size: 11px;
+                        padding: 0.5mm 0.8mm 0.8mm;
+                        font-size: 12px;
                         line-height: 1.4;
                         color: #000;
+                        font-weight: 600;
                     }
-                    .ticket { border: 1px solid #000; padding: 2mm; }
+                    .ticket { border: 1px solid #000; padding: 1.5mm; }
                     .text-center { text-align: center; }
                     .text-right { text-align: right; }
-                    .bold { font-weight: bold; }
+                    .bold { font-weight: 800; }
                     .divider { border-top: 1px dashed #000; margin: 8px 0; }
                     table { width: 100%; border-collapse: collapse; margin: 8px 0; }
                     td { vertical-align: top; }
-                    .fs-lg { font-size: 14px; }
-                    .footer-text { font-size: 9px; margin-top: 15px; }
+                    .fs-lg { font-size: 16px; }
+                    .footer-text { font-size: 10px; margin-top: 15px; font-weight: 700; }
                     .box { border: 1px solid #000; padding: 4px; margin: 4px 0; }
                 </style>
             </head>

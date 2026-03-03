@@ -120,10 +120,10 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                     <title>Kassenbeleg</title>
                     <style>
                         @page { size: 58mm auto; margin: 0; }
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 2mm; font-size: 11px; }
-                        .ticket { border: 1px solid #000; padding: 2mm; }
+                        body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 12px; font-weight: 600; }
+                        .ticket { border: 1px solid #000; padding: 1.5mm; }
                         h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; font-weight:700; gap: 8px; }
                         .line { border-top:1px solid #000; margin:8px 0; }
                         .center { text-align: center; }
                         .box { border: 1px solid #000; padding: 4px; margin: 4px 0; }

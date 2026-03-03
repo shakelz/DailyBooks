@@ -281,18 +281,18 @@ function buildReceiptHtml({
                 <title>Beleg</title>
                 <style>
                     @page { size: 58mm auto; margin: 0; }
-                    body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 2mm; font-size: 11px; color: #111; }
-                    .ticket { border: 1px solid #111; padding: 2mm; }
+                    body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 12px; color: #111; font-weight: 600; }
+                    .ticket { border: 1px solid #111; padding: 1.5mm; }
                     .center { text-align: center; }
-                    .shop { font-size: 16px; font-weight: 700; margin-bottom: 3px; }
+                    .shop { font-size: 18px; font-weight: 800; margin-bottom: 3px; }
                     .line { border-top: 1px solid #111; margin: 6px 0; }
-                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; }
-                    .head { font-weight: 700; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; }
-                    .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
+                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; font-size: 12px; font-weight: 700; }
+                    .head { font-weight: 800; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; font-size: 12px; }
+                    .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 12px; }
                     .line-name { flex: 1; }
-                    .line-price { text-align: right; min-width: 85px; }
-                    .small { font-size: 9px; line-height: 1.35; }
-                    .tax-table { width: 100%; margin-top: 6px; font-size: 11px; border-collapse: collapse; }
+                    .line-price { text-align: right; min-width: 95px; font-weight: 800; }
+                    .small { font-size: 10px; line-height: 1.35; font-weight: 700; }
+                    .tax-table { width: 100%; margin-top: 6px; font-size: 12px; border-collapse: collapse; }
                     .tax-table td { padding: 1px 0; }
                     .tax-table td:last-child { text-align: right; }
                     .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
