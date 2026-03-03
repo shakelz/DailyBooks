@@ -886,13 +886,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     );
 
     const revenueHistoryTransactions = useMemo(() => {
-        return revenueTransactions
+        return nonMobileRevenueTransactions
             .sort((a, b) => {
                 const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
                 const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
                 return bMs - aMs;
             });
-    }, [revenueTransactions]);
+    }, [nonMobileRevenueTransactions]);
+
+    const purchaseHistoryTransactions = useMemo(() => {
+        return nonMobilePurchaseTransactions
+            .sort((a, b) => {
+                const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
+                const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
+                return bMs - aMs;
+            });
+    }, [nonMobilePurchaseTransactions]);
 
     const productLookup = useMemo(() => {
         return (products || []).reduce((acc, product) => {
@@ -2948,7 +2957,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <h3 className="text-sm font-black text-rose-700 mb-1">Purchase Transactions History</h3>
                         <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                            {purchaseTransactions.length === 0 ? <p className="text-xs text-slate-400">No purchase transactions for selected period</p> : purchaseTransactions.map((txn) => (
+                            {purchaseHistoryTransactions.length === 0 ? <p className="text-xs text-slate-400">No purchase transactions for selected period</p> : purchaseHistoryTransactions.map((txn) => (
                                 <div
                                     key={txn.id}
                                     onClick={() => openTransactionDetailModal(txn)}
