@@ -2181,32 +2181,8 @@ export function AuthProvider({ children }) {
             return withMeta;
         }
 
-        if (insertError) {
-            console.error('Failed to create salesman profile in DB:', insertError);
-        }
-
-        // Legacy fallback
-        const newSalesman = {
-            id: Date.now(),
-            name: trimmedName,
-            pin: trimmedPin,
-            active: true,
-            hourlyRate: 12.5,
-            role: 'salesman',
-            shop_id: sid,
-            salesmanNumber: assignedNumber,
-            ...permissionPatch
-        };
-        patchSalesmanMeta(sid, newSalesman.id, {
-            salesmanNumber: assignedNumber,
-            ...permissionPatch
-        });
-        setSalesmen(prev => {
-            const next = [...prev, newSalesman];
-            broadcastSetting('salesmen', next);
-            return next;
-        });
-        return newSalesman;
+        const dbErrorMessage = asString(insertError?.message) || 'Failed to create salesman in database.';
+        throw new Error(dbErrorMessage);
     };
 
     const addIndependentAdmin = async ({ name, email, password }) => {
