@@ -120,10 +120,10 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                     <title>Kassenbeleg</title>
                     <style>
                         @page { size: 58mm auto; margin: 0; }
-                        body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 13px; font-weight: 700; }
+                        body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 16px; font-weight: 800; }
                         .ticket { border: 1px solid #000; padding: 1.5mm; }
                         h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:800; gap: 8px; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:16px; font-weight:900; gap: 8px; }
                         .line { border-top:1px solid #000; margin:8px 0; }
                         .center { text-align: center; }
                         .box { border: 1px solid #000; padding: 4px; margin: 4px 0; }
@@ -132,7 +132,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                 <body>
                     <div class="ticket">
                         <div class="center">
-                            <p style="font-size:11px; text-transform:uppercase; letter-spacing:1px; font-weight:800;">KUNDENBELEG</p>
+                            <p style="font-size:14px; text-transform:uppercase; letter-spacing:1px; font-weight:900;">KUNDENBELEG</p>
                             <h2>${escapeHtml(shopName)}</h2>
                             ${shopAddress ? `<p>${escapeHtml(shopAddress)}</p>` : ''}
                             ${shopPhone ? `<p>Tel: ${escapeHtml(shopPhone)}</p>` : ''}
@@ -150,13 +150,13 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                         <div class="line"></div>
                         <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
                         <div class="row"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
-                        ${includeTax ? `<div class="row"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
-                        <div class="row"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
+                        ${includeTax ? `<div class="row" style="font-weight:900;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
+                        <div class="row" style="font-weight:900;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
                         <div class="line"></div>
                         <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
                         <div class="row"><span>Transaktion-ID</span><span>${escapeHtml(transactionId)}</span></div>
                         <div class="line"></div>
-                        <p style="font-size:11px; font-weight:700; text-align:center;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
+                        <p style="font-size:14px; font-weight:800; text-align:center;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
                     </div>
                 </body>
             </html>

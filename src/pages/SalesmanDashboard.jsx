@@ -281,19 +281,19 @@ function buildReceiptHtml({
                 <title>Beleg</title>
                 <style>
                     @page { size: 58mm auto; margin: 0; }
-                    body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 13px; color: #111; font-weight: 700; }
+                    body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 16px; color: #111; font-weight: 800; }
                     .ticket { border: 1px solid #111; padding: 1.5mm; }
                     .center { text-align: center; }
-                    .shop { font-size: 20px; font-weight: 900; margin-bottom: 3px; }
+                    .shop { font-size: 24px; font-weight: 900; margin-bottom: 3px; }
                     .line { border-top: 1px solid #111; margin: 6px 0; }
-                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; font-size: 13px; font-weight: 800; }
-                    .head { font-weight: 900; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; font-size: 13px; }
-                    .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 13px; }
+                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; font-size: 16px; font-weight: 900; }
+                    .head { font-weight: 900; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; font-size: 16px; }
+                    .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 16px; font-weight: 800; }
                     .line-name { flex: 1; }
                     .line-price { text-align: right; min-width: 95px; font-weight: 900; }
-                    .small { font-size: 11px; line-height: 1.35; font-weight: 800; }
-                    .tax-table { width: 100%; margin-top: 6px; font-size: 13px; border-collapse: collapse; }
-                    .tax-table td { padding: 1px 0; }
+                    .small { font-size: 14px; line-height: 1.35; font-weight: 800; }
+                    .tax-table { width: 100%; margin-top: 6px; font-size: 16px; border-collapse: collapse; font-weight: 900; }
+                    .tax-table td { padding: 2px 0; }
                     .tax-table td:last-child { text-align: right; }
                     .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
                 </style>
@@ -301,7 +301,7 @@ function buildReceiptHtml({
             <body>
                 <div class="ticket">
                     <div class="center">
-                        <div style="font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px;">KUNDENBELEG</div>
+                        <div style="font-size:14px; font-weight:900; text-transform:uppercase; letter-spacing:1px;">KUNDENBELEG</div>
                         <div class="shop">${escapeHtml(shopName || 'Shop')}</div>
                         ${shopAddress ? `<div>${escapeHtml(shopAddress)}</div>` : ''}
                         ${shopPhone ? `<div>Tel: ${escapeHtml(shopPhone)}</div>` : ''}
