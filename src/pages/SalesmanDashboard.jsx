@@ -1861,15 +1861,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <head>
                     <title>Reparaturbeleg</title>
                     <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 13px; font-weight: 700; }
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 16px; font-weight: 900; }
                         h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700; gap: 8px; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:16px; font-weight:900; gap: 8px; }
                         .line { border-top:1px dashed #000; margin:8px 0; }
                         .center { text-align: center; }
-                        .doc-title { font-size: 14px; font-weight: 800; text-transform: uppercase; margin-bottom: 4px; }
-                        .shop-title { font-size: 20px; font-weight: 800; margin-bottom: 2px; }
+                        .doc-title { font-size: 18px; font-weight: 900; text-transform: uppercase; margin-bottom: 4px; }
+                        .shop-title { font-size: 24px; font-weight: 900; margin-bottom: 2px; }
                         .ticket-id { text-align: center; font-size: 32px; font-weight: 800; letter-spacing: 2px; margin: 10px 0; }
-                        .issue-box { margin-top: 8px; border: 1px solid #000; padding: 6px; font-size: 13px; font-weight: 700; }
+                        .issue-box { margin-top: 8px; border: 1px solid #000; padding: 6px; font-size: 16px; font-weight: 900; }
                     </style>
                 </head>
                 <body>
