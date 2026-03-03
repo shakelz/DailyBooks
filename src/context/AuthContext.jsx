@@ -2162,6 +2162,17 @@ export function AuthProvider({ children }) {
         const assignedNumber = explicitNumber > 0
             ? Math.floor(explicitNumber)
             : getNextSalesmanNumber(salesmen, salesmanMetaMap, sid);
+        if (assignedNumber > 0) {
+            const numberConflict = (Array.isArray(salesmen) ? salesmen : []).some((existing) => {
+                const existingId = asString(existing?.id);
+                if (!existingId) return false;
+                const existingNumber = Math.max(0, Math.floor(asNumber(existing?.salesmanNumber, 0)));
+                return existingNumber > 0 && existingNumber === assignedNumber;
+            });
+            if (numberConflict) {
+                throw new Error(`Salesman number ${assignedNumber} is already assigned. Please use a unique number.`);
+            }
+        }
         const permissionPatch = {
             canEditTransactions: asBoolean(extra?.canEditTransactions),
             canBulkEdit: asBoolean(extra?.canBulkEdit)
@@ -2312,6 +2323,19 @@ export function AuthProvider({ children }) {
 
         const dbUpdates = { ...(updates || {}) };
         delete dbUpdates.permissions;
+
+        if (Object.prototype.hasOwnProperty.call(localMetaPatch, 'salesmanNumber') && localMetaPatch.salesmanNumber > 0) {
+            const nextNumber = Math.max(0, Math.floor(asNumber(localMetaPatch.salesmanNumber, 0)));
+            const numberConflict = (Array.isArray(salesmen) ? salesmen : []).some((existing) => {
+                const existingId = asString(existing?.id);
+                if (!existingId || existingId === normalizedId) return false;
+                const existingNumber = Math.max(0, Math.floor(asNumber(existing?.salesmanNumber, 0)));
+                return existingNumber > 0 && existingNumber === nextNumber;
+            });
+            if (numberConflict) {
+                throw new Error(`Salesman number ${nextNumber} is already assigned. Please use a unique number.`);
+            }
+        }
 
         if (nextPin) {
             const conflicts = await listSalesmenByPin(nextPin);

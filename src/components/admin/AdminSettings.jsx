@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash, Phone } from 'lucide-react';
+import { supabase } from '../../supabaseClient';
+import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash, Phone, Upload } from 'lucide-react';
 
 export default function AdminSettings() {
     const {
@@ -27,6 +28,8 @@ export default function AdminSettings() {
     const [salesmanCanEditTransactions, setSalesmanCanEditTransactions] = useState(false);
     const [salesmanCanBulkEdit, setSalesmanCanBulkEdit] = useState(false);
     const [salesmanRate, setSalesmanRate] = useState('12.50');
+    const [salesmanPhoto, setSalesmanPhoto] = useState('');
+    const [salesmanPhotoFile, setSalesmanPhotoFile] = useState(null);
     const [salesmanError, setSalesmanError] = useState('');
     const [salesmanPinError, setSalesmanPinError] = useState('');
     const [checkingSalesmanPin, setCheckingSalesmanPin] = useState(false);
@@ -36,6 +39,7 @@ export default function AdminSettings() {
     const [editName, setEditName] = useState('');
     const [editPin, setEditPin] = useState('');
     const [editPhoto, setEditPhoto] = useState('');
+    const [editPhotoFile, setEditPhotoFile] = useState(null);
     const [editSalesmanNumber, setEditSalesmanNumber] = useState('');
     const [editCanEditTransactions, setEditCanEditTransactions] = useState(false);
     const [editCanBulkEdit, setEditCanBulkEdit] = useState(false);
@@ -123,6 +127,28 @@ export default function AdminSettings() {
         setTimeout(() => setPassMsg(''), 2000);
     };
 
+    const uploadSalesmanPhoto = async (file, salesmanId) => {
+        if (!file) return '';
+        const safeShopId = String(activeShopId || 'default-shop').trim() || 'default-shop';
+        const safeSalesmanId = String(salesmanId || `salesman-${Date.now()}`).trim();
+        const extensionFromName = String(file.name || '').split('.').pop()?.toLowerCase();
+        const extensionFromType = String(file.type || '').split('/').pop()?.toLowerCase();
+        const fileExt = extensionFromName || extensionFromType || 'jpg';
+        const safeExt = String(fileExt || 'jpg').replace(/[^a-z0-9]/gi, '') || 'jpg';
+        const storagePath = `salesmen/${safeShopId}/${safeSalesmanId}-${Date.now()}.${safeExt}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('inventory-images')
+            .upload(storagePath, file, { upsert: true, contentType: file.type || undefined });
+
+        if (uploadError) {
+            throw new Error(`Photo upload failed. (${uploadError.message})`);
+        }
+
+        const { data } = supabase.storage.from('inventory-images').getPublicUrl(storagePath);
+        return data?.publicUrl || '';
+    };
+
     const handleAddSalesman = async (e) => {
         e.preventDefault();
         if (!salesmanName.trim() || salesmanPin.length !== 4) {
@@ -134,18 +160,31 @@ export default function AdminSettings() {
             setSalesmanError(salesmanPinError);
             return;
         }
+        let uploadedPhotoUrl = '';
+        const photoUrlInput = salesmanPhoto.trim();
 
         try {
+            if (salesmanPhotoFile) {
+                uploadedPhotoUrl = await uploadSalesmanPhoto(salesmanPhotoFile, `new-${Date.now()}`);
+            }
+
+            const parsedNumber = parseInt(salesmanNumber, 10);
             const created = await addSalesman(salesmanName, salesmanPin, {
-                salesmanNumber: parseInt(salesmanNumber, 10) || 0,
+                salesmanNumber: Number.isFinite(parsedNumber) ? parsedNumber : undefined,
                 canEditTransactions: salesmanCanEditTransactions,
                 canBulkEdit: salesmanCanBulkEdit
             });
             if (created?.id) {
-                await updateSalesman(created.id, { hourlyRate: parseFloat(salesmanRate) || 12.50 });
+                const resolvedPhoto = uploadedPhotoUrl || photoUrlInput;
+                await updateSalesman(created.id, {
+                    hourlyRate: parseFloat(salesmanRate) || 12.50,
+                    ...(resolvedPhoto ? { photo: resolvedPhoto } : {})
+                });
             }
             setSalesmanName(''); setSalesmanPin(''); setSalesmanRate('12.50');
             setSalesmanNumber('');
+            setSalesmanPhoto('');
+            setSalesmanPhotoFile(null);
             setSalesmanCanEditTransactions(false);
             setSalesmanCanBulkEdit(false);
             setShowAddSalesman(false);
@@ -161,6 +200,7 @@ export default function AdminSettings() {
         setEditName(s.name);
         setEditPin(s.pin);
         setEditPhoto(s.photo || '');
+        setEditPhotoFile(null);
         setEditRate(String(s.hourlyRate || 12.50));
         setEditSalesmanNumber(String(s.salesmanNumber || ''));
         setEditCanEditTransactions(Boolean(s.canEditTransactions));
@@ -181,10 +221,15 @@ export default function AdminSettings() {
         }
 
         try {
+            let uploadedPhotoUrl = '';
+            if (editPhotoFile) {
+                uploadedPhotoUrl = await uploadSalesmanPhoto(editPhotoFile, editingId || `edit-${Date.now()}`);
+            }
+
             await updateSalesman(editingId, {
                 name: editName,
                 pin: editPin,
-                photo: editPhoto,
+                photo: uploadedPhotoUrl || editPhoto,
                 hourlyRate: parseFloat(editRate) || 12.50,
                 salesmanNumber: parseInt(editSalesmanNumber, 10) || 0,
                 canEditTransactions: editCanEditTransactions,
@@ -729,6 +774,32 @@ export default function AdminSettings() {
                                 />
                             </div>
                             <div className="md:col-span-2 rounded-lg border border-slate-200 bg-white p-2 space-y-2">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase">Photo (Upload or URL)</p>
+                                <input
+                                    value={salesmanPhoto}
+                                    onChange={(e) => setSalesmanPhoto(e.target.value)}
+                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                    placeholder="https://..."
+                                />
+                                <div className="flex items-center justify-between gap-2">
+                                    <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-600 cursor-pointer">
+                                        <Upload size={12} /> Upload
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0] || null;
+                                                setSalesmanPhotoFile(file);
+                                            }}
+                                        />
+                                    </label>
+                                    <span className="text-[10px] text-slate-500 truncate">
+                                        {salesmanPhotoFile ? salesmanPhotoFile.name : 'No file selected'}
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="md:col-span-2 rounded-lg border border-slate-200 bg-white p-2 space-y-2">
                                 <p className="text-[10px] font-bold text-slate-500 uppercase">Special Authorities</p>
                                 <label className="flex items-center justify-between gap-2 text-xs text-slate-600">
                                     <span>Edit transaction history</span>
@@ -805,14 +876,31 @@ export default function AdminSettings() {
                                     placeholder="Auto"
                                 />
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Photo URL</label>
+                            <div className="md:col-span-2 rounded-lg border border-blue-200 bg-white p-2 space-y-2">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase">Photo (Upload or URL)</p>
                                 <input
                                     value={editPhoto}
                                     onChange={(e) => setEditPhoto(e.target.value)}
                                     className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                                     placeholder="https://..."
                                 />
+                                <div className="flex items-center justify-between gap-2">
+                                    <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-xs font-semibold text-blue-600 cursor-pointer">
+                                        <Upload size={12} /> Upload
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0] || null;
+                                                setEditPhotoFile(file);
+                                            }}
+                                        />
+                                    </label>
+                                    <span className="text-[10px] text-slate-500 truncate">
+                                        {editPhotoFile ? editPhotoFile.name : 'No file selected'}
+                                    </span>
+                                </div>
                             </div>
                             <div className="md:col-span-2 rounded-lg border border-blue-200 bg-white p-2 space-y-2">
                                 <p className="text-[10px] font-bold text-slate-500 uppercase">Special Authorities</p>
