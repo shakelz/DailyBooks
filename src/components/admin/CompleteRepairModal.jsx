@@ -130,20 +130,20 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
     <title>Reparaturrechnung - ${esc(printData.refId)}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Courier New', monospace; width: 80mm; }
+        body { font-family: 'Courier New', monospace; width: 80mm; font-size: 12px; font-weight: 700; }
         .slip { padding: 4mm; page-break-after: always; border-bottom: 2px dashed #000; }
         .slip:last-child { border-bottom: none; page-break-after: auto; }
-        .title { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 2mm; color: #666; }
-        .shop-name { font-size: 16px; font-weight: bold; text-align: center; margin-bottom: 2mm; }
-        .shop-addr { font-size: 10px; text-align: center; margin-bottom: 3mm; color: #333; }
+        .title { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 2mm; color: #666; }
+        .shop-name { font-size: 18px; font-weight: bold; text-align: center; margin-bottom: 2mm; }
+        .shop-addr { font-size: 11px; text-align: center; margin-bottom: 3mm; color: #333; }
         .divider { border-top: 1px solid #000; margin: 2mm 0; }
-        .ref-id { font-size: 18px; font-weight: bold; text-align: center; margin: 3mm 0; letter-spacing: 2px; }
-        .row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; margin: 1mm 0; }
+        .ref-id { font-size: 20px; font-weight: bold; text-align: center; margin: 3mm 0; letter-spacing: 2px; }
+        .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin: 1mm 0; }
         .row .label-text { font-weight: bold; white-space: nowrap; }
-        .problem { font-size: 11px; margin: 2mm 0; padding: 2mm; border: 1px solid #ccc; background: #f5f5f5; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 2mm; }
+        .problem { font-size: 12px; margin: 2mm 0; padding: 2mm; border: 1px solid #ccc; background: #f5f5f5; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 2mm; }
         th, td { padding: 1.5mm 0; border-bottom: 1px dotted #ccc; }
-        th { text-align: left; font-size: 10px; text-transform: uppercase; color: #555; }
+        th { text-align: left; font-size: 11px; text-transform: uppercase; color: #555; }
         @media print { body { width: 80mm; } .slip { break-inside: avoid; } }
     </style>
 </head>
@@ -178,7 +178,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         </table>
         <div class="row"><span class="label-text">Teilekosten:</span><span>${toAmount(partsCost)}</span></div>
         <div class="divider"></div>
-        <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
+        <div style="font-size:10px;font-weight:700;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
     </div>
 
     <div class="slip">

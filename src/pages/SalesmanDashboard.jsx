@@ -843,10 +843,37 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return !(selectedStartDay.getTime() === today.getTime() && selectedEndDay.getTime() === today.getTime());
     }, [adminView, adminDashboardDateSelection]);
 
+    const resolveTransactionDate = (txn) => {
+        if (!txn || typeof txn !== 'object') return null;
+
+        const directCandidates = [
+            txn.timestamp,
+            txn.created_at,
+            txn.createdAt,
+            txn.updated_at,
+            txn.updatedAt,
+            txn.date,
+        ];
+
+        for (const candidate of directCandidates) {
+            if (!candidate) continue;
+            const dt = new Date(candidate);
+            if (!Number.isNaN(dt.getTime())) return dt;
+        }
+
+        if (txn.date) {
+            const composed = `${String(txn.date).trim()}T${String(txn.time || '00:00:00').trim()}`;
+            const dt = new Date(composed);
+            if (!Number.isNaN(dt.getTime())) return dt;
+        }
+
+        return null;
+    };
+
     const rangeTransactions = useMemo(
         () => transactions.filter((txn) => {
-            const dt = txn?.timestamp ? new Date(txn.timestamp) : null;
-            return dt && !Number.isNaN(dt.getTime()) && dt >= dashboardRange.start && dt <= dashboardRange.end;
+            const dt = resolveTransactionDate(txn);
+            return dt && dt >= dashboardRange.start && dt <= dashboardRange.end;
         }),
         [transactions, dashboardRange]
     );
@@ -929,23 +956,37 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         [purchaseTransactions, productLookup]
     );
 
+    const historyRevenueSource = useMemo(() => {
+        if (revenueTransactions.length > 0 && nonMobileRevenueTransactions.length === 0) {
+            return revenueTransactions;
+        }
+        return nonMobileRevenueTransactions;
+    }, [nonMobileRevenueTransactions, revenueTransactions]);
+
+    const historyPurchaseSource = useMemo(() => {
+        if (purchaseTransactions.length > 0 && nonMobilePurchaseTransactions.length === 0) {
+            return purchaseTransactions;
+        }
+        return nonMobilePurchaseTransactions;
+    }, [nonMobilePurchaseTransactions, purchaseTransactions]);
+
     const revenueHistoryTransactions = useMemo(() => {
-        return nonMobileRevenueTransactions
+        return historyRevenueSource
             .sort((a, b) => {
-                const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
-                const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
+                const aMs = resolveTransactionDate(a)?.getTime() || 0;
+                const bMs = resolveTransactionDate(b)?.getTime() || 0;
                 return bMs - aMs;
             });
-    }, [nonMobileRevenueTransactions]);
+    }, [historyRevenueSource]);
 
     const purchaseHistoryTransactions = useMemo(() => {
-        return nonMobilePurchaseTransactions
+        return historyPurchaseSource
             .sort((a, b) => {
-                const aMs = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
-                const bMs = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
+                const aMs = resolveTransactionDate(a)?.getTime() || 0;
+                const bMs = resolveTransactionDate(b)?.getTime() || 0;
                 return bMs - aMs;
             });
-    }, [nonMobilePurchaseTransactions]);
+    }, [historyPurchaseSource]);
 
     const pendingOnlineOrderRemainingInRange = useMemo(() => {
         const startMs = dashboardRange.start.getTime();
@@ -1820,15 +1861,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <head>
                     <title>Reparaturbeleg</title>
                     <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 13px; font-weight: 700; }
                         h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700; gap: 8px; }
                         .line { border-top:1px dashed #000; margin:8px 0; }
                         .center { text-align: center; }
-                        .doc-title { font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
-                        .shop-title { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
-                        .ticket-id { text-align: center; font-size: 30px; font-weight: 700; letter-spacing: 2px; margin: 10px 0; }
-                        .issue-box { margin-top: 8px; border: 1px solid #000; padding: 6px; font-size: 12px; }
+                        .doc-title { font-size: 14px; font-weight: 800; text-transform: uppercase; margin-bottom: 4px; }
+                        .shop-title { font-size: 20px; font-weight: 800; margin-bottom: 2px; }
+                        .ticket-id { text-align: center; font-size: 32px; font-weight: 800; letter-spacing: 2px; margin: 10px 0; }
+                        .issue-box { margin-top: 8px; border: 1px solid #000; padding: 6px; font-size: 13px; font-weight: 700; }
                     </style>
                 </head>
                 <body>
@@ -1852,7 +1893,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <div class="row"><span>Anzahlung</span><span>EUR ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
                     <div class="row"><span>Abholung</span><span>${toSafe(job.deliveryDate || '-')}</span></div>
                     <div class="line"></div>
-                    <p style="font-size:10px">Bitte diesen Kundenbeleg zur Abholung mitbringen.</p>
+                    <p style="font-size:11px;font-weight:700;">Bitte diesen Kundenbeleg zur Abholung mitbringen.</p>
                 </body>
             </html>
         `);
@@ -1881,9 +1922,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <head>
                     <title>Online-Bestellung</title>
                     <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 13px; font-weight: 700; }
                         h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700; gap: 8px; }
                         .line { border-top:1px dashed #000; margin:8px 0; }
                     </style>
                 </head>
@@ -1907,7 +1948,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <div class="row"><span>Anzahlung</span><span>EUR ${advanceAmount.toFixed(2)}</span></div>
                     <div class="row"><strong>Restbetrag</strong><strong>EUR ${remainingAmount.toFixed(2)}</strong></div>
                     <div class="line"></div>
-                    <p style="font-size:10px">${toSafe(order.notes || '-')}</p>
+                    <p style="font-size:11px;font-weight:700;">${toSafe(order.notes || '-')}</p>
                 </body>
             </html>
         `);

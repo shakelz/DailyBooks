@@ -113,17 +113,17 @@ export default function RepairModal({ isOpen, onClose }) {
     <title>Reparaturbeleg - ${esc(job.refId)}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Courier New', monospace; width: 80mm; }
+        body { font-family: 'Courier New', monospace; width: 80mm; font-size: 12px; font-weight: 700; }
         .label { padding: 4mm; border-bottom: none; page-break-after: auto; }
-        .shop-name { font-size: 16px; font-weight: bold; text-align: center; margin-bottom: 2mm; }
-        .shop-addr { font-size: 10px; text-align: center; margin-bottom: 3mm; color: #333; }
+        .shop-name { font-size: 18px; font-weight: bold; text-align: center; margin-bottom: 2mm; }
+        .shop-addr { font-size: 11px; text-align: center; margin-bottom: 3mm; color: #333; }
         .divider { border-top: 1px solid #000; margin: 2mm 0; }
-        .row { display: flex; justify-content: space-between; font-size: 11px; margin: 1mm 0; }
+        .row { display: flex; justify-content: space-between; font-size: 12px; margin: 1mm 0; }
         .row .label-text { font-weight: bold; }
-        .ref-id { font-size: 18px; font-weight: bold; text-align: center; margin: 3mm 0; letter-spacing: 2px; }
-        .pickup-slip { font-size: 11px; font-weight: bold; text-align: center; letter-spacing: 1px; text-transform: uppercase; margin: 2mm 0; }
-        .problem { font-size: 11px; margin: 2mm 0; padding: 2mm; border: 1px solid #ccc; background: #f5f5f5; }
-        .title { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 2mm; color: #666; }
+        .ref-id { font-size: 20px; font-weight: bold; text-align: center; margin: 3mm 0; letter-spacing: 2px; }
+        .pickup-slip { font-size: 12px; font-weight: bold; text-align: center; letter-spacing: 1px; text-transform: uppercase; margin: 2mm 0; }
+        .problem { font-size: 12px; margin: 2mm 0; padding: 2mm; border: 1px solid #ccc; background: #f5f5f5; }
+        .title { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 2mm; color: #666; }
         @media print { body { width: 80mm; } .label { break-inside: avoid; } }
     </style>
 </head>
@@ -149,7 +149,7 @@ export default function RepairModal({ isOpen, onClose }) {
         <div class="row"><span class="label-text">Anzahlung:</span><span>EUR ${advanceAmount.toFixed(2)}</span></div>
         <div class="row"><span class="label-text">Abholung:</span><span>${deliveryFormatted}</span></div>
         <div class="divider"></div>
-        <div style="font-size:8px;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
+        <div style="font-size:10px;font-weight:700;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
     </div>
 
 </body>
