@@ -6,7 +6,7 @@ export default function AdminSettings() {
     const {
         isAdminLike, isSuperAdmin, activeShopId, shops, refreshShops, createShop, updateShop, deleteShop,
         updateAdminPassword,
-        salesmen, addSalesman, deleteSalesman, updateSalesman,
+        salesmen, addSalesman, checkSalesmanPinAvailability, deleteSalesman, updateSalesman,
         activeShop, billShowTax, setBillShowTax,
         slowMovingDays, setSlowMovingDays,
         autoLockEnabled, setAutoLockEnabled,
@@ -28,6 +28,8 @@ export default function AdminSettings() {
     const [salesmanCanBulkEdit, setSalesmanCanBulkEdit] = useState(false);
     const [salesmanRate, setSalesmanRate] = useState('12.50');
     const [salesmanError, setSalesmanError] = useState('');
+    const [salesmanPinError, setSalesmanPinError] = useState('');
+    const [checkingSalesmanPin, setCheckingSalesmanPin] = useState(false);
 
     // ── Edit State ──
     const [editingId, setEditingId] = useState(null);
@@ -65,6 +67,45 @@ export default function AdminSettings() {
         }
     }, [isAdminLike, refreshShops]);
 
+    useEffect(() => {
+        let cancelled = false;
+
+        const validatePin = async () => {
+            const pin = salesmanPin.trim();
+            if (!showAddSalesman || editingId) {
+                setSalesmanPinError('');
+                return;
+            }
+            if (!pin) {
+                setSalesmanPinError('');
+                return;
+            }
+            if (pin.length !== 4) {
+                setSalesmanPinError('PIN must be exactly 4 digits.');
+                return;
+            }
+
+            setCheckingSalesmanPin(true);
+            try {
+                const result = await checkSalesmanPinAvailability(pin);
+                if (cancelled) return;
+                setSalesmanPinError(result?.available ? '' : (result?.message || 'PIN already in use.'));
+            } catch {
+                if (!cancelled) {
+                    setSalesmanPinError('Unable to verify PIN right now.');
+                }
+            } finally {
+                if (!cancelled) setCheckingSalesmanPin(false);
+            }
+        };
+
+        validatePin();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [salesmanPin, showAddSalesman, editingId, checkSalesmanPinAvailability]);
+
     // ── Handlers ──
     const handlePasswordUpdate = (e) => {
         e.preventDefault();
@@ -88,26 +129,30 @@ export default function AdminSettings() {
             setSalesmanError('Name and 4-digit PIN required.');
             return;
         }
-        // Check PIN uniqueness
-        if (salesmen.some(s => s.pin === salesmanPin)) {
-            setSalesmanError('PIN already in use!');
+        if (salesmanPinError) {
+            setSalesmanError(salesmanPinError);
             return;
         }
 
-        const created = await addSalesman(salesmanName, salesmanPin, {
-            salesmanNumber: parseInt(salesmanNumber, 10) || 0,
-            canEditTransactions: salesmanCanEditTransactions,
-            canBulkEdit: salesmanCanBulkEdit
-        });
-        if (created?.id) {
-            await updateSalesman(created.id, { hourlyRate: parseFloat(salesmanRate) || 12.50 });
+        try {
+            const created = await addSalesman(salesmanName, salesmanPin, {
+                salesmanNumber: parseInt(salesmanNumber, 10) || 0,
+                canEditTransactions: salesmanCanEditTransactions,
+                canBulkEdit: salesmanCanBulkEdit
+            });
+            if (created?.id) {
+                await updateSalesman(created.id, { hourlyRate: parseFloat(salesmanRate) || 12.50 });
+            }
+            setSalesmanName(''); setSalesmanPin(''); setSalesmanRate('12.50');
+            setSalesmanNumber('');
+            setSalesmanCanEditTransactions(false);
+            setSalesmanCanBulkEdit(false);
+            setShowAddSalesman(false);
+            setSalesmanError('');
+            setSalesmanPinError('');
+        } catch (error) {
+            setSalesmanError(error?.message || 'Failed to add salesman.');
         }
-        setSalesmanName(''); setSalesmanPin(''); setSalesmanRate('12.50');
-        setSalesmanNumber('');
-        setSalesmanCanEditTransactions(false);
-        setSalesmanCanBulkEdit(false);
-        setShowAddSalesman(false);
-        setSalesmanError('');
     };
 
     const startEdit = (s) => {
@@ -651,9 +696,13 @@ export default function AdminSettings() {
                                         const val = e.target.value.replace(/\D/g, '').slice(0, 4);
                                         setSalesmanPin(val);
                                     }}
-                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-center tracking-widest font-mono"
+                                    className={`w-full px-3 py-2 rounded-lg border ${salesmanPinError ? 'border-rose-300' : 'border-slate-200'} focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-center tracking-widest font-mono`}
                                     placeholder="0000"
                                 />
+                                {checkingSalesmanPin && salesmanPin.length === 4 && !salesmanPinError && (
+                                    <p className="text-[10px] text-slate-400 mt-1">Checking PIN...</p>
+                                )}
+                                {salesmanPinError && <p className="text-[10px] text-rose-500 mt-1">{salesmanPinError}</p>}
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Salesman No.</label>

@@ -885,6 +885,25 @@ async function listSalesmenByPin(pinValue) {
     return data.filter((row) => asString(row.pin || row.passcode || row.pin_code || row.pass_code) === safePin);
 }
 
+async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '') {
+    const safePin = asString(pinValue);
+    const excludedId = asString(excludeSalesmanId);
+    if (!safePin) {
+        return { available: false, message: 'PIN is required.' };
+    }
+    if (safePin.length !== 4) {
+        return { available: false, message: 'PIN must be exactly 4 digits.' };
+    }
+
+    const conflicts = await listSalesmenByPin(safePin);
+    const hasConflict = conflicts.some((row) => asString(row?.id) !== excludedId);
+    if (hasConflict) {
+        return { available: false, message: 'PIN already in use by another salesman (all shops). Use a unique PIN.' };
+    }
+
+    return { available: true, message: '' };
+}
+
 export function AuthProvider({ children }) {
     const initialAuthState = (() => {
         const savedUser = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
@@ -2097,11 +2116,19 @@ export function AuthProvider({ children }) {
         const trimmedName = asString(name);
         const trimmedPin = asString(pin);
         const sid = asString(activeShopId);
-        if (!trimmedName || !trimmedPin || !sid) return;
+        if (!sid) {
+            throw new Error('Select a shop first to add salesman.');
+        }
+        if (!trimmedName) {
+            throw new Error('Salesman name is required.');
+        }
+        if (trimmedPin.length !== 4) {
+            throw new Error('PIN must be exactly 4 digits.');
+        }
 
         const existingPins = await listSalesmenByPin(trimmedPin);
         if (existingPins.length > 0) {
-            throw new Error('PIN already used in another shop. Please use a unique PIN.');
+            throw new Error('PIN already in use by another salesman (all shops). Please use a unique PIN.');
         }
         const explicitNumber = asNumber(extra?.salesmanNumber, 0);
         const assignedNumber = explicitNumber > 0
@@ -2414,6 +2441,7 @@ export function AuthProvider({ children }) {
 
         salesmen,
         addSalesman,
+        checkSalesmanPinAvailability,
         addIndependentAdmin,
         deleteSalesman,
         updateSalesman,
