@@ -119,39 +119,45 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                 <head>
                     <title>Kassenbeleg</title>
                     <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 12px; }
+                        @page { size: 58mm auto; margin: 0; }
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 2mm; font-size: 11px; }
+                        .ticket { border: 1px solid #000; padding: 2mm; }
                         h2,p { margin: 0; }
                         .row { display:flex; justify-content:space-between; margin-top:6px; font-size:12px; gap: 8px; }
                         .line { border-top:1px solid #000; margin:8px 0; }
                         .center { text-align: center; }
+                        .box { border: 1px solid #000; padding: 4px; margin: 4px 0; }
                     </style>
                 </head>
                 <body>
-                    <div class="center">
-                        <h2>${escapeHtml(shopName)}</h2>
-                        ${shopAddress ? `<p>${escapeHtml(shopAddress)}</p>` : ''}
-                        ${shopPhone ? `<p>Tel: ${escapeHtml(shopPhone)}</p>` : ''}
-                        <p>Deutschland</p>
+                    <div class="ticket">
+                        <div class="center">
+                            <p style="font-size:10px; text-transform:uppercase; letter-spacing:1px; font-weight:700;">KUNDENBELEG</p>
+                            <h2>${escapeHtml(shopName)}</h2>
+                            ${shopAddress ? `<p>${escapeHtml(shopAddress)}</p>` : ''}
+                            ${shopPhone ? `<p>Tel: ${escapeHtml(shopPhone)}</p>` : ''}
+                        </div>
+                        <div class="line"></div>
+                        <div class="box">
+                            <div class="row"><span>Datum</span><span>${new Date().toLocaleString('de-DE')}</span></div>
+                            <div class="row"><span>Belegnummer</span><span>${escapeHtml(transactionId)}</span></div>
+                        </div>
+                        <div class="line"></div>
+                        <div class="row" style="font-weight:700; border-bottom:1px solid #000; padding-bottom:4px;"><span>Artikel</span><span>Betrag</span></div>
+                        <div class="row"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)}</span></div>
+                        <div class="row"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
+                        <div class="row"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
+                        <div class="line"></div>
+                        <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                        <div class="row"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                        ${includeTax ? `<div class="row"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
+                        <div class="row"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
+                        <div class="line"></div>
+                        <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
+                        <div class="row"><span>Transaktion-ID</span><span>${escapeHtml(transactionId)}</span></div>
+                        <div class="line"></div>
+                        <p style="font-size:10px; text-align:center;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
                     </div>
-                    <div class="line"></div>
-                    <div class="center" style="font-weight:700;">Beleg</div>
-                    <div class="row"><span>Datum</span><span>${new Date().toLocaleString('de-DE')}</span></div>
-                    <div class="row"><span>Belegnummer</span><span>${escapeHtml(transactionId)}</span></div>
-                    <div class="line"></div>
-                    <div class="row" style="font-weight:700; border-bottom:1px solid #000; padding-bottom:4px;"><span>Artikel</span><span>Betrag</span></div>
-                    <div class="row"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)}</span></div>
-                    <div class="row"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
-                    <div class="row"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
-                    <div class="line"></div>
-                    <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
-                    <div class="row"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
-                    ${includeTax ? `<div class="row"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
-                    <div class="row"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
-                    <div class="line"></div>
-                    <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
-                    <div class="row"><span>Transaktion-ID</span><span>${escapeHtml(transactionId)}</span></div>
-                    <div class="line"></div>
-                    <p style="font-size:10px; text-align:center;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
                 </body>
             </html>
         `);

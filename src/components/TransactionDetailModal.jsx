@@ -142,16 +142,17 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
             <head>
                 <title>Beleg ${esc(txn.transactionId || txn.id)}</title>
                 <style>
-                    @page { size: 80mm 200mm; margin: 0; }
+                    @page { size: 58mm auto; margin: 0; }
                     body {
                         font-family: 'Courier New', Courier, monospace;
-                        width: 72mm;
+                        width: 58mm;
                         margin: 0 auto;
-                        padding: 10mm 2mm;
+                        padding: 2mm;
                         font-size: 11px;
                         line-height: 1.4;
                         color: #000;
                     }
+                    .ticket { border: 1px solid #000; padding: 2mm; }
                     .text-center { text-align: center; }
                     .text-right { text-align: right; }
                     .bold { font-weight: bold; }
@@ -160,58 +161,62 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                     td { vertical-align: top; }
                     .fs-lg { font-size: 14px; }
                     .footer-text { font-size: 9px; margin-top: 15px; }
+                    .box { border: 1px solid #000; padding: 4px; margin: 4px 0; }
                 </style>
             </head>
             <body>
-                <div class="text-center">
-                    <div class="bold fs-lg">${esc(receiptShopName)}</div>
-                    ${receiptShopAddress ? `<div style="margin-top: 4px;">${esc(receiptShopAddress)}</div>` : ''}
-                    ${receiptShopPhone ? `<div style="margin-top: 2px;">Tel: ${esc(receiptShopPhone)}</div>` : ''}
-                </div>
+                <div class="ticket">
+                    <div class="text-center">
+                        <div style="font-size:10px; text-transform:uppercase; letter-spacing:1px; font-weight:700;">KUNDENBELEG</div>
+                        <div class="bold fs-lg">${esc(receiptShopName)}</div>
+                        ${receiptShopAddress ? `<div style="margin-top: 4px;">${esc(receiptShopAddress)}</div>` : ''}
+                        ${receiptShopPhone ? `<div style="margin-top: 2px;">Tel: ${esc(receiptShopPhone)}</div>` : ''}
+                    </div>
 
-                <div class="divider"></div>
+                    <div class="divider"></div>
 
-                <div style="font-size: 10px;">
-                    <div>Datum: ${esc(txn.date)} ${esc(txn.time)}</div>
-                    <div>Beleg-Nr: ${esc(txn.transactionId || txn.id)}</div>
-                    ${groupCount > 1 ? `<div>Positionen: ${groupCount}</div>` : ''}
-                </div>
+                    <div class="box" style="font-size: 10px;">
+                        <div>Datum: ${esc(txn.date)} ${esc(txn.time)}</div>
+                        <div>Beleg-Nr: ${esc(txn.transactionId || txn.id)}</div>
+                        ${groupCount > 1 ? `<div>Positionen: ${groupCount}</div>` : ''}
+                    </div>
 
-                <div class="divider"></div>
+                    <div class="divider"></div>
 
-                <table>
-                    <tr class="bold">
-                        <td>Artikel</td>
-                        <td class="text-right">Menge</td>
-                        <td class="text-right">Betrag</td>
-                    </tr>
-                    ${printRows}
-                </table>
+                    <table>
+                        <tr class="bold">
+                            <td>Artikel</td>
+                            <td class="text-right">Menge</td>
+                            <td class="text-right">Betrag</td>
+                        </tr>
+                        ${printRows}
+                    </table>
 
-                <div class="divider"></div>
+                    <div class="divider"></div>
 
-                <table class="bold">
-                    <tr>
-                        <td>Zwischensumme</td>
-                        <td class="text-right">${formatAmount(amount)}</td>
-                    </tr>
-                </table>
+                    <table class="bold">
+                        <tr>
+                            <td>Zwischensumme</td>
+                            <td class="text-right">${formatAmount(amount)}</td>
+                        </tr>
+                    </table>
 
-                ${taxRows}
+                    ${taxRows}
 
-                <table class="bold fs-lg" style="border-top: 1px solid #000; padding-top: 4px; margin-top: 4px;">
-                    <tr>
-                        <td>GESAMTBETRAG</td>
-                        <td class="text-right">${formatAmount(amount)}</td>
-                    </tr>
-                </table>
+                    <table class="bold fs-lg" style="border-top: 1px solid #000; padding-top: 4px; margin-top: 4px;">
+                        <tr>
+                            <td>GESAMTBETRAG</td>
+                            <td class="text-right">${formatAmount(amount)}</td>
+                        </tr>
+                    </table>
 
-                <div class="divider"></div>
+                    <div class="divider"></div>
 
-                <div style="margin-top: 10px; font-size: 9px;">
-                    <div>Zahlungsart: ${esc(txn.paymentMethod || 'Bar')}</div>
-                    <div style="margin-top: 8px;">
-                        Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${esc(receiptShopName)}
+                    <div style="margin-top: 10px; font-size: 9px;">
+                        <div>Zahlungsart: ${esc(txn.paymentMethod || 'Bar')}</div>
+                        <div style="margin-top: 8px;">
+                            Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${esc(receiptShopName)}
+                        </div>
                     </div>
                 </div>
             </body>

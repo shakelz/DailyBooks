@@ -280,62 +280,68 @@ function buildReceiptHtml({
             <head>
                 <title>Beleg</title>
                 <style>
-                    body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 12px; color: #111; }
+                    @page { size: 58mm auto; margin: 0; }
+                    body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 2mm; font-size: 11px; color: #111; }
+                    .ticket { border: 1px solid #111; padding: 2mm; }
                     .center { text-align: center; }
-                    .shop { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
-                    .line { border-top: 1px solid #111; margin: 8px 0; }
+                    .shop { font-size: 16px; font-weight: 700; margin-bottom: 3px; }
+                    .line { border-top: 1px solid #111; margin: 6px 0; }
                     .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; }
                     .head { font-weight: 700; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; }
                     .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
                     .line-name { flex: 1; }
                     .line-price { text-align: right; min-width: 85px; }
-                    .small { font-size: 10px; line-height: 1.35; }
+                    .small { font-size: 9px; line-height: 1.35; }
                     .tax-table { width: 100%; margin-top: 6px; font-size: 11px; border-collapse: collapse; }
                     .tax-table td { padding: 1px 0; }
                     .tax-table td:last-child { text-align: right; }
+                    .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
                 </style>
             </head>
             <body>
-                <div class="center">
-                    <div class="shop">${escapeHtml(shopName || 'Shop')}</div>
-                    ${shopAddress ? `<div>${escapeHtml(shopAddress)}</div>` : ''}
-                    ${shopPhone ? `<div>Tel: ${escapeHtml(shopPhone)}</div>` : ''}
-                    <div>Deutschland</div>
-                </div>
+                <div class="ticket">
+                    <div class="center">
+                        <div style="font-size:10px; text-transform:uppercase; letter-spacing:1px;">KUNDENBELEG</div>
+                        <div class="shop">${escapeHtml(shopName || 'Shop')}</div>
+                        ${shopAddress ? `<div>${escapeHtml(shopAddress)}</div>` : ''}
+                        ${shopPhone ? `<div>Tel: ${escapeHtml(shopPhone)}</div>` : ''}
+                    </div>
 
-                <div class="line"></div>
-                <div class="center" style="font-weight:700; margin-bottom:6px;">Beleg</div>
-                <div class="row"><span>Datum:</span><span>${dt.toLocaleString('de-DE')}</span></div>
-                <div class="row"><span>Belegnummer:</span><span>${escapeHtml(receiptNo || '-')}</span></div>
+                    <div class="line"></div>
+                    <div class="box">
+                        <div class="row"><span>Datum</span><span>${dt.toLocaleString('de-DE')}</span></div>
+                        <div class="row"><span>Belegnummer</span><span>${escapeHtml(receiptNo || '-')}</span></div>
+                    </div>
 
-                <div class="line"></div>
-                <div class="row head"><span>Artikel</span><span>Betrag</span></div>
-                ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 EUR</div></div>'}
+                    <div class="line"></div>
+                    <div class="row head"><span>Artikel</span><span>Betrag</span></div>
+                    ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 EUR</div></div>'}
 
-                <div class="line"></div>
-                <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
-                <div class="row"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                    <div class="line"></div>
+                    <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                    <div class="row"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
 
-                ${showTax ? `
-                    <table class="tax-table">
-                        <tbody>
-                            <tr><td>USt. %</td><td>Netto</td><td>USt.</td><td>Brutto</td></tr>
-                            <tr>
-                                <td>19%</td>
-                                <td>${formatMoney(netTotal)}</td>
-                                <td>${formatMoney(taxTotal)}</td>
-                                <td>${formatMoney(grossTotal)}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                ` : ''}
+                    ${showTax ? `
+                        <table class="tax-table">
+                            <tbody>
+                                <tr><td>USt. %</td><td>Netto</td><td>USt.</td><td>Brutto</td></tr>
+                                <tr>
+                                    <td>19%</td>
+                                    <td>${formatMoney(netTotal)}</td>
+                                    <td>${formatMoney(taxTotal)}</td>
+                                    <td>${formatMoney(grossTotal)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    ` : ''}
 
-                <div class="line"></div>
-                <div class="row"><span>Zahlung:</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
-                <div class="row"><span>Transaktion-ID:</span><span>${escapeHtml(receiptNo || '-')}</span></div>
-                <div class="line"></div>
-                <div class="small center">
-                    Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName || 'Shop')}
+                    <div class="line"></div>
+                    <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
+                    <div class="row"><span>Transaktion-ID</span><span>${escapeHtml(receiptNo || '-')}</span></div>
+                    <div class="line"></div>
+                    <div class="small center">
+                        Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName || 'Shop')}
+                    </div>
                 </div>
             </body>
         </html>
