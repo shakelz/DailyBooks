@@ -956,18 +956,37 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         [purchaseTransactions, productLookup]
     );
 
+    const isRepairHistoryTransaction = (txn = {}) => {
+        const source = String(txn?.source || '').toLowerCase();
+        if (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_')) return true;
+
+        const desc = String(txn?.desc || '').toLowerCase();
+        const notes = String(txn?.notes || '').toLowerCase();
+        return desc.includes('repair advance')
+            || desc.includes('repair complete')
+            || notes.includes('repairref:')
+            || notes.includes('stage:advance')
+            || notes.includes('stage:complete');
+    };
+
     const historyRevenueSource = useMemo(() => {
-        if (revenueTransactions.length > 0 && nonMobileRevenueTransactions.length === 0) {
-            return revenueTransactions;
+        const filteredNonMobile = nonMobileRevenueTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
+        const filteredAll = revenueTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
+
+        if (filteredAll.length > 0 && filteredNonMobile.length === 0) {
+            return filteredAll;
         }
-        return nonMobileRevenueTransactions;
+        return filteredNonMobile;
     }, [nonMobileRevenueTransactions, revenueTransactions]);
 
     const historyPurchaseSource = useMemo(() => {
-        if (purchaseTransactions.length > 0 && nonMobilePurchaseTransactions.length === 0) {
-            return purchaseTransactions;
+        const filteredNonMobile = nonMobilePurchaseTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
+        const filteredAll = purchaseTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
+
+        if (filteredAll.length > 0 && filteredNonMobile.length === 0) {
+            return filteredAll;
         }
-        return nonMobilePurchaseTransactions;
+        return filteredNonMobile;
     }, [nonMobilePurchaseTransactions, purchaseTransactions]);
 
     const revenueHistoryTransactions = useMemo(() => {
