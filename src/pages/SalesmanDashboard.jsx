@@ -482,6 +482,24 @@ function MiniBarChart({ values = [], active = false }) {
     );
 }
 
+function ProfileAvatar({ name = 'U', photo = '', sizeClass = 'h-9 w-9', textClass = 'text-sm' }) {
+    const initial = String(name || 'U').charAt(0).toUpperCase();
+    if (photo) {
+        return (
+            <img
+                src={photo}
+                alt={name || 'User'}
+                className={`${sizeClass} rounded-full object-cover border border-slate-200 bg-white`}
+            />
+        );
+    }
+    return (
+        <div className={`${sizeClass} rounded-full bg-slate-500 text-white ${textClass} font-bold flex items-center justify-center`}>
+            {initial}
+        </div>
+    );
+}
+
 export default function SalesmanDashboard({ adminView = false, adminDashboardDateSelection = null }) {
     const navigate = useNavigate();
     const {
@@ -1075,6 +1093,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return {
                 id: sid,
                 name: String(staff?.name || 'Staff'),
+                photo: String(staff?.photo || ''),
                 totalHours,
                 earned,
                 paid,
@@ -1125,6 +1144,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 return {
                     id: String(log?.id || `${uid}-${log?.timestamp || ''}`),
                     userName: String(log?.userName || log?.workerName || fallbackName),
+                    userPhoto: String((salesmen || []).find((staff) => String(staff?.id || '') === uid)?.photo || ''),
                     type,
                     timestamp: String(log?.timestamp || ''),
                     timeLabel: Number.isFinite(getTimestampMs(log?.timestamp))
@@ -2502,9 +2522,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 <>
                                     <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-2 min-w-0">
-                                            <div className="h-9 w-9 rounded-full bg-slate-500 text-white text-sm font-bold flex items-center justify-center">
-                                                {String(featuredStaff.name || 'S').charAt(0).toUpperCase()}
-                                            </div>
+                                            <ProfileAvatar name={featuredStaff.name} photo={featuredStaff.photo} />
                                             <div className="min-w-0">
                                                 <p className="text-sm font-bold text-slate-800 truncate">{featuredStaff.name}</p>
                                                 <p className="text-[11px] text-slate-500">Full-Time Employee</p>
@@ -2550,19 +2568,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     <p className="text-xs text-slate-400">No attendance logs for selected period.</p>
                                 ) : activityLogsToday.map((log) => (
                                     <div key={`activity-log-${log.id}`} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 space-y-2">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <div className="min-w-0 flex items-center gap-2">
-                                                <div className="h-7 w-7 rounded-full bg-slate-500 text-white text-[10px] font-bold flex items-center justify-center">
-                                                    {String(log.userName || 'S').charAt(0).toUpperCase()}
-                                                </div>
-                                                <p className="text-xs font-bold text-slate-700 truncate">{log.userName}</p>
-                                            </div>
-                                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${log.type === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                                <span className={`h-2 w-2 rounded-full ${log.type === 'IN' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                                                {log.type === 'IN' ? 'ONLINE' : 'OFFLINE'}
-                                            </span>
-                                        </div>
-
                                         {editingActivityId === log.id ? (
                                             <div className="flex items-center gap-2">
                                                 <input
@@ -2577,15 +2582,23 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             </div>
                                         ) : (
                                             <div className="flex items-center justify-between gap-2">
-                                                <div>
-                                                    <p className="text-[11px] text-slate-500">{log.timeLabel}</p>
+                                                <div className="min-w-0 flex items-center gap-2">
+                                                    <ProfileAvatar name={log.userName} photo={log.userPhoto} sizeClass="h-7 w-7" textClass="text-[10px]" />
+                                                    <p className="text-xs font-bold text-slate-700 truncate">{log.userName}</p>
+                                                    <p className="text-[11px] text-slate-500 whitespace-nowrap">{log.timeLabel}</p>
                                                     {log.sessionEarned > 0 && (
-                                                        <p className="text-[11px] font-semibold text-blue-700">
-                                                            Session Earned: {priceTag(log.sessionEarned)} ({log.sessionHours.toFixed(2)}h)
+                                                        <p className="text-[11px] font-semibold text-blue-700 whitespace-nowrap">
+                                                            {priceTag(log.sessionEarned)} ({log.sessionHours.toFixed(2)}h)
                                                         </p>
                                                     )}
                                                 </div>
-                                                <button type="button" onClick={() => startActivityEdit(log)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">Edit</button>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${log.type === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                        <span className={`h-2 w-2 rounded-full ${log.type === 'IN' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                                                        {log.type === 'IN' ? 'ONLINE' : 'OFFLINE'}
+                                                    </span>
+                                                    <button type="button" onClick={() => startActivityEdit(log)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">Edit</button>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
