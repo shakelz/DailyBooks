@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
-import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash, Phone, Upload } from 'lucide-react';
+import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash, Phone, Upload, RefreshCw } from 'lucide-react';
 
 export default function AdminSettings() {
     const {
@@ -64,6 +64,8 @@ export default function AdminSettings() {
     const [isSavingShop, setIsSavingShop] = useState(false);
     const [deletingShopId, setDeletingShopId] = useState('');
     const [visibleShopPasswords, setVisibleShopPasswords] = useState({});
+    const [isRefreshingAppData, setIsRefreshingAppData] = useState(false);
+    const [appRefreshMsg, setAppRefreshMsg] = useState('');
 
     useEffect(() => {
         if (isAdminLike) {
@@ -377,6 +379,46 @@ export default function AdminSettings() {
             ...prev,
             [shopId]: !prev[shopId],
         }));
+    };
+
+    const handleForceRefreshAppData = async () => {
+        const confirmed = window.confirm('This will clear local DailyBooks cache and reload latest data from database. Continue?');
+        if (!confirmed) return;
+
+        setIsRefreshingAppData(true);
+        setAppRefreshMsg('Clearing local cache...');
+
+        try {
+            Object.keys(localStorage || {}).forEach((key) => {
+                if (String(key).startsWith('dailybooks_')) {
+                    localStorage.removeItem(key);
+                }
+            });
+
+            Object.keys(sessionStorage || {}).forEach((key) => {
+                if (String(key).startsWith('dailybooks_')) {
+                    sessionStorage.removeItem(key);
+                }
+            });
+
+            if ('caches' in window) {
+                const cacheKeys = await caches.keys();
+                await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+            }
+
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(registrations.map((registration) => registration.unregister()));
+            }
+
+            setAppRefreshMsg('Reloading app with fresh data...');
+            setTimeout(() => {
+                window.location.reload();
+            }, 300);
+        } catch (error) {
+            setAppRefreshMsg(error?.message || 'Failed to refresh app data. Please try again.');
+            setIsRefreshingAppData(false);
+        }
     };
 
     return (
@@ -1068,6 +1110,31 @@ export default function AdminSettings() {
                         />
                         <span className="text-sm text-slate-500 font-medium">days</span>
                     </div>
+                </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-sky-50 text-sky-600 rounded-lg">
+                        <RefreshCw size={20} />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-bold text-slate-800">App Data Sync</h2>
+                        <p className="text-xs text-slate-400">Force reload latest app state from database</p>
+                    </div>
+                </div>
+                <div className="max-w-2xl space-y-3">
+                    <p className="text-sm text-slate-600">Use this on staff devices when they are seeing old data due to browser cache or old installed app files.</p>
+                    <button
+                        type="button"
+                        onClick={handleForceRefreshAppData}
+                        disabled={isRefreshingAppData}
+                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white font-semibold transition-colors ${isRefreshingAppData ? 'bg-slate-400 cursor-not-allowed' : 'bg-sky-600 hover:bg-sky-700'}`}
+                    >
+                        <RefreshCw size={16} className={isRefreshingAppData ? 'animate-spin' : ''} />
+                        {isRefreshingAppData ? 'Refreshing...' : 'Force Refresh App Data'}
+                    </button>
+                    {appRefreshMsg && <p className="text-xs font-medium text-slate-500">{appRefreshMsg}</p>}
                 </div>
             </div>
 
