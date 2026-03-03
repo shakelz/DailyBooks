@@ -129,7 +129,8 @@ export default function AdminSettings() {
             setSalesmanError('Name and 4-digit PIN required.');
             return;
         }
-        if (salesmanPinError) {
+        const pinCheckTemporarilyUnavailable = salesmanPinError === 'Unable to verify PIN right now.';
+        if (salesmanPinError && !pinCheckTemporarilyUnavailable) {
             setSalesmanError(salesmanPinError);
             return;
         }

@@ -735,21 +735,48 @@ function buildProfileInsertPayloads({
     const safePin = asString(pin);
     const safePassword = asString(password);
     const profileId = makeRowId();
+    const fallbackEmail = `${profileId}@local.invalid`;
 
     const sid = asString(shopId);
 
-    return [cleanPayload({
-        id: profileId,
-        ...(sid ? { shop_id: sid } : {}),
-        role,
-        name: safeName,
-        email: safeEmail || null,
-        hourlyRate,
-        active: true,
-        is_online: false,
-        ...(includePin && safePin ? { pin: safePin } : {}),
-        ...(includePassword && safePassword ? { password: safePassword } : {}),
-    })];
+    const idVariants = [{ id: profileId }, {}];
+    const shopVariants = sid ? [{ shop_id: sid }, { shopId: sid }] : [{}];
+    const emailVariants = safeEmail
+        ? [{ email: safeEmail }]
+        : [{ email: null }, { email: fallbackEmail }, {}];
+    const rateValue = Number(hourlyRate);
+    const hourlyVariants = Number.isFinite(rateValue)
+        ? [{ hourlyRate: rateValue }, { hourly_rate: rateValue }, {}]
+        : [{}];
+    const pinVariants = (includePin && safePin)
+        ? [{ pin: safePin }, { passcode: safePin }, { pin_code: safePin }, { pass_code: safePin }]
+        : [{}];
+
+    const payloads = [];
+    for (const idVariant of idVariants) {
+        for (const shopVariant of shopVariants) {
+            for (const emailVariant of emailVariants) {
+                for (const hourlyVariant of hourlyVariants) {
+                    for (const pinVariant of pinVariants) {
+                        payloads.push(cleanPayload({
+                            ...idVariant,
+                            ...shopVariant,
+                            role,
+                            name: safeName,
+                            ...emailVariant,
+                            ...hourlyVariant,
+                            active: true,
+                            is_online: false,
+                            ...pinVariant,
+                            ...(includePassword && safePassword ? { password: safePassword } : {}),
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    return dedupePayloads(payloads).filter((payload) => Object.keys(payload).length > 0);
 }
 
 function buildManagerProfilePayloads({ ownerName, ownerEmail, shopId, tempPin, tempPassword }) {

@@ -80,6 +80,7 @@ export default function InsightsTab() {
     });
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
+    const [showGrossProfitBreakdown, setShowGrossProfitBreakdown] = useState(false);
 
     // ── Helper: Calculate Business Metrics ──
     const analytics = useMemo(() => {
@@ -598,6 +599,9 @@ export default function InsightsTab() {
                         icon={<TrendingUp size={24} />}
                         color="blue"
                         subtext={`Prod: ${priceTag(analytics.productProfit)} | Serv: ${priceTag(analytics.serviceProfit)}`}
+                        onClick={() => setShowGrossProfitBreakdown(prev => !prev)}
+                        isActive={showGrossProfitBreakdown}
+                        hint={showGrossProfitBreakdown ? 'Hide calculation details' : 'Tap to view calculation details'}
                     />
                 </div>
                 <div className="min-w-0">
@@ -637,6 +641,33 @@ export default function InsightsTab() {
                         <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 md:col-span-2 xl:col-span-2">
                             <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Final Profit (Net-Net)</p>
                             <p className="text-2xl font-black text-emerald-700">{priceTag(analytics.finalProfit)}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showGrossProfitBreakdown && (
+                <div className="bg-white border border-blue-100 rounded-3xl shadow-sm p-5">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Gross Net Profit Calculation</h3>
+                        <span className="text-xs font-bold text-blue-600">Gross = Product Profit + Service Profit</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Product Profit</p>
+                            <p className="text-lg font-black text-slate-800">{priceTag(analytics.productProfit)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Service Profit</p>
+                            <p className="text-lg font-black text-slate-800">{priceTag(analytics.serviceProfit)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3">
+                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Gross Net Profit</p>
+                            <p className="text-lg font-black text-blue-700">{priceTag(analytics.totalProfit)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-3">
+                            <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Average Margin</p>
+                            <p className="text-lg font-black text-indigo-700">{analytics.avgMargin.toFixed(1)}%</p>
                         </div>
                     </div>
                 </div>
