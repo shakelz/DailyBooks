@@ -121,6 +121,7 @@ export default function RepairModal({ isOpen, onClose }) {
         .row { display: flex; justify-content: space-between; font-size: 11px; margin: 1mm 0; }
         .row .label-text { font-weight: bold; }
         .ref-id { font-size: 18px; font-weight: bold; text-align: center; margin: 3mm 0; letter-spacing: 2px; }
+        .pickup-slip { font-size: 11px; font-weight: bold; text-align: center; letter-spacing: 1px; text-transform: uppercase; margin: 2mm 0; }
         .problem { font-size: 11px; margin: 2mm 0; padding: 2mm; border: 1px solid #ccc; background: #f5f5f5; }
         .title { font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 2mm; color: #666; }
         @media print { body { width: 80mm; } .label { break-inside: avoid; } }
@@ -135,6 +136,8 @@ export default function RepairModal({ isOpen, onClose }) {
         ${receiptShopPhone ? `<div class="shop-addr">Tel: ${esc(receiptShopPhone)}</div>` : ''}
         <div class="divider"></div>
         <div class="ref-id">${esc(job.refId)}</div>
+        <div class="divider"></div>
+        <div class="pickup-slip">ABHOLSCHEIN</div>
         <div class="divider"></div>
         <div class="row"><span class="label-text">Name:</span><span>${esc(job.customerName)}</span></div>
         <div class="row"><span class="label-text">Telefon:</span><span>${esc(job.phone)}</span></div>
