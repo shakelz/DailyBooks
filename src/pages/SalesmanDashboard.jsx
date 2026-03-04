@@ -10,7 +10,7 @@ import RepairModal from '../components/RepairModal';
 import SmartCategoryForm from '../components/SmartCategoryForm';
 import TransactionModal from '../components/TransactionModal';
 import { useRepairs } from '../context/RepairsContext';
-import { getServerState, setServerState } from '../serverStateClient';
+import { supabase } from '../supabaseClient';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
@@ -56,10 +56,6 @@ function toBreakdownRows(map = {}) {
     return rows.length ? rows : [{ key: 'cash', label: 'Cash', total: 0 }];
 }
 
-function onlineOrderStorageKey(user) {
-    return `dailybooks_online_orders_v1:${String(user?.shop_id || '')}:${String(user?.id || '')}`;
-}
-
 function todayIsoDate() {
     return new Date().toISOString().slice(0, 10);
 }
@@ -95,6 +91,23 @@ function newOnlineOrderForm() {
         expectedDeliveryDate: '',
         paymentStatus: 'Paid',
         notes: '',
+    };
+}
+
+function normalizeOnlinePartOrder(row = {}) {
+    const partOrderId = String(row?.part_order_id || row?.id || '').trim();
+    return {
+        id: partOrderId,
+        orderId: partOrderId,
+        platform: String(row?.ordered_from || '').trim(),
+        itemName: String(row?.part_name || '').trim(),
+        totalCost: Number(row?.cost ?? 0) || 0,
+        advanceAmount: 0,
+        orderDate: String(row?.created_at || '').slice(0, 10),
+        expectedDeliveryDate: String(row?.delivery_date || '').trim(),
+        status: String(row?.status || 'ordered').trim() || 'ordered',
+        createdAt: String(row?.created_at || ''),
+        updatedAt: String(row?.updated_at || ''),
     };
 }
 
@@ -137,7 +150,7 @@ function resolveProductImage(product = {}) {
 }
 
 function resolveProductSnapshot(product = {}) {
-    const categoryRaw = product.category || product.productCategory || product.cat || '';
+    const categoryRaw = product.category || product.category_name || product.productCategory || product.cat || '';
     const sellingPrice = Number(
         product.sellingPrice ?? product.salePrice ?? product.price ?? product.selling_price ?? 0
     ) || 0;
@@ -147,7 +160,7 @@ function resolveProductSnapshot(product = {}) {
 
     return {
         id: String(product.id ?? product.productId ?? product.product_id ?? ''),
-        name: String(product.name || product.productName || product.title || product.desc || '').trim(),
+        name: String(product.product_name || product.name || product.productName || product.title || product.desc || '').trim(),
         barcode: String(product.barcode || product.barCode || product.sku || product.code || '').trim(),
         category: extractCategoryName(categoryRaw) || String(product.categoryName || 'General'),
         subCategory: typeof categoryRaw === 'object' ? String(categoryRaw.level2 || '') : '',
@@ -1004,7 +1017,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const endMs = dashboardRange.end.getTime();
         return (Array.isArray(onlineOrders) ? onlineOrders : []).reduce((sum, order) => {
             const status = String(order?.status || '').toLowerCase();
-            if (status && status !== 'ordered') return sum;
+            if (status && status !== 'ordered' && status !== 'pending') return sum;
 
             const orderDateCandidate = String(order?.orderDate || '').trim();
             const createdAtCandidate = String(order?.createdAt || '').trim();
@@ -2236,20 +2249,23 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         let cancelled = false;
         const loadOrders = async () => {
             const shopId = String(user?.shop_id || '');
-            const userId = String(user?.id || '');
-            if (!shopId || !userId) {
+            if (!shopId) {
                 if (!cancelled) setOnlineOrders([]);
                 return;
             }
 
-            const { value } = await getServerState({
-                key: onlineOrderStorageKey(user),
-                shopId,
-                userId,
-            });
+            const { data, error } = await supabase
+                .from('online_part_orders')
+                .select('*')
+                .eq('shop_id', shopId)
+                .order('created_at', { ascending: false });
 
             if (cancelled) return;
-            setOnlineOrders(Array.isArray(value) ? value : []);
+            if (error) {
+                setOnlineOrders([]);
+                return;
+            }
+            setOnlineOrders((Array.isArray(data) ? data : []).map(normalizeOnlinePartOrder));
         };
 
         loadOrders();
@@ -2257,19 +2273,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             cancelled = true;
         };
     }, [user]);
-
-    useEffect(() => {
-        const shopId = String(user?.shop_id || '');
-        const userId = String(user?.id || '');
-        if (!shopId || !userId) return;
-
-        setServerState({
-            key: onlineOrderStorageKey(user),
-            value: Array.isArray(onlineOrders) ? onlineOrders : [],
-            shopId,
-            userId,
-        });
-    }, [onlineOrders, user]);
 
     useEffect(() => {
         const query = topBarcodeQuery.trim();
@@ -2383,19 +2386,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const validateOnlineOrderForm = () => {
         const nextErrors = {};
-        if (!String(onlineOrderForm.orderId || '').trim()) nextErrors.orderId = 'Order ID is required';
         if (!String(onlineOrderForm.platform || '').trim()) nextErrors.platform = 'Platform is required';
         if (!String(onlineOrderForm.itemName || '').trim()) nextErrors.itemName = 'Item name is required';
-        if (!String(onlineOrderForm.category || '').trim()) nextErrors.category = 'Select category';
-        if (!String(onlineOrderForm.color || '').trim()) nextErrors.color = 'Select color';
-        if (onlineOrderForm.color === 'Custom' && !String(onlineOrderForm.customColor || '').trim()) {
-            nextErrors.customColor = 'Enter custom color';
-        }
         const totalCost = Number(onlineOrderForm.totalCost) || 0;
-        const advanceAmount = Math.max(0, Number(onlineOrderForm.advanceAmount) || 0);
         if (!totalCost || totalCost <= 0) nextErrors.totalCost = 'Enter valid cost';
-        if (advanceAmount > totalCost) nextErrors.advanceAmount = 'Advance cannot exceed cost';
-        if (!String(onlineOrderForm.orderDate || '').trim()) nextErrors.orderDate = 'Select order date';
         setOnlineOrderErrors(nextErrors);
         return Object.keys(nextErrors).length === 0;
     };
@@ -2403,34 +2397,45 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const saveOnlineOrder = async (e) => {
         e.preventDefault();
         if (!validateOnlineOrderForm()) return;
-        const resolvedColor = onlineOrderForm.color === 'Custom'
-            ? String(onlineOrderForm.customColor || '').trim()
-            : String(onlineOrderForm.color || '').trim();
         const totalCost = Number(onlineOrderForm.totalCost) || 0;
-        const advanceAmount = Math.max(0, Number(onlineOrderForm.advanceAmount) || 0);
+        const shopId = String(user?.shop_id || '');
+        if (!shopId) {
+            alert('No active shop selected');
+            return;
+        }
 
-        const row = {
-            id: String(Date.now()),
-            ...onlineOrderForm,
-            color: resolvedColor,
-            totalCost,
-            advanceAmount,
-            status: 'ordered',
-            createdAt: new Date().toISOString(),
-        };
+        const { data: inserted, error: insertError } = await supabase
+            .from('online_part_orders')
+            .insert([{
+                shop_id: shopId,
+                part_name: String(onlineOrderForm.itemName || '').trim(),
+                ordered_from: String(onlineOrderForm.platform || '').trim(),
+                cost: totalCost,
+                delivery_date: String(onlineOrderForm.expectedDeliveryDate || '').trim() || null,
+                status: 'ordered',
+            }])
+            .select('*')
+            .single();
+
+        if (insertError || !inserted) {
+            alert(insertError?.message || 'Failed to save online order');
+            return;
+        }
+
+        const row = normalizeOnlinePartOrder(inserted);
         setOnlineOrders((prev) => [row, ...prev]);
 
-        if (advanceAmount > 0 && !hasOnlineOrderStageTransaction(row, 'ADVANCE')) {
+        if (!hasOnlineOrderStageTransaction(row, 'ADVANCE')) {
             const marker = `OnlineOrderRef:${row.orderId || row.id}`;
             const bookedAt = buildSelectedDate(row.orderDate || todayIsoDate());
             await addTransaction({
                 desc: `Online Order Advance: ${row.itemName}`,
-                amount: advanceAmount,
+                amount: totalCost,
                 quantity: 1,
                 type: 'expense',
-                category: row.category || 'Online Purchase',
-                paymentMethod: row.paymentStatus === 'Credit' ? 'Credit' : 'Online',
-                notes: `${marker} | Stage:ADVANCE | Platform: ${row.platform || '-'} | Color: ${row.color || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
+                category: 'Online Purchase',
+                paymentMethod: 'Online',
+                notes: `${marker} | Stage:ADVANCE | Platform: ${row.platform || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
                 source: 'online-order',
                 salesmanName: user?.name,
                 salesmanNumber: user?.salesmanNumber || 0,
@@ -2461,8 +2466,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 amount: remainingAmount,
                 quantity: 1,
                 type: 'expense',
-                category: target.category || 'Online Purchase',
-                paymentMethod: target.paymentStatus === 'Credit' ? 'Credit' : 'Online',
+                category: 'Online Purchase',
+                paymentMethod: 'Online',
                 notes: `${marker} | Stage:REMAINING | Platform: ${target.platform || '-'} | Total: ${totalCost.toFixed(2)} | Advance: ${advanceAmount.toFixed(2)}`,
                 source: 'online-order',
                 salesmanName: user?.name,
@@ -2472,6 +2477,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 date: settledAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                 time: settledAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
             });
+        }
+
+        const { error: updateError } = await supabase
+            .from('online_part_orders')
+            .update({ status: 'received' })
+            .eq('part_order_id', String(id));
+
+        if (updateError) {
+            alert(updateError.message || 'Failed to update order status');
+            return;
         }
 
         setOnlineOrders((prev) => prev.map((order) => order.id === id

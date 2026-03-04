@@ -330,8 +330,9 @@ function resolveCategoryScopeRecord(record, scopeMap = null) {
     if (!record || typeof record !== 'object') return CATEGORY_SCOPE_SALES;
     if (record.scope) return normalizeCategoryScope(record.scope);
 
-    const level = Number(record.level) || (record.parent ? 2 : 1);
-    const key = categoryScopeKey(level, record.name, record.parent || '');
+    const hasParent = Boolean(cleanText(record.parent) || cleanText(record.parent_id || record.parent_category_id));
+    const level = Number(record.level) || (hasParent ? 2 : 1);
+    const key = categoryScopeKey(level, record.name || record.category_name, record.parent || '');
     if (scopeMap && scopeMap[key]) return normalizeCategoryScope(scopeMap[key]);
 
     return CATEGORY_SCOPE_SALES;
@@ -515,6 +516,28 @@ function normalizeInventoryRecord(product, categoryLookups = null) {
         sellingPrice: parseFloat(source.selling_price ?? source.sellingPrice ?? source.price ?? 0) || 0,
         stock: parseInt(source.stock ?? 0, 10) || 0,
         attributes: normalizedAttrs,
+    };
+}
+
+function normalizeCategoryRecord(row = {}, categoryById = {}) {
+    const id = cleanText(row?.category_id || row?.id);
+    const name = cleanText(row?.category_name || row?.name);
+    const parentId = cleanText(row?.parent_category_id || row?.parent_id);
+    const parentName = parentId
+        ? cleanText(categoryById?.[parentId]?.category_name || categoryById?.[parentId]?.name)
+        : cleanText(row?.parent);
+    const level = parentId || parentName ? 2 : 1;
+
+    return {
+        ...row,
+        id,
+        category_id: id,
+        name,
+        category_name: name,
+        parent_id: parentId || null,
+        parent_category_id: parentId || null,
+        parent: parentName || '',
+        level,
     };
 }
 
@@ -886,8 +909,9 @@ export function InventoryProvider({ children }) {
             }
 
             if (categoryRows.length > 0) {
-                const l1 = categoryRows.filter(c => Number(c.level) === 1) || [];
-                const l2 = categoryRows.filter(c => Number(c.level) === 2) || [];
+                const normalizedCategories = categoryRows.map((row) => normalizeCategoryRecord(row, categoryLookups.byId));
+                const l1 = normalizedCategories.filter(c => Number(c.level) === 1) || [];
+                const l2 = normalizedCategories.filter(c => Number(c.level) === 2) || [];
                 setL1Categories(applyScopeToCategoryList(l1, scopeMap));
 
                 const map2 = {};
@@ -958,7 +982,7 @@ export function InventoryProvider({ children }) {
             })
             // CATEGORIES
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
-                const newCat = withCategoryScope(payload.new, readCategoryScopeMap(sid));
+                const newCat = withCategoryScope(normalizeCategoryRecord(payload.new, categoryLookupsRef.current.byId), readCategoryScopeMap(sid));
                 if (newCat.level === 1) {
                     setL1Categories(prev => {
                         if (prev.some(c => (typeof c === 'object' ? c.name : c) === newCat.name)) return prev;
@@ -973,7 +997,7 @@ export function InventoryProvider({ children }) {
                 }
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
-                const updated = withCategoryScope(payload.new, readCategoryScopeMap(sid));
+                const updated = withCategoryScope(normalizeCategoryRecord(payload.new, categoryLookupsRef.current.byId), readCategoryScopeMap(sid));
                 if (updated.level === 1) {
                     setL1Categories(prev => prev.map(c => {
                         const cName = typeof c === 'object' ? c.name : c;
@@ -998,11 +1022,12 @@ export function InventoryProvider({ children }) {
                 }
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
-                const deletedId = payload.old.id;
-                if (payload.old?.level === 1) {
-                    removeCategoryScopeBranch(sid, payload.old?.name || '');
-                } else if (payload.old?.level === 2) {
-                    removeCategoryScopeEntry(sid, 2, payload.old?.name || '', payload.old?.parent || '');
+                const deleted = normalizeCategoryRecord(payload.old, categoryLookupsRef.current.byId);
+                const deletedId = deleted.id;
+                if (deleted?.level === 1) {
+                    removeCategoryScopeBranch(sid, deleted?.name || '');
+                } else if (deleted?.level === 2) {
+                    removeCategoryScopeEntry(sid, 2, deleted?.name || '', deleted?.parent || '');
                 }
                 setL1Categories(prev => prev.filter(c => typeof c !== 'object' || c.id !== deletedId));
                 setL2Map(prev => {
@@ -1483,56 +1508,27 @@ export function InventoryProvider({ children }) {
 
         // Sync to cloud
         let existing = null;
-        let hasScopeColumn = true;
         let resolvedCategoryId = '';
         const scopedSelect = await supabase
             .from('categories')
-            .select('id')
+            .select('category_id')
             .eq('shop_id', sid)
-            .eq('name', trimmed)
-            .eq('level', 1)
-            .eq('scope', normalizedScope)
+            .eq('category_name', trimmed)
+            .is('parent_category_id', null)
             .limit(1);
 
         if (!scopedSelect.error) {
             existing = Array.isArray(scopedSelect.data) ? (scopedSelect.data[0] || null) : null;
-            resolvedCategoryId = cleanText(existing?.id);
-        } else {
-            const scopedErrMsg = String(scopedSelect.error?.message || '').toLowerCase();
-            hasScopeColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('scope'));
-            if (!hasScopeColumn) {
-                const fallbackSelect = await supabase
-                    .from('categories')
-                    .select('id')
-                    .eq('shop_id', sid)
-                    .eq('name', trimmed)
-                    .eq('level', 1)
-                    .limit(1);
-                existing = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
-                resolvedCategoryId = cleanText(existing?.id);
-            }
+            resolvedCategoryId = cleanText(existing?.category_id || existing?.id);
         }
 
         if (existing) {
-            const updatePayload = {
-                ...(hasScopeColumn ? { scope: normalizedScope } : {})
-            };
-            if (Object.keys(updatePayload).length > 0) {
-                const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('category_id', existing.id).eq('shop_id', sid);
-                if (updateError) {
-                    throw new Error(updateError.message || 'Failed to update category.');
-                }
-            }
+            resolvedCategoryId = cleanText(existing?.category_id || existing?.id);
         } else {
-            const newCategoryId = makeCategoryId();
-            resolvedCategoryId = newCategoryId;
             const insertPayload = {
-                id: newCategoryId,
-                name: trimmed,
-                level: 1,
-                parent: null,
+                category_name: trimmed,
+                parent_category_id: null,
                 shop_id: sid,
-                ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
             const insertResult = await executeWithPrunedColumns(
                 (candidate) => supabase.from('categories').insert([candidate]),
@@ -1542,23 +1538,14 @@ export function InventoryProvider({ children }) {
             if (insertError) {
                 const fallbackSelect = await supabase
                     .from('categories')
-                    .select('id')
+                    .select('category_id')
                     .eq('shop_id', sid)
-                    .eq('name', trimmed)
-                    .eq('level', 1)
+                    .eq('category_name', trimmed)
+                    .is('parent_category_id', null)
                     .limit(1);
                 const fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
                 if (fallbackExisting) {
-                    resolvedCategoryId = cleanText(fallbackExisting.id);
-                    const updatePayload = {
-                        ...(hasScopeColumn ? { scope: normalizedScope } : {})
-                    };
-                    if (Object.keys(updatePayload).length > 0) {
-                        const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('category_id', fallbackExisting.id).eq('shop_id', sid);
-                        if (updateError) {
-                            throw new Error(updateError.message || 'Failed to persist category scope.');
-                        }
-                    }
+                    resolvedCategoryId = cleanText(fallbackExisting.category_id || fallbackExisting.id);
                 } else {
                     throw new Error(insertError.message || 'Failed to save category.');
                 }
@@ -1594,63 +1581,31 @@ export function InventoryProvider({ children }) {
         if (!trimmed || !l1Name) return;
         const normalizedScope = normalizeCategoryScope(scope);
         const parentCategoryId = cleanText(categoryNameToId[l1Name]);
+        if (!parentCategoryId) {
+            throw new Error('Parent category not found. Please refresh categories and retry.');
+        }
 
         // Sync to cloud
         let existing = null;
-        let hasScopeColumn = true;
-        let hasParentColumn = true;
         const scopedSelect = await supabase
             .from('categories')
-            .select('id')
+            .select('category_id')
             .eq('shop_id', sid)
-            .eq('name', trimmed)
-            .eq('parent', l1Name)
-            .eq('level', 2)
-            .eq('scope', normalizedScope)
+            .eq('category_name', trimmed)
+            .eq('parent_category_id', parentCategoryId)
             .limit(1);
 
         if (!scopedSelect.error) {
             existing = Array.isArray(scopedSelect.data) ? (scopedSelect.data[0] || null) : null;
-        } else {
-            const scopedErrMsg = String(scopedSelect.error?.message || '').toLowerCase();
-            hasScopeColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('scope'));
-            hasParentColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('parent'));
-            if (!hasScopeColumn || !hasParentColumn) {
-                let fallbackSelect = supabase
-                    .from('categories')
-                    .select('id')
-                    .eq('shop_id', sid)
-                    .eq('name', trimmed)
-                    .eq('level', 2);
-                if (hasParentColumn) {
-                    fallbackSelect = fallbackSelect.eq('parent', l1Name);
-                } else if (parentCategoryId) {
-                    fallbackSelect = fallbackSelect.eq('parent_id', parentCategoryId);
-                }
-                const fallbackResult = await fallbackSelect.limit(1);
-                existing = Array.isArray(fallbackResult.data) ? (fallbackResult.data[0] || null) : null;
-            }
         }
 
         if (existing) {
-            const updatePayload = {
-                ...(hasScopeColumn ? { scope: normalizedScope } : {})
-            };
-            if (Object.keys(updatePayload).length > 0) {
-                const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('category_id', existing.id).eq('shop_id', sid);
-                if (updateError) {
-                    throw new Error(updateError.message || 'Failed to update sub-category.');
-                }
-            }
+            // already exists
         } else {
             const insertPayload = {
-                id: makeCategoryId(),
-                name: trimmed,
-                parent: l1Name,
-                parent_id: parentCategoryId || null,
-                level: 2,
+                category_name: trimmed,
+                parent_category_id: parentCategoryId || null,
                 shop_id: sid,
-                ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
             const insertResult = await executeWithPrunedColumns(
                 (candidate) => supabase.from('categories').insert([candidate]),
@@ -1660,34 +1615,14 @@ export function InventoryProvider({ children }) {
             if (insertError) {
                 let fallbackSelect = await supabase
                     .from('categories')
-                    .select('id')
+                    .select('category_id')
                     .eq('shop_id', sid)
-                    .eq('name', trimmed)
-                    .eq('parent', l1Name)
-                    .eq('level', 2)
+                    .eq('category_name', trimmed)
+                    .eq('parent_category_id', parentCategoryId)
                     .limit(1);
                 let fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
-                if (!fallbackExisting && parentCategoryId) {
-                    fallbackSelect = await supabase
-                        .from('categories')
-                        .select('id')
-                        .eq('shop_id', sid)
-                        .eq('name', trimmed)
-                        .eq('parent_id', parentCategoryId)
-                        .eq('level', 2)
-                        .limit(1);
-                    fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
-                }
                 if (fallbackExisting) {
-                    const updatePayload = {
-                        ...(hasScopeColumn ? { scope: normalizedScope } : {})
-                    };
-                    if (Object.keys(updatePayload).length > 0) {
-                        const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('category_id', fallbackExisting.id).eq('shop_id', sid);
-                        if (updateError) {
-                            throw new Error(updateError.message || 'Failed to persist sub-category scope.');
-                        }
-                    }
+                    // already persisted
                 } else {
                     throw new Error(insertError.message || 'Failed to save sub-category.');
                 }
@@ -1706,6 +1641,7 @@ export function InventoryProvider({ children }) {
                             name: trimmed,
                             image: image || c.image || '',
                             parent_id: c.parent_id || parentCategoryId || null,
+                            parent_category_id: c.parent_category_id || parentCategoryId || null,
                             scope: normalizedScope,
                         };
                     }
@@ -1746,39 +1682,33 @@ export function InventoryProvider({ children }) {
                 return next;
             });
             removeCategoryScopeBranch(sid, trimmed);
-            await supabase.from('categories').delete().eq('shop_id', sid).eq('name', trimmed).eq('level', 1);
-            // Delete associated L2 categories in DB
-            const l2DeleteByParent = await supabase.from('categories').delete().eq('shop_id', sid).eq('parent', trimmed).eq('level', 2);
-            if (l2DeleteByParent.error && extractMissingColumnName(l2DeleteByParent.error) === 'parent') {
-                const parentId = cleanText(categoryNameToId[trimmed]);
-                if (parentId) {
-                    await supabase.from('categories').delete().eq('shop_id', sid).eq('parent_id', parentId).eq('level', 2);
-                }
+            const parentId = cleanText(categoryNameToId[trimmed]);
+            if (parentId) {
+                await supabase.from('categories').delete().eq('shop_id', sid).eq('category_id', parentId);
+                await supabase.from('categories').delete().eq('shop_id', sid).eq('parent_category_id', parentId);
+            } else {
+                await supabase.from('categories').delete().eq('shop_id', sid).eq('category_name', trimmed).is('parent_category_id', null);
             }
+            // Delete associated L2 categories in DB
+            
         } else if (level === 2 && parentName) {
             setL2Map(prev => {
                 const currentList = prev[parentName] || [];
                 return { ...prev, [parentName]: currentList.filter(c => (typeof c === 'object' ? c?.name : c) !== trimmed) };
             });
             removeCategoryScopeEntry(sid, 2, trimmed, parentName);
+            const parentId = cleanText(categoryNameToId[parentName]);
+            if (!parentId) {
+                throw new Error('Parent category not found for deletion.');
+            }
             const deleteByParentName = await supabase
                 .from('categories')
                 .delete()
                 .eq('shop_id', sid)
-                .eq('name', trimmed)
-                .eq('parent', parentName)
-                .eq('level', 2);
-            if (deleteByParentName.error && extractMissingColumnName(deleteByParentName.error) === 'parent') {
-                const parentId = cleanText(categoryNameToId[parentName]);
-                if (parentId) {
-                    await supabase
-                        .from('categories')
-                        .delete()
-                        .eq('shop_id', sid)
-                        .eq('name', trimmed)
-                        .eq('parent_id', parentId)
-                        .eq('level', 2);
-                }
+                .eq('category_name', trimmed)
+                .eq('parent_category_id', parentId);
+            if (deleteByParentName.error) {
+                throw new Error(deleteByParentName.error.message || 'Failed to delete sub-category.');
             }
         }
     }, [activeShopId, categoryNameToId]);
