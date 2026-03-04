@@ -10,7 +10,7 @@ const CATEGORY_HIERARCHY_KEY = '__categoryHierarchy';
 const PURCHASE_FROM_KEY = '__purchaseFrom';
 const PAYMENT_MODE_KEY = '__paymentMode';
 const CATEGORY_SCOPE_SALES = 'sales';
-const CATEGORY_SCOPE_REVENUE = 'revenue';
+const CATEGORY_SCOPE_EXPENSE = 'expense';
 const inMemoryCategoryScopeByShop = new Map();
 let inMemoryTransactionSnapshots = {};
 
@@ -313,7 +313,7 @@ function isDataImageUri(value) {
 
 function normalizeCategoryScope(scope) {
     const raw = String(scope || '').trim().toLowerCase();
-    if (raw === CATEGORY_SCOPE_REVENUE || raw === 'purchase') return CATEGORY_SCOPE_REVENUE;
+    if (raw === CATEGORY_SCOPE_EXPENSE || raw === 'revenue' || raw === 'purchase') return CATEGORY_SCOPE_EXPENSE;
     return CATEGORY_SCOPE_SALES;
 }
 
@@ -336,6 +336,7 @@ function writeCategoryScopeMap(shopId, map) {
 
 function resolveCategoryScopeRecord(record, scopeMap = null) {
     if (!record || typeof record !== 'object') return CATEGORY_SCOPE_SALES;
+    if (record.category_purpose) return normalizeCategoryScope(record.category_purpose);
     if (record.scope) return normalizeCategoryScope(record.scope);
 
     const hasParent = Boolean(cleanText(record.parent) || cleanText(record.parent_id || record.parent_category_id));
@@ -348,7 +349,8 @@ function resolveCategoryScopeRecord(record, scopeMap = null) {
 
 function withCategoryScope(record, scopeMap = null) {
     if (!record || typeof record !== 'object') return record;
-    return { ...record, scope: resolveCategoryScopeRecord(record, scopeMap) };
+    const scope = resolveCategoryScopeRecord(record, scopeMap);
+    return { ...record, scope, category_purpose: scope };
 }
 
 function applyScopeToCategoryList(list, scopeMap) {
@@ -542,6 +544,7 @@ function normalizeCategoryRecord(row = {}, categoryById = {}) {
         category_id: id,
         name,
         category_name: name,
+        category_purpose: normalizeCategoryScope(row?.category_purpose || row?.scope),
         parent_id: parentId || null,
         parent_category_id: parentId || null,
         parent: parentName || '',
@@ -890,7 +893,7 @@ export function InventoryProvider({ children }) {
             const [invResult, txnResult, catResult, itemResult, profileResult] = await Promise.all([
                 supabase.from('inventory').select('*').eq('shop_id', sid),
                 supabase.from('transactions').select('*').eq('shop_id', sid),
-                supabase.from('categories').select('*').eq('shop_id', sid),
+                supabase.from('categories').select('*').eq('shop_id', sid).in('category_purpose', [CATEGORY_SCOPE_SALES, CATEGORY_SCOPE_EXPENSE]),
                 supabase.from('transaction_items').select('*').eq('shop_id', sid),
                 supabase.from('profiles').select('user_id,full_name').eq('shop_id', sid),
             ]);
@@ -1540,6 +1543,7 @@ export function InventoryProvider({ children }) {
             .select('category_id')
             .eq('shop_id', sid)
             .eq('category_name', trimmed)
+            .eq('category_purpose', normalizedScope)
             .is('parent_category_id', null)
             .limit(1);
 
@@ -1554,6 +1558,7 @@ export function InventoryProvider({ children }) {
             const insertPayload = {
                 category_name: trimmed,
                 parent_category_id: null,
+                category_purpose: normalizedScope,
                 shop_id: sid,
             };
             const insertResult = await executeWithPrunedColumns(
@@ -1567,6 +1572,7 @@ export function InventoryProvider({ children }) {
                     .select('category_id')
                     .eq('shop_id', sid)
                     .eq('category_name', trimmed)
+                    .eq('category_purpose', normalizedScope)
                     .is('parent_category_id', null)
                     .limit(1);
                 const fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
@@ -1614,6 +1620,7 @@ export function InventoryProvider({ children }) {
                 .select('category_id')
                 .eq('shop_id', sid)
                 .eq('category_name', l1Name)
+                .eq('category_purpose', normalizedScope)
                 .is('parent_category_id', null)
                 .limit(1)
                 .maybeSingle();
@@ -1632,6 +1639,7 @@ export function InventoryProvider({ children }) {
             .select('category_id')
             .eq('shop_id', sid)
             .eq('category_name', trimmed)
+            .eq('category_purpose', normalizedScope)
             .eq('parent_category_id', parentCategoryId)
             .limit(1);
 
@@ -1645,6 +1653,7 @@ export function InventoryProvider({ children }) {
             const insertPayload = {
                 category_name: trimmed,
                 parent_category_id: parentCategoryId || null,
+                category_purpose: normalizedScope,
                 shop_id: sid,
             };
             const insertResult = await executeWithPrunedColumns(
@@ -1658,6 +1667,7 @@ export function InventoryProvider({ children }) {
                     .select('category_id')
                     .eq('shop_id', sid)
                     .eq('category_name', trimmed)
+                    .eq('category_purpose', normalizedScope)
                     .eq('parent_category_id', parentCategoryId)
                     .limit(1);
                 let fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
@@ -1708,9 +1718,10 @@ export function InventoryProvider({ children }) {
         return null;
     }, [l1Categories, l2Map]);
 
-    const deleteCategory = useCallback(async (level, name, parentName = null) => {
+    const deleteCategory = useCallback(async (level, name, parentName = null, scope = CATEGORY_SCOPE_SALES) => {
         const sid = cleanText(activeShopId);
         if (!sid) return;
+        const normalizedScope = normalizeCategoryScope(scope);
 
         const trimmed = name.trim();
         if (!trimmed) return;
@@ -1725,10 +1736,10 @@ export function InventoryProvider({ children }) {
             removeCategoryScopeBranch(sid, trimmed);
             const parentId = cleanText(categoryNameToId[trimmed]);
             if (parentId) {
-                await supabase.from('categories').delete().eq('shop_id', sid).eq('category_id', parentId);
-                await supabase.from('categories').delete().eq('shop_id', sid).eq('parent_category_id', parentId);
+                await supabase.from('categories').delete().eq('shop_id', sid).eq('category_id', parentId).eq('category_purpose', normalizedScope);
+                await supabase.from('categories').delete().eq('shop_id', sid).eq('parent_category_id', parentId).eq('category_purpose', normalizedScope);
             } else {
-                await supabase.from('categories').delete().eq('shop_id', sid).eq('category_name', trimmed).is('parent_category_id', null);
+                await supabase.from('categories').delete().eq('shop_id', sid).eq('category_name', trimmed).eq('category_purpose', normalizedScope).is('parent_category_id', null);
             }
             // Delete associated L2 categories in DB
             
@@ -1747,6 +1758,7 @@ export function InventoryProvider({ children }) {
                 .delete()
                 .eq('shop_id', sid)
                 .eq('category_name', trimmed)
+                .eq('category_purpose', normalizedScope)
                 .eq('parent_category_id', parentId);
             if (deleteByParentName.error) {
                 throw new Error(deleteByParentName.error.message || 'Failed to delete sub-category.');

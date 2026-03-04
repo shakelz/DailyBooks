@@ -139,9 +139,9 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
 
         if (isL1) {
             if (selectedUpdateL1 === nameData) setSelectedUpdateL1('');
-            await deleteCategory(1, nameData);
+            await deleteCategory(1, nameData, null, updateScope);
         } else {
-            await deleteCategory(2, nameData, selectedUpdateL1);
+            await deleteCategory(2, nameData, selectedUpdateL1, updateScope);
         }
     };
 
@@ -194,10 +194,10 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => setAddScope('revenue')}
-                                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${addScope === 'revenue' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
+                                        onClick={() => setAddScope('expense')}
+                                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${addScope === 'expense' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
                                     >
-                                        Revenue / Purchase
+                                        Expense
                                     </button>
                                 </div>
                             </div>
@@ -287,10 +287,10 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => setUpdateScope('revenue')}
-                                                className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${updateScope === 'revenue' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
+                                                onClick={() => setUpdateScope('expense')}
+                                                className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${updateScope === 'expense' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-300 hover:border-rose-300'}`}
                                             >
-                                                Revenue / Purchase
+                                                Expense
                                             </button>
                                         </div>
                                     </div>

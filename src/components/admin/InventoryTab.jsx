@@ -482,7 +482,7 @@ export default function InventoryTab() {
                                 className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/10"
                             >
                                 <option value="All">All Categories</option>
-                                {getLevel1Categories().map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                {getLevel1Categories('sales').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                             </select>
 
                             <button
@@ -954,7 +954,7 @@ export default function InventoryTab() {
                                         className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
                                     >
                                         <option value="">Select Category...</option>
-                                        {getLevel1Categories().map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                        {getLevel1Categories('sales').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                                     </select>
                                 </div>
                                 <div>

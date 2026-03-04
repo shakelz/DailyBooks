@@ -1315,12 +1315,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const salesL1OptionsRaw = getLevel1Categories('sales') || [];
     const salesL1Options = salesL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
-    const revenueL1OptionsRaw = getLevel1Categories('revenue') || [];
+    const revenueL1OptionsRaw = getLevel1Categories('expense') || [];
     const revenueL1Options = revenueL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
 
     const salesSubCategoryOptionsRaw = salesEntry.category ? (getLevel2Categories(salesEntry.category, 'sales') || []) : [];
     const salesSubCategoryOptions = salesSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
-    const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category, 'revenue') || []) : [];
+    const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category, 'expense') || []) : [];
     const purchaseSubCategoryOptions = purchaseSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
 
     const resolveProductSuggestions = (query, level1, level2) => {

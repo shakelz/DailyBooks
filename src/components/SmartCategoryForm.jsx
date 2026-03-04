@@ -160,8 +160,8 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
         }
     }, [isOpen, initialData]);
 
-    const l1Categories = getLevel1Categories();
-    const l2Categories = level1 ? getLevel2Categories(level1) : [];
+    const l1Categories = getLevel1Categories('sales');
+    const l2Categories = level1 ? getLevel2Categories(level1, 'sales') : [];
     const allChips = [...CHIP_LIBRARY, ...customChips];
     const profit = (parseFloat(sellingPrice) || 0) - (parseFloat(purchasePrice) || 0);
 
@@ -187,14 +187,14 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
 
     const handleAddCustomL1 = async () => {
         if (!customL1.trim()) return;
-        await addLevel1Category(customL1.trim());
+        await addLevel1Category(customL1.trim(), null, 'sales');
         setLevel1(customL1.trim());
         setCustomL1(''); setShowCustomL1(false);
     };
 
     const handleAddCustomL2 = async () => {
         if (!customL2.trim() || !level1) return;
-        await addLevel2Category(level1, customL2.trim());
+        await addLevel2Category(level1, customL2.trim(), null, 'sales');
         setLevel2(customL2.trim());
         setCustomL2(''); setShowCustomL2(false);
     };
@@ -368,7 +368,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             // Save Custom Categories or Update Images
             let resolvedParentCategoryId = '';
             if (level1 || customL1) {
-                const parentResult = await addLevel1Category(customL1 || level1);
+                const parentResult = await addLevel1Category(customL1 || level1, null, 'sales');
                 resolvedParentCategoryId = String(parentResult?.categoryId || '').trim();
             }
             if (level2 || customL2) {
@@ -519,7 +519,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                                         else { setLevel1(e.target.value); setShowCustomL1(false); }
                                     }} className={`w-full px-3 py-2 rounded-lg bg-slate-50 border text-xs font-semibold focus:outline-none focus:ring-2 ${errors.level1 ? 'border-red-300' : 'border-slate-200'}`}>
                                         <option value="">Main Category...</option>
-                                        {getLevel1Categories().map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                        {getLevel1Categories('sales').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                                         <option value="custom" className="font-bold text-blue-600">+ Add New</option>
                                     </select>
                                     {showCustomL1 && <input value={customL1} onChange={e => setCustomL1(e.target.value)} placeholder="Enter Name" className="mt-2 w-full px-3 py-2 rounded-xl bg-white border border-blue-200 text-xs focus:ring-2 focus:ring-blue-400/30" autoFocus />}
