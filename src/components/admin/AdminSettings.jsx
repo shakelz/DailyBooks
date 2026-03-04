@@ -24,8 +24,6 @@ export default function AdminSettings() {
     const [showAddSalesman, setShowAddSalesman] = useState(false);
     const [salesmanName, setSalesmanName] = useState('');
     const [salesmanPin, setSalesmanPin] = useState('');
-    const [salesmanEmail, setSalesmanEmail] = useState('');
-    const [salesmanPassword, setSalesmanPassword] = useState('');
     const [salesmanNumber, setSalesmanNumber] = useState('');
     const [salesmanCanEditTransactions, setSalesmanCanEditTransactions] = useState(false);
     const [salesmanCanBulkEdit, setSalesmanCanBulkEdit] = useState(false);
@@ -164,18 +162,6 @@ export default function AdminSettings() {
             setSalesmanError('Name and 4-digit PIN required.');
             return;
         }
-        if (!salesmanEmail.trim()) {
-            setSalesmanError('Email is required.');
-            return;
-        }
-        if (!/^\S+@\S+\.\S+$/.test(salesmanEmail.trim())) {
-            setSalesmanError('Enter a valid email.');
-            return;
-        }
-        if (!salesmanPassword || salesmanPassword.length < 6) {
-            setSalesmanError('Password must be at least 6 characters.');
-            return;
-        }
         const pinCheckTemporarilyUnavailable = salesmanPinError === 'Unable to verify PIN right now.';
         if (salesmanPinError && !pinCheckTemporarilyUnavailable) {
             setSalesmanError(salesmanPinError);
@@ -191,8 +177,6 @@ export default function AdminSettings() {
 
             const parsedNumber = parseInt(salesmanNumber, 10);
             const created = await addSalesman(salesmanName, salesmanPin, {
-                email: salesmanEmail.trim().toLowerCase(),
-                password: salesmanPassword,
                 salesmanNumber: Number.isFinite(parsedNumber) ? parsedNumber : undefined,
                 canEditTransactions: salesmanCanEditTransactions,
                 canBulkEdit: salesmanCanBulkEdit
@@ -205,7 +189,6 @@ export default function AdminSettings() {
                 });
             }
             setSalesmanName(''); setSalesmanPin(''); setSalesmanRate('12.50');
-            setSalesmanEmail(''); setSalesmanPassword('');
             setSalesmanNumber('');
             setSalesmanPhoto('');
             setSalesmanPhotoFile(null);
@@ -800,26 +783,6 @@ export default function AdminSettings() {
                                     onChange={(e) => setSalesmanName(e.target.value)}
                                     className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                                     placeholder="e.g. Ali"
-                                />
-                            </div>
-                            <div className="md:col-span-2">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
-                                <input
-                                    type="email"
-                                    value={salesmanEmail}
-                                    onChange={(e) => setSalesmanEmail(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                                    placeholder="salesman@example.com"
-                                />
-                            </div>
-                            <div className="md:col-span-2">
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
-                                <input
-                                    type="password"
-                                    value={salesmanPassword}
-                                    onChange={(e) => setSalesmanPassword(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                                    placeholder="Minimum 6 characters"
                                 />
                             </div>
                             <div>
