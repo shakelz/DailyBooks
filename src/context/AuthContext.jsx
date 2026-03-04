@@ -339,9 +339,11 @@ async function verifyOwnerLogin(identifier, password) {
     }
 
     const { data, error } = await supabase
-        .from('shops')
+        .from('profiles')
         .select('*')
-        .eq('owner_email', normalizedIdentifier)
+        .eq('email', normalizedIdentifier)
+        .in('role', DB_ADMIN_ROLES)
+        .eq('active', true)
         .limit(1);
 
     if (error) {
@@ -351,7 +353,7 @@ async function verifyOwnerLogin(identifier, password) {
     const row = Array.isArray(data) ? data[0] : null;
     if (!row) return { profile: null, error: 'Invalid credentials' };
 
-    const directPassword = asString(row?.owner_password_hash || row?.owner_password);
+    const directPassword = asString(row?.password_hash || row?.password);
     const isPasswordValid = await verifyAgainstStoredHash(normalizedPassword, directPassword);
     if (!isPasswordValid) {
         return { profile: null, error: 'Invalid credentials' };
@@ -359,12 +361,12 @@ async function verifyOwnerLogin(identifier, password) {
 
     return {
         profile: {
-            user_id: '',
+            user_id: asString(getProfileId(row)),
             shop_id: asString(row?.shop_id),
-            full_name: asString(row?.shop_name || row?.name || 'Owner'),
+            full_name: asString(row?.full_name || 'Owner'),
             role: 'owner',
             active: true,
-            email: asString(row?.owner_email),
+            email: asString(row?.email || row?.username),
         },
         error: null,
     };
@@ -458,14 +460,7 @@ async function deleteShopById(shopId = '') {
 }
 
 async function resolveAdminEmailFromProfile(profile = {}) {
-    const directEmail = asString(profile?.owner_email).toLowerCase();
-    if (directEmail) return directEmail;
-
-    const sid = asString(profile?.shop_id || profile?.shopId);
-    if (!sid) return '';
-
-    const shop = await findShopById(sid);
-    return asString(shop?.owner_email).toLowerCase();
+    return asString(profile?.email || profile?.username).toLowerCase();
 }
 
 async function findAdminProfileByIdentifier(identifier = '') {
@@ -521,25 +516,10 @@ async function resolveAdminAuthFromIdentifier(identifier = '') {
     const profileLookup = await findAdminProfileByIdentifier(key);
     const row = profileLookup?.profile || null;
 
-    if (!row) {
-        if (key.includes('@')) {
-            const byShopOwnerEmail = await findAdminProfileByShopOwnerEmail(key);
-            if (!byShopOwnerEmail) {
-                return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
-            }
-            return {
-                authEmail: asString(key).toLowerCase(),
-                profileId: asString(getProfileId(byShopOwnerEmail)),
-                role: normalizeRoleName(byShopOwnerEmail?.role),
-                shopId: asString(byShopOwnerEmail?.shop_id),
-                error: '',
-            };
-        }
-        return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
-    }
+    if (!row) return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
 
     return {
-        authEmail: asString(row?.email || row?.owner_email || '').toLowerCase(),
+        authEmail: asString(row?.email || row?.username || '').toLowerCase(),
         profileId: asString(getProfileId(row)),
         role: normalizeRoleName(row?.role),
         shopId: asString(row?.shop_id),
@@ -548,59 +528,26 @@ async function resolveAdminAuthFromIdentifier(identifier = '') {
 }
 
 async function findAdminProfileByShopOwnerEmail(email = '') {
-    const normalizedEmail = asString(email).toLowerCase();
-    if (!normalizedEmail) return null;
-
-    const { data: shopsByEmail, error: shopsError } = await supabase
-        .from('shops')
-        .select('*')
-        .eq('owner_email', normalizedEmail);
-
-    if (shopsError || !Array.isArray(shopsByEmail) || shopsByEmail.length === 0) {
-        return null;
-    }
-
-    const shopIds = shopsByEmail
-        .map((row) => asString(row?.id || row?.shop_id))
-        .filter(Boolean);
-    if (!shopIds.length) return null;
-
-    const { data: profileRows, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .in('shop_id', shopIds)
-        .in('role', DB_ADMIN_ROLES)
-        .limit(1);
-
-    if (profileError || !Array.isArray(profileRows) || !profileRows[0]) {
-        return null;
-    }
-
-    return profileRows[0];
+    return null;
 }
 
 async function requestAdminLogin({ identifier, password }) {
     const normalizedIdentifier = asString(identifier);
     const normalizedPassword = asString(password);
     if (!normalizedIdentifier || !normalizedPassword) {
-        return { profile: null, error: 'Email/username and password are required.' };
+        return { profile: null, error: 'Email and password are required.' };
     }
 
     const identifierLower = normalizedIdentifier.toLowerCase();
     const selectFields = 'user_id,id,shop_id,full_name,role,active,password_hash,password,email,username';
 
-    let query = supabase
+    const query = supabase
         .from('profiles')
         .select(selectFields)
         .in('role', DB_ADMIN_ROLES)
         .eq('active', true)
+        .eq('email', identifierLower)
         .limit(20);
-
-    if (identifierLower.includes('@')) {
-        query = query.or(`email.ilike.${identifierLower},username.ilike.${identifierLower}`);
-    } else {
-        query = query.ilike('full_name', normalizedIdentifier);
-    }
 
     const { data, error } = await query;
     if (error) {
@@ -984,7 +931,7 @@ function makeRowId() {
 
 function normalizeUserFromProfile(profile) {
     if (!profile || typeof profile !== 'object') return null;
-    const resolvedEmail = asString(profile.email || profile.username || profile.owner_email || profile.auth_email).toLowerCase();
+    const resolvedEmail = asString(profile.email || profile.username || profile.auth_email).toLowerCase();
     const name =
         asString(profile.full_name)
         || asString(profile.workerName)
@@ -1052,10 +999,6 @@ function normalizeShop(shop) {
         name: asString(shop.shop_name || 'Shop'),
         location: asString(shop.address || ''),
         address: asString(shop.address || ''),
-        owner_email: asString(shop.owner_email || shop.ownerEmail || ''),
-        owner_password_hash: asString(shop.owner_password_hash || ''),
-        owner_password: asString(shop.owner_password_hash || ''),
-        password: asString(shop.owner_password_hash || ''),
         telephone: resolvedTelephone,
         phone: resolvedTelephone,
     };
@@ -1086,7 +1029,7 @@ async function attachShopOwnerCredentials(shopList = []) {
         if (!sid || ownersByShop.has(sid)) return;
         ownersByShop.set(sid, {
             owner_profile_id: asString(getProfileId(profile)),
-            owner_email: '',
+            owner_email: asString(profile.email || profile.username).toLowerCase(),
             owner_password_hash: getProfilePassword(profile),
         });
     });
@@ -1107,12 +1050,10 @@ async function attachShopOwnerCredentials(shopList = []) {
     return enrichedShops;
 }
 
-function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPassword = '' }) {
+function buildShopInsertPayloads({ name, address, telephone }) {
     const safeName = asString(name);
     const safeAddress = asString(address);
-    const safeOwnerEmail = asString(ownerEmail).toLowerCase();
     const safeTelephone = asString(telephone);
-    const safeOwnerPassword = asString(ownerPassword);
     if (!safeName) return [];
 
     const generatedId = makeRowId();
@@ -1120,9 +1061,7 @@ function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPa
         shop_id: generatedId,
         shop_name: safeName,
         address: safeAddress,
-        owner_email: safeOwnerEmail,
         telephone: safeTelephone,
-        owner_password_hash: safeOwnerPassword || undefined,
     });
 
     return dedupePayloads([
@@ -1205,19 +1144,15 @@ async function syncProfileOnlineStatus(shopId, userId) {
         .eq('user_id', uid);
 }
 
-function buildShopUpdatePayloads({ name, address, ownerEmail, telephone, ownerPassword }) {
+function buildShopUpdatePayloads({ name, address, telephone }) {
     const safeName = name === undefined ? undefined : asString(name);
     const safeAddress = address === undefined ? undefined : asString(address);
-    const safeOwnerEmail = ownerEmail === undefined ? undefined : asString(ownerEmail).toLowerCase();
     const safeTelephone = telephone === undefined ? undefined : asString(telephone);
-    const safeOwnerPassword = ownerPassword === undefined ? undefined : asString(ownerPassword);
 
     const payload = cleanPayload({
         ...(safeName === undefined ? {} : { shop_name: safeName }),
         ...(safeAddress === undefined ? {} : { address: safeAddress }),
-        ...(safeOwnerEmail === undefined ? {} : { owner_email: safeOwnerEmail }),
         ...(safeTelephone === undefined ? {} : { telephone: safeTelephone }),
-        ...(safeOwnerPassword === undefined ? {} : { owner_password_hash: safeOwnerPassword }),
     });
 
     return dedupePayloads([
@@ -1690,34 +1625,13 @@ export function AuthProvider({ children }) {
 
         const sid = asString(preferredShopId || user.shop_id || activeShopId);
         if (!sid) {
-            const ownerEmail = asString(user?.email).toLowerCase();
-            if (!ownerEmail) {
-                setShops([]);
-                return [];
-            }
-
-            const byOwnerEmail = await supabase
-                .from('shops')
-                .select('*')
-                .eq('owner_email', ownerEmail)
-                .limit(1);
-
-            if (!byOwnerEmail.error && Array.isArray(byOwnerEmail.data) && byOwnerEmail.data[0]) {
-                const normalizedByEmail = normalizeShop(byOwnerEmail.data[0]);
-                const enrichedByEmail = normalizedByEmail ? await attachShopOwnerCredentials([normalizedByEmail]) : [];
-                const mergedByEmail = enrichedByEmail.map((shop) => mergeShopMeta(shop, shopMetaMap));
-                setShops(mergedByEmail);
-                setActiveShopIdState(asString(mergedByEmail[0]?.id));
-                return mergedByEmail;
-            }
-
             setShops([]);
             return [];
         }
 
         const { data, error } = await selectSingleShopById(sid);
         if (error || !data) {
-            const fallback = [mergeShopMeta({ id: sid, name: user.shopName || 'My Shop', address: '', owner_email: '' }, shopMetaMap)];
+            const fallback = [mergeShopMeta({ id: sid, name: user.shopName || 'My Shop', address: '' }, shopMetaMap)];
             setShops(fallback);
             setActiveShopIdState(sid);
             return fallback;
@@ -1832,7 +1746,7 @@ export function AuthProvider({ children }) {
         setActiveShopIdState(lockedShopId || sid);
     }, [isSuperAdmin, role, user, activeShopId]);
 
-    const createShop = useCallback(async ({ shopName, location, address, ownerEmail, telephone }) => {
+    const createShop = useCallback(async ({ shopName, location, address, ownerEmail, ownerPassword, telephone }) => {
         if (!isSuperAdminRole(role)) {
             throw new Error('Only super_admin can create shops.');
         }
@@ -1840,30 +1754,30 @@ export function AuthProvider({ children }) {
         const name = asString(shopName);
         const shopAddress = asString(address);
         const email = asString(ownerEmail).toLowerCase();
+        const password = asString(ownerPassword);
         const shopTelephone = asString(telephone);
 
         if (!name) throw new Error('Shop name is required.');
         if (!email) throw new Error('Owner email is required.');
+        if (!password) throw new Error('Owner password is required.');
 
         const { data: existingShopRows, error: existingShopError } = await supabase
-            .from('shops')
-            .select('shop_id')
-            .eq('owner_email', email)
+            .from('profiles')
+            .select('user_id')
+            .eq('email', email)
+            .in('role', DB_ADMIN_ROLES)
             .limit(1);
         if (!existingShopError && Array.isArray(existingShopRows) && existingShopRows.length > 0) {
             throw new Error('Owner email is already linked to an admin account.');
         }
 
-        const generatedOwnerPassword = Math.random().toString(36).slice(-8);
         let createdShop = null;
         let shopError = null;
 
         const shopPayloads = buildShopInsertPayloads({
             name,
             address: shopAddress,
-            ownerEmail: email,
             telephone: shopTelephone,
-            ownerPassword: generatedOwnerPassword,
         });
 
         for (const payload of shopPayloads) {
@@ -1885,8 +1799,7 @@ export function AuthProvider({ children }) {
             throw new Error('Shop created without a valid id. Please re-run migration/schema and try again.');
         }
         const ownerName = email.split('@')[0] || name;
-        const tempPassword = generatedOwnerPassword;
-        const ownerPasswordHash = await hashPlainText(tempPassword);
+        const ownerPasswordHash = await hashPlainText(password);
 
         let createdProfile = null;
         let profileError = null;
@@ -1895,9 +1808,8 @@ export function AuthProvider({ children }) {
         const profilePayloads = buildManagerProfilePayloads({
             ownerName,
             ownerEmail: email,
-            ownerPasswordHash: ownerPasswordHash || tempPassword,
+            ownerPasswordHash: ownerPasswordHash || password,
             shopId,
-            tempPassword
         });
 
         for (const payload of profilePayloads) {
@@ -1918,10 +1830,6 @@ export function AuthProvider({ children }) {
 
         const createdShopWithCredentials = {
             ...createdShop,
-            owner_email: createdShop.owner_email || email,
-            owner_password_hash: getProfilePassword(createdProfile) || tempPassword,
-            owner_password: getProfilePassword(createdProfile) || tempPassword,
-            password: getProfilePassword(createdProfile) || tempPassword,
             owner_profile_id: asString(createdProfile?.id),
         };
         const resolvedAddress = asString(shopAddress || createdShopWithCredentials.address);
@@ -1960,7 +1868,7 @@ export function AuthProvider({ children }) {
             credentials: {
                 email,
                 pin: '',
-                password: getProfilePassword(createdProfile) || tempPassword
+                password
             },
             warning: ownerSetupWarning,
         };
@@ -2015,7 +1923,7 @@ export function AuthProvider({ children }) {
         const nextOwnerPasswordHash = shouldUpdateOwnerPassword
             ? (await hashPlainText(nextOwnerPassword)) || nextOwnerPassword
             : undefined;
-        const shouldUpdateShopTable = hasName || hasAddress || hasTelephone || hasOwner || hasOwnerPassword;
+        const shouldUpdateShopTable = hasName || hasAddress || hasTelephone;
         const shouldUpdateOwnerProfile = hasOwner || shouldUpdateOwnerPassword;
 
         if (hasName && !nextName) {
@@ -2042,9 +1950,7 @@ export function AuthProvider({ children }) {
             const payloads = buildShopUpdatePayloads({
                 name: nextName,
                 address: nextAddress,
-                ownerEmail: nextOwnerEmail,
                 telephone: nextTelephone,
-                ownerPassword: shouldUpdateOwnerPassword ? nextOwnerPasswordHash : undefined
             });
 
             if (payloads.length === 0) {
@@ -2172,13 +2078,6 @@ export function AuthProvider({ children }) {
                     || ''
                 ),
         };
-
-        if (shouldUpdateOwnerPassword) {
-            const { error } = await updateShopById(sid, { owner_password_hash: nextOwnerPasswordHash });
-            if (error) {
-                throw new Error(error.message || 'Failed to sync shop password.');
-            }
-        }
 
         if (hasAddress || hasTelephone) {
             patchShopMeta(sid, {

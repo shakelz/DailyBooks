@@ -103,7 +103,7 @@ export default function LoginPage({ mode = 'salesman' }) {
         const identifier = adminUser.trim()
         const password = adminPass.trim()
         if (!identifier) {
-            setAdminError('Email or username is required.')
+            setAdminError('Email is required.')
             return
         }
         if (!password) {
@@ -116,7 +116,6 @@ export default function LoginPage({ mode = 'salesman' }) {
             const result = await login({
                 role: 'admin',
                 identifier,
-                username: identifier,
                 password,
             })
 
@@ -142,18 +141,18 @@ export default function LoginPage({ mode = 'salesman' }) {
                             </svg>
                         </div>
                         <h2 className="text-2xl font-bold text-white">Admin Login</h2>
-                        <p className="text-slate-400 text-sm mt-1">Email or Username + Password</p>
+                        <p className="text-slate-400 text-sm mt-1">Email + Password</p>
                     </div>
 
                     <form onSubmit={handleAdminLogin} className="space-y-4">
                         <div>
-                            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Email or Username</label>
+                            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Email</label>
                             <div className="relative">
                                 <input
                                     type="text"
                                     value={adminUser}
                                     onChange={(event) => { setAdminUser(event.target.value); setAdminError('') }}
-                                    placeholder="owner@example.com or owner_username"
+                                    placeholder="owner@example.com"
                                     id="admin-identifier"
                                     autoComplete="username"
                                     className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-slate-800/80 border border-slate-700/50 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"

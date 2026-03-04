@@ -50,6 +50,7 @@ export default function AdminSettings() {
     const [shopAddress, setShopAddress] = useState('');
     const [shopTelephone, setShopTelephone] = useState('');
     const [shopOwnerEmail, setShopOwnerEmail] = useState('');
+    const [shopOwnerPassword, setShopOwnerPassword] = useState('');
     const [shopError, setShopError] = useState('');
     const [shopMessage, setShopMessage] = useState('');
     const [createdManager, setCreatedManager] = useState(null);
@@ -262,6 +263,10 @@ export default function AdminSettings() {
             setShopError('Owner email is required.');
             return;
         }
+        if (!shopOwnerPassword.trim()) {
+            setShopError('Owner password is required.');
+            return;
+        }
 
         setIsCreatingShop(true);
         try {
@@ -269,12 +274,14 @@ export default function AdminSettings() {
                 shopName,
                 address: shopAddress,
                 ownerEmail: shopOwnerEmail,
+                ownerPassword: shopOwnerPassword,
                 telephone: shopTelephone
             });
             setShopName('');
             setShopAddress('');
             setShopTelephone('');
             setShopOwnerEmail('');
+            setShopOwnerPassword('');
             setCreatedManager(result?.credentials || null);
             setEditingShopId('');
             const baseMessage = `Shop "${result?.shop?.name || shopName}" created successfully.`;
@@ -474,7 +481,7 @@ export default function AdminSettings() {
                         </div>
                     </div>
 
-                    <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                    <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
                         <div className="md:col-span-1">
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Shop Name</label>
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
@@ -522,6 +529,19 @@ export default function AdminSettings() {
                                     onChange={(e) => setShopOwnerEmail(e.target.value)}
                                     className="w-full bg-transparent outline-none text-sm font-medium"
                                     placeholder="owner@shop.com"
+                                />
+                            </div>
+                        </div>
+                        <div className="md:col-span-1">
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Owner Password</label>
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                                <Key size={14} className="text-slate-400" />
+                                <input
+                                    type="password"
+                                    value={shopOwnerPassword}
+                                    onChange={(e) => setShopOwnerPassword(e.target.value)}
+                                    className="w-full bg-transparent outline-none text-sm font-medium"
+                                    placeholder="Set owner password"
                                 />
                             </div>
                         </div>
