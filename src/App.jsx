@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { InventoryProvider } from './context/InventoryContext'
 import { RepairsProvider } from './context/RepairsContext'
@@ -54,6 +54,30 @@ function AdminGuard({ children }) {
   return children
 }
 
+function AdminRouteShell() {
+  const { user, role, logout } = useAuth()
+  const location = useLocation()
+  const isAdminLoginPath = location.pathname === '/admin' || location.pathname === '/admin/'
+  const hasUser = Boolean(user)
+  const allowed = hasUser && isAdminRole(role)
+
+  useEffect(() => {
+    if (hasUser && !allowed) {
+      logout()
+    }
+  }, [allowed, hasUser, logout])
+
+  if (isAdminLoginPath) {
+    return allowed ? <LegacyDashboardRedirect /> : <LoginPage mode="admin" />
+  }
+
+  if (!allowed) {
+    return <Navigate to="/admin" replace />
+  }
+
+  return <AdminPanel />
+}
+
 function SalesmanGuard({ children }) {
   const { user, role } = useAuth()
   const normalizedRole = normalizeRouteRole(role)
@@ -97,7 +121,7 @@ function App() {
                 <Route path="/" element={<LoginPage mode="salesman" />} />
                 <Route path="/admin" element={<LoginPage mode="admin" />} />
 
-                <Route path="/admin/*" element={<AdminGuard><AdminPanel /></AdminGuard>}>
+                <Route path="/admin/*" element={<AdminRouteShell />}>
                   <Route index element={<Navigate to="dashboard" replace />} />
                   <Route path="dashboard" element={<AdminDashboard />} />
                   <Route path="owner-dashboard" element={<AdminDashboard />} />
