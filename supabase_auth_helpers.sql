@@ -9,7 +9,6 @@ create extension if not exists pgcrypto;
 
 alter table if exists public.profiles
   add column if not exists username text,
-  add column if not exists email text,
   add column if not exists pin_digest text;
 
 create unique index if not exists uq_profiles_username
@@ -82,7 +81,6 @@ as $$
       lower(coalesce(to_jsonb(p) ->> 'username', '')) as username,
       lower(coalesce(to_jsonb(p) ->> 'name', '')) as profile_name,
       lower(coalesce(to_jsonb(p) ->> 'full_name', '')) as profile_full_name,
-      lower(coalesce(to_jsonb(p) ->> 'email', '')) as profile_email,
       coalesce((nullif(to_jsonb(p) ->> 'created_at', ''))::timestamptz, now()) as created_at
     from public.profiles p
     where lower(coalesce(to_jsonb(p) ->> 'role', '')) in ('owner', 'super_admin', 'admin', 'superadmin', 'superuser')
@@ -105,7 +103,6 @@ as $$
       ru.username,
       ru.profile_name,
       ru.profile_full_name,
-      ru.profile_email,
       ru.created_at,
       au.email::text as auth_email
     from resolved_users ru
@@ -124,7 +121,6 @@ as $$
       or j.profile_name = i.identifier
       or j.profile_full_name = i.identifier
       or (position('@' in i.identifier) > 0 and lower(coalesce(j.auth_email, '')) = i.identifier)
-      or (position('@' in i.identifier) > 0 and j.profile_email = i.identifier)
       or (
         position('@' in i.identifier) > 0
         and exists (
@@ -161,7 +157,6 @@ declare
   v_owner_name text := trim(coalesce(p_owner_name, ''));
   v_owner_email text := lower(trim(coalesce(p_owner_email, '')));
   v_role text := lower(trim(coalesce(p_role, 'owner')));
-  v_has_email boolean := false;
 begin
   if v_shop_id = '' then
     raise exception 'shop_id is required';
@@ -171,14 +166,6 @@ begin
     v_role := 'owner';
   end if;
 
-  select exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'profiles'
-      and column_name = 'email'
-  ) into v_has_email;
-
   return query
   with matched as (
     select p.*
@@ -186,7 +173,18 @@ begin
     where lower(coalesce(p.role, '')) in ('owner', 'super_admin', 'admin', 'superadmin', 'superuser')
       and (
         (v_owner_user_id <> '' and coalesce(to_jsonb(p) ->> 'user_id', '') = v_owner_user_id)
-        or (v_owner_email <> '' and v_has_email and lower(coalesce(to_jsonb(p) ->> 'email', '')) = v_owner_email)
+        or (
+          v_owner_email <> ''
+          and exists (
+            select 1
+            from public.shops s
+            where lower(coalesce(to_jsonb(s) ->> 'owner_email', '')) = v_owner_email
+              and (
+                coalesce(to_jsonb(s) ->> 'shop_id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
+                or coalesce(to_jsonb(s) ->> 'id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
+              )
+          )
+        )
       )
     order by coalesce((nullif(to_jsonb(p) ->> 'created_at', ''))::timestamptz, now()) desc
     limit 1
@@ -207,28 +205,12 @@ begin
   end if;
 
   begin
-    if v_has_email and v_owner_email <> '' then
-      return query
-      insert into public.profiles (user_id, shop_id, full_name, email, role, active, is_online)
-      values (nullif(v_owner_user_id, '')::uuid, v_shop_id, nullif(v_owner_name, ''), v_owner_email, v_role, true, false)
-      returning *;
-      return;
-    end if;
-
     return query
     insert into public.profiles (user_id, shop_id, full_name, role, active, is_online)
     values (nullif(v_owner_user_id, '')::uuid, v_shop_id, nullif(v_owner_name, ''), v_role, true, false)
     returning *;
     return;
   exception when others then
-    if v_has_email and v_owner_email <> '' then
-      return query
-      insert into public.profiles (shop_id, full_name, email, role, active, is_online)
-      values (v_shop_id, nullif(v_owner_name, ''), v_owner_email, v_role, true, false)
-      returning *;
-      return;
-    end if;
-
     return query
     insert into public.profiles (shop_id, full_name, role, active, is_online)
     values (v_shop_id, nullif(v_owner_name, ''), v_role, true, false)
