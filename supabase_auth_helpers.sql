@@ -11,6 +11,25 @@ alter table if exists public.profiles
   add column if not exists username text,
   add column if not exists pin_digest text;
 
+alter table if exists public.profiles
+  alter column user_id drop not null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'profiles_user_id_fkey'
+      and conrelid = 'public.profiles'::regclass
+  ) then
+    alter table public.profiles drop constraint profiles_user_id_fkey;
+  end if;
+exception
+  when undefined_table then
+    null;
+end;
+$$;
+
 create unique index if not exists uq_profiles_username
 on public.profiles(username)
 where username is not null and username <> '';
