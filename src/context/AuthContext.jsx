@@ -448,7 +448,26 @@ async function runShopMutationById(shopId = '', mutateByColumn) {
 }
 
 async function selectSingleShopById(shopId = '') {
-    return runShopMutationById(shopId, (column, sid) => supabase.from('shops').select('*').eq(column, sid).maybeSingle());
+    const sid = asString(shopId);
+    if (!sid) {
+        return { data: null, error: { message: 'Invalid shop lookup.' } };
+    }
+
+    const byId = await supabase.from('shops').select('*').eq('id', sid).maybeSingle();
+    if (!byId.error && byId.data) {
+        return byId;
+    }
+
+    const byLegacy = await supabase.from('shops').select('*').eq('shop_id', sid).maybeSingle();
+    if (!byLegacy.error && byLegacy.data) {
+        return byLegacy;
+    }
+
+    if (byId.error && !isMissingColumnError(byId.error, 'id')) {
+        return byId;
+    }
+
+    return byLegacy?.error ? byLegacy : byId;
 }
 
 async function updateShopById(shopId = '', payload = {}, withSelect = false) {
@@ -483,7 +502,7 @@ async function listShopsViaRpc(shopId = '') {
 }
 
 async function resolveAdminEmailFromProfile(profile = {}) {
-    const directEmail = asString(profile?.email || profile?.owner_email).toLowerCase();
+    const directEmail = asString(profile?.owner_email).toLowerCase();
     if (directEmail) return directEmail;
 
     const sid = asString(profile?.shop_id || profile?.shopId);
@@ -780,7 +799,7 @@ async function requestAdminLogin({ identifier, password }) {
         profile: {
             ...profile,
             role: normalizedRole,
-            email: asString(profile?.email || authEmail),
+            email: asString(authEmail),
             user_id: asString(profile?.user_id || profile?.id || authUser.id),
         },
         error: null,
@@ -1076,18 +1095,19 @@ function makeRowId() {
 
 function normalizeUserFromProfile(profile) {
     if (!profile || typeof profile !== 'object') return null;
+    const resolvedEmail = asString(profile.owner_email || profile.auth_email).toLowerCase();
     const name =
         asString(profile.full_name)
         || asString(profile.name)
         || asString(profile.workerName)
-        || (asString(profile.email).split('@')[0] || 'User');
+        || (resolvedEmail.split('@')[0] || 'User');
     const normalizedRole = normalizeRoleName(profile.role) || 'salesman';
 
     return {
         ...profile,
         id: getProfileId(profile),
         name,
-        email: asString(profile.email),
+        email: resolvedEmail,
         role: normalizedRole,
         pin: '',
         hourlyRate: parseFloat(profile.hourlyRate ?? profile.hourly_rate ?? 12.5) || 12.5,
@@ -1177,7 +1197,7 @@ async function attachShopOwnerCredentials(shopList = []) {
         if (!sid || ownersByShop.has(sid)) return;
         ownersByShop.set(sid, {
             owner_profile_id: asString(profile.id),
-            owner_email: asString(profile.email),
+            owner_email: '',
             owner_password: getProfilePassword(profile),
         });
     });
@@ -2317,7 +2337,7 @@ export function AuthProvider({ children }) {
             owner_profile_id: asString(updatedOwnerProfile?.id || updatedShop?.owner_profile_id || currentShop?.owner_profile_id),
             owner_email: hasOwner
                 ? nextOwnerEmail
-                : asString(updatedOwnerProfile?.email || updatedShop?.owner_email || currentShop?.owner_email),
+                : asString(updatedShop?.owner_email || currentShop?.owner_email),
             owner_password: shouldUpdateOwnerPassword
                 ? nextOwnerPassword
                 : asString(getProfilePassword(updatedOwnerProfile) || updatedShop?.owner_password || currentShop?.owner_password),
@@ -2386,7 +2406,7 @@ export function AuthProvider({ children }) {
                 ...prev,
                 shopName: mergedShopWithMeta.name || prev.shopName,
                 shop_id: mergedShopWithMeta.id || prev.shop_id,
-                email: asString(updatedOwnerProfile?.email || prev.email)
+                email: asString(updatedShop?.owner_email || mergedShopWithMeta.owner_email || prev.email)
             } : prev);
         }
 
