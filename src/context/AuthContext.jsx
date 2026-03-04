@@ -1321,7 +1321,7 @@ function buildProfileInsertPayloads({
 
     const sid = asString(shopId);
 
-    const idVariants = [{ user_id: profileId }, {}];
+    const idVariants = [{ user_id: profileId }];
     const shopVariants = sid ? [{ shop_id: sid }] : [{}];
     const usernameVariants = safeUsername ? [{ username: safeUsername }] : [{}];
     const rateValue = Number(hourlyRate);
