@@ -449,6 +449,64 @@ async function findAdminProfileByIdentifier(identifier = '') {
     return { profile: null, error: null };
 }
 
+async function findAdminProfileByPrimaryId(primaryId = '') {
+    const pid = asString(primaryId);
+    if (!pid) return null;
+
+    const byId = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', pid)
+        .in('role', ADMIN_ROLES)
+        .limit(1);
+    if (!byId.error && Array.isArray(byId.data) && byId.data[0]) {
+        return byId.data[0];
+    }
+
+    const byUserId = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', pid)
+        .in('role', ADMIN_ROLES)
+        .limit(1);
+    if (!byUserId.error && Array.isArray(byUserId.data) && byUserId.data[0]) {
+        return byUserId.data[0];
+    }
+
+    return null;
+}
+
+async function resolveAdminAuthFromIdentifier(identifier = '') {
+    const key = asString(identifier);
+    if (!key) return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
+
+    const { data, error } = await supabase.rpc('resolve_admin_auth_email', {
+        p_identifier: key,
+    });
+
+    if (error) {
+        if (isMissingFunctionError(error, 'resolve_admin_auth_email')) {
+            return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
+        }
+        return {
+            authEmail: '',
+            profileId: '',
+            role: '',
+            shopId: '',
+            error: asString(error?.message) || 'Unable to resolve admin auth email.',
+        };
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+        authEmail: asString(row?.auth_email || row?.email).toLowerCase(),
+        profileId: asString(row?.profile_id),
+        role: normalizeRoleName(row?.role),
+        shopId: asString(row?.shop_id),
+        error: '',
+    };
+}
+
 async function findAdminProfileByShopOwnerEmail(email = '') {
     const normalizedEmail = asString(email).toLowerCase();
     if (!normalizedEmail) return null;
@@ -529,6 +587,12 @@ async function getAdminProfileByAuthUser(authUserId, authEmail = '', preferredPr
             const byShopOwnerEmail = await findAdminProfileByShopOwnerEmail(email);
             if (byShopOwnerEmail) return byShopOwnerEmail;
         }
+
+        const resolved = await resolveAdminAuthFromIdentifier(email);
+        if (resolved.profileId) {
+            const byResolvedId = await findAdminProfileByPrimaryId(resolved.profileId);
+            if (byResolvedId) return byResolvedId;
+        }
     }
 
     return null;
@@ -551,17 +615,39 @@ async function requestAdminLogin({ identifier, password }) {
         if (error) {
             return { profile: null, error };
         }
-        if (!profile) {
-            return { profile: null, error: 'Invalid credentials.' };
-        }
-        if (!isAdminRoleName(profile?.role)) {
-            return { profile: null, error: 'Not allowed.' };
+
+        if (profile) {
+            if (!isAdminRoleName(profile?.role)) {
+                return { profile: null, error: 'Not allowed.' };
+            }
+            identifierProfile = profile;
+            loginEmail = await resolveAdminEmailFromProfile(profile);
         }
 
-        identifierProfile = profile;
-        loginEmail = await resolveAdminEmailFromProfile(profile);
         if (!loginEmail) {
-            return { profile: null, error: 'Admin email mapping missing. Add `shops.owner_email` (or `profiles.email`) for this admin.' };
+            const resolved = await resolveAdminAuthFromIdentifier(normalizedIdentifier);
+            if (resolved.error) {
+                return { profile: null, error: resolved.error };
+            }
+
+            if (!identifierProfile && resolved.profileId) {
+                identifierProfile = await findAdminProfileByPrimaryId(resolved.profileId);
+            }
+            if (!identifierProfile && resolved.role && isAdminRoleName(resolved.role)) {
+                identifierProfile = {
+                    id: resolved.profileId,
+                    user_id: resolved.profileId,
+                    role: resolved.role,
+                    shop_id: resolved.shopId,
+                    name: normalizedIdentifier,
+                };
+            }
+
+            loginEmail = resolved.authEmail;
+        }
+
+        if (!loginEmail) {
+            return { profile: null, error: 'Admin auth email not found. Link this username to an Auth user and run latest SQL helpers.' };
         }
     }
 

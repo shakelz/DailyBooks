@@ -58,7 +58,75 @@ begin
 end;
 $$;
 
+create or replace function public.resolve_admin_auth_email(p_identifier text)
+returns table (
+  auth_email text,
+  profile_id text,
+  role text,
+  shop_id text
+)
+language sql
+security definer
+set search_path = public
+as $$
+  with input_key as (
+    select lower(trim(coalesce(p_identifier, ''))) as identifier
+  ),
+  admin_profiles as (
+    select
+      p.id::text as profile_id,
+      coalesce(to_jsonb(p) ->> 'user_id', p.id::text) as linked_user_id,
+      coalesce(to_jsonb(p) ->> 'role', '') as role,
+      coalesce(to_jsonb(p) ->> 'shop_id', '') as shop_id,
+      p.created_at
+    from public.profiles p
+    cross join input_key i
+    where lower(coalesce(to_jsonb(p) ->> 'role', '')) in ('owner', 'super_admin', 'admin', 'superadmin', 'superuser')
+      and (
+        lower(coalesce(to_jsonb(p) ->> 'username', '')) = i.identifier
+        or lower(coalesce(to_jsonb(p) ->> 'name', '')) = i.identifier
+        or lower(coalesce(to_jsonb(p) ->> 'full_name', '')) = i.identifier
+        or (
+          position('@' in i.identifier) > 0
+          and exists (
+            select 1
+            from public.shops s
+            where (
+              s.id::text = coalesce(to_jsonb(p) ->> 'shop_id', '')
+              or coalesce(to_jsonb(s) ->> 'shop_id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
+            )
+              and lower(coalesce(s.owner_email, '')) = i.identifier
+          )
+        )
+      )
+    order by p.created_at desc nulls last
+    limit 25
+  ),
+  resolved_users as (
+    select
+      ap.profile_id,
+      ap.role,
+      ap.shop_id,
+      case
+        when ap.linked_user_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          then ap.linked_user_id::uuid
+        else null
+      end as auth_uid
+    from admin_profiles ap
+  )
+  select
+    au.email::text as auth_email,
+    ru.profile_id,
+    ru.role,
+    ru.shop_id
+  from resolved_users ru
+  join auth.users au on au.id = ru.auth_uid
+  where coalesce(au.email, '') <> ''
+  limit 1;
+$$;
+
 grant execute on function public.make_pin_digest_global(text) to anon, authenticated, service_role;
 grant execute on function public.verify_salesman_pin(text, text) to anon, authenticated, service_role;
+grant execute on function public.resolve_admin_auth_email(text) to anon, authenticated, service_role;
 
 commit;
