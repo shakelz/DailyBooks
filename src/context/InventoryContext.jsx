@@ -58,7 +58,6 @@ function composeLegacyTimestamp(dateValue, timeValue = '') {
 function resolveTransactionTimestamp(txn = {}) {
     const directCandidates = [
         txn?.timestamp,
-        txn?.occurred_at,
         txn?.created_at,
         txn?.updated_at,
         txn?.updatedAt,
@@ -203,12 +202,19 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         transactionId,
         type: cleanText(txn?.tx_type || txn?.type),
         source: cleanText(txn?.source || 'cash'),
-        occurred_at: resolvedTimestamp || cleanText(txn?.occurred_at),
+        occurred_at: resolvedTimestamp || cleanText(txn?.created_at),
+        created_at: resolvedTimestamp || cleanText(txn?.created_at),
+        updated_at: cleanText(txn?.updated_at) || resolvedTimestamp || cleanText(txn?.created_at),
         timestamp: resolvedTimestamp || cleanText(txn?.timestamp) || cleanText(txn?.created_at),
         date: toLegacyDateLabel(resolvedTimestamp, txn?.date),
         time: toLegacyTimeLabel(resolvedTimestamp, txn?.time),
         quantity,
         amount,
+        discount_amount: parseFloat(txn?.discount_amount ?? txn?.discount ?? 0) || 0,
+        discount: parseFloat(txn?.discount_amount ?? txn?.discount ?? 0) || 0,
+        repair_id: cleanText(txn?.repair_id || txn?.repairId) || null,
+        is_fixed_expense: Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false),
+        isFixedExpense: Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false),
         unitPrice,
         productId: productId || null,
         workerId: workerId || null,
@@ -660,14 +666,15 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
     const txnVerified = txn.verifiedAttributes && typeof txn.verifiedAttributes === 'object' ? txn.verifiedAttributes : {};
     const snapVerified = snapshot.verifiedAttributes && typeof snapshot.verifiedAttributes === 'object' ? snapshot.verifiedAttributes : {};
     const resolvedTimestamp = resolveTransactionTimestamp(txn)
-        || parseTimestampCandidate(snapshot?.occurred_at)
+        || parseTimestampCandidate(snapshot?.created_at)
         || parseTimestampCandidate(snapshot?.snapshotTimestamp)
         || '';
 
     return {
         ...txn,
         timestamp: resolvedTimestamp || cleanText(txn?.timestamp),
-        occurred_at: resolvedTimestamp || cleanText(txn?.occurred_at),
+        occurred_at: resolvedTimestamp || cleanText(txn?.created_at),
+        created_at: resolvedTimestamp || cleanText(txn?.created_at),
         date: toLegacyDateLabel(resolvedTimestamp, txn?.date),
         time: toLegacyTimeLabel(resolvedTimestamp, txn?.time),
         barcode: txn.barcode || snapshot.barcode || snapshot?.productSnapshot?.barcode || '',
@@ -698,11 +705,12 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
 
 function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
     const occurredAt = resolveTransactionTimestamp(txn) || new Date().toISOString();
-    const normalizedDate = toLegacyDateLabel(occurredAt, txn?.date);
-    const normalizedTime = toLegacyTimeLabel(occurredAt, txn?.time);
     const workerId = cleanText(txn?.workerId || txn?.worker_id);
     const quantity = parseInt(txn?.quantity || 1, 10) || 1;
     const amount = parseFloat(txn?.amount || 0) || 0;
+    const discountAmount = parseFloat(txn?.discount_amount ?? txn?.discount ?? 0) || 0;
+    const isFixedExpense = Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false);
+    const repairId = cleanText(txn?.repair_id || txn?.repairId) || null;
 
     const payload = withShopId({
         tx_type: mapTxType(txn?.tx_type || txn?.type),
@@ -711,8 +719,11 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
         notes: txn?.notes || '',
         source: cleanText(txn?.source || 'cash') || 'cash',
         quantity,
-        occurred_at: occurredAt,
-        isFixedExpense: txn?.isFixedExpense || false,
+        created_at: occurredAt,
+        updated_at: occurredAt,
+        is_fixed_expense: isFixedExpense,
+        discount_amount: discountAmount,
+        repair_id: repairId,
         product_id: txn?.productId ? String(txn.productId) : null,
         created_by: workerId || null,
     }, shopId);
@@ -739,6 +750,7 @@ function buildTransactionSnapshot(txn) {
     const snapshot = {
         transactionId: txn?.transactionId || '',
         occurred_at: occurredAt,
+        created_at: occurredAt,
         barcode: txn?.barcode || txn?.productSnapshot?.barcode || '',
         model: txn?.model || txn?.productSnapshot?.model || '',
         brand: txn?.brand || txn?.productSnapshot?.brand || '',
@@ -1291,8 +1303,8 @@ export function InventoryProvider({ children }) {
         const formattedTxn = buildTransactionDBPayload(txn, true, sid);
         const normalizedTxn = normalizeTransactionRecord(formattedTxn, { workersById: workerLookup });
         const snapshot = buildTransactionSnapshot({ ...txn, ...formattedTxn, ...normalizedTxn });
-        saveTransactionSnapshot(formattedTxn.id, snapshot);
-        const hydratedTxn = mergeTransactionWithSnapshot(normalizedTxn, { [formattedTxn.id]: snapshot });
+        saveTransactionSnapshot(normalizedTxn.id, snapshot);
+        const hydratedTxn = mergeTransactionWithSnapshot(normalizedTxn, { [normalizedTxn.id]: snapshot });
 
         setTransactions(prev => {
             if (prev.some(t => String(t.id) === String(hydratedTxn.id))) return prev;
@@ -1310,8 +1322,8 @@ export function InventoryProvider({ children }) {
             formattedTxn
         );
         if (insertResult.error) {
-            setTransactions(prev => prev.filter(t => String(t.id) !== String(formattedTxn.id)));
-            removeTransactionSnapshot(formattedTxn.id);
+            setTransactions(prev => prev.filter(t => String(t.id) !== String(normalizedTxn.id)));
+            removeTransactionSnapshot(normalizedTxn.id);
             throw new Error(insertResult.error.message || 'Failed to save transaction.');
         }
 

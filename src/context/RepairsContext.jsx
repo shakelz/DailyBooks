@@ -103,7 +103,7 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
     const id = cleanText(record?.repair_id || record?.id) || String(record?.repair_id || record?.id || '');
     const createdIso = parseIsoTimestamp(record?.created_at || record?.createdAt || record?.timestamp) || new Date().toISOString();
     const completedIso = parseIsoTimestamp(record?.completed_at || record?.completedAt);
-    const deliveryAt = toDateOnly(record?.delivery_at || record?.deliveryDate);
+    const deliveryAt = toDateOnly(record?.delivery_date || record?.delivery_at || record?.deliveryDate);
 
     const mappedParts = id && Array.isArray(partsByRepair[id]) && partsByRepair[id].length > 0
         ? partsByRepair[id]
@@ -119,15 +119,18 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
         imei: cleanText(record?.imei),
         problem: cleanText(record?.problem || record?.issueType),
         status: cleanText(record?.status) || 'pending',
-        estimatedCost: parseFloat(record?.estimatedCost ?? 0) || 0,
-        advanceAmount: parseFloat(record?.advanceAmount ?? 0) || 0,
+        estimatedCost: parseFloat(record?.estimated_cost ?? record?.estimatedCost ?? 0) || 0,
+        advanceAmount: parseFloat(record?.advance_amount ?? record?.advanceAmount ?? 0) || 0,
         created_at: createdIso,
         createdAt: createdIso,
         timestamp: createdIso,
         completed_at: completedIso || null,
         completedAt: completedIso || null,
+        delivery_date: deliveryAt || null,
         delivery_at: deliveryAt || null,
         deliveryDate: deliveryAt || '',
+        created_by: cleanText(record?.created_by || record?.createdBy),
+        used_part_order_ids: Array.isArray(record?.used_part_order_ids) ? record.used_part_order_ids : [],
         partsUsed: mappedParts,
         shop_id: cleanText(record?.shop_id || record?.shopId),
     };
@@ -145,7 +148,7 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
     const sid = cleanText(shopId);
     const createdAt = parseIsoTimestamp(repair?.created_at || repair?.createdAt) || new Date().toISOString();
     const completedAt = parseIsoTimestamp(repair?.completed_at || repair?.completedAt);
-    const deliveryAt = toDateOnly(repair?.delivery_at || repair?.deliveryDate);
+    const deliveryAt = toDateOnly(repair?.delivery_date || repair?.delivery_at || repair?.deliveryDate);
 
     return {
         repair_id: cleanText(repair?.id),
@@ -156,8 +159,10 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
         problem: cleanText(repair?.problem),
         advance_amount: parseFloat(repair?.advanceAmount ?? 0) || 0,
         estimated_cost: parseFloat(repair?.estimatedCost ?? 0) || 0,
-        delivery_at: deliveryAt || null,
+        delivery_date: deliveryAt || null,
+        used_part_order_ids: Array.isArray(repair?.used_part_order_ids) ? repair.used_part_order_ids : [],
         status: cleanText(repair?.status) || 'pending',
+        created_by: cleanText(repair?.created_by || repair?.createdBy || repair?.workerId || repair?.user_id) || null,
         created_at: createdAt,
         completed_at: completedAt || null,
         shop_id: sid,
@@ -178,17 +183,20 @@ function buildRepairUpdatePayload(status, extras = {}) {
         next.completedAt = nowIso;
     }
 
-    if (Object.prototype.hasOwnProperty.call(next, 'deliveryDate') || Object.prototype.hasOwnProperty.call(next, 'delivery_at')) {
-        const delivery = toDateOnly(next.delivery_at || next.deliveryDate);
-        next.delivery_at = delivery || null;
+    if (Object.prototype.hasOwnProperty.call(next, 'deliveryDate') || Object.prototype.hasOwnProperty.call(next, 'delivery_date') || Object.prototype.hasOwnProperty.call(next, 'delivery_at')) {
+        const delivery = toDateOnly(next.delivery_date || next.delivery_at || next.deliveryDate);
+        next.delivery_date = delivery || null;
         next.deliveryDate = delivery || null;
+        delete next.delivery_at;
     }
 
     if (Object.prototype.hasOwnProperty.call(next, 'advanceAmount')) {
-        next.advanceAmount = parseFloat(next.advanceAmount ?? 0) || 0;
+        next.advance_amount = parseFloat(next.advanceAmount ?? 0) || 0;
+        delete next.advanceAmount;
     }
     if (Object.prototype.hasOwnProperty.call(next, 'estimatedCost')) {
-        next.estimatedCost = parseFloat(next.estimatedCost ?? 0) || 0;
+        next.estimated_cost = parseFloat(next.estimatedCost ?? 0) || 0;
+        delete next.estimatedCost;
     }
     if (Array.isArray(next.partsUsed)) {
         next.partsUsed = next.partsUsed.map(normalizeRepairPart);

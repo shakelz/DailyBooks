@@ -124,10 +124,7 @@ as $$
           select 1
           from public.shops s
           where lower(coalesce(to_jsonb(s) ->> 'owner_email', '')) = i.identifier
-            and (
-              coalesce(to_jsonb(s) ->> 'shop_id', '') = j.shop_id
-              or coalesce(to_jsonb(s) ->> 'id', '') = j.shop_id
-            )
+            and coalesce(to_jsonb(s) ->> 'shop_id', '') = j.shop_id
         )
       )
     )
@@ -176,10 +173,7 @@ begin
             select 1
             from public.shops s
             where lower(coalesce(to_jsonb(s) ->> 'owner_email', '')) = v_owner_email
-              and (
-                coalesce(to_jsonb(s) ->> 'shop_id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
-                or coalesce(to_jsonb(s) ->> 'id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
-              )
+              and coalesce(to_jsonb(s) ->> 'shop_id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
           )
         )
       )
@@ -234,106 +228,30 @@ declare
   v_owner_email text := nullif(lower(trim(coalesce(p_owner_email, ''))), '');
   v_telephone text := nullif(trim(coalesce(p_telephone, '')), '');
   v_owner_password text := nullif(trim(coalesce(p_owner_password, '')), '');
-  v_has_name boolean := false;
-  v_has_shop_name boolean := false;
-  v_has_address boolean := false;
-  v_has_owner_email boolean := false;
-  v_has_telephone boolean := false;
-  v_has_owner_password boolean := false;
-  v_has_password boolean := false;
-  v_cols text[] := array[]::text[];
-  v_vals text[] := array[]::text[];
-  v_sql text;
+  v_shop_id text := replace(gen_random_uuid()::text, '-', '');
 begin
   if v_name = '' then
     raise exception 'shop name is required';
   end if;
 
-  select exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'shops' and column_name = 'name'
-  ) into v_has_name;
-
-  select exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'shops' and column_name = 'shop_name'
-  ) into v_has_shop_name;
-
-  select exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'shops' and column_name = 'address'
-  ) into v_has_address;
-
-  select exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'shops' and column_name = 'owner_email'
-  ) into v_has_owner_email;
-
-  select exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'shops' and column_name = 'telephone'
-  ) into v_has_telephone;
-
-  select exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'shops' and column_name = 'owner_password'
-  ) into v_has_owner_password;
-
-  select exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'shops' and column_name = 'password'
-  ) into v_has_password;
-
-  if not v_has_name and not v_has_shop_name then
-    raise exception 'shops table missing name/shop_name column';
-  end if;
-
-  if v_has_name then
-    v_cols := array_append(v_cols, 'name');
-    v_vals := array_append(v_vals, quote_literal(v_name));
-  end if;
-
-  if v_has_shop_name then
-    v_cols := array_append(v_cols, 'shop_name');
-    v_vals := array_append(v_vals, quote_literal(v_name));
-  end if;
-
-  if v_has_address and v_address is not null then
-    v_cols := array_append(v_cols, 'address');
-    v_vals := array_append(v_vals, quote_literal(v_address));
-  end if;
-
-  if v_has_owner_email and v_owner_email is not null then
-    v_cols := array_append(v_cols, 'owner_email');
-    v_vals := array_append(v_vals, quote_literal(v_owner_email));
-  end if;
-
-  if v_has_telephone and v_telephone is not null then
-    v_cols := array_append(v_cols, 'telephone');
-    v_vals := array_append(v_vals, quote_literal(v_telephone));
-  end if;
-
-  if v_owner_password is not null then
-    if v_has_owner_password then
-      v_cols := array_append(v_cols, 'owner_password');
-      v_vals := array_append(v_vals, quote_literal(v_owner_password));
-    elsif v_has_password then
-      v_cols := array_append(v_cols, 'password');
-      v_vals := array_append(v_vals, quote_literal(v_owner_password));
-    end if;
-  end if;
-
-  if coalesce(array_length(v_cols, 1), 0) = 0 then
-    raise exception 'No compatible columns found for shops insert';
-  end if;
-
-  v_sql := format(
-    'insert into public.shops (%s) values (%s) returning *',
-    array_to_string(v_cols, ', '),
-    array_to_string(v_vals, ', ')
-  );
-
-  return query execute v_sql;
+  return query
+  insert into public.shops (
+    shop_id,
+    shop_name,
+    address,
+    owner_email,
+    telephone,
+    owner_password_hash
+  )
+  values (
+    v_shop_id,
+    v_name,
+    v_address,
+    v_owner_email,
+    v_telephone,
+    v_owner_password
+  )
+  returning *;
 end;
 $$;
 
@@ -348,7 +266,6 @@ as $$
   select s.*
   from public.shops s
   where coalesce(trim(p_shop_id), '') = ''
-     or coalesce(to_jsonb(s) ->> 'id', '') = trim(p_shop_id)
      or coalesce(to_jsonb(s) ->> 'shop_id', '') = trim(p_shop_id);
 $$;
 
