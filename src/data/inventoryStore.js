@@ -140,7 +140,7 @@ export function getStockSeverity(stockCounts) {
 // ── Build Product JSON (for analytics) ──
 export function buildProductJSON(entry) {
     return {
-        id: entry.id || generateId('PRD'),
+        ...(entry.id ? { id: entry.id } : {}),
         model: entry.model || '',
         name: entry.name || entry.desc || entry.model || '',
         desc: entry.desc || entry.name || entry.model || '',

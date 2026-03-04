@@ -26,7 +26,6 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
         lookupBarcode, addProduct, updateProduct,
         getLevel1Categories, getLevel2Categories,
         addLevel1Category, addLevel2Category,
-        generateId
     } = useInventory();
 
     // Moved below states for safety
@@ -321,11 +320,16 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
         setSubmitted(true);
         if (!validate()) return;
 
-        const productId = (initialData && initialData.id) ? initialData.id : generateId('PRD');
-        const resolvedImageUrl = await uploadProductImageIfNeeded(productId);
+        const isEditing = Boolean(initialData && initialData.id);
+        const uploadKey = isEditing
+            ? String(initialData.id)
+            : (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `tmp-${Date.now()}`);
+        const resolvedImageUrl = await uploadProductImageIfNeeded(uploadKey);
 
         const productData = {
-            id: productId,
+            ...(isEditing ? { id: String(initialData.id) } : {}),
             model: '',
             name: name.trim() || `${level1} ${level2}`.trim(),
             desc: name.trim() || `${level1} ${level2}`.trim(),

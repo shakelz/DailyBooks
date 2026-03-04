@@ -622,7 +622,7 @@ function buildInventoryPayload(product, includeId = false, shopId = '', category
         attributes: payloadAttributes,
     }, shopId);
 
-    if (includeId) payload.product_id = String(product?.id);
+    void includeId;
 
     return payload;
 }
@@ -1115,7 +1115,8 @@ export function InventoryProvider({ children }) {
         if (!sid) throw new Error('No active shop selected.');
 
         const entry = buildProductJSON(product);
-        entry.id = String(entry.id); // Supabase ID is TEXT
+        const optimisticId = cleanText(entry.id) || `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        entry.id = optimisticId;
         entry.shop_id = sid;
         entry.purchaseFrom = cleanText(product?.purchaseFrom);
         entry.paymentMode = cleanText(product?.paymentMode) || cleanText(product?.paymentMethod);
@@ -1138,7 +1139,7 @@ export function InventoryProvider({ children }) {
             return [entry, ...prev];
         });
 
-        const payload = buildInventoryPayload(entry, true, sid, categoryNameToId);
+        const payload = buildInventoryPayload(entry, false, sid, categoryNameToId);
         const insertResult = await executeWithPrunedColumns(
             (candidate) => supabase.from('inventory').insert([candidate]).select().single(),
             payload
@@ -1151,7 +1152,9 @@ export function InventoryProvider({ children }) {
         }
 
         const savedEntry = normalizeInventoryRecord(
-            insertResult.data ? { ...entry, ...insertResult.data, id: String(insertResult.data.id || entry.id) } : entry
+            insertResult.data
+                ? { ...entry, ...insertResult.data, id: String(insertResult.data.product_id || insertResult.data.id || entry.id) }
+                : entry
         );
         setProducts(prev => prev.map(p => String(p.id) === entry.id ? savedEntry : p));
 
