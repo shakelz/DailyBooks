@@ -188,6 +188,11 @@ function shouldSkipAdminRateLimit(errorMessage = '') {
     return false;
 }
 
+function isInvalidAuthCredentialsError(error) {
+    const message = asString(error?.message).toLowerCase();
+    return message.includes('invalid login credentials');
+}
+
 function normalizeRoleName(value) {
     const role = asString(value).toLowerCase();
     if (!role) return '';
@@ -611,6 +616,7 @@ async function requestAdminLogin({ identifier, password }) {
 
     let loginEmail = '';
     let identifierProfile = null;
+    let resolvedFromIdentifier = null;
 
     if (normalizedIdentifier.includes('@')) {
         loginEmail = normalizedIdentifier.toLowerCase();
@@ -629,25 +635,25 @@ async function requestAdminLogin({ identifier, password }) {
         }
 
         if (!loginEmail) {
-            const resolved = await resolveAdminAuthFromIdentifier(normalizedIdentifier);
-            if (resolved.error) {
-                return { profile: null, error: resolved.error };
+            resolvedFromIdentifier = await resolveAdminAuthFromIdentifier(normalizedIdentifier);
+            if (resolvedFromIdentifier.error) {
+                return { profile: null, error: resolvedFromIdentifier.error };
             }
 
-            if (!identifierProfile && resolved.profileId) {
-                identifierProfile = await findAdminProfileByPrimaryId(resolved.profileId);
+            if (!identifierProfile && resolvedFromIdentifier.profileId) {
+                identifierProfile = await findAdminProfileByPrimaryId(resolvedFromIdentifier.profileId);
             }
-            if (!identifierProfile && resolved.role && isAdminRoleName(resolved.role)) {
+            if (!identifierProfile && resolvedFromIdentifier.role && isAdminRoleName(resolvedFromIdentifier.role)) {
                 identifierProfile = {
-                    id: resolved.profileId,
-                    user_id: resolved.profileId,
-                    role: resolved.role,
-                    shop_id: resolved.shopId,
+                    id: resolvedFromIdentifier.profileId,
+                    user_id: resolvedFromIdentifier.profileId,
+                    role: resolvedFromIdentifier.role,
+                    shop_id: resolvedFromIdentifier.shopId,
                     name: normalizedIdentifier,
                 };
             }
 
-            loginEmail = resolved.authEmail;
+            loginEmail = resolvedFromIdentifier.authEmail;
         }
 
         if (!loginEmail) {
@@ -655,12 +661,40 @@ async function requestAdminLogin({ identifier, password }) {
         }
     }
 
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    let { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: loginEmail,
         password: normalizedPassword,
     });
 
+    // If user entered shop-owner email (not actual auth.users email), resolve and retry once.
+    if (authError && isInvalidAuthCredentialsError(authError)) {
+        if (!resolvedFromIdentifier) {
+            resolvedFromIdentifier = await resolveAdminAuthFromIdentifier(normalizedIdentifier);
+        }
+        const fallbackEmail = asString(resolvedFromIdentifier?.authEmail).toLowerCase();
+        if (fallbackEmail && fallbackEmail !== loginEmail) {
+            const retry = await supabase.auth.signInWithPassword({
+                email: fallbackEmail,
+                password: normalizedPassword,
+            });
+            if (!retry.error) {
+                authData = retry.data;
+                authError = null;
+                loginEmail = fallbackEmail;
+                if (!identifierProfile && resolvedFromIdentifier?.profileId) {
+                    identifierProfile = await findAdminProfileByPrimaryId(resolvedFromIdentifier.profileId);
+                }
+            }
+        }
+    }
+
     if (authError) {
+        if (isInvalidAuthCredentialsError(authError)) {
+            return {
+                profile: null,
+                error: 'Invalid login credentials. Check Supabase Authentication > Users email/password for this project.',
+            };
+        }
         return { profile: null, error: asString(authError?.message) || 'Invalid credentials.' };
     }
 
