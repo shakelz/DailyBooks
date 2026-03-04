@@ -509,16 +509,6 @@ async function findAdminProfileByPrimaryId(primaryId = '') {
     const pid = asString(primaryId);
     if (!pid) return null;
 
-    const byId = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', pid)
-        .in('role', DB_ADMIN_ROLES)
-        .limit(1);
-    if (!byId.error && Array.isArray(byId.data) && byId.data[0]) {
-        return byId.data[0];
-    }
-
     const byUserId = await supabase
         .from('profiles')
         .select('*')
@@ -604,17 +594,6 @@ async function getAdminProfileByAuthUser(authUserId, authEmail = '', preferredPr
     const email = asString(authEmail).toLowerCase();
 
     if (uid) {
-        const byId = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', uid)
-            .in('role', DB_ADMIN_ROLES)
-            .limit(1);
-
-        if (!byId.error && Array.isArray(byId.data) && byId.data[0]) {
-            return byId.data[0];
-        }
-
         const byUserId = await supabase
             .from('profiles')
             .select('*')
@@ -1487,7 +1466,7 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', sh
 
     const { data, error } = await supabase
         .from('profiles')
-        .select('id,user_id')
+        .select('user_id')
         .eq('role', 'salesman')
         .eq('pin_digest', digest);
 
@@ -1496,7 +1475,7 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', sh
     }
 
     const conflicts = Array.isArray(data) ? data : [];
-    const hasConflict = conflicts.some((row) => asString(row?.user_id || row?.id) !== excludedId);
+    const hasConflict = conflicts.some((row) => asString(row?.user_id) !== excludedId);
     if (hasConflict) {
         return { available: false, message: 'PIN already in use. Use a globally unique PIN.' };
     }
@@ -1942,7 +1921,7 @@ export function AuthProvider({ children }) {
 
         const { data: existingShopRows, error: existingShopError } = await supabase
             .from('shops')
-            .select('id,shop_id')
+            .select('shop_id')
             .eq('owner_email', email)
             .limit(1);
         if (!existingShopError && Array.isArray(existingShopRows) && existingShopRows.length > 0) {
