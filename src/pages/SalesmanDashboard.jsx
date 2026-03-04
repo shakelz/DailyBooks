@@ -73,13 +73,8 @@ function newSimpleEntryForm() {
     };
 }
 
-function randomOnlineOrderId() {
-    return `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
-}
-
 function newOnlineOrderForm() {
     return {
-        orderId: randomOnlineOrderId(),
         platform: '',
         itemName: '',
         category: '',
@@ -4019,21 +4014,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         </div>
 
                         <form onSubmit={saveOnlineOrder} className="p-5 space-y-3">
-                            <div className="grid grid-cols-[1fr_auto] gap-2">
-                                <div>
-                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Order ID</label>
-                                    <input
-                                        value={onlineOrderForm.orderId}
-                                        onChange={(e) => {
-                                            setOnlineOrderForm((prev) => ({ ...prev, orderId: e.target.value }));
-                                            setOnlineOrderErrors((prev) => ({ ...prev, orderId: '' }));
-                                        }}
-                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.orderId ? 'border-rose-300' : 'border-slate-200'}`}
-                                    />
-                                    {onlineOrderErrors.orderId && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.orderId}</p>}
-                                </div>
-                                <button type="button" onClick={() => setOnlineOrderForm((prev) => ({ ...prev, orderId: randomOnlineOrderId() }))} className="self-end rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-600">Random</button>
-                            </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>

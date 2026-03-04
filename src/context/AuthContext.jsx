@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { supabase } from '../supabaseClient';
+import { supabase, isSupabaseLockTimeoutError, withSupabaseLockRetry } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
@@ -182,6 +182,17 @@ function asBoolean(value) {
 function asNumber(value, fallback = 0) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+async function safeSupabaseQuery(operation, fallbackError = 'Supabase request failed.') {
+    try {
+        return await withSupabaseLockRetry(operation, { retries: 1, delayMs: 140 });
+    } catch (error) {
+        if (isSupabaseLockTimeoutError(error)) {
+            return { data: null, error: { message: 'Auth lock acquisition timed out. Please try again.' } };
+        }
+        return { data: null, error: { message: asString(error?.message) || fallbackError } };
+    }
 }
 
 function isStackDepthError(error) {
@@ -603,11 +614,14 @@ async function requestAttendanceLogs(shopId) {
     const sid = asString(shopId);
     if (!sid) return { data: [], error: 'shop_id is required' };
 
-    const { data: rows, error } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('shop_id', sid)
-        .order('created_at', { ascending: false });
+    const { data: rows, error } = await safeSupabaseQuery(
+        () => supabase
+            .from('attendance')
+            .select('*')
+            .eq('shop_id', sid)
+            .order('created_at', { ascending: false }),
+        'Failed to load attendance.'
+    );
 
     if (error) {
         return { data: [], error: asString(error.message) || 'Failed to load attendance.' };
@@ -616,10 +630,13 @@ async function requestAttendanceLogs(shopId) {
     const userIds = Array.from(new Set((Array.isArray(rows) ? rows : []).map((row) => asString(row?.user_id)).filter(Boolean)));
     let profileNameById = {};
     if (userIds.length) {
-        const { data: profileRows } = await supabase
-            .from('profiles')
-            .select('user_id,full_name')
-            .in('user_id', userIds);
+        const { data: profileRows } = await safeSupabaseQuery(
+            () => supabase
+                .from('profiles')
+                .select('user_id,full_name')
+                .in('user_id', userIds),
+            'Failed to load attendance profiles.'
+        );
 
         profileNameById = (Array.isArray(profileRows) ? profileRows : []).reduce((acc, row) => {
             acc[asString(row?.user_id)] = asString(row?.full_name);
@@ -666,15 +683,18 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, attend
     }
 
     if (punchType === 'IN') {
-        const { data: existingOpenRow, error: existingOpenError } = await supabase
-            .from('attendance')
-            .select('attendance_id,check_in')
-            .eq('shop_id', sid)
-            .eq('user_id', uid)
-            .is('check_out', null)
-            .order('check_in', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        const { data: existingOpenRow, error: existingOpenError } = await safeSupabaseQuery(
+            () => supabase
+                .from('attendance')
+                .select('attendance_id,check_in')
+                .eq('shop_id', sid)
+                .eq('user_id', uid)
+                .is('check_out', null)
+                .order('check_in', { ascending: false })
+                .limit(1)
+                .maybeSingle(),
+            'Failed to verify active session.'
+        );
 
         if (existingOpenError) {
             console.error('Attendance open-row lookup failed before punch IN:', {
@@ -699,13 +719,16 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, attend
         }
 
         let hourlyRateSnapshot = null;
-        const { data: profileRow } = await supabase
-            .from('profiles')
-            .select('hourly_rate')
-            .eq('user_id', uid)
-            .eq('shop_id', sid)
-            .limit(1)
-            .maybeSingle();
+        const { data: profileRow } = await safeSupabaseQuery(
+            () => supabase
+                .from('profiles')
+                .select('hourly_rate')
+                .eq('user_id', uid)
+                .eq('shop_id', sid)
+                .limit(1)
+                .maybeSingle(),
+            'Failed to load hourly rate snapshot.'
+        );
 
         const parsedRate = asNumber(profileRow?.hourly_rate, NaN);
         if (Number.isFinite(parsedRate)) {
@@ -718,11 +741,14 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, attend
             check_in: ts,
             hourly_rate_snapshot: hourlyRateSnapshot,
         };
-        const { data: insertedRow, error: inError } = await supabase
-            .from('attendance')
-            .insert([insertPayload])
-            .select('attendance_id,check_in')
-            .single();
+        const { data: insertedRow, error: inError } = await safeSupabaseQuery(
+            () => supabase
+                .from('attendance')
+                .insert([insertPayload])
+                .select('attendance_id,check_in')
+                .single(),
+            'Failed to punch in.'
+        );
 
         if (inError) {
             console.error('Attendance punch IN insert failed:', {
@@ -747,29 +773,35 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, attend
         let openError = null;
 
         if (knownAttendanceId) {
-            const knownRowResult = await supabase
-                .from('attendance')
-                .select('attendance_id,check_in,hourly_rate_snapshot')
-                .eq('attendance_id', knownAttendanceId)
-                .eq('shop_id', sid)
-                .eq('user_id', uid)
-                .is('check_out', null)
-                .maybeSingle();
+            const knownRowResult = await safeSupabaseQuery(
+                () => supabase
+                    .from('attendance')
+                    .select('attendance_id,check_in,hourly_rate_snapshot')
+                    .eq('attendance_id', knownAttendanceId)
+                    .eq('shop_id', sid)
+                    .eq('user_id', uid)
+                    .is('check_out', null)
+                    .maybeSingle(),
+                'Failed to resolve active punch row.'
+            );
 
             openRow = knownRowResult.data || null;
             openError = knownRowResult.error || null;
         }
 
         if (!openRow && !openError) {
-            const openRowResult = await supabase
-                .from('attendance')
-                .select('attendance_id,check_in,hourly_rate_snapshot')
-                .eq('shop_id', sid)
-                .eq('user_id', uid)
-                .is('check_out', null)
-                .order('check_in', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+            const openRowResult = await safeSupabaseQuery(
+                () => supabase
+                    .from('attendance')
+                    .select('attendance_id,check_in,hourly_rate_snapshot')
+                    .eq('shop_id', sid)
+                    .eq('user_id', uid)
+                    .is('check_out', null)
+                    .order('check_in', { ascending: false })
+                    .limit(1)
+                    .maybeSingle(),
+                'Failed to resolve active punch row.'
+            );
 
             openRow = openRowResult.data || null;
             openError = openRowResult.error || null;
@@ -796,14 +828,17 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp, attend
             ? Math.round((hours * rateSnapshot) * 100) / 100
             : null;
 
-        const { error: outError } = await supabase
-            .from('attendance')
-            .update({
-                check_out: ts,
-                hours,
-                pay_amount: payAmount,
-            })
-            .eq('attendance_id', openAttendanceId);
+        const { error: outError } = await safeSupabaseQuery(
+            () => supabase
+                .from('attendance')
+                .update({
+                    check_out: ts,
+                    hours,
+                    pay_amount: payAmount,
+                })
+                .eq('attendance_id', openAttendanceId),
+            'Failed to punch out.'
+        );
 
         if (outError) {
             console.error('Attendance punch OUT update failed:', {
@@ -836,15 +871,18 @@ async function requestUserStatus({ shopId, userId }) {
     const uid = asString(userId);
     if (!sid || !uid) return { data: null, error: 'shop_id and user_id are required' };
 
-    const { data: openRow, error } = await supabase
-        .from('attendance')
-        .select('attendance_id,check_in,check_out,created_at')
-        .eq('shop_id', sid)
-        .eq('user_id', uid)
-        .is('check_out', null)
-        .order('check_in', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    const { data: openRow, error } = await safeSupabaseQuery(
+        () => supabase
+            .from('attendance')
+            .select('attendance_id,check_in,check_out,created_at')
+            .eq('shop_id', sid)
+            .eq('user_id', uid)
+            .is('check_out', null)
+            .order('check_in', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        'Failed to load user status.'
+    );
 
     if (error) {
         return { data: null, error: asString(error.message) || 'Failed to load user status.' };
@@ -870,11 +908,14 @@ async function requestStaffStatus(shopId) {
     const sid = asString(shopId);
     if (!sid) return { data: [], error: 'shop_id is required' };
 
-    const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('user_id,full_name,role,is_online,shop_id')
-        .eq('shop_id', sid)
-        .order('full_name', { ascending: true });
+    const { data: profiles, error } = await safeSupabaseQuery(
+        () => supabase
+            .from('profiles')
+            .select('user_id,full_name,role,is_online,shop_id')
+            .eq('shop_id', sid)
+            .order('full_name', { ascending: true }),
+        'Failed to load staff status.'
+    );
 
     if (error) return { data: [], error: asString(error.message) || 'Failed to load staff status.' };
 
@@ -1202,19 +1243,25 @@ async function syncProfileOnlineStatus(shopId, userId) {
     const uid = asString(userId);
     if (!sid || !uid) return;
 
-    const { data: openAttendance } = await supabase
-        .from('attendance')
-        .select('attendance_id')
-        .eq('shop_id', sid)
-        .eq('user_id', uid)
-        .not('check_in', 'is', null)
-        .is('check_out', null)
-        .limit(1);
+    const { data: openAttendance } = await safeSupabaseQuery(
+        () => supabase
+            .from('attendance')
+            .select('attendance_id')
+            .eq('shop_id', sid)
+            .eq('user_id', uid)
+            .not('check_in', 'is', null)
+            .is('check_out', null)
+            .limit(1),
+        'Failed to sync profile online status.'
+    );
 
-    await supabase
-        .from('profiles')
-        .update({ is_online: Array.isArray(openAttendance) && openAttendance.length > 0 })
-        .eq('user_id', uid);
+    await safeSupabaseQuery(
+        () => supabase
+            .from('profiles')
+            .update({ is_online: Array.isArray(openAttendance) && openAttendance.length > 0 })
+            .eq('user_id', uid),
+        'Failed to update profile online status.'
+    );
 }
 
 function buildShopUpdatePayloads({ name, address, telephone }) {
@@ -2330,17 +2377,58 @@ export function AuthProvider({ children }) {
         if (!sid) return;
 
         let cancelled = false;
+        let inFlight = false;
+
+        const canAcquireAuthLock = async () => {
+            if (typeof navigator === 'undefined' || !navigator?.locks?.request) return true;
+            try {
+                const acquired = await navigator.locks.request('supabase-auth-token', { ifAvailable: true, mode: 'exclusive' }, (lock) => Boolean(lock));
+                return Boolean(acquired);
+            } catch {
+                return false;
+            }
+        };
+
         const tick = async () => {
-            if (cancelled) return;
+            if (cancelled || inFlight) return;
             if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-            await fetchAttendanceState(sid, role, activeUserId);
+
+            const hasLock = await canAcquireAuthLock();
+            if (!hasLock) return;
+
+            inFlight = true;
+            try {
+                await fetchAttendanceState(sid, role, activeUserId);
+            } finally {
+                inFlight = false;
+            }
+        };
+
+        const onFocus = () => {
+            tick();
+        };
+        const onVisibility = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+                tick();
+            }
         };
 
         tick();
-        const intervalId = setInterval(tick, 3000);
+        if (typeof window !== 'undefined') {
+            window.addEventListener('focus', onFocus);
+        }
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', onVisibility);
+        }
+
         return () => {
             cancelled = true;
-            clearInterval(intervalId);
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('focus', onFocus);
+            }
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', onVisibility);
+            }
         };
     }, [activeUserId, activeUserShopId, fetchAttendanceState, role]);
 

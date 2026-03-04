@@ -568,7 +568,6 @@ function mapTxSource(value) {
     if (!raw) return 'cash';
     if (raw === 'cash') return 'cash';
     if (raw === 'sum_up' || raw === 'sumup') return 'sum_up';
-    if (raw === 'bank' || raw === 'bank_transfer' || raw === 'transfer') return 'bank_transfer';
     return 'cash';
 }
 
@@ -731,7 +730,10 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
     const amount = parseFloat(txn?.amount || 0) || 0;
     const discountAmount = parseFloat(txn?.discount_amount ?? txn?.discount ?? 0) || 0;
     const isFixedExpense = Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false);
-    const repairId = cleanText(txn?.repair_id || txn?.repairId) || null;
+    const repairIdRaw = cleanText(txn?.repair_id || txn?.repairId);
+    const productIdRaw = cleanText(txn?.product_id || txn?.productId);
+    const repairId = isUuidLike(repairIdRaw) ? repairIdRaw : null;
+    const productId = isUuidLike(productIdRaw) ? productIdRaw : null;
 
     const payload = withShopId({
         tx_type: mapTxType(txn?.tx_type || txn?.type),
@@ -745,11 +747,18 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
         is_fixed_expense: isFixedExpense,
         discount_amount: discountAmount,
         repair_id: repairId,
-        product_id: txn?.productId ? String(txn.productId) : null,
+        product_id: productId,
         created_by: workerId || null,
     }, shopId);
 
-    if (includeId) payload.transaction_id = String(txn?.id || Date.now());
+    if (includeId) {
+        const incomingTxId = cleanText(txn?.transaction_id || txn?.transactionId || txn?.id);
+        if (isUuidLike(incomingTxId)) {
+            payload.transaction_id = incomingTxId;
+        } else if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+            payload.transaction_id = crypto.randomUUID();
+        }
+    }
 
     return payload;
 }
