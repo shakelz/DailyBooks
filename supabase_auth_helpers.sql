@@ -78,50 +78,67 @@ as $$
       coalesce(nullif(to_jsonb(p) ->> 'user_id', ''), nullif(to_jsonb(p) ->> 'id', '')) as linked_user_id,
       lower(coalesce(to_jsonb(p) ->> 'role', '')) as role,
       coalesce(to_jsonb(p) ->> 'shop_id', '') as shop_id,
+      lower(coalesce(to_jsonb(p) ->> 'username', '')) as username,
+      lower(coalesce(to_jsonb(p) ->> 'name', '')) as profile_name,
+      lower(coalesce(to_jsonb(p) ->> 'full_name', '')) as profile_full_name,
+      lower(coalesce(to_jsonb(p) ->> 'email', '')) as profile_email,
       coalesce((nullif(to_jsonb(p) ->> 'created_at', ''))::timestamptz, now()) as created_at
     from public.profiles p
-    cross join input_key i
     where lower(coalesce(to_jsonb(p) ->> 'role', '')) in ('owner', 'super_admin', 'admin', 'superadmin', 'superuser')
-      and (
-        lower(coalesce(to_jsonb(p) ->> 'username', '')) = i.identifier
-        or lower(coalesce(to_jsonb(p) ->> 'name', '')) = i.identifier
-        or lower(coalesce(to_jsonb(p) ->> 'full_name', '')) = i.identifier
-        or (
-          position('@' in i.identifier) > 0
-          and exists (
-            select 1
-            from public.shops s
-            where (
-              coalesce(to_jsonb(s) ->> 'shop_id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
-              or coalesce(to_jsonb(s) ->> 'id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
-            )
-              and lower(coalesce(s.owner_email, '')) = i.identifier
-          )
-        )
-      )
-    order by p.created_at desc nulls last
-    limit 25
   ),
   resolved_users as (
     select
-      ap.profile_id,
-      ap.role,
-      ap.shop_id,
+      ap.*,
       case
         when ap.linked_user_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
           then ap.linked_user_id::uuid
         else null
       end as auth_uid
     from admin_profiles ap
+  ),
+  joined as (
+    select
+      ru.profile_id,
+      ru.role,
+      ru.shop_id,
+      ru.username,
+      ru.profile_name,
+      ru.profile_full_name,
+      ru.profile_email,
+      ru.created_at,
+      au.email::text as auth_email
+    from resolved_users ru
+    left join auth.users au on au.id = ru.auth_uid
   )
   select
-    au.email::text as auth_email,
-    ru.profile_id,
-    ru.role,
-    ru.shop_id
-  from resolved_users ru
-  join auth.users au on au.id = ru.auth_uid
-  where coalesce(au.email, '') <> ''
+    j.auth_email,
+    j.profile_id,
+    j.role,
+    j.shop_id
+  from joined j
+  cross join input_key i
+  where i.identifier <> ''
+    and (
+      j.username = i.identifier
+      or j.profile_name = i.identifier
+      or j.profile_full_name = i.identifier
+      or (position('@' in i.identifier) > 0 and lower(coalesce(j.auth_email, '')) = i.identifier)
+      or (position('@' in i.identifier) > 0 and j.profile_email = i.identifier)
+      or (
+        position('@' in i.identifier) > 0
+        and exists (
+          select 1
+          from public.shops s
+          where lower(coalesce(to_jsonb(s) ->> 'owner_email', '')) = i.identifier
+            and (
+              coalesce(to_jsonb(s) ->> 'shop_id', '') = j.shop_id
+              or coalesce(to_jsonb(s) ->> 'id', '') = j.shop_id
+            )
+        )
+      )
+    )
+    and coalesce(j.auth_email, '') <> ''
+  order by j.created_at desc nulls last
   limit 1;
 $$;
 

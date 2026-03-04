@@ -113,7 +113,7 @@ export default function AdminSettings() {
     }, [salesmanPin, showAddSalesman, editingId, checkSalesmanPinAvailability]);
 
     // ── Handlers ──
-    const handlePasswordUpdate = (e) => {
+    const handlePasswordUpdate = async (e) => {
         e.preventDefault();
         if (newPass.length < 4) {
             setPassMsg('❌ Password too short!');
@@ -123,10 +123,15 @@ export default function AdminSettings() {
             setPassMsg('❌ Passwords do not match!');
             return;
         }
-        updateAdminPassword(newPass);
-        setPassMsg('✅ Password updated successfully!');
-        setNewPass(''); setConfirmPass('');
-        setTimeout(() => setPassMsg(''), 2000);
+        try {
+            await updateAdminPassword(newPass);
+            setPassMsg('Password updated successfully.');
+            setNewPass('');
+            setConfirmPass('');
+            setTimeout(() => setPassMsg(''), 2000);
+        } catch (error) {
+            setPassMsg(error?.message || 'Failed to update password.');
+        }
     };
 
     const uploadSalesmanPhoto = async (file, salesmanId) => {
@@ -733,7 +738,7 @@ export default function AdminSettings() {
                             placeholder="Confirm new password"
                         />
                     </div>
-                    {passMsg && <p className={`text-sm font-medium ${passMsg.includes('✅') ? 'text-emerald-500' : 'text-red-500'}`}>{passMsg}</p>}
+                    {passMsg && <p className={`text-sm font-medium ${passMsg.toLowerCase().includes('successfully') ? 'text-emerald-500' : 'text-red-500'}`}>{passMsg}</p>}
                     <button type="submit" className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 active:scale-95 transition-all">
                         Update Password
                     </button>

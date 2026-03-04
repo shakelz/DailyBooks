@@ -676,6 +676,7 @@ async function requestAdminLogin({ identifier, password }) {
         return { profile: null, error: 'Auth session not created. Please try again.' };
     }
 
+    let profileFromAuthUser = null;
     if (!resolvedFromIdentifier.role || !isAdminRoleName(resolvedFromIdentifier.role) || !resolvedFromIdentifier.profileId) {
         const resolvedByAuthEmail = await resolveAdminAuthFromIdentifier(authEmail);
         if (resolvedByAuthEmail.error) {
@@ -689,20 +690,41 @@ async function requestAdminLogin({ identifier, password }) {
             shopId: resolvedByAuthEmail.shopId || resolvedFromIdentifier.shopId,
             error: '',
         };
+
+        profileFromAuthUser = await getAdminProfileByAuthUser(authUser.id, authEmail, null);
+        if (profileFromAuthUser) {
+            resolvedFromIdentifier = {
+                ...resolvedFromIdentifier,
+                profileId: asString(resolvedFromIdentifier.profileId || profileFromAuthUser.user_id || profileFromAuthUser.id),
+                role: normalizeRoleName(resolvedFromIdentifier.role || profileFromAuthUser.role),
+                shopId: asString(resolvedFromIdentifier.shopId || profileFromAuthUser.shop_id),
+            };
+        }
     }
 
-    const normalizedRole = normalizeRoleName(resolvedFromIdentifier.role);
+    const normalizedRole = normalizeRoleName(resolvedFromIdentifier.role || profileFromAuthUser?.role);
     if (!isAdminRoleName(normalizedRole)) {
         await supabase.auth.signOut().catch(() => undefined);
         return { profile: null, error: 'Not allowed.' };
     }
 
-    let resolvedProfile = null;
+    let resolvedProfile = profileFromAuthUser;
     if (resolvedFromIdentifier.profileId) {
-        resolvedProfile = await findAdminProfileByPrimaryId(resolvedFromIdentifier.profileId);
+        const profileByPrimaryId = await findAdminProfileByPrimaryId(resolvedFromIdentifier.profileId);
+        if (profileByPrimaryId) {
+            resolvedProfile = profileByPrimaryId;
+        }
+    }
+    if (!resolvedProfile) {
+        resolvedProfile = await getAdminProfileByAuthUser(authUser.id, authEmail, null);
     }
 
-    const fallbackProfileId = asString(resolvedFromIdentifier.profileId || authUser.id);
+    const fallbackProfileId = asString(
+        resolvedFromIdentifier.profileId
+        || resolvedProfile?.user_id
+        || resolvedProfile?.id
+        || authUser.id
+    );
     const profile = resolvedProfile || {
         id: fallbackProfileId,
         user_id: fallbackProfileId,
@@ -1001,9 +1023,14 @@ function mergeShopMeta(shop = {}, metaMap = {}) {
 }
 
 function makeRowId() {
-    const timePart = Date.now().toString(36).slice(-4);
-    const randomPart = Math.random().toString(36).slice(2, 6);
-    return `${timePart}${randomPart}`;
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+        const rand = Math.floor(Math.random() * 16);
+        const val = ch === 'x' ? rand : ((rand & 0x3) | 0x8);
+        return val.toString(16);
+    });
 }
 
 function normalizeUserFromProfile(profile) {
@@ -1098,7 +1125,7 @@ async function attachShopOwnerCredentials(shopList = []) {
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .in('role', ['owner', 'admin'])
+        .in('role', DB_ADMIN_ROLES)
         .in('shop_id', shopIds);
 
     if (error || !Array.isArray(data)) return normalizedShops;
@@ -1129,22 +1156,50 @@ async function attachShopOwnerCredentials(shopList = []) {
     return enrichedShops;
 }
 
-function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPasswordHash }) {
+function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPassword = '', ownerPasswordHash = '' }) {
     const safeName = asString(name);
     const safeAddress = asString(address);
     const safeOwnerEmail = asString(ownerEmail).toLowerCase();
     const safeTelephone = asString(telephone);
+    const safeOwnerPassword = asString(ownerPassword);
     const safeOwnerPasswordHash = asString(ownerPasswordHash);
     if (!safeName) return [];
 
-    return [cleanPayload({
-        shop_id: makeRowId(),
+    const generatedId = makeRowId();
+    const modernWithId = cleanPayload({
+        id: generatedId,
+        name: safeName,
+        address: safeAddress,
+        owner_email: safeOwnerEmail,
+        telephone: safeTelephone,
+        owner_password: safeOwnerPassword || undefined,
+    });
+    const modernWithoutId = cleanPayload({
+        name: safeName,
+        address: safeAddress,
+        owner_email: safeOwnerEmail,
+        telephone: safeTelephone,
+        owner_password: safeOwnerPassword || undefined,
+    });
+    const legacyWithId = cleanPayload({
+        shop_id: generatedId,
         shop_name: safeName,
         address: safeAddress,
         owner_email: safeOwnerEmail,
         telephone: safeTelephone,
-        owner_password_hash: safeOwnerPasswordHash || null,
-    })];
+        password: safeOwnerPassword || undefined,
+        owner_password_hash: safeOwnerPasswordHash || undefined,
+    });
+    const legacyWithoutId = cleanPayload({
+        shop_name: safeName,
+        address: safeAddress,
+        owner_email: safeOwnerEmail,
+        telephone: safeTelephone,
+        password: safeOwnerPassword || undefined,
+        owner_password_hash: safeOwnerPasswordHash || undefined,
+    });
+    return dedupePayloads([modernWithId, modernWithoutId, legacyWithId, legacyWithoutId])
+        .filter((payload) => Object.keys(payload).length > 0);
 }
 
 function cleanPayload(payload) {
@@ -1222,15 +1277,29 @@ async function syncProfileOnlineStatus(shopId, userId) {
 }
 
 function buildShopUpdatePayloads({ name, address, ownerEmail, telephone, ownerPassword }) {
-    const payload = cleanPayload({
-        ...(name === undefined ? {} : { shop_name: asString(name) }),
-        ...(address === undefined ? {} : { address: asString(address) }),
-        ...(ownerEmail === undefined ? {} : { owner_email: asString(ownerEmail).toLowerCase() }),
-        ...(telephone === undefined ? {} : { telephone: asString(telephone) }),
-        ...(ownerPassword === undefined ? {} : { owner_password_hash: asString(ownerPassword) }),
+    const safeName = name === undefined ? undefined : asString(name);
+    const safeAddress = address === undefined ? undefined : asString(address);
+    const safeOwnerEmail = ownerEmail === undefined ? undefined : asString(ownerEmail).toLowerCase();
+    const safeTelephone = telephone === undefined ? undefined : asString(telephone);
+    const safeOwnerPassword = ownerPassword === undefined ? undefined : asString(ownerPassword);
+
+    const modernPayload = cleanPayload({
+        ...(safeName === undefined ? {} : { name: safeName }),
+        ...(safeAddress === undefined ? {} : { address: safeAddress }),
+        ...(safeOwnerEmail === undefined ? {} : { owner_email: safeOwnerEmail }),
+        ...(safeTelephone === undefined ? {} : { telephone: safeTelephone }),
+        ...(safeOwnerPassword === undefined ? {} : { owner_password: safeOwnerPassword }),
+    });
+    const legacyPayload = cleanPayload({
+        ...(safeName === undefined ? {} : { shop_name: safeName }),
+        ...(safeAddress === undefined ? {} : { address: safeAddress }),
+        ...(safeOwnerEmail === undefined ? {} : { owner_email: safeOwnerEmail }),
+        ...(safeTelephone === undefined ? {} : { telephone: safeTelephone }),
+        ...(safeOwnerPassword === undefined ? {} : { owner_password_hash: safeOwnerPassword }),
+        ...(safeOwnerPassword === undefined ? {} : { password: safeOwnerPassword }),
     });
 
-    return Object.keys(payload).length ? [payload] : [];
+    return dedupePayloads([modernPayload, legacyPayload]).filter((payload) => Object.keys(payload).length > 0);
 }
 
 function buildShopOwnerProfileUpdatePayloads({ ownerEmail, ownerPassword }) {
@@ -1617,7 +1686,7 @@ export function AuthProvider({ children }) {
             return [];
         }
 
-        const isIndependentAdmin = asString(role) === 'admin' && !asString(user?.shop_id);
+        const isIndependentAdmin = isAdminRoleName(role) && !isSuperAdminRole(role) && !asString(user?.shop_id);
 
         if (isSuperAdminRole(role) || isIndependentAdmin) {
             const { data, error } = await supabase.from('shops').select('*').order('name', { ascending: true });
@@ -1760,7 +1829,7 @@ export function AuthProvider({ children }) {
 
     const setActiveShopId = useCallback((shopId) => {
         const sid = asString(shopId);
-        const isIndependentAdmin = asString(role) === 'admin' && !asString(user?.shop_id);
+        const isIndependentAdmin = isAdminRoleName(role) && !isSuperAdminRole(role) && !asString(user?.shop_id);
         if (isSuperAdmin || isIndependentAdmin) {
             setActiveShopIdState(sid);
             return;
@@ -1790,6 +1859,7 @@ export function AuthProvider({ children }) {
         }
 
         const generatedOwnerPassword = Math.random().toString(36).slice(-8);
+        const generatedOwnerPasswordHash = await computeOwnerPasswordHash(generatedOwnerPassword);
         let createdShop = null;
         let shopError = null;
         const shopPayloads = buildShopInsertPayloads({
@@ -1797,7 +1867,8 @@ export function AuthProvider({ children }) {
             address: shopAddress,
             ownerEmail: email,
             telephone: shopTelephone,
-            ownerPassword: generatedOwnerPassword
+            ownerPassword: generatedOwnerPassword,
+            ownerPasswordHash: generatedOwnerPasswordHash,
         });
 
         for (const payload of shopPayloads) {
@@ -2033,7 +2104,7 @@ export function AuthProvider({ children }) {
                         .from('profiles')
                         .select('*')
                         .eq('shop_id', sid)
-                        .eq('role', 'admin')
+                        .in('role', DB_ADMIN_ROLES)
                         .limit(1);
 
                     if (error) {
@@ -2631,13 +2702,21 @@ export function AuthProvider({ children }) {
             throw new Error('Only logged-in admin users can change password.');
         }
 
-        const { error } = await supabase
+        const { error: authError } = await supabase.auth.updateUser({
+            password: nextPass,
+        });
+        if (authError) {
+            throw new Error(authError.message || 'Failed to update auth password.');
+        }
+
+        // Best-effort sync for projects that still keep a profile password mirror.
+        const { error: profileError } = await supabase
             .from('profiles')
             .update({ password: nextPass })
-            .eq('id', userId);
+            .or(`id.eq.${userId},user_id.eq.${userId}`);
 
-        if (error) {
-            throw new Error(error.message || 'Failed to update admin password.');
+        if (profileError && !isMissingColumnError(profileError, 'profiles.password') && !isMissingColumnError(profileError, 'password')) {
+            throw new Error(profileError.message || 'Password updated in auth, but profile sync failed.');
         }
 
         setUser((prev) => (prev ? { ...prev, password: nextPass } : prev));
@@ -2756,7 +2835,7 @@ export function AuthProvider({ children }) {
         const payloads = buildProfileInsertPayloads({
             name: adminName,
             email: adminEmail,
-            role: 'admin',
+            role: 'owner',
             shopId: null,
             password: adminPassword,
             includePin: false,
