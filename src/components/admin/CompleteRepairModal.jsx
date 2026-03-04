@@ -38,6 +38,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
     }, [products, searchTerm, isOpen, job]);
 
     const totalPartsCost = selectedParts.reduce((sum, part) => sum + (part.costPrice * part.quantity), 0);
+    const invoiceNumber = String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim();
 
     if (!isOpen || !job) return null;
 
@@ -127,7 +128,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         return `<!DOCTYPE html>
 <html>
 <head>
-    <title>Reparaturrechnung - ${esc(printData.refId)}</title>
+    <title>Reparaturrechnung - ${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Courier New', monospace; width: 80mm; font-size: 16px; font-weight: 900; }
@@ -154,7 +155,8 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         ${receiptShopAddress ? `<div class="shop-addr">${esc(receiptShopAddress)}</div>` : ''}
         ${receiptShopPhone ? `<div class="shop-addr">Tel: ${esc(receiptShopPhone)}</div>` : ''}
         <div class="divider"></div>
-        <div class="ref-id">${esc(printData.refId)}</div>
+        <div class="ref-id">${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</div>
+        <div class="row"><span class="label-text">Rechnung Nr:</span><span>${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</span></div>
         <div class="divider"></div>
         <div class="row"><span class="label-text">Fertiggestellt:</span><span>${toDate(completedAt, true)}</span></div>
         <div class="row"><span class="label-text">Abholdatum:</span><span>${toDate(printData.deliveryDate)}</span></div>
@@ -183,7 +185,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
 
     <div class="slip">
         <div class="title">— Ladenkopie —</div>
-        <div class="ref-id">${esc(printData.refId)}</div>
+        <div class="ref-id">${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</div>
         <div class="divider"></div>
         <div class="row"><span class="label-text">Kunde:</span><span>${esc(printData.customerName)}</span></div>
         <div class="row"><span class="label-text">Geraet:</span><span>${esc(printData.deviceModel)}</span></div>
@@ -266,7 +268,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
                         <h2 className="text-xl font-bold flex items-center gap-2">
                             <CheckCircle2 size={24} /> Complete Repair
                         </h2>
-                        <p className="text-emerald-100 text-sm">{job.refId} • {job.customerName}</p>
+                        <p className="text-emerald-100 text-sm">{invoiceNumber} • {job.customerName}</p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition-colors">
                         <X size={20} />

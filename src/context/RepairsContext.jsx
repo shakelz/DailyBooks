@@ -119,6 +119,8 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
         ...record,
         id,
         refId: cleanText(record?.refId || record?.ref_id),
+        invoiceNumber: cleanText(record?.invoiceNumber || record?.invoice_number),
+        invoice_number: cleanText(record?.invoiceNumber || record?.invoice_number),
         customerName: cleanText(record?.customerName || record?.customer_name),
         phone: cleanText(record?.customer_phone || record?.phone || record?.customerPhone),
         deviceModel: cleanText(record?.deviceModel || record?.device_model),

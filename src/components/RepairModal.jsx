@@ -61,6 +61,8 @@ export default function RepairModal({ isOpen, onClose }) {
                 throw new Error('Repair job save response is invalid.');
             }
 
+            const invoiceNumber = String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim();
+
             if (shouldPrint) {
                 const printWindow = window.open('', '_blank', 'width=420,height=700');
                 if (!printWindow) {
@@ -77,6 +79,8 @@ export default function RepairModal({ isOpen, onClose }) {
                         }, 150);
                     };
                 }
+            } else if (invoiceNumber) {
+                alert(`Repair saved successfully. Invoice Number: ${invoiceNumber}`);
             }
 
             setTimeout(() => {
@@ -102,6 +106,7 @@ export default function RepairModal({ isOpen, onClose }) {
             ? parsedDelivery.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
             : 'N/A';
         const problemNote = esc(job?.problem || job?.notes || 'N/A');
+        const invoiceNumber = esc(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || 'N/A');
         const estimatedCost = Number.isFinite(parseFloat(job?.estimatedCost))
             ? parseFloat(job.estimatedCost)
             : 0;
@@ -112,7 +117,7 @@ export default function RepairModal({ isOpen, onClose }) {
         return `<!DOCTYPE html>
 <html>
 <head>
-    <title>Reparaturbeleg - ${esc(job.refId)}</title>
+    <title>Reparaturbeleg - ${invoiceNumber}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Courier New', monospace; width: 80mm; font-size: 18px; font-weight: 900; }
@@ -137,10 +142,11 @@ export default function RepairModal({ isOpen, onClose }) {
         ${receiptShopAddress ? `<div class="shop-addr">${esc(receiptShopAddress)}</div>` : ''}
         ${receiptShopPhone ? `<div class="shop-addr">Tel: ${esc(receiptShopPhone)}</div>` : ''}
         <div class="divider"></div>
-        <div class="ref-id">${esc(job.refId)}</div>
+        <div class="ref-id">${invoiceNumber}</div>
         <div class="divider"></div>
         <div class="pickup-slip">ABHOLSCHEIN</div>
         <div class="divider"></div>
+        <div class="row"><span class="label-text">Rechnung Nr:</span><span>${invoiceNumber}</span></div>
         <div class="row"><span class="label-text">Name:</span><span>${esc(job.customerName)}</span></div>
         <div class="row"><span class="label-text">Telefon:</span><span>${esc(job.phone)}</span></div>
         <div class="row"><span class="label-text">Geraet:</span><span>${esc(job.deviceModel)}</span></div>

@@ -60,6 +60,7 @@ export default function LatestDashboard() {
     const { repairJobs, updateRepairStatus } = useRepairs();
     const { cart, addToCart, setEditingCartItem } = useCart();
     const pendingRepairs = repairJobs.filter(j => j.status === 'pending');
+    const getRepairInvoiceNumber = (job = {}) => String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim();
 
     // Cart edit state
     const [editingCartItemData, setEditingCartItemData] = useState(null);
@@ -86,11 +87,11 @@ export default function LatestDashboard() {
         // 3. Add Transaction
         addTransaction({
             id: Date.now(),
-            desc: `Repair Service: ${job.deviceModel} (${job.refId})`,
+            desc: `Repair Service: ${job.deviceModel} (${getRepairInvoiceNumber(job) || '-'})`,
             amount: finalAmount,
             type: 'income',
             category: 'Repair Service',
-            notes: `Customer: ${job.customerName} | ${job.problem} | Parts Cost: €${totalPartsCost.toFixed(2)}`,
+            notes: `RepairRef:${getRepairInvoiceNumber(job)} | Customer: ${job.customerName} | ${job.problem} | Parts Cost: €${totalPartsCost.toFixed(2)}`,
             source: 'repair',
             date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
@@ -983,7 +984,7 @@ export default function LatestDashboard() {
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2 mb-1">
-                                                        <span className="text-xs font-black text-blue-600 font-mono">{job.refId}</span>
+                                                        <span className="text-xs font-black text-blue-600 font-mono">{getRepairInvoiceNumber(job)}</span>
                                                         {isOverdue && <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[8px] font-bold uppercase">OVERDUE</span>}
                                                     </div>
                                                     <p className="text-sm font-bold text-slate-800">{job.customerName}</p>

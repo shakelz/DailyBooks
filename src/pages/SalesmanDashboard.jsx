@@ -564,6 +564,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [realtimeStats, setRealtimeStats] = useState(null);
     const [showPendingOrders, setShowPendingOrders] = useState(false);
     const [pendingTab, setPendingTab] = useState('orders');
+    const [repairSearchQuery, setRepairSearchQuery] = useState('');
     const [onlineOrders, setOnlineOrders] = useState([]);
     const [showOnlineOrderForm, setShowOnlineOrderForm] = useState(false);
     const [onlineOrderForm, setOnlineOrderForm] = useState(newOnlineOrderForm());
@@ -1868,6 +1869,25 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return dt.toLocaleString('de-DE');
     };
 
+    const getRepairInvoiceNumber = (job = {}) => String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim();
+
+    const filteredPendingOrders = useMemo(() => {
+        const query = String(repairSearchQuery || '').trim().toLowerCase();
+        if (!query) return pendingOrders;
+        return (pendingOrders || []).filter((job) => {
+            const invoice = getRepairInvoiceNumber(job).toLowerCase();
+            const haystack = [
+                invoice,
+                String(job?.customerName || '').toLowerCase(),
+                String(job?.phone || job?.customerPhone || '').toLowerCase(),
+                String(job?.deviceModel || '').toLowerCase(),
+                String(job?.imei || '').toLowerCase(),
+                String(job?.problem || job?.issueType || '').toLowerCase(),
+            ].join(' ');
+            return haystack.includes(query);
+        });
+    }, [pendingOrders, repairSearchQuery]);
+
     const printPendingRepairBill = (job) => {
         if (!job) return;
         const popup = window.open('', 'pending-repair-bill', 'width=420,height=760');
@@ -1904,8 +1924,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         ${receiptShopPhone ? `<p>Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
                     </div>
                     <div class="line"></div>
-                    <p class="ticket-id">${toSafe(job.refId || job.id || '-')}</p>
+                    <p class="ticket-id">${toSafe(getRepairInvoiceNumber(job) || '-')}</p>
                     <div class="line"></div>
+                    <div class="row"><span>Rechnung Nr</span><span>${toSafe(getRepairInvoiceNumber(job) || '-')}</span></div>
                     <div class="row"><span>Name</span><span>${toSafe(job.customerName || '-')}</span></div>
                     <div class="row"><span>Telefon</span><span>${toSafe(job.phone || job.customerPhone || '-')}</span></div>
                     <div class="row"><span>Gerät</span><span>${toSafe(job.deviceModel || '-')}</span></div>
@@ -1982,7 +2003,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     const hasRepairStageTransaction = (job, stage = 'ADVANCE') => {
-        const marker = `RepairRef:${job?.refId || job?.id || ''}`;
+        const marker = `RepairRef:${getRepairInvoiceNumber(job)}`;
         const stageMarker = `${marker} | Stage:${stage}`;
         return (transactions || []).some((txn) => (
             String(txn?.source || '').toLowerCase() === 'repair'
@@ -1996,12 +2017,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (advanceAmount <= 0) return;
         if (hasRepairStageTransaction(job, 'ADVANCE')) return;
 
-        const marker = `RepairRef:${job.refId || job.id}`;
+        const repairReference = getRepairInvoiceNumber(job);
+        const marker = `RepairRef:${repairReference}`;
         const bookedAt = job?.createdAt ? new Date(job.createdAt) : new Date();
         const when = Number.isNaN(bookedAt.getTime()) ? new Date() : bookedAt;
 
         await addTransaction({
-            desc: `Repair Advance: ${job.deviceModel || 'Device'} (${job.refId || job.id})`,
+            desc: `Repair Advance: ${job.deviceModel || 'Device'} (${repairReference || '-'})`,
             amount: advanceAmount,
             quantity: 1,
             type: 'income',
@@ -2044,10 +2066,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             await ensureRepairAdvanceTransaction(job);
 
             if (remainingAmount > 0 && !hasRepairStageTransaction(job, 'REMAINING')) {
-                const marker = `RepairRef:${job.refId || job.id}`;
+                const repairReference = getRepairInvoiceNumber(job);
+                const marker = `RepairRef:${repairReference}`;
                 const now = new Date();
                 await addTransaction({
-                    desc: `Repair Remaining: ${job.deviceModel || 'Device'} (${job.refId || job.id})`,
+                    desc: `Repair Remaining: ${job.deviceModel || 'Device'} (${repairReference || '-'})`,
                     amount: remainingAmount,
                     quantity: 1,
                     type: 'income',
@@ -2063,7 +2086,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
                 });
             }
-            setToast(`Repair ${job.refId || ''} marked completed`);
+            setToast(`Repair ${getRepairInvoiceNumber(job) || ''} marked completed`);
             setTimeout(() => setToast(''), 1800);
         } catch (error) {
             alert(error?.message || 'Failed to update repair status');
@@ -3818,6 +3841,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
                             {pendingTab === 'orders' ? (
                                 <>
+                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                    <input
+                                        value={repairSearchQuery}
+                                        onChange={(e) => setRepairSearchQuery(e.target.value)}
+                                        placeholder="Search invoice, customer, phone, device..."
+                                        className="w-full text-xs text-slate-700 placeholder:text-slate-400 bg-transparent outline-none"
+                                    />
+                                </div>
                                 <button
                                     onClick={() => {
                                         setShowPendingOrders(false);
@@ -3827,16 +3858,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 >
                                     + Add Repair Job
                                 </button>
-                                {pendingOrders.length === 0 ? (
+                                {filteredPendingOrders.length === 0 ? (
                                     <div className="text-center py-12">
                                         <p className="text-4xl">OK</p>
                                         <p className="text-sm text-slate-500 mt-2">No pending orders</p>
                                     </div>
-                                ) : pendingOrders.map((job) => (
+                                ) : filteredPendingOrders.map((job) => (
                                     <div key={job.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                                         <div className="flex items-start justify-between gap-2">
                                             <div className="min-w-0">
-                                                <p className="text-xs font-black text-blue-600">{job.refId}</p>
+                                                <p className="text-xs font-black text-blue-600">{getRepairInvoiceNumber(job) || '-'}</p>
                                                 <p className="text-sm font-bold text-slate-800 truncate">{job.customerName || 'Customer'}</p>
                                             </div>
                                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">{job.status || 'pending'}</span>

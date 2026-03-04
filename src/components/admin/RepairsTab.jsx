@@ -26,6 +26,8 @@ export default function RepairsTab() {
     // Modal State
     const [completingJob, setCompletingJob] = useState(null);
 
+    const getRepairInvoiceNumber = (job = {}) => String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim();
+
     const resolveRepairDate = (job) => {
         const raw = job?.createdAt || job?.created_at || job?.timestamp || '';
         const parsed = new Date(raw);
@@ -75,6 +77,7 @@ export default function RepairsTab() {
             if (searchTerm.trim()) {
                 const q = searchTerm.toLowerCase();
                 return (
+                    String(j.invoiceNumber || j.invoice_number || '').toLowerCase().includes(q) ||
                     String(j.refId || '').toLowerCase().includes(q) ||
                     String(j.customerName || j.customer_name || '').toLowerCase().includes(q) ||
                     String(j.phone || j.customerPhone || '').includes(q) ||
@@ -142,11 +145,11 @@ export default function RepairsTab() {
         // 3. Add Transaction
         addTransaction({
             id: Date.now(),
-            desc: `Repair Service: ${job.deviceModel} (${job.refId})`,
+            desc: `Repair Service: ${job.deviceModel} (${getRepairInvoiceNumber(job) || '-'})`,
             amount: finalAmount,
             type: 'income',
             category: 'Repair Service',
-            notes: `Customer: ${job.customerName} | ${job.problem} | Parts Cost: EUR ${totalPartsCost.toFixed(2)}`,
+            notes: `RepairRef:${getRepairInvoiceNumber(job)} | Customer: ${job.customerName} | ${job.problem} | Parts Cost: EUR ${totalPartsCost.toFixed(2)}`,
             source: 'repair',
             date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
             time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
@@ -157,7 +160,7 @@ export default function RepairsTab() {
     };
 
     const handleDelete = (job) => {
-        if (window.confirm(`Delete repair ${job.refId}? This cannot be undone.`)) {
+        if (window.confirm(`Delete repair ${getRepairInvoiceNumber(job)}? This cannot be undone.`)) {
             deleteRepair(job.id);
         }
     };
@@ -219,7 +222,7 @@ export default function RepairsTab() {
                     <input
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
-                        placeholder="Search by Ref ID, Customer, Device, Phone..."
+                        placeholder="Search by Invoice, Ref ID, Customer, Device, Phone..."
                         className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     />
                 </div>
@@ -270,7 +273,7 @@ export default function RepairsTab() {
                                         {/* Left Info */}
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-3 mb-2">
-                                                <span className="text-sm font-black text-blue-600 font-mono">{job.refId}</span>
+                                                <span className="text-sm font-black text-blue-600 font-mono">{getRepairInvoiceNumber(job)}</span>
                                                 <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider
                                                     ${sc.color === 'amber' ? 'bg-amber-100 text-amber-700'
                                                         : 'bg-emerald-100 text-emerald-700'}`}>
