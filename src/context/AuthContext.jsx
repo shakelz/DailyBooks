@@ -1966,24 +1966,48 @@ export function AuthProvider({ children }) {
         const generatedOwnerPassword = Math.random().toString(36).slice(-8);
         let createdShop = null;
         let shopError = null;
-        const shopPayloads = buildShopInsertPayloads({
-            name,
-            address: shopAddress,
-            ownerEmail: email,
-            telephone: shopTelephone,
-            ownerPassword: generatedOwnerPassword,
+
+        const { data: rpcShopData, error: rpcShopError } = await supabase.rpc('create_shop_record', {
+            p_name: name,
+            p_address: shopAddress || null,
+            p_owner_email: email || null,
+            p_telephone: shopTelephone || null,
+            p_owner_password: generatedOwnerPassword || null,
         });
 
-        for (const payload of shopPayloads) {
-            const { data, error } = await supabase.from('shops').insert([payload]).select().single();
-            if (!error && data) {
-                createdShop = normalizeShop(data);
-                break;
+        if (!rpcShopError) {
+            const rpcShopRow = Array.isArray(rpcShopData) ? rpcShopData[0] : rpcShopData;
+            if (rpcShopRow) {
+                createdShop = normalizeShop(rpcShopRow);
             }
-            shopError = error;
+        } else if (!isMissingFunctionError(rpcShopError, 'create_shop_record')) {
+            shopError = rpcShopError;
         }
 
         if (!createdShop) {
+            const shopPayloads = buildShopInsertPayloads({
+                name,
+                address: shopAddress,
+                ownerEmail: email,
+                telephone: shopTelephone,
+                ownerPassword: generatedOwnerPassword,
+            });
+
+            for (const payload of shopPayloads) {
+                const { data, error } = await supabase.from('shops').insert([payload]).select().single();
+                if (!error && data) {
+                    createdShop = normalizeShop(data);
+                    shopError = null;
+                    break;
+                }
+                shopError = error;
+            }
+        }
+
+        if (!createdShop) {
+            if (isStackDepthError(shopError)) {
+                throw new Error('Database recursion detected while creating shop. Run latest supabase_auth_helpers.sql (create_shop_record) and review shops RLS/policies.');
+            }
             throw new Error(shopError?.message || 'Failed to create shop.');
         }
 
