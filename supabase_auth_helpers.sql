@@ -74,12 +74,11 @@ as $$
   ),
   admin_profiles as (
     select
-      coalesce(nullif(to_jsonb(p) ->> 'user_id', ''), nullif(to_jsonb(p) ->> 'id', '')) as profile_id,
-      coalesce(nullif(to_jsonb(p) ->> 'user_id', ''), nullif(to_jsonb(p) ->> 'id', '')) as linked_user_id,
+      nullif(to_jsonb(p) ->> 'user_id', '') as profile_id,
+      nullif(to_jsonb(p) ->> 'user_id', '') as linked_user_id,
       lower(coalesce(to_jsonb(p) ->> 'role', '')) as role,
       coalesce(to_jsonb(p) ->> 'shop_id', '') as shop_id,
       lower(coalesce(to_jsonb(p) ->> 'username', '')) as username,
-      lower(coalesce(to_jsonb(p) ->> 'name', '')) as profile_name,
       lower(coalesce(to_jsonb(p) ->> 'full_name', '')) as profile_full_name,
       coalesce((nullif(to_jsonb(p) ->> 'created_at', ''))::timestamptz, now()) as created_at
     from public.profiles p
@@ -101,7 +100,6 @@ as $$
       ru.role,
       ru.shop_id,
       ru.username,
-      ru.profile_name,
       ru.profile_full_name,
       ru.created_at,
       au.email::text as auth_email
@@ -118,7 +116,6 @@ as $$
   where i.identifier <> ''
     and (
       j.username = i.identifier
-      or j.profile_name = i.identifier
       or j.profile_full_name = i.identifier
       or (position('@' in i.identifier) > 0 and lower(coalesce(j.auth_email, '')) = i.identifier)
       or (

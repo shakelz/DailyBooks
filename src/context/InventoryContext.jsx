@@ -111,12 +111,12 @@ async function executeWithPrunedColumns(operation, payload, maxAttempts = 12) {
 function buildWorkersLookup(salesmen = [], profileRows = []) {
     const lookup = {};
     const pushWorker = (worker = {}) => {
-        const id = cleanText(worker?.id);
+        const id = cleanText(worker?.id || worker?.user_id);
         if (!id) return;
         const salesmanNumber = Number(worker?.salesmanNumber ?? worker?.salesman_number ?? 0) || 0;
         lookup[id] = {
             id,
-            name: cleanText(worker?.name),
+            name: cleanText(worker?.name || worker?.full_name),
             salesmanNumber
         };
     };
@@ -846,7 +846,7 @@ export function InventoryProvider({ children }) {
                 supabase.from('transactions').select('*').eq('shop_id', sid),
                 supabase.from('categories').select('*').eq('shop_id', sid),
                 supabase.from('transaction_items').select('*').eq('shop_id', sid),
-                supabase.from('profiles').select('id,name,salesman_number,salesmanNumber').eq('shop_id', sid),
+                supabase.from('profiles').select('user_id,full_name,salesman_number').eq('shop_id', sid),
             ]);
 
             if (cancelled) return;

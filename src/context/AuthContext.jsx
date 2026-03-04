@@ -817,11 +817,11 @@ async function requestAttendanceLogs(shopId) {
     if (userIds.length) {
         const { data: profileRows } = await supabase
             .from('profiles')
-            .select('id,name')
-            .in('id', userIds);
+            .select('user_id,full_name')
+            .in('user_id', userIds);
 
         profileNameById = (Array.isArray(profileRows) ? profileRows : []).reduce((acc, row) => {
-            acc[asString(row?.id)] = asString(row?.name);
+            acc[asString(row?.user_id)] = asString(row?.full_name);
             return acc;
         }, {});
     }
@@ -837,14 +837,15 @@ async function requestAttendanceLogs(shopId) {
         };
 
         const events = [];
+        const attendanceRowId = asString(row?.attendance_id || row?.id);
         if (asString(row?.check_in)) {
-            events.push({ ...base, id: `${asString(row?.id)}:IN`, type: 'IN', timestamp: asString(row?.check_in) });
+            events.push({ ...base, id: `${attendanceRowId}:IN`, type: 'IN', timestamp: asString(row?.check_in) });
         }
         if (asString(row?.check_out)) {
-            events.push({ ...base, id: `${asString(row?.id)}:OUT`, type: 'OUT', timestamp: asString(row?.check_out) });
+            events.push({ ...base, id: `${attendanceRowId}:OUT`, type: 'OUT', timestamp: asString(row?.check_out) });
         }
         if (!events.length) {
-            events.push({ ...base, id: asString(row?.id), type: 'IN', timestamp: asString(row?.created_at) });
+            events.push({ ...base, id: attendanceRowId, type: 'IN', timestamp: asString(row?.created_at) });
         }
         return events;
     });
@@ -863,22 +864,36 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
     }
 
     if (punchType === 'IN') {
+        let hourlyRateSnapshot = null;
+        const { data: profileRow } = await supabase
+            .from('profiles')
+            .select('hourly_rate')
+            .eq('user_id', uid)
+            .eq('shop_id', sid)
+            .limit(1)
+            .maybeSingle();
+
+        const parsedRate = asNumber(profileRow?.hourly_rate, NaN);
+        if (Number.isFinite(parsedRate)) {
+            hourlyRateSnapshot = parsedRate;
+        }
+
         const attendanceId = makeRowId();
         const { error: inError } = await supabase
             .from('attendance')
             .insert([{
-                id: attendanceId,
+                attendance_id: attendanceId,
                 shop_id: sid,
                 user_id: uid,
                 check_in: ts,
-                status: 'present',
+                hourly_rate_snapshot: hourlyRateSnapshot,
             }]);
 
         if (inError) return { data: null, error: asString(inError.message) || 'Failed to punch in.' };
     } else {
         const { data: openRow, error: openError } = await supabase
             .from('attendance')
-            .select('id,check_in')
+            .select('attendance_id,check_in,hourly_rate_snapshot')
             .eq('shop_id', sid)
             .eq('user_id', uid)
             .not('check_in', 'is', null)
@@ -888,22 +903,26 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             .maybeSingle();
 
         if (openError) return { data: null, error: asString(openError.message) || 'Failed to punch out.' };
-        if (!openRow?.id) return { data: null, error: 'Cannot punch out without an active punch in.' };
+        if (!openRow?.attendance_id) return { data: null, error: 'Cannot punch out without an active punch in.' };
 
         const startMs = new Date(asString(openRow.check_in)).getTime();
         const endMs = new Date(ts).getTime();
         const hours = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs
             ? Math.round(((endMs - startMs) / 3600000) * 100) / 100
             : 0;
+        const rateSnapshot = asNumber(openRow?.hourly_rate_snapshot, NaN);
+        const payAmount = Number.isFinite(rateSnapshot)
+            ? Math.round((hours * rateSnapshot) * 100) / 100
+            : null;
 
         const { error: outError } = await supabase
             .from('attendance')
             .update({
                 check_out: ts,
                 hours,
-                status: 'present',
+                pay_amount: payAmount,
             })
-            .eq('id', openRow.id);
+            .eq('attendance_id', openRow.attendance_id);
 
         if (outError) return { data: null, error: asString(outError.message) || 'Failed to punch out.' };
     }
@@ -920,7 +939,7 @@ async function requestUserStatus({ shopId, userId }) {
 
     const { data: openRow, error } = await supabase
         .from('attendance')
-        .select('id,check_in,check_out,created_at')
+        .select('attendance_id,check_in,check_out,created_at')
         .eq('shop_id', sid)
         .eq('user_id', uid)
         .not('check_in', 'is', null)
@@ -939,7 +958,7 @@ async function requestUserStatus({ shopId, userId }) {
             shop_id: sid,
             is_punched_in: Boolean(openRow),
             active_attendance: openRow ? {
-                id: openRow.id || null,
+                id: openRow.attendance_id || null,
                 punch_in_time: openRow.check_in || null,
                 punch_out_time: openRow.check_out || null,
                 created_at: openRow.created_at || null,
@@ -955,16 +974,16 @@ async function requestStaffStatus(shopId) {
 
     const { data: profiles, error } = await supabase
         .from('profiles')
-        .select('id,name,role,is_online,shop_id')
+        .select('user_id,full_name,role,is_online,shop_id')
         .eq('shop_id', sid)
-        .order('name', { ascending: true });
+        .order('full_name', { ascending: true });
 
     if (error) return { data: [], error: asString(error.message) || 'Failed to load staff status.' };
 
     return {
         data: (Array.isArray(profiles) ? profiles : []).map((row) => ({
-            user_id: asString(row.id),
-            name: asString(row.name),
+            user_id: asString(row.user_id),
+            name: asString(row.full_name),
             role: asString(row.role),
             is_online: asBoolean(row.is_online),
         })),
@@ -1009,7 +1028,7 @@ function getSalesmanMeta(metaMap = {}, shopId = '', salesmanId = '') {
 function mergeSalesmanMeta(profile = {}, metaMap = {}) {
     if (!profile || typeof profile !== 'object') return profile;
     const sid = asString(profile.shop_id);
-    const uid = asString(profile.id);
+    const uid = asString(getProfileId(profile));
     const hasMeta = Boolean(metaMap?.[sid] && typeof metaMap[sid] === 'object' && metaMap[sid][uid]);
     const meta = hasMeta ? sanitizeSalesmanMeta(metaMap[sid][uid]) : null;
 
@@ -1188,7 +1207,7 @@ async function attachShopOwnerCredentials(shopList = []) {
         const sid = asString(profile.shop_id);
         if (!sid || ownersByShop.has(sid)) return;
         ownersByShop.set(sid, {
-            owner_profile_id: asString(profile.id),
+            owner_profile_id: asString(getProfileId(profile)),
             owner_email: '',
             owner_password: getProfilePassword(profile),
         });
@@ -1359,7 +1378,7 @@ async function syncProfileOnlineStatus(shopId, userId) {
     await supabase
         .from('profiles')
         .update({ is_online: Array.isArray(openAttendance) && openAttendance.length > 0 })
-        .eq('id', uid);
+        .eq('user_id', uid);
 }
 
 function buildShopUpdatePayloads({ name, address, ownerEmail, telephone, ownerPassword }) {
@@ -1412,6 +1431,7 @@ function buildShopOwnerProfileUpdatePayloads({ ownerEmail, ownerPassword }) {
 
 function buildProfileInsertPayloads({
     name,
+    username = '',
     role = 'salesman',
     shopId,
     pinDigest = '',
@@ -1419,6 +1439,7 @@ function buildProfileInsertPayloads({
     includePinDigest = true
 }) {
     const safeName = asString(name) || 'User';
+    const safeUsername = asString(username).toLowerCase();
     const safePinDigest = asString(pinDigest);
     const profileId = makeRowId();
 
@@ -1426,6 +1447,7 @@ function buildProfileInsertPayloads({
 
     const idVariants = [{ user_id: profileId }, {}];
     const shopVariants = sid ? [{ shop_id: sid }] : [{}];
+    const usernameVariants = safeUsername ? [{ username: safeUsername }] : [{}];
     const rateValue = Number(hourlyRate);
     const hourlyVariants = Number.isFinite(rateValue)
         ? [{ hourly_rate: rateValue }, {}]
@@ -1437,18 +1459,21 @@ function buildProfileInsertPayloads({
     const payloads = [];
     for (const idVariant of idVariants) {
         for (const shopVariant of shopVariants) {
-            for (const hourlyVariant of hourlyVariants) {
-                for (const pinVariant of pinVariants) {
-                    payloads.push(cleanPayload({
-                        ...idVariant,
-                        ...shopVariant,
-                        role: normalizeRoleName(role) || 'salesman',
-                        full_name: safeName,
-                        ...hourlyVariant,
-                        active: true,
-                        is_online: false,
-                        ...pinVariant,
-                    }));
+            for (const usernameVariant of usernameVariants) {
+                for (const hourlyVariant of hourlyVariants) {
+                    for (const pinVariant of pinVariants) {
+                        payloads.push(cleanPayload({
+                            ...idVariant,
+                            ...shopVariant,
+                            role: normalizeRoleName(role) || 'salesman',
+                            full_name: safeName,
+                            ...usernameVariant,
+                            ...hourlyVariant,
+                            active: true,
+                            is_online: false,
+                            ...pinVariant,
+                        }));
+                    }
                 }
             }
         }
@@ -2310,7 +2335,7 @@ export function AuthProvider({ children }) {
                     }
 
                     const ownerRow = Array.isArray(data) ? data[0] : null;
-                    ownerProfileId = asString(ownerRow?.id);
+                    ownerProfileId = asString(ownerRow?.user_id);
                 }
 
                 if (!ownerProfileId) {
@@ -2322,7 +2347,7 @@ export function AuthProvider({ children }) {
                     const { data, error } = await supabase
                         .from('profiles')
                         .update(payload)
-                        .eq('id', ownerProfileId)
+                        .eq('user_id', ownerProfileId)
                         .select()
                         .single();
 
@@ -2341,7 +2366,7 @@ export function AuthProvider({ children }) {
 
         const mergedShop = {
             ...(updatedShop || { id: sid }),
-            owner_profile_id: asString(updatedOwnerProfile?.id || updatedShop?.owner_profile_id || currentShop?.owner_profile_id),
+            owner_profile_id: asString(getProfileId(updatedOwnerProfile) || updatedShop?.owner_profile_id || currentShop?.owner_profile_id),
             owner_email: hasOwner
                 ? nextOwnerEmail
                 : asString(updatedShop?.owner_email || currentShop?.owner_email),
@@ -2698,7 +2723,7 @@ export function AuthProvider({ children }) {
         const { error } = await supabase
             .from('attendance')
             .update(payload)
-            .eq('id', baseId)
+            .eq('attendance_id', baseId)
             .eq('shop_id', sid);
 
         if (error) {
@@ -2738,14 +2763,14 @@ export function AuthProvider({ children }) {
             const { error: updateError } = await supabase
                 .from('attendance')
                 .update(patch)
-                .eq('id', baseId)
+                .eq('attendance_id', baseId)
                 .eq('shop_id', sid);
             error = updateError;
         } else {
             const { error: deleteError } = await supabase
                 .from('attendance')
                 .delete()
-                .eq('id', baseId)
+                .eq('attendance_id', baseId)
                 .eq('shop_id', sid);
             error = deleteError;
         }
@@ -2979,6 +3004,7 @@ export function AuthProvider({ children }) {
         }
 
         if (createdProfile) {
+            const createdUserId = asString(getProfileId(createdProfile));
             await supabase
                 .from('profiles')
                 .update({
@@ -2986,7 +3012,7 @@ export function AuthProvider({ children }) {
                     can_edit_transactions: permissionPatch.canEditTransactions,
                     can_bulk_edit: permissionPatch.canBulkEdit,
                 })
-                .eq('user_id', createdProfile.id)
+                .eq('user_id', createdUserId)
                 .eq('shop_id', sid);
 
             const withMeta = {
@@ -2994,7 +3020,7 @@ export function AuthProvider({ children }) {
                 salesmanNumber: assignedNumber,
                 ...permissionPatch
             };
-            patchSalesmanMeta(sid, createdProfile.id, {
+            patchSalesmanMeta(sid, createdUserId, {
                 salesmanNumber: assignedNumber,
                 ...permissionPatch
             });
@@ -3022,20 +3048,18 @@ export function AuthProvider({ children }) {
         if (!adminEmail) throw new Error('Admin email is required.');
         if (!adminPassword || adminPassword.length < 4) throw new Error('Admin password must be at least 4 characters.');
 
-        const existingAdmin = await trySelectProfileByField('email', adminEmail, ADMIN_ROLES);
+        const existingAdmin = await trySelectProfileByField('username', adminEmail, ADMIN_ROLES);
         if (existingAdmin) {
             throw new Error('Admin email already exists.');
         }
 
         const payloads = buildProfileInsertPayloads({
             name: adminName,
-            email: adminEmail,
+            username: adminEmail,
             role: 'owner',
             shopId: null,
-            password: adminPassword,
-            includePin: false,
-            includePassword: true,
             hourlyRate: 12.5,
+            includePinDigest: false,
         });
 
         let created = null;
@@ -3126,7 +3150,7 @@ export function AuthProvider({ children }) {
 
         if (nextPin) {
             const conflicts = await listSalesmenByPin(nextPin, sid);
-            const hasConflict = conflicts.some((row) => asString(row.user_id || row.id) !== normalizedId);
+            const hasConflict = conflicts.some((row) => asString(row.user_id) !== normalizedId);
             if (hasConflict) {
                 throw new Error('PIN already in use. Please choose a globally unique PIN.');
             }
