@@ -5,6 +5,7 @@ const AuthContext = createContext(null);
 
 const GLOBAL_ADMIN_ROLES = ['super_admin'];
 const ADMIN_ROLES = ['super_admin', 'owner', 'admin', 'superadmin', 'superuser'];
+const DB_ADMIN_ROLES = ['super_admin', 'owner'];
 const AUTH_TOKEN_KEY = 'token';
 const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
 const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
@@ -199,6 +200,15 @@ function normalizeRoleName(value) {
     if (role === 'admin') return 'owner';
     if (role === 'superadmin' || role === 'superuser') return 'super_admin';
     return role;
+}
+
+function normalizeDbRoleFilter(roles = []) {
+    const input = Array.isArray(roles) ? roles : [roles];
+    const canonical = input
+        .map((role) => normalizeRoleName(role))
+        .filter(Boolean);
+    const allowed = canonical.filter((role) => role === 'super_admin' || role === 'owner' || role === 'salesman');
+    return Array.from(new Set(allowed));
 }
 
 function isSuperAdminRole(value) {
@@ -439,7 +449,7 @@ async function findAdminProfileByIdentifier(identifier = '') {
             .from('profiles')
             .select('*')
             .ilike(field, key)
-            .in('role', ADMIN_ROLES)
+            .in('role', DB_ADMIN_ROLES)
             .limit(1);
 
         if (error) {
@@ -466,7 +476,7 @@ async function findAdminProfileByPrimaryId(primaryId = '') {
         .from('profiles')
         .select('*')
         .eq('id', pid)
-        .in('role', ADMIN_ROLES)
+        .in('role', DB_ADMIN_ROLES)
         .limit(1);
     if (!byId.error && Array.isArray(byId.data) && byId.data[0]) {
         return byId.data[0];
@@ -476,7 +486,7 @@ async function findAdminProfileByPrimaryId(primaryId = '') {
         .from('profiles')
         .select('*')
         .eq('user_id', pid)
-        .in('role', ADMIN_ROLES)
+        .in('role', DB_ADMIN_ROLES)
         .limit(1);
     if (!byUserId.error && Array.isArray(byUserId.data) && byUserId.data[0]) {
         return byUserId.data[0];
@@ -538,7 +548,7 @@ async function findAdminProfileByShopOwnerEmail(email = '') {
         .from('profiles')
         .select('*')
         .in('shop_id', shopIds)
-        .in('role', ADMIN_ROLES)
+        .in('role', DB_ADMIN_ROLES)
         .limit(1);
 
     if (profileError || !Array.isArray(profileRows) || !profileRows[0]) {
@@ -561,7 +571,7 @@ async function getAdminProfileByAuthUser(authUserId, authEmail = '', preferredPr
             .from('profiles')
             .select('*')
             .eq('id', uid)
-            .in('role', ADMIN_ROLES)
+            .in('role', DB_ADMIN_ROLES)
             .limit(1);
 
         if (!byId.error && Array.isArray(byId.data) && byId.data[0]) {
@@ -572,7 +582,7 @@ async function getAdminProfileByAuthUser(authUserId, authEmail = '', preferredPr
             .from('profiles')
             .select('*')
             .eq('user_id', uid)
-            .in('role', ADMIN_ROLES)
+            .in('role', DB_ADMIN_ROLES)
             .limit(1);
 
         if (!byUserId.error && Array.isArray(byUserId.data) && byUserId.data[0]) {
@@ -585,7 +595,7 @@ async function getAdminProfileByAuthUser(authUserId, authEmail = '', preferredPr
             .from('profiles')
             .select('*')
             .eq('email', email)
-            .in('role', ADMIN_ROLES)
+            .in('role', DB_ADMIN_ROLES)
             .limit(1);
 
         if (!byEmail.error && Array.isArray(byEmail.data) && byEmail.data[0]) {
@@ -1339,15 +1349,26 @@ function buildProfileUpdatePayloads(updates = {}) {
 
 async function trySelectProfileByField(field, value, roles) {
     if (!asString(value)) return null;
-    const { data, error } = await supabase
+    const safeRoles = normalizeDbRoleFilter(roles);
+    let query = supabase
         .from('profiles')
         .select('*')
         .eq(field, value)
-        .in('role', roles)
-        .limit(1);
+        .limit(20);
+
+    if (safeRoles.length > 0) {
+        query = query.in('role', safeRoles);
+    }
+
+    const { data, error } = await query;
 
     if (error || !data || data.length === 0) return null;
-    return data[0];
+    const firstAllowed = data.find((row) => {
+        if (safeRoles.length === 0) return true;
+        const normalized = normalizeRoleName(row?.role);
+        return safeRoles.includes(normalized);
+    });
+    return firstAllowed || null;
 }
 
 async function trySelectSalesmanByPin(pinValue, shopId = '') {
