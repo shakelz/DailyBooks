@@ -1310,18 +1310,22 @@ function buildProfileInsertPayloads({
     username = '',
     role = 'salesman',
     shopId,
+    profileId = '',
     pinDigest = '',
     hourlyRate = 12.5,
-    includePinDigest = true
+    includePinDigest = true,
+    requireUserId = false
 }) {
     const safeName = asString(name) || 'User';
     const safeUsername = asString(username).toLowerCase();
     const safePinDigest = asString(pinDigest);
-    const profileId = makeRowId();
+    const resolvedProfileId = asString(profileId) || makeRowId();
 
     const sid = asString(shopId);
 
-    const idVariants = [{}, { user_id: profileId }];
+    const idVariants = requireUserId
+        ? [{ user_id: resolvedProfileId }]
+        : [{}, { user_id: resolvedProfileId }];
     const shopVariants = sid ? [{ shop_id: sid }] : [{}];
     const usernameVariants = safeUsername ? [{ username: safeUsername }] : [{}];
     const rateValue = Number(hourlyRate);
@@ -1368,14 +1372,25 @@ function buildManagerProfilePayloads({ ownerName, ownerEmail, shopId }) {
     });
 }
 
-function buildSalesmanInsertPayloads({ name, pinDigest, shopId, hourlyRate = 12.5 }) {
+function buildSalesmanInsertPayloads({
+    name,
+    username = '',
+    profileId = '',
+    pinDigest,
+    shopId,
+    hourlyRate = 12.5,
+    requireUserId = false,
+}) {
     return buildProfileInsertPayloads({
         name,
+        username,
+        profileId,
         role: 'salesman',
         shopId,
         pinDigest,
         hourlyRate,
-        includePinDigest: true
+        includePinDigest: true,
+        requireUserId,
     });
 }
 
@@ -2827,6 +2842,8 @@ export function AuthProvider({ children }) {
     const addSalesman = async (name, pin, extra = {}) => {
         const trimmedName = asString(name);
         const trimmedPin = asString(pin);
+        const salesmanEmail = asString(extra?.email || extra?.salesmanEmail).toLowerCase();
+        const salesmanPassword = asString(extra?.password || extra?.salesmanPassword);
         const sid = asString(activeShopId);
         if (!sid) {
             throw new Error('Select a shop first to add salesman.');
@@ -2836,6 +2853,17 @@ export function AuthProvider({ children }) {
         }
         if (trimmedPin.length !== 4) {
             throw new Error('PIN must be exactly 4 digits.');
+        }
+        if (!salesmanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesmanEmail)) {
+            throw new Error('Valid salesman email is required.');
+        }
+        if (!salesmanPassword || salesmanPassword.length < 6) {
+            throw new Error('Salesman password is required (minimum 6 characters).');
+        }
+
+        const existingEmailProfile = await trySelectProfileByField('username', salesmanEmail, ['salesman']);
+        if (existingEmailProfile) {
+            throw new Error('Email already in use. Please use another email.');
         }
 
         const existingPins = await listSalesmenByPin(trimmedPin, sid);
@@ -2866,13 +2894,89 @@ export function AuthProvider({ children }) {
             canBulkEdit: asBoolean(extra?.canBulkEdit)
         };
 
+        const mapAuthCreateError = (error, fallbackMessage = 'Unable to create auth user for salesman.') => {
+            const message = asString(error?.message || error?.error_description || fallbackMessage);
+            const lowered = message.toLowerCase();
+            if (lowered.includes('already registered') || lowered.includes('already been registered') || lowered.includes('already exists') || lowered.includes('duplicate')) {
+                return 'Email already in use. Please use another email.';
+            }
+            if (lowered.includes('not admin') || lowered.includes('insufficient') || lowered.includes('permission')) {
+                return 'Auth permission error while creating salesman user. Configure admin API access or server-side user creation.';
+            }
+            return message || fallbackMessage;
+        };
+
+        const createAuthUserFirst = async () => {
+            const adminResult = await supabase.auth.admin.createUser({
+                email: salesmanEmail,
+                password: salesmanPassword,
+                email_confirm: true,
+                user_metadata: {
+                    role: 'salesman',
+                    shop_id: sid,
+                    full_name: trimmedName,
+                }
+            });
+
+            const adminUser = adminResult?.data?.user;
+            if (!adminResult?.error && adminUser?.id) {
+                return asString(adminUser.id);
+            }
+
+            const beforeSessionResult = await supabase.auth.getSession();
+            const previousSession = beforeSessionResult?.data?.session || null;
+
+            const signupResult = await supabase.auth.signUp({
+                email: salesmanEmail,
+                password: salesmanPassword,
+                options: {
+                    data: {
+                        role: 'salesman',
+                        shop_id: sid,
+                        full_name: trimmedName,
+                    }
+                }
+            });
+
+            if (signupResult?.error || !signupResult?.data?.user?.id) {
+                throw new Error(mapAuthCreateError(signupResult?.error || adminResult?.error));
+            }
+
+            const signupSession = signupResult?.data?.session;
+            if (signupSession?.access_token && previousSession?.access_token && previousSession?.refresh_token) {
+                await supabase.auth.setSession({
+                    access_token: previousSession.access_token,
+                    refresh_token: previousSession.refresh_token,
+                });
+            }
+
+            return asString(signupResult.data.user.id);
+        };
+
+        const cleanupAuthUser = async (authUserId) => {
+            const uid = asString(authUserId);
+            if (!uid) return;
+            const { error } = await supabase.auth.admin.deleteUser(uid);
+            if (error) {
+                console.warn('Auth user cleanup failed after profile insert error:', error?.message || error);
+            }
+        };
+
+        const authUserId = await createAuthUserFirst();
+        if (!authUserId) {
+            throw new Error('Failed to create auth user for salesman.');
+        }
+
         let createdProfile = null;
         let insertError = null;
         const payloadVariants = buildSalesmanInsertPayloads({
             name: trimmedName,
+            username: salesmanEmail,
+            profileId: authUserId,
             pinDigest,
             shopId: sid,
-            hourlyRate: 12.5
+            hourlyRate: 12.5,
+            requireUserId: true,
         });
 
         for (const payload of payloadVariants) {
@@ -2909,7 +3013,12 @@ export function AuthProvider({ children }) {
             return withMeta;
         }
 
+        await cleanupAuthUser(authUserId);
+
         const dbErrorMessage = asString(insertError?.message) || 'Failed to create salesman in database.';
+        if (dbErrorMessage.toLowerCase().includes('foreign key')) {
+            throw new Error('Profile save failed due to auth/profile linkage. Auth user was created, then cleanup was attempted. Please retry.');
+        }
         throw new Error(dbErrorMessage);
     };
 
