@@ -200,8 +200,10 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         ...txn,
         id: txnId || txn?.id,
         transactionId,
-        type: cleanText(txn?.tx_type || txn?.type),
-        source: cleanText(txn?.source || 'cash'),
+        type: cleanText(txn?.tx_type || txn?.type || 'product_sale'),
+        tx_type: cleanText(txn?.tx_type || txn?.type || 'product_sale'),
+        source: cleanText(txn?.tx_source || txn?.source || 'cash'),
+        tx_source: cleanText(txn?.tx_source || txn?.source || 'cash'),
         occurred_at: resolvedTimestamp || cleanText(txn?.created_at),
         created_at: resolvedTimestamp || cleanText(txn?.created_at),
         updated_at: cleanText(txn?.updated_at) || resolvedTimestamp || cleanText(txn?.created_at),
@@ -558,6 +560,15 @@ function mapTxType(value) {
     return 'product_sale';
 }
 
+function mapTxSource(value) {
+    const raw = cleanText(value).toLowerCase();
+    if (!raw) return 'cash';
+    if (raw === 'cash') return 'cash';
+    if (raw === 'sum_up' || raw === 'sumup') return 'sum_up';
+    if (raw === 'bank' || raw === 'bank_transfer' || raw === 'transfer') return 'bank_transfer';
+    return 'cash';
+}
+
 function buildInventoryPayload(product, includeId = false, shopId = '', categoryNameToId = {}) {
     const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
     const level1Category = extractLevel1CategoryName(categoryHierarchy.level1 || product?.category);
@@ -717,7 +728,7 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
         description: txn?.desc || txn?.name || '',
         amount,
         notes: txn?.notes || '',
-        source: cleanText(txn?.source || 'cash') || 'cash',
+        tx_source: mapTxSource(txn?.tx_source || txn?.source),
         quantity,
         created_at: occurredAt,
         updated_at: occurredAt,

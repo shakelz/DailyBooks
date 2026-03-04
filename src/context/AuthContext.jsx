@@ -305,11 +305,13 @@ async function computePinDigest(shopId, pin) {
 async function computeOwnerPasswordHash(password) {
     const rawPassword = asString(password);
     if (!rawPassword) return '';
-    const { data, error } = await supabase.rpc('make_owner_password_hash', {
-        p_password: rawPassword,
-    });
-    if (error) return '';
-    return asString(data);
+    if (typeof crypto === 'undefined' || !crypto.subtle || !crypto.subtle.digest) {
+        return rawPassword;
+    }
+    const encoded = new TextEncoder().encode(rawPassword);
+    const digestBuffer = await crypto.subtle.digest('SHA-256', encoded);
+    const digestArray = Array.from(new Uint8Array(digestBuffer));
+    return digestArray.map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 async function verifyOwnerLogin(identifier, password) {
@@ -319,28 +321,30 @@ async function verifyOwnerLogin(identifier, password) {
         return { profile: null, error: 'Identifier and password are required' };
     }
 
-    const { data, error } = await supabase.rpc('verify_owner_login', {
-        p_identifier: normalizedIdentifier,
-        p_password: normalizedPassword,
-    });
+    const { data, error } = await supabase
+        .from('shops')
+        .select('*')
+        .eq('owner_email', normalizedIdentifier)
+        .limit(1);
 
     if (error) {
-        const message = asString(error?.message).toLowerCase();
-        if (message.includes('function') && message.includes('verify_owner_login')) {
-            return { profile: null, error: 'Missing SQL helper function `verify_owner_login`. Please run auth helper SQL.' };
-        }
         return { profile: null, error: asString(error?.message) || 'Invalid credentials' };
     }
 
-    const row = Array.isArray(data) ? data[0] : data;
+    const row = Array.isArray(data) ? data[0] : null;
     if (!row) return { profile: null, error: 'Invalid credentials' };
+
+    const directPassword = asString(row?.owner_password || row?.owner_password_hash);
+    if (!directPassword || directPassword !== normalizedPassword) {
+        return { profile: null, error: 'Invalid credentials' };
+    }
 
     return {
         profile: {
-            user_id: asString(row?.user_id),
+            user_id: '',
             shop_id: asString(row?.shop_id),
-            full_name: asString(row?.full_name),
-            role: normalizeRoleName(row?.role || 'owner') || 'owner',
+            full_name: asString(row?.shop_name || row?.name || 'Owner'),
+            role: 'owner',
             active: true,
             email: asString(row?.owner_email),
         },
@@ -354,39 +358,26 @@ async function verifySalesmanPin(pin, shopId = '') {
 
     const sid = asString(shopId);
 
-    const rpcResult = await supabase.rpc('verify_salesman_pin', {
-        p_pin: safePin,
-        p_shop_id: sid || null,
-    });
-
-    if (!rpcResult.error) {
-        const rpcRows = Array.isArray(rpcResult.data) ? rpcResult.data : [];
-        if (rpcRows.length > 1) {
-            return { profile: null, error: 'PIN conflict found. Ask admin to reset duplicate PINs.' };
-        }
-        const rpcRow = rpcRows[0];
-        if (!rpcRow) return { profile: null, error: 'Invalid PIN' };
-        if (rpcRow.active === false) return { profile: null, error: 'User disabled' };
-        return { profile: rpcRow, error: null };
-    }
-
     const digest = await computePinDigest(shopId, safePin);
     if (!digest) {
-        return { profile: null, error: 'Unable to verify PIN. Run SQL helper `make_pin_digest_global`.' };
+        return { profile: null, error: 'Unable to verify PIN.' };
     }
 
-    const { data, error } = await supabase
+    let query = supabase
         .from('profiles')
         .select('*')
         .eq('role', 'salesman')
         .eq('pin_digest', digest)
         .limit(2);
 
+    if (sid) {
+        query = query.eq('shop_id', sid);
+    }
+
+    const { data, error } = await query;
+
     if (error) {
-        if (isMissingFunctionError(rpcResult.error, 'verify_salesman_pin')) {
-            return { profile: null, error: asString(error?.message) || 'Invalid PIN' };
-        }
-        return { profile: null, error: 'Salesman PIN verification failed. Run latest SQL helper script and retry.' };
+        return { profile: null, error: asString(error?.message) || 'Invalid PIN' };
     }
 
     const rows = Array.isArray(data) ? data : [];
@@ -450,19 +441,11 @@ async function deleteShopById(shopId = '') {
 
 async function listShopsViaRpc(shopId = '') {
     const sid = asString(shopId);
-    const { data, error } = await supabase.rpc('list_shops_safe', {
-        p_shop_id: sid || null,
-    });
-
-    if (error) {
-        if (isMissingFunctionError(error, 'list_shops_safe')) {
-            return { data: null, error: null };
-        }
-        return { data: null, error };
-    }
-
+    let query = supabase.from('shops').select('*');
+    if (sid) query = query.eq('shop_id', sid).limit(1);
+    const { data, error } = await query;
     const rows = Array.isArray(data) ? data : (data ? [data] : []);
-    return { data: rows, error: null };
+    return { data: rows, error };
 }
 
 async function resolveAdminEmailFromProfile(profile = {}) {
@@ -526,27 +509,29 @@ async function resolveAdminAuthFromIdentifier(identifier = '') {
     const key = asString(identifier);
     if (!key) return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
 
-    const { data, error } = await supabase.rpc('resolve_admin_auth_email', {
-        p_identifier: key,
-    });
+    const profileLookup = await findAdminProfileByIdentifier(key);
+    const row = profileLookup?.profile || null;
 
-    if (error) {
-        if (isMissingFunctionError(error, 'resolve_admin_auth_email')) {
-            return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
+    if (!row) {
+        if (key.includes('@')) {
+            const byShopOwnerEmail = await findAdminProfileByShopOwnerEmail(key);
+            if (!byShopOwnerEmail) {
+                return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
+            }
+            return {
+                authEmail: asString(key).toLowerCase(),
+                profileId: asString(getProfileId(byShopOwnerEmail)),
+                role: normalizeRoleName(byShopOwnerEmail?.role),
+                shopId: asString(byShopOwnerEmail?.shop_id),
+                error: '',
+            };
         }
-        return {
-            authEmail: '',
-            profileId: '',
-            role: '',
-            shopId: '',
-            error: asString(error?.message) || 'Unable to resolve admin auth email.',
-        };
+        return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
     }
 
-    const row = Array.isArray(data) ? data[0] : data;
     return {
-        authEmail: asString(row?.auth_email || row?.email).toLowerCase(),
-        profileId: asString(row?.profile_id),
+        authEmail: asString(row?.email || row?.owner_email || '').toLowerCase(),
+        profileId: asString(getProfileId(row)),
         role: normalizeRoleName(row?.role),
         shopId: asString(row?.shop_id),
         error: '',
@@ -642,7 +627,7 @@ async function requestAdminLogin({ identifier, password }) {
     }
 
     if (!candidateEmails.length) {
-        return { profile: null, error: 'Admin auth email not found. Link this username to an Auth user and run latest SQL helpers.' };
+        return { profile: null, error: 'Admin auth email not found. Link this username to an Auth user.' };
     }
 
     let authData = null;
@@ -788,7 +773,7 @@ async function requestAttendanceLogs(shopId) {
         };
 
         const events = [];
-        const attendanceRowId = asString(row?.attendance_id || row?.id);
+        const attendanceRowId = asString(row?.id);
         if (asString(row?.check_in)) {
             events.push({ ...base, id: `${attendanceRowId}:IN`, type: 'IN', timestamp: asString(row?.check_in) });
         }
@@ -833,7 +818,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
         const { error: inError } = await supabase
             .from('attendance')
             .insert([{
-                attendance_id: attendanceId,
+                id: attendanceId,
                 shop_id: sid,
                 user_id: uid,
                 check_in: ts,
@@ -844,7 +829,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
     } else {
         const { data: openRow, error: openError } = await supabase
             .from('attendance')
-            .select('attendance_id,check_in,hourly_rate_snapshot')
+            .select('id,check_in,hourly_rate_snapshot')
             .eq('shop_id', sid)
             .eq('user_id', uid)
             .not('check_in', 'is', null)
@@ -854,7 +839,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             .maybeSingle();
 
         if (openError) return { data: null, error: asString(openError.message) || 'Failed to punch out.' };
-        if (!openRow?.attendance_id) return { data: null, error: 'Cannot punch out without an active punch in.' };
+        if (!openRow?.id) return { data: null, error: 'Cannot punch out without an active punch in.' };
 
         const startMs = new Date(asString(openRow.check_in)).getTime();
         const endMs = new Date(ts).getTime();
@@ -873,7 +858,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
                 hours,
                 pay_amount: payAmount,
             })
-            .eq('attendance_id', openRow.attendance_id);
+            .eq('id', openRow.id);
 
         if (outError) return { data: null, error: asString(outError.message) || 'Failed to punch out.' };
     }
@@ -890,7 +875,7 @@ async function requestUserStatus({ shopId, userId }) {
 
     const { data: openRow, error } = await supabase
         .from('attendance')
-        .select('attendance_id,check_in,check_out,created_at')
+        .select('id,check_in,check_out,created_at')
         .eq('shop_id', sid)
         .eq('user_id', uid)
         .not('check_in', 'is', null)
@@ -909,7 +894,7 @@ async function requestUserStatus({ shopId, userId }) {
             shop_id: sid,
             is_punched_in: Boolean(openRow),
             active_attendance: openRow ? {
-                id: openRow.attendance_id || null,
+                id: openRow.id || null,
                 punch_in_time: openRow.check_in || null,
                 punch_out_time: openRow.check_out || null,
                 created_at: openRow.created_at || null,
@@ -1476,7 +1461,7 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', sh
 
     const digest = await computePinDigest(shopId, safePin);
     if (!digest) {
-        return { available: false, message: 'Unable to compute PIN digest. Check SQL helper `make_pin_digest_global`.' };
+        return { available: false, message: 'Unable to compute PIN digest.' };
     }
 
     const { data, error } = await supabase
@@ -1718,25 +1703,11 @@ export function AuthProvider({ children }) {
             }
 
             if (!error && Array.isArray(data) && data.length === 0) {
-                const rpcFallback = await listShopsViaRpc();
-                if (Array.isArray(rpcFallback.data) && rpcFallback.data.length > 0) {
-                    data = rpcFallback.data;
-                } else if (rpcFallback.error) {
-                    error = rpcFallback.error;
-                }
-            }
-
-            if (!error && Array.isArray(data) && data.length === 0) {
                 const preferredSid = asString(preferredShopId);
                 if (preferredSid) {
                     const singleById = await selectSingleShopById(preferredSid);
                     if (!singleById?.error && singleById?.data) {
                         data = [singleById.data];
-                    } else {
-                        const rpcSingle = await listShopsViaRpc(preferredSid);
-                        if (Array.isArray(rpcSingle.data) && rpcSingle.data[0]) {
-                            data = [rpcSingle.data[0]];
-                        }
                     }
                 }
             }
@@ -1797,15 +1768,6 @@ export function AuthProvider({ children }) {
 
         const { data, error } = await selectSingleShopById(sid);
         if (error || !data) {
-            const rpcSingle = await listShopsViaRpc(sid);
-            if (Array.isArray(rpcSingle.data) && rpcSingle.data[0]) {
-                const rpcNormalized = normalizeShop(rpcSingle.data[0]);
-                const rpcEnriched = rpcNormalized ? await attachShopOwnerCredentials([rpcNormalized]) : [];
-                const rpcMerged = rpcEnriched.map((shop) => mergeShopMeta(shop, shopMetaMap));
-                setShops(rpcMerged);
-                setActiveShopIdState(sid);
-                return rpcMerged;
-            }
             const fallback = [mergeShopMeta({ id: sid, name: user.shopName || 'My Shop', address: '', owner_email: '' }, shopMetaMap)];
             setShops(fallback);
             setActiveShopIdState(sid);
@@ -1831,7 +1793,7 @@ export function AuthProvider({ children }) {
 
         let data = null;
         let error = null;
-        const orderCandidates = ['name', 'full_name', 'workerName'];
+        const orderCandidates = ['full_name', 'created_at'];
 
         for (const orderByField of orderCandidates) {
             const response = await supabase
@@ -1947,47 +1909,25 @@ export function AuthProvider({ children }) {
         let createdShop = null;
         let shopError = null;
 
-        const { data: rpcShopData, error: rpcShopError } = await supabase.rpc('create_shop_record', {
-            p_name: name,
-            p_address: shopAddress || null,
-            p_owner_email: email || null,
-            p_telephone: shopTelephone || null,
-            p_owner_password: generatedOwnerPassword || null,
+        const shopPayloads = buildShopInsertPayloads({
+            name,
+            address: shopAddress,
+            ownerEmail: email,
+            telephone: shopTelephone,
+            ownerPassword: generatedOwnerPassword,
         });
 
-        if (!rpcShopError) {
-            const rpcShopRow = Array.isArray(rpcShopData) ? rpcShopData[0] : rpcShopData;
-            if (rpcShopRow) {
-                createdShop = normalizeShop(rpcShopRow);
+        for (const payload of shopPayloads) {
+            const { data, error } = await supabase.from('shops').insert([payload]).select().single();
+            if (!error && data) {
+                createdShop = normalizeShop(data);
+                shopError = null;
+                break;
             }
-        } else if (!isMissingFunctionError(rpcShopError, 'create_shop_record')) {
-            shopError = rpcShopError;
+            shopError = error;
         }
 
         if (!createdShop) {
-            const shopPayloads = buildShopInsertPayloads({
-                name,
-                address: shopAddress,
-                ownerEmail: email,
-                telephone: shopTelephone,
-                ownerPassword: generatedOwnerPassword,
-            });
-
-            for (const payload of shopPayloads) {
-                const { data, error } = await supabase.from('shops').insert([payload]).select().single();
-                if (!error && data) {
-                    createdShop = normalizeShop(data);
-                    shopError = null;
-                    break;
-                }
-                shopError = error;
-            }
-        }
-
-        if (!createdShop) {
-            if (isStackDepthError(shopError)) {
-                throw new Error('Database recursion detected while creating shop. Run latest supabase_auth_helpers.sql (create_shop_record) and review shops RLS/policies.');
-            }
             throw new Error(shopError?.message || 'Failed to create shop.');
         }
 
@@ -2003,41 +1943,22 @@ export function AuthProvider({ children }) {
         let profileError = null;
         let ownerSetupWarning = '';
 
-        const { data: rpcOwnerData, error: rpcOwnerError } = await supabase.rpc('create_or_link_shop_owner_profile', {
-            p_shop_id: shopId,
-            p_owner_user_id: null,
-            p_owner_name: ownerName,
-            p_owner_email: email,
-            p_role: 'owner',
+        const profilePayloads = buildManagerProfilePayloads({
+            ownerName,
+            ownerEmail: email,
+            shopId,
+            tempPin,
+            tempPassword
         });
 
-        if (!rpcOwnerError) {
-            const rpcOwnerRow = Array.isArray(rpcOwnerData) ? rpcOwnerData[0] : rpcOwnerData;
-            if (rpcOwnerRow) {
-                createdProfile = normalizeUserFromProfile(rpcOwnerRow);
+        for (const payload of profilePayloads) {
+            const { data, error } = await supabase.from('profiles').insert([payload]).select().single();
+            if (!error && data) {
+                createdProfile = normalizeUserFromProfile(data);
+                profileError = null;
+                break;
             }
-        } else if (!isMissingFunctionError(rpcOwnerError, 'create_or_link_shop_owner_profile')) {
-            profileError = rpcOwnerError;
-        }
-
-        if (!createdProfile) {
-            const profilePayloads = buildManagerProfilePayloads({
-                ownerName,
-                ownerEmail: email,
-                shopId,
-                tempPin,
-                tempPassword
-            });
-
-            for (const payload of profilePayloads) {
-                const { data, error } = await supabase.from('profiles').insert([payload]).select().single();
-                if (!error && data) {
-                    createdProfile = normalizeUserFromProfile(data);
-                    profileError = null;
-                    break;
-                }
-                profileError = error;
-            }
+            profileError = error;
         }
 
         if (!createdProfile) {
@@ -2619,7 +2540,7 @@ export function AuthProvider({ children }) {
         const { error } = await supabase
             .from('attendance')
             .update(payload)
-            .eq('attendance_id', baseId)
+            .eq('id', baseId)
             .eq('shop_id', sid);
 
         if (error) {
@@ -2659,14 +2580,14 @@ export function AuthProvider({ children }) {
             const { error: updateError } = await supabase
                 .from('attendance')
                 .update(patch)
-                .eq('attendance_id', baseId)
+                .eq('id', baseId)
                 .eq('shop_id', sid);
             error = updateError;
         } else {
             const { error: deleteError } = await supabase
                 .from('attendance')
                 .delete()
-                .eq('attendance_id', baseId)
+                .eq('id', baseId)
                 .eq('shop_id', sid);
             error = deleteError;
         }
@@ -2829,7 +2750,7 @@ export function AuthProvider({ children }) {
         const { error: profileError } = await supabase
             .from('profiles')
             .update({ password: nextPass })
-            .or(`id.eq.${userId},user_id.eq.${userId}`);
+            .eq('user_id', userId);
 
         if (profileError && !isMissingColumnError(profileError, 'profiles.password') && !isMissingColumnError(profileError, 'password')) {
             throw new Error(profileError.message || 'Password updated in auth, but profile sync failed.');
@@ -2872,7 +2793,7 @@ export function AuthProvider({ children }) {
         }
         const pinDigest = await computePinDigest(sid, trimmedPin);
         if (!pinDigest) {
-            throw new Error('Unable to compute PIN digest. Ensure SQL function `make_pin_digest_global` exists.');
+            throw new Error('Unable to compute PIN digest.');
         }
         const explicitNumber = asNumber(extra?.salesmanNumber, 0);
         const assignedNumber = explicitNumber > 0
@@ -3147,7 +3068,7 @@ export function AuthProvider({ children }) {
 
             const nextDigest = await computePinDigest(sid, nextPin);
             if (!nextDigest) {
-                throw new Error('Unable to compute PIN digest. Ensure SQL function `make_pin_digest_global` exists.');
+                throw new Error('Unable to compute PIN digest.');
             }
             dbUpdates.pin_digest = nextDigest;
         }
