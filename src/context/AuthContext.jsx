@@ -17,6 +17,7 @@ const AUTO_LOCK_TIMEOUT_KEY = 'dailybooks_auto_lock_timeout_v1';
 const AUTH_RATE_LIMIT_KEY = 'dailybooks_auth_rate_limit_v1';
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 5 * 60 * 1000;
+const AUTH_RATE_LIMIT_ENABLED = false; // temporary: disable failed-attempt lockout
 
 const volatileAuthStore = {
     role: '',
@@ -238,6 +239,7 @@ function getRateLimitEntry(scope = '') {
 }
 
 function clearRateLimit(scope = '') {
+    if (!AUTH_RATE_LIMIT_ENABLED) return;
     const key = asString(scope) || 'default';
     const state = readRateLimitState();
     if (!Object.prototype.hasOwnProperty.call(state, key)) return;
@@ -246,6 +248,7 @@ function clearRateLimit(scope = '') {
 }
 
 function bumpRateLimit(scope = '') {
+    if (!AUTH_RATE_LIMIT_ENABLED) return { failed: 0, lockUntil: 0 };
     const key = asString(scope) || 'default';
     const current = getRateLimitEntry(key);
     const nextFailed = current.failed + 1;
@@ -258,6 +261,7 @@ function bumpRateLimit(scope = '') {
 }
 
 function getLockoutMessage(scope = '') {
+    if (!AUTH_RATE_LIMIT_ENABLED) return '';
     const entry = getRateLimitEntry(scope);
     if (!entry.lockUntil || entry.lockUntil <= Date.now()) return '';
     const remaining = Math.max(1, Math.ceil((entry.lockUntil - Date.now()) / 60000));
