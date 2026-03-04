@@ -1,5 +1,5 @@
 import { app, BrowserWindow } from 'electron';
-const REMOTE_URL = 'https://carefone.de';
+const REMOTE_URL = 'https://www.carefone.de/';
 const TEMP_PARTITION = 'temp:carefone-online';
 
 app.commandLine.appendSwitch('disable-http-cache');
@@ -30,6 +30,8 @@ async function createWindow() {
     height: 800,
     minWidth: 1024,
     minHeight: 700,
+    show: false,
+    backgroundColor: '#111827',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -43,7 +45,9 @@ async function createWindow() {
   const isAdminPath = (rawUrl = '') => {
     try {
       const parsed = new URL(String(rawUrl || ''));
-      return parsed.hostname === 'carefone.de' && parsed.pathname.toLowerCase().startsWith('/admin');
+      const host = parsed.hostname.toLowerCase();
+      const isCarefoneHost = host === 'carefone.de' || host === 'www.carefone.de';
+      return isCarefoneHost && parsed.pathname.toLowerCase().startsWith('/admin');
     } catch {
       return false;
     }
@@ -51,9 +55,29 @@ async function createWindow() {
 
   const forceSalesmanHome = () => {
     if (!window.isDestroyed()) {
-      window.loadURL(REMOTE_URL, { userAgent: 'CareFoneDesktop/1.0' }).catch(() => undefined);
+      window.loadURL(REMOTE_URL).catch(() => undefined);
     }
   };
+
+  const loadErrorFallback = (reason = '') => {
+    if (window.isDestroyed()) return;
+    const safeReason = String(reason || '').replace(/[<>&"']/g, ' ');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>CareFone Load Error</title><style>body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}.card{max-width:680px;background:#111827;border:1px solid #334155;border-radius:14px;padding:20px}.btn{margin-top:14px;padding:10px 14px;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer}</style></head><body><div class="card"><h2>Unable to open CareFone</h2><p>App could not load https://www.carefone.de/ right now.</p><p style="color:#94a3b8;font-size:12px">${safeReason}</p><button class="btn" onclick="location.reload()">Retry</button></div></body></html>`;
+    window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => undefined);
+  };
+
+  window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;
+    loadErrorFallback(`${errorCode} ${errorDescription} ${validatedURL || ''}`);
+  });
+
+  window.webContents.on('render-process-gone', (_event, details) => {
+    loadErrorFallback(`Renderer process gone: ${details?.reason || 'unknown'}`);
+  });
+
+  window.webContents.on('did-finish-load', () => {
+    if (!window.isVisible()) window.show();
+  });
 
   window.webContents.on('will-navigate', (event, url) => {
     if (!isAdminPath(url)) return;
@@ -67,7 +91,7 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  appSession.webRequest.onBeforeRequest({ urls: ['https://carefone.de/admin*'] }, (details, callback) => {
+  appSession.webRequest.onBeforeRequest({ urls: ['https://carefone.de/admin*', 'https://www.carefone.de/admin*'] }, (details, callback) => {
     if (details.resourceType === 'mainFrame' || details.resourceType === 'subFrame') {
       callback({ redirectURL: REMOTE_URL });
       return;
@@ -75,7 +99,7 @@ async function createWindow() {
     callback({ cancel: false });
   });
 
-  await window.loadURL(REMOTE_URL, { userAgent: 'CareFoneDesktop/1.0' });
+  await window.loadURL(REMOTE_URL);
 }
 
 app.whenReady().then(() => {

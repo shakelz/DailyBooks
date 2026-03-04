@@ -166,6 +166,11 @@ function isMissingFunctionError(error, functionName = '') {
     return (message.includes('function') || message.includes('could not find')) && message.includes(target);
 }
 
+function isStackDepthError(error) {
+    const message = asString(error?.message).toLowerCase();
+    return message.includes('stack depth limit exceeded');
+}
+
 function isMissingColumnError(error, columnName = '') {
     const message = asString(error?.message).toLowerCase();
     if (!message) return false;
@@ -2032,7 +2037,9 @@ export function AuthProvider({ children }) {
         }
 
         if (!createdProfile) {
-            ownerSetupWarning = asString(profileError?.message) || 'Owner profile could not be auto-created.';
+            ownerSetupWarning = isStackDepthError(profileError)
+                ? 'Owner profile setup skipped due database trigger recursion. Shop was created successfully.'
+                : (asString(profileError?.message) || 'Owner profile could not be auto-created.');
         }
 
         const createdShopWithCredentials = {

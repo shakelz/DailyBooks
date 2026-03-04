@@ -280,7 +280,7 @@ export default function AdminSettings() {
             const baseMessage = `Shop "${result?.shop?.name || shopName}" created successfully.`;
             setShopMessage(baseMessage);
             if (result?.warning) {
-                setShopError(`Owner setup warning: ${result.warning}`);
+                setShopMessage(`${baseMessage} Owner setup warning: ${result.warning}`);
             }
             await refreshShops(result?.shop?.id || activeShopId);
         } catch (error) {
