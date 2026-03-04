@@ -691,7 +691,7 @@ async function requestAttendanceLogs(shopId) {
         };
 
         const events = [];
-        const attendanceRowId = asString(row?.id);
+        const attendanceRowId = asString(row?.attendance_id || row?.id);
         if (asString(row?.check_in)) {
             events.push({ ...base, id: `${attendanceRowId}:IN`, type: 'IN', timestamp: asString(row?.check_in) });
         }
@@ -732,9 +732,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             hourlyRateSnapshot = parsedRate;
         }
 
-        const attendanceId = makeRowId();
         const insertPayload = {
-            id: attendanceId,
             shop_id: sid,
             user_id: uid,
             check_in: ts,
@@ -754,7 +752,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
     } else {
         const { data: openRow, error: openError } = await supabase
             .from('attendance')
-            .select('id,check_in,hourly_rate_snapshot')
+            .select('attendance_id,check_in,hourly_rate_snapshot')
             .eq('shop_id', sid)
             .eq('user_id', uid)
             .not('check_in', 'is', null)
@@ -771,7 +769,8 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             });
             return { data: null, error: asString(openError.message) || 'Failed to punch out.' };
         }
-        if (!openRow?.id) return { data: null, error: 'Cannot punch out without an active punch in.' };
+        const openAttendanceId = asString(openRow?.attendance_id || openRow?.id);
+        if (!openAttendanceId) return { data: null, error: 'Cannot punch out without an active punch in.' };
 
         const startMs = new Date(asString(openRow.check_in)).getTime();
         const endMs = new Date(ts).getTime();
@@ -790,11 +789,11 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
                 hours,
                 pay_amount: payAmount,
             })
-            .eq('id', openRow.id);
+            .eq('attendance_id', openAttendanceId);
 
         if (outError) {
             console.error('Attendance punch OUT update failed:', {
-                attendance_id: asString(openRow.id),
+                attendance_id: openAttendanceId,
                 shop_id: sid,
                 user_id: uid,
                 check_out: ts,
@@ -818,7 +817,7 @@ async function requestUserStatus({ shopId, userId }) {
 
     const { data: openRow, error } = await supabase
         .from('attendance')
-        .select('id,check_in,check_out,created_at')
+        .select('attendance_id,check_in,check_out,created_at')
         .eq('shop_id', sid)
         .eq('user_id', uid)
         .not('check_in', 'is', null)
@@ -837,7 +836,7 @@ async function requestUserStatus({ shopId, userId }) {
             shop_id: sid,
             is_punched_in: Boolean(openRow),
             active_attendance: openRow ? {
-                id: openRow.id || null,
+                id: openRow.attendance_id || openRow.id || null,
                 punch_in_time: openRow.check_in || null,
                 punch_out_time: openRow.check_out || null,
                 created_at: openRow.created_at || null,
@@ -1193,7 +1192,7 @@ async function syncProfileOnlineStatus(shopId, userId) {
 
     const { data: openAttendance } = await supabase
         .from('attendance')
-        .select('id')
+        .select('attendance_id')
         .eq('shop_id', sid)
         .eq('user_id', uid)
         .not('check_in', 'is', null)
@@ -2528,7 +2527,7 @@ export function AuthProvider({ children }) {
         const { error } = await supabase
             .from('attendance')
             .update(payload)
-            .eq('id', baseId)
+            .eq('attendance_id', baseId)
             .eq('shop_id', sid);
 
         if (error) {
@@ -2568,14 +2567,14 @@ export function AuthProvider({ children }) {
             const { error: updateError } = await supabase
                 .from('attendance')
                 .update(patch)
-                .eq('id', baseId)
+                .eq('attendance_id', baseId)
                 .eq('shop_id', sid);
             error = updateError;
         } else {
             const { error: deleteError } = await supabase
                 .from('attendance')
                 .delete()
-                .eq('id', baseId)
+                .eq('attendance_id', baseId)
                 .eq('shop_id', sid);
             error = deleteError;
         }
