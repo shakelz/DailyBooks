@@ -1595,15 +1595,29 @@ export function InventoryProvider({ children }) {
             return [...prev, { id: resolvedCategoryId || undefined, name: trimmed, image, scope: normalizedScope }];
         });
         setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
+        return { categoryId: resolvedCategoryId, name: trimmed, shopId: sid };
     }, [activeShopId, ensureActiveShopExists]);
 
-    const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES) => {
+    const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES, parentCategoryIdOverride = '') => {
         const sid = await ensureActiveShopExists(activeShopId);
 
         const trimmed = name.trim();
         if (!trimmed || !l1Name) return;
         const normalizedScope = normalizeCategoryScope(scope);
-        const parentCategoryId = cleanText(categoryNameToId[l1Name]);
+        let parentCategoryId = cleanText(parentCategoryIdOverride) || cleanText(categoryNameToId[l1Name]);
+        if (!parentCategoryId) {
+            const parentLookup = await supabase
+                .from('categories')
+                .select('category_id')
+                .eq('shop_id', sid)
+                .eq('category_name', l1Name)
+                .is('parent_category_id', null)
+                .limit(1)
+                .maybeSingle();
+            if (!parentLookup.error && parentLookup.data) {
+                parentCategoryId = cleanText(parentLookup.data.category_id || parentLookup.data.id);
+            }
+        }
         if (!parentCategoryId) {
             throw new Error('Parent category not found. Please refresh categories and retry.');
         }
@@ -1678,6 +1692,7 @@ export function InventoryProvider({ children }) {
             };
         });
         setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
+        return { parentCategoryId, name: trimmed, shopId: sid };
     }, [activeShopId, ensureActiveShopExists, categoryNameToId]);
 
     const getCatImage = useCallback((l1, l2) => {

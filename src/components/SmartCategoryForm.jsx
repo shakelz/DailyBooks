@@ -186,16 +186,16 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
         setShowCustomChipInput(false);
     };
 
-    const handleAddCustomL1 = () => {
+    const handleAddCustomL1 = async () => {
         if (!customL1.trim()) return;
-        addLevel1Category(customL1.trim());
+        await addLevel1Category(customL1.trim());
         setLevel1(customL1.trim());
         setCustomL1(''); setShowCustomL1(false);
     };
 
-    const handleAddCustomL2 = () => {
+    const handleAddCustomL2 = async () => {
         if (!customL2.trim() || !level1) return;
-        addLevel2Category(level1, customL2.trim());
+        await addLevel2Category(level1, customL2.trim());
         setLevel2(customL2.trim());
         setCustomL2(''); setShowCustomL2(false);
     };
@@ -362,11 +362,13 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             if (onSubmit) await Promise.resolve(onSubmit(productData));
 
             // Save Custom Categories or Update Images
+            let resolvedParentCategoryId = '';
             if (level1 || customL1) {
-                addLevel1Category(customL1 || level1);
+                const parentResult = await addLevel1Category(customL1 || level1);
+                resolvedParentCategoryId = String(parentResult?.categoryId || '').trim();
             }
             if (level2 || customL2) {
-                addLevel2Category(level1 || customL1, customL2 || level2);
+                await addLevel2Category(level1 || customL1, customL2 || level2, null, 'sales', resolvedParentCategoryId);
             }
 
             // Reset

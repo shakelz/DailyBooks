@@ -68,6 +68,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         try {
 
         let finalMainCat = mainCatSelect;
+        let parentCategoryId = '';
 
         if (mainCatSelect === 'NEW_ADD') {
             finalMainCat = newMainCatStr.trim();
@@ -76,7 +77,8 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             const exists = addL1Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalMainCat.toLowerCase());
             if (exists) return alert("This Main Category already exists!");
 
-            await addLevel1Category(finalMainCat, null, addScope);
+            const parentResult = await addLevel1Category(finalMainCat, null, addScope);
+            parentCategoryId = String(parentResult?.categoryId || '').trim();
         } else if (!finalMainCat) {
             return alert("Please select or add a Main Category!");
         }
@@ -89,7 +91,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             const exists = existingL2s.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalSubCat.toLowerCase());
             if (exists) return alert("This Sub Category already exists under the selected Main Category!");
 
-            await addLevel2Category(finalMainCat, finalSubCat, null, addScope);
+            await addLevel2Category(finalMainCat, finalSubCat, null, addScope, parentCategoryId);
         } else if (mainCatSelect !== 'NEW_ADD') {
             return alert("Select ➕ Add New... to create a new category. To update existing categories, use the Update tab.");
         }
