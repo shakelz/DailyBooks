@@ -32,7 +32,10 @@ function extractMissingColumnName(error) {
 
 function isMissingRelationError(error, relationName = '') {
     const message = String(error?.message || '').toLowerCase();
-    if (!message.includes('does not exist')) return false;
+    const isMissing = message.includes('does not exist')
+        || message.includes('could not find the table')
+        || message.includes('in the schema cache');
+    if (!isMissing) return false;
     if (!relationName) return message.includes('relation') || message.includes('table');
     const target = String(relationName || '').toLowerCase();
     return message.includes(target);
