@@ -277,7 +277,11 @@ export default function AdminSettings() {
             setShopOwnerEmail('');
             setCreatedManager(result?.credentials || null);
             setEditingShopId('');
-            setShopMessage(`Shop "${result?.shop?.name || shopName}" created successfully.`);
+            const baseMessage = `Shop "${result?.shop?.name || shopName}" created successfully.`;
+            setShopMessage(baseMessage);
+            if (result?.warning) {
+                setShopError(`Owner setup warning: ${result.warning}`);
+            }
             await refreshShops(result?.shop?.id || activeShopId);
         } catch (error) {
             setShopError(error?.message || 'Failed to create shop.');

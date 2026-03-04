@@ -1992,27 +1992,47 @@ export function AuthProvider({ children }) {
 
         let createdProfile = null;
         let profileError = null;
-        const profilePayloads = buildManagerProfilePayloads({
-            ownerName,
-            ownerEmail: email,
-            shopId,
-            tempPin,
-            tempPassword
+        let ownerSetupWarning = '';
+
+        const { data: rpcOwnerData, error: rpcOwnerError } = await supabase.rpc('create_or_link_shop_owner_profile', {
+            p_shop_id: shopId,
+            p_owner_user_id: null,
+            p_owner_name: ownerName,
+            p_owner_email: email,
+            p_role: 'owner',
         });
 
-        for (const payload of profilePayloads) {
-            const { data, error } = await supabase.from('profiles').insert([payload]).select().single();
-            if (!error && data) {
-                createdProfile = normalizeUserFromProfile(data);
-                break;
+        if (!rpcOwnerError) {
+            const rpcOwnerRow = Array.isArray(rpcOwnerData) ? rpcOwnerData[0] : rpcOwnerData;
+            if (rpcOwnerRow) {
+                createdProfile = normalizeUserFromProfile(rpcOwnerRow);
             }
-            profileError = error;
+        } else if (!isMissingFunctionError(rpcOwnerError, 'create_or_link_shop_owner_profile')) {
+            profileError = rpcOwnerError;
         }
 
         if (!createdProfile) {
-            // Avoid leaving partially created shops without any user mapping.
-            await deleteShopById(shopId);
-            throw new Error(profileError?.message || 'Shop created but admin user creation failed.');
+            const profilePayloads = buildManagerProfilePayloads({
+                ownerName,
+                ownerEmail: email,
+                shopId,
+                tempPin,
+                tempPassword
+            });
+
+            for (const payload of profilePayloads) {
+                const { data, error } = await supabase.from('profiles').insert([payload]).select().single();
+                if (!error && data) {
+                    createdProfile = normalizeUserFromProfile(data);
+                    profileError = null;
+                    break;
+                }
+                profileError = error;
+            }
+        }
+
+        if (!createdProfile) {
+            ownerSetupWarning = asString(profileError?.message) || 'Owner profile could not be auto-created.';
         }
 
         const createdShopWithCredentials = {
@@ -2020,18 +2040,10 @@ export function AuthProvider({ children }) {
             owner_email: createdShop.owner_email || email,
             owner_password: getProfilePassword(createdProfile) || tempPassword,
             password: getProfilePassword(createdProfile) || tempPassword,
-            owner_profile_id: asString(createdProfile.id),
+            owner_profile_id: asString(createdProfile?.id),
         };
         const resolvedAddress = asString(shopAddress || createdShopWithCredentials.address);
         const resolvedTelephone = asString(shopTelephone || createdShopWithCredentials.telephone || createdShopWithCredentials.phone || '');
-
-        const syncShopPayload = {
-            owner_password: createdShopWithCredentials.owner_password || tempPassword,
-            ...(resolvedTelephone ? { telephone: resolvedTelephone } : {})
-        };
-        if (Object.keys(syncShopPayload).length > 0) {
-            await updateShopById(shopId, syncShopPayload);
-        }
 
         patchShopMeta(shopId, { address: resolvedAddress, telephone: resolvedTelephone, billShowTax: true });
         const createdShopWithMeta = mergeShopMeta({
@@ -2067,7 +2079,8 @@ export function AuthProvider({ children }) {
                 email,
                 pin: '',
                 password: getProfilePassword(createdProfile) || tempPassword
-            }
+            },
+            warning: ownerSetupWarning,
         };
     }, [role, activeShopId, patchShopMeta, shopMetaMap]);
 

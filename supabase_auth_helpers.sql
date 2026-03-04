@@ -142,8 +142,103 @@ as $$
   limit 1;
 $$;
 
+create or replace function public.create_or_link_shop_owner_profile(
+  p_shop_id text,
+  p_owner_user_id text default null,
+  p_owner_name text default null,
+  p_owner_email text default null,
+  p_role text default 'owner'
+)
+returns setof public.profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_shop_id text := trim(coalesce(p_shop_id, ''));
+  v_owner_user_id text := trim(coalesce(p_owner_user_id, ''));
+  v_owner_name text := trim(coalesce(p_owner_name, ''));
+  v_owner_email text := lower(trim(coalesce(p_owner_email, '')));
+  v_role text := lower(trim(coalesce(p_role, 'owner')));
+  v_has_email boolean := false;
+begin
+  if v_shop_id = '' then
+    raise exception 'shop_id is required';
+  end if;
+
+  if v_role not in ('owner', 'super_admin') then
+    v_role := 'owner';
+  end if;
+
+  select exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'profiles'
+      and column_name = 'email'
+  ) into v_has_email;
+
+  return query
+  with matched as (
+    select p.*
+    from public.profiles p
+    where lower(coalesce(p.role, '')) in ('owner', 'super_admin', 'admin', 'superadmin', 'superuser')
+      and (
+        (v_owner_user_id <> '' and coalesce(to_jsonb(p) ->> 'user_id', '') = v_owner_user_id)
+        or (v_owner_email <> '' and v_has_email and lower(coalesce(to_jsonb(p) ->> 'email', '')) = v_owner_email)
+      )
+    order by coalesce((nullif(to_jsonb(p) ->> 'created_at', ''))::timestamptz, now()) desc
+    limit 1
+  ), updated as (
+    update public.profiles p
+    set
+      shop_id = v_shop_id,
+      full_name = case when v_owner_name <> '' then v_owner_name else p.full_name end,
+      role = case when lower(coalesce(p.role, '')) = 'super_admin' then p.role else v_role end,
+      active = true
+    where p.ctid in (select m.ctid from matched m)
+    returning p.*
+  )
+  select * from updated;
+
+  if found then
+    return;
+  end if;
+
+  begin
+    if v_has_email and v_owner_email <> '' then
+      return query
+      insert into public.profiles (user_id, shop_id, full_name, email, role, active, is_online)
+      values (nullif(v_owner_user_id, '')::uuid, v_shop_id, nullif(v_owner_name, ''), v_owner_email, v_role, true, false)
+      returning *;
+      return;
+    end if;
+
+    return query
+    insert into public.profiles (user_id, shop_id, full_name, role, active, is_online)
+    values (nullif(v_owner_user_id, '')::uuid, v_shop_id, nullif(v_owner_name, ''), v_role, true, false)
+    returning *;
+    return;
+  exception when others then
+    if v_has_email and v_owner_email <> '' then
+      return query
+      insert into public.profiles (shop_id, full_name, email, role, active, is_online)
+      values (v_shop_id, nullif(v_owner_name, ''), v_owner_email, v_role, true, false)
+      returning *;
+      return;
+    end if;
+
+    return query
+    insert into public.profiles (shop_id, full_name, role, active, is_online)
+    values (v_shop_id, nullif(v_owner_name, ''), v_role, true, false)
+    returning *;
+  end;
+end;
+$$;
+
 grant execute on function public.make_pin_digest_global(text) to anon, authenticated, service_role;
 grant execute on function public.verify_salesman_pin(text, text) to anon, authenticated, service_role;
 grant execute on function public.resolve_admin_auth_email(text) to anon, authenticated, service_role;
+grant execute on function public.create_or_link_shop_owner_profile(text, text, text, text, text) to anon, authenticated, service_role;
 
 commit;
