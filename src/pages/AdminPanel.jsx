@@ -58,21 +58,23 @@ export default function AdminPanel() {
     }, [location.pathname, isMobile]);
 
     if (!isAdminLike) {
-        return <Navigate to={role === 'salesman' ? '/salesman' : '/'} replace />;
+        return <Navigate to={role === 'salesman' ? '/salesman/dashboard' : '/admin'} replace />;
     }
 
+    const dashboardRoute = role === 'owner' ? '/admin/owner-dashboard' : '/admin/dashboard';
+
     const menuItems = [
-        { label: 'Dashboard', route: '/admin/dashboard', icon: <LayoutDashboard size={20} /> },
+        { label: 'Dashboard', route: dashboardRoute, icon: <LayoutDashboard size={20} /> },
         { label: 'Inventory', route: '/admin/inventory', icon: <Package size={20} /> },
         { label: 'Insights', route: '/admin/insights', icon: <TrendingUp size={20} /> },
         { label: 'Repairs', route: '/admin/repairs', icon: <Wrench size={20} /> },
         { label: 'Expenses', route: '/admin/expenses', icon: <FileText size={20} /> },
-        (role === 'superuser')
+        (role === 'super_admin')
             ? { label: 'Manage All Shops', route: '/admin/settings', icon: <Settings size={20} /> }
             : ((role !== 'salesman') ? { label: 'Settings', route: '/admin/settings', icon: <Settings size={20} /> } : null),
     ].filter(Boolean);
     const mobileBottomItems = [
-        { label: 'Home', route: '/admin/dashboard', icon: <LayoutDashboard size={18} /> },
+        { label: 'Home', route: dashboardRoute, icon: <LayoutDashboard size={18} /> },
         { label: 'Sales', route: '/admin/insights', icon: <TrendingUp size={18} /> },
         { label: 'Inventory', route: '/admin/inventory', icon: <Package size={18} /> },
         { label: 'Repairs', route: '/admin/repairs', icon: <Wrench size={18} /> },
@@ -80,7 +82,7 @@ export default function AdminPanel() {
 
     const handleLogout = () => {
         logout();
-        navigate('/');
+        navigate('/admin', { replace: true });
     };
 
     const navigateTo = (route) => {
@@ -89,7 +91,8 @@ export default function AdminPanel() {
     };
 
     const showSidebarLabels = isMobile || sidebarOpen;
-    const isDashboardRoute = location.pathname.startsWith('/admin/dashboard');
+    const isDashboardRoute = location.pathname.startsWith('/admin/dashboard')
+        || location.pathname.startsWith('/admin/owner-dashboard');
 
     return (
         <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -202,7 +205,7 @@ export default function AdminPanel() {
                                         onChange={(e) => setActiveShopId(e.target.value)}
                                         className="text-sm font-semibold text-slate-700 bg-transparent outline-none"
                                     >
-                                        {role === 'superuser' ? (
+                                        {role === 'super_admin' ? (
                                             <option value="">Global View (All Shops)</option>
                                         ) : null}
                                         {shops.length === 0 ? (

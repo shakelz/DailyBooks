@@ -3,8 +3,8 @@ import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
-const GLOBAL_ADMIN_ROLES = ['superadmin', 'superuser'];
-const ADMIN_ROLES = [...GLOBAL_ADMIN_ROLES, 'admin'];
+const GLOBAL_ADMIN_ROLES = ['super_admin'];
+const ADMIN_ROLES = ['super_admin', 'owner', 'admin', 'superadmin', 'superuser'];
 const AUTH_TOKEN_KEY = 'token';
 const AUTH_ROLE_STATE_KEY = 'dailybooks_auth_role_v1';
 const AUTH_USER_STATE_KEY = 'dailybooks_auth_user_v1';
@@ -14,6 +14,9 @@ const SHOP_META_STORAGE_KEY = 'dailybooks_shop_meta_v1';
 const SLOW_MOVING_DAYS_KEY = 'dailybooks_slow_moving_days_v1';
 const AUTO_LOCK_ENABLED_KEY = 'dailybooks_auto_lock_enabled_v1';
 const AUTO_LOCK_TIMEOUT_KEY = 'dailybooks_auto_lock_timeout_v1';
+const AUTH_RATE_LIMIT_KEY = 'dailybooks_auth_rate_limit_v1';
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_MS = 5 * 60 * 1000;
 
 const volatileAuthStore = {
     role: '',
@@ -154,44 +157,291 @@ function asNumber(value, fallback = 0) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-async function requestAdminLogin({ identifier, password }) {
-    const identifierNormalized = asString(identifier).toLowerCase();
-    const passwordNormalized = asString(password);
-    if (!identifierNormalized || !passwordNormalized) {
+function normalizeRoleName(value) {
+    const role = asString(value).toLowerCase();
+    if (!role) return '';
+    if (role === 'admin') return 'owner';
+    if (role === 'superadmin' || role === 'superuser') return 'super_admin';
+    return role;
+}
+
+function isSuperAdminRole(value) {
+    return normalizeRoleName(value) === 'super_admin';
+}
+
+function isAdminRoleName(value) {
+    const role = normalizeRoleName(value);
+    return role === 'super_admin' || role === 'owner';
+}
+
+function getAdminRedirectPath(role) {
+    return isSuperAdminRole(role) ? '/admin/dashboard' : '/admin/owner-dashboard';
+}
+
+function getProfileId(profile = {}) {
+    return asString(profile?.user_id || profile?.id);
+}
+
+function getShopId(shop = {}) {
+    return asString(shop?.shop_id || shop?.id);
+}
+
+function readRateLimitState() {
+    return readLocalJSON(AUTH_RATE_LIMIT_KEY, {});
+}
+
+function writeRateLimitState(state = {}) {
+    writeStorage(AUTH_RATE_LIMIT_KEY, JSON.stringify(state || {}));
+}
+
+function getRateLimitEntry(scope = '') {
+    const key = asString(scope) || 'default';
+    const state = readRateLimitState();
+    const entry = state?.[key] && typeof state[key] === 'object' ? state[key] : {};
+    const lockUntil = asNumber(entry.lockUntil, 0);
+    const failed = asNumber(entry.failed, 0);
+    return {
+        key,
+        failed: Math.max(0, Math.floor(failed)),
+        lockUntil: Math.max(0, Math.floor(lockUntil)),
+    };
+}
+
+function clearRateLimit(scope = '') {
+    const key = asString(scope) || 'default';
+    const state = readRateLimitState();
+    if (!Object.prototype.hasOwnProperty.call(state, key)) return;
+    delete state[key];
+    writeRateLimitState(state);
+}
+
+function bumpRateLimit(scope = '') {
+    const key = asString(scope) || 'default';
+    const current = getRateLimitEntry(key);
+    const nextFailed = current.failed + 1;
+    const now = Date.now();
+    const lockUntil = nextFailed >= MAX_FAILED_ATTEMPTS ? now + LOCKOUT_MS : 0;
+    const state = readRateLimitState();
+    state[key] = { failed: nextFailed, lockUntil };
+    writeRateLimitState(state);
+    return { failed: nextFailed, lockUntil };
+}
+
+function getLockoutMessage(scope = '') {
+    const entry = getRateLimitEntry(scope);
+    if (!entry.lockUntil || entry.lockUntil <= Date.now()) return '';
+    const remaining = Math.max(1, Math.ceil((entry.lockUntil - Date.now()) / 60000));
+    return `Too many failed attempts. Try again in ${remaining} minute(s).`;
+}
+
+async function computePinDigest(shopId, pin) {
+    const rawPin = asString(pin);
+    if (!rawPin) return '';
+
+    const globalResult = await supabase.rpc('make_pin_digest_global', {
+        p_pin: rawPin,
+    });
+    if (!globalResult.error) {
+        return asString(globalResult.data);
+    }
+
+    const sid = asString(shopId);
+    if (!sid) return '';
+
+    const legacyResult = await supabase.rpc('make_pin_digest', {
+        p_shop_id: sid,
+        p_pin: rawPin,
+    });
+    if (legacyResult.error) return '';
+    return asString(legacyResult.data);
+}
+
+async function computeOwnerPasswordHash(password) {
+    const rawPassword = asString(password);
+    if (!rawPassword) return '';
+    const { data, error } = await supabase.rpc('make_owner_password_hash', {
+        p_password: rawPassword,
+    });
+    if (error) return '';
+    return asString(data);
+}
+
+async function verifyOwnerLogin(identifier, password) {
+    const normalizedIdentifier = asString(identifier).toLowerCase();
+    const normalizedPassword = asString(password);
+    if (!normalizedIdentifier || !normalizedPassword) {
         return { profile: null, error: 'Identifier and password are required' };
     }
 
-    let profile = null;
-    const { data: byEmail } = await supabase
+    const { data, error } = await supabase.rpc('verify_owner_login', {
+        p_identifier: normalizedIdentifier,
+        p_password: normalizedPassword,
+    });
+
+    if (error) {
+        const message = asString(error?.message).toLowerCase();
+        if (message.includes('function') && message.includes('verify_owner_login')) {
+            return { profile: null, error: 'Missing SQL helper function `verify_owner_login`. Please run auth helper SQL.' };
+        }
+        return { profile: null, error: asString(error?.message) || 'Invalid credentials' };
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return { profile: null, error: 'Invalid credentials' };
+
+    return {
+        profile: {
+            user_id: asString(row?.user_id),
+            shop_id: asString(row?.shop_id),
+            full_name: asString(row?.full_name),
+            role: normalizeRoleName(row?.role || 'owner') || 'owner',
+            active: true,
+            email: asString(row?.owner_email),
+        },
+        error: null,
+    };
+}
+
+async function verifySalesmanPin(pin, shopId = '') {
+    const safePin = asString(pin);
+    if (!safePin) return { profile: null, error: 'PIN required' };
+
+    const digest = await computePinDigest(shopId, safePin);
+    if (!digest) {
+        return { profile: null, error: 'Unable to verify PIN. Run SQL helper `make_pin_digest_global`.' };
+    }
+
+    const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .in('role', ['admin', 'superadmin', 'superuser'])
-        .eq('email', identifierNormalized)
-        .limit(1)
-        .maybeSingle();
+        .eq('role', 'salesman')
+        .eq('pin_digest', digest)
+        .limit(2);
 
-    if (byEmail) {
-        profile = byEmail;
-    } else {
-        const { data: byName } = await supabase
+    if (error) {
+        return { profile: null, error: asString(error?.message) || 'Invalid PIN' };
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    if (rows.length > 1) {
+        return { profile: null, error: 'PIN conflict found. Ask admin to reset duplicate PINs.' };
+    }
+
+    const row = rows[0];
+    if (!row) return { profile: null, error: 'Invalid PIN' };
+    if (row.active === false) return { profile: null, error: 'User disabled' };
+    return { profile: row, error: null };
+}
+
+async function getAdminProfileByAuthUser(authUserId, authEmail = '') {
+    const uid = asString(authUserId);
+    const email = asString(authEmail).toLowerCase();
+
+    if (uid) {
+        const byId = await supabase
             .from('profiles')
             .select('*')
-            .in('role', ['admin', 'superadmin', 'superuser'])
-            .eq('name', asString(identifier))
-            .limit(1)
-            .maybeSingle();
-        profile = byName;
+            .eq('id', uid)
+            .in('role', ADMIN_ROLES)
+            .limit(1);
+
+        if (!byId.error && Array.isArray(byId.data) && byId.data[0]) {
+            return byId.data[0];
+        }
+
+        const byUserId = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('user_id', uid)
+            .in('role', ADMIN_ROLES)
+            .limit(1);
+
+        if (!byUserId.error && Array.isArray(byUserId.data) && byUserId.data[0]) {
+            return byUserId.data[0];
+        }
     }
 
+    if (email) {
+        const byEmail = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('email', email)
+            .in('role', ADMIN_ROLES)
+            .limit(1);
+
+        if (!byEmail.error && Array.isArray(byEmail.data) && byEmail.data[0]) {
+            return byEmail.data[0];
+        }
+    }
+
+    return null;
+}
+
+async function requestAdminLogin({ identifier, password }) {
+    const normalizedIdentifier = asString(identifier);
+    const normalizedPassword = asString(password);
+    if (!normalizedIdentifier || !normalizedPassword) {
+        return { profile: null, error: 'Email/username and password are required.' };
+    }
+
+    let loginEmail = '';
+    if (normalizedIdentifier.includes('@')) {
+        loginEmail = normalizedIdentifier.toLowerCase();
+    } else {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('email,username,role')
+            .ilike('username', normalizedIdentifier)
+            .limit(1);
+
+        if (error) {
+            return { profile: null, error: asString(error?.message) || 'Unable to validate username.' };
+        }
+
+        const row = Array.isArray(data) ? data[0] : null;
+        if (!row) {
+            return { profile: null, error: 'Invalid credentials.' };
+        }
+
+        if (!isAdminRoleName(row.role)) {
+            return { profile: null, error: 'Not allowed.' };
+        }
+
+        loginEmail = asString(row.email).toLowerCase();
+        if (!loginEmail) {
+            return { profile: null, error: 'Admin email mapping is missing for this username.' };
+        }
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: normalizedPassword,
+    });
+
+    if (authError) {
+        return { profile: null, error: asString(authError?.message) || 'Invalid credentials.' };
+    }
+
+    const authUser = authData?.user || authData?.session?.user || null;
+    const profile = await getAdminProfileByAuthUser(authUser?.id, loginEmail);
     if (!profile) {
-        return { profile: null, error: 'Invalid credentials' };
+        await supabase.auth.signOut().catch(() => undefined);
+        return { profile: null, error: 'Not allowed.' };
     }
 
-    if (asString(profile.password) !== passwordNormalized) {
-        return { profile: null, error: 'Invalid credentials' };
+    const normalizedRole = normalizeRoleName(profile.role);
+    if (!isAdminRoleName(normalizedRole)) {
+        await supabase.auth.signOut().catch(() => undefined);
+        return { profile: null, error: 'Not allowed.' };
     }
 
-    return { profile, error: null };
+    return {
+        profile: {
+            ...profile,
+            role: normalizedRole,
+        },
+        error: null,
+    };
 }
 
 async function requestAttendanceLogs(shopId) {
@@ -479,18 +729,19 @@ function makeRowId() {
 function normalizeUserFromProfile(profile) {
     if (!profile || typeof profile !== 'object') return null;
     const name =
-        asString(profile.name)
-        || asString(profile.full_name)
+        asString(profile.full_name)
+        || asString(profile.name)
         || asString(profile.workerName)
         || (asString(profile.email).split('@')[0] || 'User');
+    const normalizedRole = normalizeRoleName(profile.role) || 'salesman';
 
     return {
         ...profile,
-        id: profile.id,
+        id: getProfileId(profile),
         name,
         email: asString(profile.email),
-        role: asString(profile.role) || 'salesman',
-        pin: asString(profile.pin || profile.passcode || profile.pin_code || profile.pass_code),
+        role: normalizedRole,
+        pin: '',
         hourlyRate: parseFloat(profile.hourlyRate ?? profile.hourly_rate ?? 12.5) || 12.5,
         photo: asString(profile.avatar_url || profile.photo || profile.photo_url),
         active: profile.active !== false,
@@ -541,13 +792,13 @@ function normalizeShop(shop) {
     );
     return {
         ...shop,
-        id: asString(shop.id || shop.shop_id),
-        name: asString(shop.name || shop.shop_name || 'Shop'),
+        id: getShopId(shop),
+        name: asString(shop.shop_name || shop.name || 'Shop'),
         location: asString(shop.address || ''),
         address: asString(shop.address || ''),
         owner_email: asString(shop.owner_email || shop.ownerEmail || ''),
-        owner_password: asString(shop.owner_password || shop.password || ''),
-        password: asString(shop.password || shop.owner_password || ''),
+        owner_password: '',
+        password: '',
         telephone: resolvedTelephone,
         phone: resolvedTelephone,
     };
@@ -567,7 +818,7 @@ async function attachShopOwnerCredentials(shopList = []) {
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('role', 'admin')
+        .in('role', ['owner', 'admin'])
         .in('shop_id', shopIds);
 
     if (error || !Array.isArray(data)) return normalizedShops;
@@ -595,32 +846,24 @@ async function attachShopOwnerCredentials(shopList = []) {
         };
     });
 
-    await Promise.all(enrichedShops.map(async (shop) => {
-        const sid = asString(shop.id);
-        const currentPassword = asString(shop.password);
-        const ownerPassword = asString(shop.owner_password);
-        if (!sid || currentPassword || !ownerPassword) return;
-        await supabase.from('shops').update({ password: ownerPassword }).eq('id', sid);
-    }));
-
     return enrichedShops;
 }
 
-function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPassword }) {
+function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPasswordHash }) {
     const safeName = asString(name);
     const safeAddress = asString(address);
     const safeOwnerEmail = asString(ownerEmail).toLowerCase();
     const safeTelephone = asString(telephone);
-    const safeOwnerPassword = asString(ownerPassword);
+    const safeOwnerPasswordHash = asString(ownerPasswordHash);
     if (!safeName) return [];
 
     return [cleanPayload({
-        id: makeRowId(),
-        name: safeName,
+        shop_id: makeRowId(),
+        shop_name: safeName,
         address: safeAddress,
         owner_email: safeOwnerEmail,
         telephone: safeTelephone,
-        password: safeOwnerPassword,
+        owner_password_hash: safeOwnerPasswordHash || null,
     })];
 }
 
@@ -700,11 +943,11 @@ async function syncProfileOnlineStatus(shopId, userId) {
 
 function buildShopUpdatePayloads({ name, address, ownerEmail, telephone, ownerPassword }) {
     const payload = cleanPayload({
-        ...(name === undefined ? {} : { name: asString(name) }),
+        ...(name === undefined ? {} : { shop_name: asString(name) }),
         ...(address === undefined ? {} : { address: asString(address) }),
         ...(ownerEmail === undefined ? {} : { owner_email: asString(ownerEmail).toLowerCase() }),
         ...(telephone === undefined ? {} : { telephone: asString(telephone) }),
-        ...(ownerPassword === undefined ? {} : { password: asString(ownerPassword) }),
+        ...(ownerPassword === undefined ? {} : { owner_password_hash: asString(ownerPassword) }),
     });
 
     return Object.keys(payload).length ? [payload] : [];
@@ -713,7 +956,6 @@ function buildShopUpdatePayloads({ name, address, ownerEmail, telephone, ownerPa
 function buildShopOwnerProfileUpdatePayloads({ ownerEmail, ownerPassword }) {
     const payload = cleanPayload({
         ...(ownerEmail === undefined ? {} : { email: asString(ownerEmail).toLowerCase() }),
-        ...(ownerPassword === undefined ? {} : { password: asString(ownerPassword) }),
     });
 
     return Object.keys(payload).length ? [payload] : [];
@@ -724,32 +966,26 @@ function buildProfileInsertPayloads({
     email = '',
     role = 'salesman',
     shopId,
-    pin = '',
-    password = '',
+    pinDigest = '',
     hourlyRate = 12.5,
-    includePassword = true,
-    includePin = true
+    includePinDigest = true
 }) {
     const safeName = asString(name) || 'User';
     const safeEmail = asString(email).toLowerCase();
-    const safePin = asString(pin);
-    const safePassword = asString(password);
+    const safePinDigest = asString(pinDigest);
     const profileId = makeRowId();
-    const fallbackEmail = `${profileId}@local.invalid`;
 
     const sid = asString(shopId);
 
-    const idVariants = [{ id: profileId }, {}];
-    const shopVariants = sid ? [{ shop_id: sid }, { shopId: sid }] : [{}];
-    const emailVariants = safeEmail
-        ? [{ email: safeEmail }]
-        : [{ email: null }, { email: fallbackEmail }, {}];
+    const idVariants = [{ user_id: profileId }, {}];
+    const shopVariants = sid ? [{ shop_id: sid }] : [{}];
+    const emailVariants = safeEmail ? [{ email: safeEmail }] : [{}];
     const rateValue = Number(hourlyRate);
     const hourlyVariants = Number.isFinite(rateValue)
-        ? [{ hourlyRate: rateValue }, { hourly_rate: rateValue }, {}]
+        ? [{ hourly_rate: rateValue }, {}]
         : [{}];
-    const pinVariants = (includePin && safePin)
-        ? [{ pin: safePin }, { passcode: safePin }, { pin_code: safePin }, { pass_code: safePin }]
+    const pinVariants = (includePinDigest && safePinDigest)
+        ? [{ pin_digest: safePinDigest }]
         : [{}];
 
     const payloads = [];
@@ -761,14 +997,13 @@ function buildProfileInsertPayloads({
                         payloads.push(cleanPayload({
                             ...idVariant,
                             ...shopVariant,
-                            role,
-                            name: safeName,
+                            role: normalizeRoleName(role) || 'salesman',
+                            full_name: safeName,
                             ...emailVariant,
                             ...hourlyVariant,
                             active: true,
                             is_online: false,
                             ...pinVariant,
-                            ...(includePassword && safePassword ? { password: safePassword } : {}),
                         }));
                     }
                 }
@@ -779,42 +1014,38 @@ function buildProfileInsertPayloads({
     return dedupePayloads(payloads).filter((payload) => Object.keys(payload).length > 0);
 }
 
-function buildManagerProfilePayloads({ ownerName, ownerEmail, shopId, tempPin, tempPassword }) {
+function buildManagerProfilePayloads({ ownerName, ownerEmail, shopId }) {
     return buildProfileInsertPayloads({
         name: ownerName,
         email: ownerEmail,
-        role: 'admin',
+        role: 'owner',
         shopId,
-        pin: tempPin,
-        password: tempPassword,
         hourlyRate: 12.5,
-        includePassword: true,
-        includePin: false
+        includePinDigest: false
     });
 }
 
-function buildSalesmanInsertPayloads({ name, pin, shopId, hourlyRate = 12.5 }) {
+function buildSalesmanInsertPayloads({ name, pinDigest, shopId, hourlyRate = 12.5 }) {
     return buildProfileInsertPayloads({
         name,
         role: 'salesman',
         shopId,
-        pin,
+        pinDigest,
         hourlyRate,
-        includePassword: false
+        includePinDigest: true
     });
 }
 
 function buildProfileUpdatePayloads(updates = {}) {
     const payload = cleanPayload({
-        ...(updates.name === undefined ? {} : { name: asString(updates.name) }),
+        ...(updates.name === undefined ? {} : { full_name: asString(updates.name) }),
         ...(updates.email === undefined ? {} : { email: asString(updates.email).toLowerCase() }),
-        ...(updates.role === undefined ? {} : { role: asString(updates.role) }),
+        ...(updates.role === undefined ? {} : { role: normalizeRoleName(updates.role) }),
         ...(updates.shop_id === undefined
             ? {}
             : { shop_id: updates.shop_id === null ? null : asString(updates.shop_id) }),
-        ...(updates.pin === undefined ? {} : { pin: asString(updates.pin) }),
-        ...(updates.password === undefined ? {} : { password: asString(updates.password) }),
-        ...(updates.hourlyRate === undefined ? {} : { hourlyRate: Number(updates.hourlyRate) || 0 }),
+        ...(updates.pin_digest === undefined ? {} : { pin_digest: asString(updates.pin_digest) }),
+        ...(updates.hourlyRate === undefined ? {} : { hourly_rate: Number(updates.hourlyRate) || 0 }),
         ...(updates.active === undefined ? {} : { active: asBoolean(updates.active) }),
         ...((updates.photo === undefined && updates.photoUrl === undefined && updates.avatar_url === undefined)
             ? {}
@@ -844,76 +1075,28 @@ async function trySelectProfileByField(field, value, roles) {
 }
 
 async function trySelectSalesmanByPin(pinValue, shopId = '') {
-    const safePin = asString(pinValue);
-    const sid = asString(shopId);
-    if (!safePin) return null;
-
-    const pinFields = ['pin', 'passcode', 'pin_code', 'pass_code'];
-    let shouldFallbackScan = false;
-
-    for (const field of pinFields) {
-        let query = supabase
-            .from('profiles')
-            .select('*')
-            .eq(field, safePin)
-            .eq('role', 'salesman');
-        if (sid) {
-            query = query.eq('shop_id', sid);
-        }
-        const { data, error } = await query.limit(2);
-
-        if (!error && Array.isArray(data) && data.length > 1 && !sid) {
-            return null;
-        }
-        if (!error && Array.isArray(data) && data.length > 0) {
-            return data[0];
-        }
-
-        const message = asString(error?.message).toLowerCase();
-        if (message.includes('schema cache') || message.includes('column')) {
-            shouldFallbackScan = true;
-            continue;
-        }
-
-        if (!error && Array.isArray(data) && data.length === 0) {
-            continue;
-        }
-    }
-
-    if (!shouldFallbackScan) {
-        return null;
-    }
-
-    const { data: rows, error: scanError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'salesman');
-
-    if (scanError || !Array.isArray(rows)) return null;
-    const matches = rows.filter((row) => {
-        const rowShopId = asString(row.shop_id);
-        if (sid && rowShopId !== sid) return false;
-        return asString(row.pin || row.passcode || row.pin_code || row.pass_code) === safePin;
-    });
-    if (!sid && matches.length > 1) return null;
-    return matches[0] || null;
+    const { profile } = await verifySalesmanPin(pinValue, shopId);
+    return profile || null;
 }
 
-async function listSalesmenByPin(pinValue) {
+async function listSalesmenByPin(pinValue, shopId = '') {
     const safePin = asString(pinValue);
     if (!safePin) return [];
+    const digest = await computePinDigest(shopId, safePin);
+    if (!digest) return [];
 
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('role', 'salesman');
+        .eq('role', 'salesman')
+        .eq('pin_digest', digest)
+        .limit(5);
 
     if (error || !Array.isArray(data)) return [];
-
-    return data.filter((row) => asString(row.pin || row.passcode || row.pin_code || row.pass_code) === safePin);
+    return data;
 }
 
-async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '') {
+async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', shopId = '') {
     const safePin = asString(pinValue);
     const excludedId = asString(excludeSalesmanId);
     if (!safePin) {
@@ -923,10 +1106,25 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '') {
         return { available: false, message: 'PIN must be exactly 4 digits.' };
     }
 
-    const conflicts = await listSalesmenByPin(safePin);
-    const hasConflict = conflicts.some((row) => asString(row?.id) !== excludedId);
+    const digest = await computePinDigest(shopId, safePin);
+    if (!digest) {
+        return { available: false, message: 'Unable to compute PIN digest. Check SQL helper `make_pin_digest_global`.' };
+    }
+
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('id,user_id')
+        .eq('role', 'salesman')
+        .eq('pin_digest', digest);
+
+    if (error) {
+        return { available: false, message: asString(error.message) || 'Unable to validate PIN.' };
+    }
+
+    const conflicts = Array.isArray(data) ? data : [];
+    const hasConflict = conflicts.some((row) => asString(row?.user_id || row?.id) !== excludedId);
     if (hasConflict) {
-        return { available: false, message: 'PIN already in use by another salesman (all shops). Use a unique PIN.' };
+        return { available: false, message: 'PIN already in use. Use a globally unique PIN.' };
     }
 
     return { available: true, message: '' };
@@ -969,8 +1167,9 @@ export function AuthProvider({ children }) {
 
     const [salesmen, setSalesmen] = useState([]);
 
-    const isSuperAdmin = GLOBAL_ADMIN_ROLES.includes(role);
-    const isAdminLike = GLOBAL_ADMIN_ROLES.includes(role) || role === 'admin';
+    const normalizedAuthRole = normalizeRoleName(role);
+    const isSuperAdmin = isSuperAdminRole(normalizedAuthRole);
+    const isAdminLike = isAdminRoleName(normalizedAuthRole);
     const activeShopMeta = useMemo(() => getShopMeta(shopMetaMap, activeShopId), [shopMetaMap, activeShopId]);
     const billShowTax = activeShopMeta.billShowTax === undefined ? true : asBoolean(activeShopMeta.billShowTax);
 
@@ -1129,7 +1328,7 @@ export function AuthProvider({ children }) {
 
         const isIndependentAdmin = asString(role) === 'admin' && !asString(user?.shop_id);
 
-        if (GLOBAL_ADMIN_ROLES.includes(role) || isIndependentAdmin) {
+        if (isSuperAdminRole(role) || isIndependentAdmin) {
             const { data, error } = await supabase.from('shops').select('*').order('name', { ascending: true });
             if (error || !Array.isArray(data)) {
                 setShops([]);
@@ -1282,7 +1481,7 @@ export function AuthProvider({ children }) {
     }, [isSuperAdmin, role, user, activeShopId]);
 
     const createShop = useCallback(async ({ shopName, location, address, ownerEmail, telephone }) => {
-        if (!GLOBAL_ADMIN_ROLES.includes(role)) {
+        if (!isSuperAdminRole(role)) {
             throw new Error('Only superadmin/superuser can create shops.');
         }
 
@@ -1413,7 +1612,7 @@ export function AuthProvider({ children }) {
     }, [role, activeShopId, patchShopMeta, shopMetaMap]);
 
     const updateShop = useCallback(async (shopId, updates = {}) => {
-        if (!GLOBAL_ADMIN_ROLES.includes(role)) {
+        if (!isSuperAdminRole(role)) {
             throw new Error('Only superadmin/superuser can update shops.');
         }
 
@@ -1665,7 +1864,7 @@ export function AuthProvider({ children }) {
     }, [role, user, shops, patchShopMeta, shopMetaMap]);
 
     const deleteShop = useCallback(async (shopId) => {
-        if (!GLOBAL_ADMIN_ROLES.includes(role)) {
+        if (!isSuperAdminRole(role)) {
             throw new Error('Only superadmin/superuser can delete shops.');
         }
 
@@ -2015,34 +2214,47 @@ export function AuthProvider({ children }) {
             }
 
             if (userData.role === 'admin') {
-                const identifier = asString(userData.username || userData.email || userData.name);
+                const lockMessage = getLockoutMessage('admin');
+                if (lockMessage) {
+                    return { success: false, message: lockMessage };
+                }
+                const identifier = asString(userData.identifier || userData.username || userData.email || userData.name);
                 const password = asString(userData.password);
                 const { profile, error } = await requestAdminLogin({ identifier, password });
                 if (error || !profile) {
-                    return { success: false, message: 'Invalid Admin credentials' };
+                    bumpRateLimit('admin');
+                    return { success: false, message: error || 'Invalid credentials.' };
                 }
+                clearRateLimit('admin');
 
                 const normalized = normalizeUserFromProfile(profile);
-                if (!normalized || !ADMIN_ROLES.includes(normalized.role)) {
-                    return { success: false, message: 'Invalid Admin credentials' };
+                if (!normalized || !isAdminRoleName(normalized.role)) {
+                    await supabase.auth.signOut().catch(() => undefined);
+                    return { success: false, message: 'Not allowed.' };
                 }
                 setRole(normalized.role);
                 setUser(normalized);
                 if (normalized.shop_id) {
                     setActiveShopIdState(normalized.shop_id);
-                } else if (!GLOBAL_ADMIN_ROLES.includes(normalized.role)) {
+                } else if (!isSuperAdminRole(normalized.role)) {
                     setActiveShopIdState('');
                 }
-                return { success: true, role: normalized.role };
+                return { success: true, role: normalized.role, redirectTo: getAdminRedirectPath(normalized.role) };
 
             }
 
             if (userData.role === 'salesman') {
+                const lockMessage = getLockoutMessage('salesman');
+                if (lockMessage) {
+                    return { success: false, message: lockMessage };
+                }
                 const pin = asString(userData.pin);
                 if (!pin) return { success: false, message: 'PIN required' };
 
-                const profile = await trySelectSalesmanByPin(pin);
-                if (profile) {
+                const verified = await verifySalesmanPin(pin);
+                if (verified?.profile) {
+                    clearRateLimit('salesman');
+                    const profile = verified.profile;
                     const normalized = mergeSalesmanMeta(normalizeUserFromProfile(profile), salesmanMetaMap);
                     if (normalized.active === false) {
                         return { success: false, message: 'User disabled' };
@@ -2057,45 +2269,18 @@ export function AuthProvider({ children }) {
                     } catch {
                         setIsPunchedIn(false);
                     }
-                    return { success: true, role: 'salesman' };
+                    return { success: true, role: 'salesman', redirectTo: '/salesman/dashboard' };
                 }
 
-                const conflictingPins = await listSalesmenByPin(pin);
-                if (conflictingPins.length > 1) {
-                    return { success: false, message: 'PIN conflict across shops. Ask admin to set a unique PIN.' };
-                }
-
-                // Legacy fallback
-                const salesman = salesmen.find(s => String(s.pin) === pin);
-                if (salesman) {
-                    const withMeta = mergeSalesmanMeta(salesman, salesmanMetaMap);
-                    setRole('salesman');
-                    setUser(withMeta);
-                    if (withMeta.shop_id) setActiveShopIdState(asString(withMeta.shop_id));
-                    // Fetch actual punch state from attendance source of truth
-                    try {
-                        const sid = asString(withMeta.shop_id);
-                        const uid = asString(withMeta.id);
-                        if (sid && uid) {
-                            const { data: userStatusData } = await requestUserStatus({ shopId: sid, userId: uid });
-                            setIsPunchedIn(userStatusData ? asBoolean(userStatusData.is_punched_in) : false);
-                        } else {
-                            setIsPunchedIn(false);
-                        }
-                    } catch {
-                        setIsPunchedIn(false);
-                    }
-                    return { success: true, role: 'salesman' };
-                }
-
-                return { success: false, message: 'Invalid PIN' };
+                bumpRateLimit('salesman');
+                return { success: false, message: verified?.error || 'Invalid PIN' };
             }
 
             return { success: false, message: 'Unknown Role' };
         } finally {
             setAuthLoading(false);
         }
-    }, [salesmen, activeShopId, salesmanMetaMap]);
+    }, [salesmanMetaMap]);
 
     const logout = () => {
         supabase.auth.signOut().catch(() => undefined);
@@ -2109,6 +2294,35 @@ export function AuthProvider({ children }) {
         setAttendanceLogs([]);
         return { success: true };
     };
+
+    const verifySalesmanUnlockPin = useCallback(async (pinValue) => {
+        const sid = asString(user?.shop_id || activeShopId);
+        const uid = asString(user?.id);
+        const scope = `unlock:${uid || 'unknown'}`;
+        const lockMessage = getLockoutMessage(scope);
+        if (lockMessage) {
+            return { success: false, message: lockMessage };
+        }
+
+        if (!sid || !uid) {
+            return { success: false, message: 'Session not ready. Please login again.' };
+        }
+
+        const enteredPin = asString(pinValue);
+        if (!enteredPin) {
+            return { success: false, message: 'PIN required.' };
+        }
+
+        const { profile, error } = await verifySalesmanPin(enteredPin, sid);
+        const matchedId = asString(profile?.user_id || profile?.id);
+        if (error || !profile || matchedId !== uid) {
+            bumpRateLimit(scope);
+            return { success: false, message: 'Invalid PIN.' };
+        }
+
+        clearRateLimit(scope);
+        return { success: true };
+    }, [activeShopId, user?.id, user?.shop_id]);
 
     // ── Management Functions ──
     const updateAdminPassword = async (newPass) => {
@@ -2148,9 +2362,13 @@ export function AuthProvider({ children }) {
             throw new Error('PIN must be exactly 4 digits.');
         }
 
-        const existingPins = await listSalesmenByPin(trimmedPin);
+        const existingPins = await listSalesmenByPin(trimmedPin, sid);
         if (existingPins.length > 0) {
             throw new Error('PIN already in use by another salesman (all shops). Please use a unique PIN.');
+        }
+        const pinDigest = await computePinDigest(sid, trimmedPin);
+        if (!pinDigest) {
+            throw new Error('Unable to compute PIN digest. Ensure SQL function `make_pin_digest_global` exists.');
         }
         const explicitNumber = asNumber(extra?.salesmanNumber, 0);
         const assignedNumber = explicitNumber > 0
@@ -2176,7 +2394,7 @@ export function AuthProvider({ children }) {
         let insertError = null;
         const payloadVariants = buildSalesmanInsertPayloads({
             name: trimmedName,
-            pin: trimmedPin,
+            pinDigest,
             shopId: sid,
             hourlyRate: 12.5
         });
@@ -2198,7 +2416,7 @@ export function AuthProvider({ children }) {
                     can_edit_transactions: permissionPatch.canEditTransactions,
                     can_bulk_edit: permissionPatch.canBulkEdit,
                 })
-                .eq('id', createdProfile.id)
+                .eq('user_id', createdProfile.id)
                 .eq('shop_id', sid);
 
             const withMeta = {
@@ -2218,8 +2436,12 @@ export function AuthProvider({ children }) {
         throw new Error(dbErrorMessage);
     };
 
+    const checkSalesmanPinAvailabilityForShop = useCallback(async (pinValue, excludeSalesmanId = '') => {
+        return checkSalesmanPinAvailability(pinValue, excludeSalesmanId, activeShopId);
+    }, [activeShopId]);
+
     const addIndependentAdmin = async ({ name, email, password }) => {
-        if (!GLOBAL_ADMIN_ROLES.includes(role)) {
+        if (!isSuperAdminRole(role)) {
             throw new Error('Only superadmin/superuser can create independent admins.');
         }
 
@@ -2267,7 +2489,7 @@ export function AuthProvider({ children }) {
     const deleteSalesman = async (id) => {
         const sid = asString(activeShopId);
         if (sid) {
-            await supabase.from('profiles').delete().eq('id', id).eq('shop_id', sid);
+            await supabase.from('profiles').delete().eq('user_id', id).eq('shop_id', sid);
         }
         setSalesmanMetaMap((prev) => {
             const byShop = prev?.[sid] && typeof prev[sid] === 'object' ? { ...prev[sid] } : {};
@@ -2317,6 +2539,7 @@ export function AuthProvider({ children }) {
 
         const dbUpdates = { ...(updates || {}) };
         delete dbUpdates.permissions;
+        delete dbUpdates.pin;
 
         if (Object.prototype.hasOwnProperty.call(localMetaPatch, 'salesmanNumber') && localMetaPatch.salesmanNumber > 0) {
             const nextNumber = Math.max(0, Math.floor(asNumber(localMetaPatch.salesmanNumber, 0)));
@@ -2332,11 +2555,17 @@ export function AuthProvider({ children }) {
         }
 
         if (nextPin) {
-            const conflicts = await listSalesmenByPin(nextPin);
-            const hasConflict = conflicts.some((row) => asString(row.id) !== normalizedId);
+            const conflicts = await listSalesmenByPin(nextPin, sid);
+            const hasConflict = conflicts.some((row) => asString(row.user_id || row.id) !== normalizedId);
             if (hasConflict) {
-                throw new Error('PIN already used in another shop. Please choose a different PIN.');
+                throw new Error('PIN already in use. Please choose a globally unique PIN.');
             }
+
+            const nextDigest = await computePinDigest(sid, nextPin);
+            if (!nextDigest) {
+                throw new Error('Unable to compute PIN digest. Ensure SQL function `make_pin_digest_global` exists.');
+            }
+            dbUpdates.pin_digest = nextDigest;
         }
 
         if (sid && Object.keys(dbUpdates).length > 0) {
@@ -2344,7 +2573,7 @@ export function AuthProvider({ children }) {
             const candidates = buildProfileUpdatePayloads(dbUpdates);
 
             for (const payload of candidates) {
-                const { error } = await supabase.from('profiles').update(payload).eq('id', id).eq('shop_id', sid);
+                const { error } = await supabase.from('profiles').update(payload).eq('user_id', id).eq('shop_id', sid);
                 if (!error) {
                     updatedOnDB = true;
                     break;
@@ -2448,6 +2677,7 @@ export function AuthProvider({ children }) {
         isSuperAdmin,
         isAdminLike,
         login,
+        verifySalesmanUnlockPin,
         logout,
 
         activeShopId,
@@ -2463,7 +2693,7 @@ export function AuthProvider({ children }) {
 
         salesmen,
         addSalesman,
-        checkSalesmanPinAvailability,
+        checkSalesmanPinAvailability: checkSalesmanPinAvailabilityForShop,
         addIndependentAdmin,
         deleteSalesman,
         updateSalesman,
