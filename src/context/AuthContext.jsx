@@ -654,17 +654,50 @@ async function requestAttendanceLogs(shopId) {
     return { data: expanded, error: null };
 }
 
-async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
+async function requestAttendanceAction({ userId, shopId, type, timestamp, attendanceId = '' }) {
     const uid = asString(userId);
     const sid = asString(shopId);
     const punchType = asString(type).toUpperCase();
     const ts = asString(timestamp) || new Date().toISOString();
+    const knownAttendanceId = asString(attendanceId);
 
     if (!uid || !sid || (punchType !== 'IN' && punchType !== 'OUT')) {
         return { data: null, error: 'user_id, shop_id and type(IN/OUT) are required.' };
     }
 
     if (punchType === 'IN') {
+        const { data: existingOpenRow, error: existingOpenError } = await supabase
+            .from('attendance')
+            .select('attendance_id,check_in')
+            .eq('shop_id', sid)
+            .eq('user_id', uid)
+            .is('check_out', null)
+            .order('check_in', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (existingOpenError) {
+            console.error('Attendance open-row lookup failed before punch IN:', {
+                shop_id: sid,
+                user_id: uid,
+                error: existingOpenError,
+            });
+            return { data: null, error: asString(existingOpenError.message) || 'Failed to verify active session.' };
+        }
+
+        if (existingOpenRow?.attendance_id) {
+            await syncProfileOnlineStatus(sid, uid);
+            return {
+                data: {
+                    type: punchType,
+                    timestamp: asString(existingOpenRow.check_in) || ts,
+                    attendance_id: asString(existingOpenRow.attendance_id),
+                    already_open: true,
+                },
+                error: null,
+            };
+        }
+
         let hourlyRateSnapshot = null;
         const { data: profileRow } = await supabase
             .from('profiles')
@@ -685,9 +718,11 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             check_in: ts,
             hourly_rate_snapshot: hourlyRateSnapshot,
         };
-        const { error: inError } = await supabase
+        const { data: insertedRow, error: inError } = await supabase
             .from('attendance')
-            .insert([insertPayload]);
+            .insert([insertPayload])
+            .select('attendance_id,check_in')
+            .single();
 
         if (inError) {
             console.error('Attendance punch IN insert failed:', {
@@ -696,17 +731,49 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             });
             return { data: null, error: asString(inError.message) || 'Failed to punch in.' };
         }
+
+        await syncProfileOnlineStatus(sid, uid);
+
+        return {
+            data: {
+                type: punchType,
+                timestamp: asString(insertedRow?.check_in) || ts,
+                attendance_id: asString(insertedRow?.attendance_id),
+            },
+            error: null,
+        };
     } else {
-        const { data: openRow, error: openError } = await supabase
-            .from('attendance')
-            .select('attendance_id,check_in,hourly_rate_snapshot')
-            .eq('shop_id', sid)
-            .eq('user_id', uid)
-            .not('check_in', 'is', null)
-            .is('check_out', null)
-            .order('check_in', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        let openRow = null;
+        let openError = null;
+
+        if (knownAttendanceId) {
+            const knownRowResult = await supabase
+                .from('attendance')
+                .select('attendance_id,check_in,hourly_rate_snapshot')
+                .eq('attendance_id', knownAttendanceId)
+                .eq('shop_id', sid)
+                .eq('user_id', uid)
+                .is('check_out', null)
+                .maybeSingle();
+
+            openRow = knownRowResult.data || null;
+            openError = knownRowResult.error || null;
+        }
+
+        if (!openRow && !openError) {
+            const openRowResult = await supabase
+                .from('attendance')
+                .select('attendance_id,check_in,hourly_rate_snapshot')
+                .eq('shop_id', sid)
+                .eq('user_id', uid)
+                .is('check_out', null)
+                .order('check_in', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            openRow = openRowResult.data || null;
+            openError = openRowResult.error || null;
+        }
 
         if (openError) {
             console.error('Attendance open-row lookup failed before punch OUT:', {
@@ -750,11 +817,18 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             });
             return { data: null, error: asString(outError.message) || 'Failed to punch out.' };
         }
+
+        await syncProfileOnlineStatus(sid, uid);
+
+        return {
+            data: {
+                type: punchType,
+                timestamp: ts,
+                attendance_id: openAttendanceId,
+            },
+            error: null,
+        };
     }
-
-    await syncProfileOnlineStatus(sid, uid);
-
-    return { data: { type: punchType, timestamp: ts }, error: null };
 }
 
 async function requestUserStatus({ shopId, userId }) {
@@ -767,7 +841,6 @@ async function requestUserStatus({ shopId, userId }) {
         .select('attendance_id,check_in,check_out,created_at')
         .eq('shop_id', sid)
         .eq('user_id', uid)
-        .not('check_in', 'is', null)
         .is('check_out', null)
         .order('check_in', { ascending: false })
         .limit(1)
@@ -2150,6 +2223,8 @@ export function AuthProvider({ children }) {
     // ── Attendance State ──
     const [attendanceLogs, setAttendanceLogs] = useState([]);
     const [isPunchedIn, setIsPunchedIn] = useState(false);
+    const [activeAttendanceId, setActiveAttendanceId] = useState('');
+    const [isAttendanceActionPending, setIsAttendanceActionPending] = useState(false);
     const activeUserId = asString(getProfileId(user));
     const activeUserShopId = asString(user?.shop_id || activeShopId);
 
@@ -2158,6 +2233,7 @@ export function AuthProvider({ children }) {
         if (!sid) {
             setAttendanceLogs([]);
             setIsPunchedIn(false);
+            setActiveAttendanceId('');
             return;
         }
 
@@ -2192,6 +2268,7 @@ export function AuthProvider({ children }) {
             }
             if (dbUserStatus) {
                 setIsPunchedIn(asBoolean(dbUserStatus.is_punched_in));
+                setActiveAttendanceId(asString(dbUserStatus?.active_attendance?.id));
             }
             return;
         }
@@ -2210,6 +2287,7 @@ export function AuthProvider({ children }) {
 
         if (asString(roleArg) !== 'salesman') {
             setIsPunchedIn(false);
+            setActiveAttendanceId('');
         }
     }, []);
 
@@ -2269,7 +2347,7 @@ export function AuthProvider({ children }) {
     const punchIn = useCallback(async () => {
         const sid = asString(activeUserShopId);
         const uid = asString(activeUserId);
-        if (!user || !sid || !uid || isPunchedIn) {
+        if (!user || !sid || !uid || isPunchedIn || isAttendanceActionPending) {
             if (!uid || !sid) {
                 console.error('Punch IN blocked: missing profile session identifiers.', {
                     user,
@@ -2279,6 +2357,7 @@ export function AuthProvider({ children }) {
             }
             return;
         }
+        setIsAttendanceActionPending(true);
         const ts = new Date();
         const optimisticId = `optimistic-in-${Date.now()}-${uid}`;
         const optimisticLog = {
@@ -2295,27 +2374,32 @@ export function AuthProvider({ children }) {
         setIsPunchedIn(true);
         setAttendanceLogs((prev) => [optimisticLog, ...(Array.isArray(prev) ? prev : [])]);
 
-        const { error } = await requestAttendanceAction({
-            userId: uid,
-            shopId: sid,
-            type: 'IN',
-            timestamp: ts.toISOString()
-        });
+        try {
+            const { data: actionData, error } = await requestAttendanceAction({
+                userId: uid,
+                shopId: sid,
+                type: 'IN',
+                timestamp: ts.toISOString()
+            });
 
-        if (error) {
-            console.error('Failed to punch IN:', error);
-            setIsPunchedIn(false);
-            setAttendanceLogs((prev) => (Array.isArray(prev) ? prev : []).filter((log) => asString(log?.id) !== optimisticId));
-            return;
+            if (error) {
+                console.error('Failed to punch IN:', error);
+                setIsPunchedIn(false);
+                setAttendanceLogs((prev) => (Array.isArray(prev) ? prev : []).filter((log) => asString(log?.id) !== optimisticId));
+                return;
+            }
+
+            setActiveAttendanceId(asString(actionData?.attendance_id));
+            await fetchAttendanceState(sid, role, uid);
+        } finally {
+            setIsAttendanceActionPending(false);
         }
-
-        fetchAttendanceState(sid, role, uid);
-    }, [activeUserId, activeUserShopId, fetchAttendanceState, isPunchedIn, role, user]);
+    }, [activeUserId, activeUserShopId, fetchAttendanceState, isAttendanceActionPending, isPunchedIn, role, user]);
 
     const punchOut = useCallback(async () => {
         const sid = asString(activeUserShopId);
         const uid = asString(activeUserId);
-        if (!user || !sid || !uid || !isPunchedIn) {
+        if (!user || !sid || !uid || !isPunchedIn || isAttendanceActionPending) {
             if (!uid || !sid) {
                 console.error('Punch OUT blocked: missing profile session identifiers.', {
                     user,
@@ -2325,6 +2409,7 @@ export function AuthProvider({ children }) {
             }
             return;
         }
+        setIsAttendanceActionPending(true);
         const ts = new Date();
         const optimisticId = `optimistic-out-${Date.now()}-${uid}`;
         const optimisticLog = {
@@ -2341,24 +2426,31 @@ export function AuthProvider({ children }) {
         setIsPunchedIn(false);
         setAttendanceLogs((prev) => [optimisticLog, ...(Array.isArray(prev) ? prev : [])]);
 
-        const { error } = await requestAttendanceAction({
-            userId: uid,
-            shopId: sid,
-            type: 'OUT',
-            timestamp: ts.toISOString()
-        });
+        try {
+            const { error } = await requestAttendanceAction({
+                userId: uid,
+                shopId: sid,
+                type: 'OUT',
+                timestamp: ts.toISOString(),
+                attendanceId: activeAttendanceId,
+            });
 
-        if (error) {
-            console.error('Failed to punch OUT:', error);
-            setIsPunchedIn(true);
-            setAttendanceLogs((prev) => (Array.isArray(prev) ? prev : []).filter((log) => asString(log?.id) !== optimisticId));
-            return;
+            if (error) {
+                console.error('Failed to punch OUT:', error);
+                setIsPunchedIn(true);
+                setAttendanceLogs((prev) => (Array.isArray(prev) ? prev : []).filter((log) => asString(log?.id) !== optimisticId));
+                return;
+            }
+
+            setActiveAttendanceId('');
+            await fetchAttendanceState(sid, role, uid);
+        } finally {
+            setIsAttendanceActionPending(false);
         }
-
-        fetchAttendanceState(sid, role, uid);
-    }, [activeUserId, activeUserShopId, fetchAttendanceState, isPunchedIn, role, user]);
+    }, [activeAttendanceId, activeUserId, activeUserShopId, fetchAttendanceState, isAttendanceActionPending, isPunchedIn, role, user]);
 
     const addAttendanceLog = (_userObj, type) => {
+        if (isAttendanceActionPending) return;
         const normalizedType = asString(type).toUpperCase();
         if (normalizedType === 'IN') {
             punchIn();
@@ -2569,10 +2661,12 @@ export function AuthProvider({ children }) {
                         }
                         if (userStatusData) {
                             setIsPunchedIn(asBoolean(userStatusData.is_punched_in));
+                            setActiveAttendanceId(asString(userStatusData?.active_attendance?.id));
                         }
                     } catch (statusError) {
                         console.error('Unexpected attendance status error during salesman login:', statusError);
                         setIsPunchedIn(false);
+                        setActiveAttendanceId('');
                     }
                     return { success: true, role: 'salesman', redirectTo: '/salesman/dashboard' };
                 }
@@ -2595,6 +2689,8 @@ export function AuthProvider({ children }) {
         setActiveShopIdState('');
         setShops([]);
         setIsPunchedIn(false);
+        setActiveAttendanceId('');
+        setIsAttendanceActionPending(false);
         setLowStockAlerts([]);
         setAttendanceLogs([]);
         return { success: true };
@@ -3016,6 +3112,8 @@ export function AuthProvider({ children }) {
         punchIn,
         punchOut,
         isPunchedIn,
+        activeAttendanceId,
+        isAttendanceActionPending,
         addAttendanceLog,
         updateAttendanceLog,
         deleteAttendanceLog

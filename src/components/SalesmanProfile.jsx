@@ -2,7 +2,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function SalesmanProfile({ isOpen, onClose }) {
-    const { user, isPunchedIn, punchIn, punchOut, logout, attendanceLogs } = useAuth();
+    const { user, isPunchedIn, isAttendanceActionPending, punchIn, punchOut, logout, attendanceLogs } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const isOnLatestDashboard = location.pathname.includes('/salesman/latest-dashboard');
@@ -74,8 +74,8 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                     {/* Punch In */}
                     <button
                         onClick={() => onPunchCommand('IN')}
-                        disabled={isPunchedIn}
-                        className={`h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 ${isPunchedIn
+                        disabled={isPunchedIn || isAttendanceActionPending}
+                        className={`h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 ${(isPunchedIn || isAttendanceActionPending)
                             ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
                             : 'bg-green-50 border-green-100 text-green-600 hover:bg-green-100 hover:scale-105 shadow-sm'
                             }`}
@@ -87,8 +87,8 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                     {/* Punch Out */}
                     <button
                         onClick={() => onPunchCommand('OUT')}
-                        disabled={!isPunchedIn}
-                        className={`h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 ${!isPunchedIn
+                        disabled={!isPunchedIn || isAttendanceActionPending}
+                        className={`h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 ${(!isPunchedIn || isAttendanceActionPending)
                             ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed'
                             : 'bg-red-50 border-red-100 text-red-600 hover:bg-red-100 hover:scale-105 shadow-sm'
                             }`}
