@@ -748,7 +748,7 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
         discount_amount: discountAmount,
         repair_id: repairId,
         product_id: productId,
-        created_by: workerId || null,
+        created_by: isUuidLike(workerId) ? workerId : null,
     }, shopId);
 
     if (includeId) {
@@ -761,6 +761,20 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
     }
 
     return payload;
+}
+
+function isEnumError(error = null, fieldName = '') {
+    const message = cleanText(error?.message || error || '').toLowerCase();
+    if (!message.includes('invalid input value for enum')) return false;
+    if (!fieldName) return true;
+    return message.includes(String(fieldName).toLowerCase());
+}
+
+function isUuidSyntaxError(error = null, fieldName = '') {
+    const message = cleanText(error?.message || error || '').toLowerCase();
+    if (!message.includes('invalid input syntax for type uuid')) return false;
+    if (!fieldName) return true;
+    return message.includes(String(fieldName).toLowerCase()) || message.includes('uuid');
 }
 
 function buildTransactionSnapshot(txn) {
@@ -1360,9 +1374,37 @@ export function InventoryProvider({ children }) {
             formattedTxn
         );
         if (insertResult.error) {
+            const fallbackPayload = {
+                ...formattedTxn,
+                tx_type: 'product_sale',
+                tx_source: ['cash', 'sum_up'].includes(cleanText(formattedTxn?.tx_source || '').toLowerCase())
+                    ? cleanText(formattedTxn?.tx_source || '').toLowerCase()
+                    : 'cash',
+            };
+
+            if (isUuidSyntaxError(insertResult.error, 'product_id')) fallbackPayload.product_id = null;
+            if (isUuidSyntaxError(insertResult.error, 'repair_id')) fallbackPayload.repair_id = null;
+            if (isUuidSyntaxError(insertResult.error, 'created_by')) fallbackPayload.created_by = null;
+            if (isEnumError(insertResult.error, 'tx_type')) fallbackPayload.tx_type = 'product_sale';
+            if (isEnumError(insertResult.error, 'tx_source')) fallbackPayload.tx_source = 'cash';
+
+            const retryResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('transactions').insert([candidate]),
+                fallbackPayload
+            );
+
+            if (!retryResult.error) {
+                try {
+                    await syncTransactionItems({ ...txn, ...hydratedTxn, ...fallbackPayload }, sid);
+                } catch (itemError) {
+                    console.error(itemError);
+                }
+                return hydratedTxn;
+            }
+
             setTransactions(prev => prev.filter(t => String(t.id) !== String(normalizedTxn.id)));
             removeTransactionSnapshot(normalizedTxn.id);
-            throw new Error(insertResult.error.message || 'Failed to save transaction.');
+            throw new Error(retryResult.error?.message || insertResult.error.message || 'Failed to save transaction.');
         }
 
         try {

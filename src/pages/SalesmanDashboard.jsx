@@ -2446,22 +2446,26 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!hasOnlineOrderStageTransaction(row, 'ADVANCE')) {
             const marker = `OnlineOrderRef:${row.orderId || row.id}`;
             const bookedAt = buildSelectedDate(row.orderDate || todayIsoDate());
-            await addTransaction({
-                desc: `Online Order Advance: ${row.itemName}`,
-                amount: totalCost,
-                quantity: 1,
-                type: 'expense',
-                category: 'Online Purchase',
-                paymentMethod: 'Online',
-                notes: `${marker} | Stage:ADVANCE | Platform: ${row.platform || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
-                source: 'online-order',
-                salesmanName: user?.name,
-                salesmanNumber: user?.salesmanNumber || 0,
-                workerId: String(user?.id || ''),
-                timestamp: bookedAt.toISOString(),
-                date: bookedAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                time: bookedAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            });
+            try {
+                await addTransaction({
+                    desc: `Online Order Advance: ${row.itemName}`,
+                    amount: totalCost,
+                    quantity: 1,
+                    type: 'expense',
+                    category: 'Online Purchase',
+                    paymentMethod: 'Online',
+                    notes: `${marker} | Stage:ADVANCE | Platform: ${row.platform || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
+                    source: 'online-order',
+                    salesmanName: user?.name,
+                    salesmanNumber: user?.salesmanNumber || 0,
+                    workerId: String(user?.id || ''),
+                    timestamp: bookedAt.toISOString(),
+                    date: bookedAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: bookedAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                });
+            } catch (transactionError) {
+                console.error('Online order advance transaction failed (order saved):', transactionError);
+            }
         }
 
         setOnlineOrderForm(newOnlineOrderForm());
@@ -2479,22 +2483,26 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         if (remainingAmount > 0 && !hasOnlineOrderStageTransaction(target, 'REMAINING')) {
             const settledAt = new Date();
-            await addTransaction({
-                desc: `Online Order Remaining: ${target.itemName || 'Order'}`,
-                amount: remainingAmount,
-                quantity: 1,
-                type: 'expense',
-                category: 'Online Purchase',
-                paymentMethod: 'Online',
-                notes: `${marker} | Stage:REMAINING | Platform: ${target.platform || '-'} | Total: ${totalCost.toFixed(2)} | Advance: ${advanceAmount.toFixed(2)}`,
-                source: 'online-order',
-                salesmanName: user?.name,
-                salesmanNumber: user?.salesmanNumber || 0,
-                workerId: String(user?.id || ''),
-                timestamp: settledAt.toISOString(),
-                date: settledAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                time: settledAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            });
+            try {
+                await addTransaction({
+                    desc: `Online Order Remaining: ${target.itemName || 'Order'}`,
+                    amount: remainingAmount,
+                    quantity: 1,
+                    type: 'expense',
+                    category: 'Online Purchase',
+                    paymentMethod: 'Online',
+                    notes: `${marker} | Stage:REMAINING | Platform: ${target.platform || '-'} | Total: ${totalCost.toFixed(2)} | Advance: ${advanceAmount.toFixed(2)}`,
+                    source: 'online-order',
+                    salesmanName: user?.name,
+                    salesmanNumber: user?.salesmanNumber || 0,
+                    workerId: String(user?.id || ''),
+                    timestamp: settledAt.toISOString(),
+                    date: settledAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: settledAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                });
+            } catch (transactionError) {
+                console.error('Online order remaining transaction failed (status still updated):', transactionError);
+            }
         }
 
         const { error: updateError } = await supabase
