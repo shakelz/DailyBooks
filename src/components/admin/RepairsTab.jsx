@@ -252,8 +252,9 @@ export default function RepairsTab() {
                         const sc = statusConfig[job.status] || statusConfig['pending'];
                         const createdAt = resolveRepairDate(job);
                         const createdDate = createdAt ? createdAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }) : '-';
-                        const deliveryDate = job.deliveryDate ? new Date(job.deliveryDate).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }) : '-';
-                        const isOverdue = job.status !== 'completed' && job.deliveryDate && new Date(job.deliveryDate) < new Date();
+                        const deliverySource = job.deliveryDate || job.delivery_at || '';
+                        const deliveryDate = deliverySource ? new Date(deliverySource).toLocaleDateString('en-PK', { day: '2-digit', month: 'short' }) : '-';
+                        const isOverdue = job.status !== 'completed' && deliverySource && new Date(deliverySource) < new Date();
 
                         // Calculate Profit for completed jobs
                         const partsCost = Array.isArray(job.partsUsed)

@@ -1910,7 +1910,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <div class="line"></div>
                     <div class="row"><span>Kosten</span><span>€ ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
                     <div class="row"><span>Anzahlung</span><span>€ ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
-                    <div class="row"><span>Abholung</span><span>${toSafe(job.deliveryDate || '-')}</span></div>
+                    <div class="row"><span>Abholung</span><span>${toSafe(job.deliveryDate || job.delivery_at || '-')}</span></div>
                     <div class="line"></div>
                     <p style="font-size:11px;font-weight:700;">Bitte diesen Kundenbeleg zur Abholung mitbringen.</p>
                 </body>
@@ -3839,7 +3839,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             <p className="text-slate-500"><span className="text-slate-400">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
                                             <p className="text-slate-500"><span className="text-slate-400">IMEI:</span> {job.imei || '-'}</p>
                                             <p className="text-slate-500"><span className="text-slate-400">Device:</span> {job.deviceModel || '-'}</p>
-                                            <p className="text-slate-500"><span className="text-slate-400">Delivery:</span> {job.deliveryDate || '-'}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">Delivery:</span> {job.deliveryDate || job.delivery_at || '-'}</p>
                                             <p className="text-slate-500"><span className="text-slate-400">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
                                             <p className="text-slate-500"><span className="text-slate-400">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
                                         </div>
@@ -4211,6 +4211,5 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         </div>
     );
 }
-
 
 

@@ -4,10 +4,23 @@ import { useAuth } from './AuthContext';
 
 const RepairsContext = createContext(null);
 
-function stripUnsupportedRepairFields(payload = {}) {
-    const next = { ...(payload || {}) };
-    delete next.advanceAmount;
-    return next;
+function cleanText(value) {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function extractMissingColumnName(error) {
+    const message = String(error?.message || '');
+    if (!message) return '';
+    const patterns = [
+        /column ["']?([a-zA-Z0-9_]+)["']? of relation/i,
+        /column ["']?([a-zA-Z0-9_]+)["']? does not exist/i,
+        /Could not find the ['"]([a-zA-Z0-9_]+)['"] column/i,
+    ];
+    for (const pattern of patterns) {
+        const match = message.match(pattern);
+        if (match && match[1]) return String(match[1]);
+    }
+    return '';
 }
 
 function isMissingColumnError(error, columnName) {
@@ -15,13 +28,209 @@ function isMissingColumnError(error, columnName) {
     return message.includes('column') && message.includes(String(columnName || '').toLowerCase());
 }
 
+function isMissingRelationError(error, relationName = '') {
+    const message = String(error?.message || '').toLowerCase();
+    if (!message.includes('does not exist')) return false;
+    if (!relationName) return message.includes('relation') || message.includes('table');
+    return message.includes(String(relationName || '').toLowerCase());
+}
+
+async function executeWithPrunedColumns(operation, payload, maxAttempts = 24) {
+    let candidate = payload && typeof payload === 'object' ? { ...payload } : {};
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const result = await operation(candidate);
+        if (!result?.error) return { ...result, payload: candidate };
+
+        const missingColumn = extractMissingColumnName(result.error);
+        if (!missingColumn || !Object.prototype.hasOwnProperty.call(candidate, missingColumn)) {
+            return { ...result, payload: candidate };
+        }
+        delete candidate[missingColumn];
+    }
+
+    return { data: null, error: { message: 'Too many missing-column retries.' }, payload: candidate };
+}
+
+function parseIsoTimestamp(value) {
+    const raw = cleanText(value);
+    if (!raw) return '';
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toISOString();
+}
+
+function toDateOnly(value) {
+    const raw = cleanText(value);
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toISOString().slice(0, 10);
+}
+
+function normalizeRepairPart(part = {}) {
+    const quantityRaw = parseFloat(part?.quantity ?? part?.qty ?? 1);
+    const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+    const priceRaw = parseFloat(part?.costPrice ?? part?.price ?? 0);
+    const costPrice = Number.isFinite(priceRaw) ? priceRaw : 0;
+    const productId = cleanText(part?.productId || part?.product_id);
+    const name = cleanText(part?.name);
+
+    return {
+        ...part,
+        id: cleanText(part?.id) || '',
+        productId: productId || '',
+        product_id: productId || null,
+        name: name || 'Part',
+        quantity,
+        qty: quantity,
+        costPrice,
+        price: costPrice,
+    };
+}
+
+function buildRepairPartsMap(rows = []) {
+    return (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
+        const repairId = cleanText(row?.repair_id || row?.repairId);
+        if (!repairId) return acc;
+        if (!acc[repairId]) acc[repairId] = [];
+        acc[repairId].push(normalizeRepairPart(row));
+        return acc;
+    }, {});
+}
+
+function normalizeRepairRecord(record = {}, partsByRepair = {}) {
+    const id = cleanText(record?.id) || String(record?.id || '');
+    const createdIso = parseIsoTimestamp(record?.created_at || record?.createdAt || record?.timestamp) || new Date().toISOString();
+    const completedIso = parseIsoTimestamp(record?.completed_at || record?.completedAt);
+    const deliveryAt = toDateOnly(record?.delivery_at || record?.deliveryDate);
+
+    const mappedParts = id && Array.isArray(partsByRepair[id]) && partsByRepair[id].length > 0
+        ? partsByRepair[id]
+        : (Array.isArray(record?.partsUsed) ? record.partsUsed.map(normalizeRepairPart) : []);
+
+    return {
+        ...record,
+        id,
+        refId: cleanText(record?.refId || record?.ref_id),
+        customerName: cleanText(record?.customerName || record?.customer_name),
+        phone: cleanText(record?.phone || record?.customerPhone),
+        deviceModel: cleanText(record?.deviceModel || record?.device_model),
+        imei: cleanText(record?.imei),
+        problem: cleanText(record?.problem || record?.issueType),
+        status: cleanText(record?.status) || 'pending',
+        estimatedCost: parseFloat(record?.estimatedCost ?? 0) || 0,
+        advanceAmount: parseFloat(record?.advanceAmount ?? 0) || 0,
+        created_at: createdIso,
+        createdAt: createdIso,
+        timestamp: createdIso,
+        completed_at: completedIso || null,
+        completedAt: completedIso || null,
+        delivery_at: deliveryAt || null,
+        deliveryDate: deliveryAt || '',
+        partsUsed: mappedParts,
+        shop_id: cleanText(record?.shop_id || record?.shopId),
+    };
+}
+
+function sortRepairsByCreatedAt(rows = []) {
+    return [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
+        const aMs = Date.parse(a?.created_at || a?.createdAt || '');
+        const bMs = Date.parse(b?.created_at || b?.createdAt || '');
+        return (Number.isFinite(bMs) ? bMs : 0) - (Number.isFinite(aMs) ? aMs : 0);
+    });
+}
+
+function buildRepairInsertPayload(repair = {}, shopId = '') {
+    const sid = cleanText(shopId);
+    const createdAt = parseIsoTimestamp(repair?.created_at || repair?.createdAt) || new Date().toISOString();
+    const completedAt = parseIsoTimestamp(repair?.completed_at || repair?.completedAt);
+    const deliveryAt = toDateOnly(repair?.delivery_at || repair?.deliveryDate);
+
+    return {
+        id: cleanText(repair?.id),
+        refId: cleanText(repair?.refId),
+        customerName: cleanText(repair?.customerName),
+        phone: cleanText(repair?.phone),
+        deviceModel: cleanText(repair?.deviceModel),
+        imei: cleanText(repair?.imei),
+        problem: cleanText(repair?.problem),
+        advanceAmount: parseFloat(repair?.advanceAmount ?? 0) || 0,
+        estimatedCost: parseFloat(repair?.estimatedCost ?? 0) || 0,
+        delivery_at: deliveryAt || null,
+        deliveryDate: deliveryAt || null,
+        status: cleanText(repair?.status) || 'pending',
+        created_at: createdAt,
+        createdAt: createdAt,
+        completed_at: completedAt || null,
+        completedAt: completedAt || null,
+        partsUsed: Array.isArray(repair?.partsUsed) ? repair.partsUsed.map(normalizeRepairPart) : [],
+        shop_id: sid,
+    };
+}
+
+function buildRepairUpdatePayload(status, extras = {}) {
+    const next = {
+        status: cleanText(status) || cleanText(extras?.status) || 'pending',
+        ...extras,
+    };
+    delete next.finalAmount;
+    delete next.partsCost;
+
+    if (next.status === 'completed' && !next.completed_at && !next.completedAt) {
+        const nowIso = new Date().toISOString();
+        next.completed_at = nowIso;
+        next.completedAt = nowIso;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next, 'deliveryDate') || Object.prototype.hasOwnProperty.call(next, 'delivery_at')) {
+        const delivery = toDateOnly(next.delivery_at || next.deliveryDate);
+        next.delivery_at = delivery || null;
+        next.deliveryDate = delivery || null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next, 'advanceAmount')) {
+        next.advanceAmount = parseFloat(next.advanceAmount ?? 0) || 0;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'estimatedCost')) {
+        next.estimatedCost = parseFloat(next.estimatedCost ?? 0) || 0;
+    }
+    if (Array.isArray(next.partsUsed)) {
+        next.partsUsed = next.partsUsed.map(normalizeRepairPart);
+    }
+
+    return next;
+}
+
+function buildRepairPartPayloads(partsUsed = [], repairId = '', shopId = '') {
+    const rid = cleanText(repairId);
+    const sid = cleanText(shopId);
+    if (!rid || !sid) return [];
+
+    return (Array.isArray(partsUsed) ? partsUsed : [])
+        .map((part, index) => {
+            const normalized = normalizeRepairPart(part);
+            const partId = cleanText(normalized?.id) || `rp-${rid}-${index + 1}`;
+            if (!normalized.product_id && !cleanText(normalized.name)) return null;
+            return {
+                id: partId,
+                shop_id: sid,
+                repair_id: rid,
+                product_id: normalized.product_id || null,
+                name: cleanText(normalized.name) || null,
+                qty: parseFloat(normalized.qty ?? normalized.quantity ?? 1) || 1,
+                price: parseFloat(normalized.price ?? normalized.costPrice ?? 0) || 0,
+            };
+        })
+        .filter(Boolean);
+}
+
 export function RepairsProvider({ children }) {
     const { activeShopId } = useAuth();
     const [repairJobs, setRepairJobs] = useState([]);
 
-    // ── Preload Data from Supabase ──
     useEffect(() => {
-        const sid = String(activeShopId || '').trim();
+        const sid = cleanText(activeShopId);
         if (!sid) {
             setRepairJobs([]);
             return undefined;
@@ -30,14 +239,21 @@ export function RepairsProvider({ children }) {
         let cancelled = false;
 
         const fetchRepairs = async () => {
-            const { data, error } = await supabase
-                .from('repairs')
-                .select('*')
-                .eq('shop_id', sid)
-                .order('createdAt', { ascending: false });
-            if (!cancelled && !error && data) {
-                setRepairJobs(data);
-            } else if (!cancelled && error) {
+            const [repairsResult, partsResult] = await Promise.all([
+                supabase.from('repairs').select('*').eq('shop_id', sid),
+                supabase.from('repair_parts').select('*').eq('shop_id', sid),
+            ]);
+
+            if (cancelled) return;
+
+            const partsByRepair = (!partsResult.error && Array.isArray(partsResult.data))
+                ? buildRepairPartsMap(partsResult.data)
+                : {};
+
+            if (!repairsResult.error && Array.isArray(repairsResult.data)) {
+                const normalized = repairsResult.data.map((row) => normalizeRepairRecord(row, partsByRepair));
+                setRepairJobs(sortRepairsByCreatedAt(normalized));
+            } else {
                 setRepairJobs([]);
             }
         };
@@ -46,30 +262,40 @@ export function RepairsProvider({ children }) {
         const shopFilter = `shop_id=eq.${sid}`;
         const repairsSub = supabase.channel(`public:repairs:${sid}`)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
-                setRepairJobs(prev => {
-                    if (prev.some(j => String(j.id) === String(payload.new.id))) return prev;
-                    return [payload.new, ...prev].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                const incoming = normalizeRepairRecord(payload.new);
+                setRepairJobs((prev) => {
+                    if (prev.some((job) => String(job.id) === String(incoming.id))) return prev;
+                    return sortRepairsByCreatedAt([incoming, ...prev]);
                 });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
-                setRepairJobs(prev => prev.map(j => String(j.id) === String(payload.new.id) ? { ...j, ...payload.new } : j));
+                const incoming = normalizeRepairRecord(payload.new);
+                setRepairJobs((prev) => sortRepairsByCreatedAt(
+                    prev.map((job) => String(job.id) === String(incoming.id)
+                        ? normalizeRepairRecord({ ...job, ...incoming }, { [incoming.id]: incoming.partsUsed || [] })
+                        : job)
+                ));
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
-                setRepairJobs(prev => prev.filter(j => String(j.id) !== String(payload.old.id)));
+                setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(payload.old.id)));
             })
-            // Fallback Broadcast
             .on('broadcast', { event: 'repair_sync' }, (payload) => {
-                const { action, data } = payload.payload;
-                if (!data || String(data.shop_id || '').trim() !== sid) return;
+                const { action, data } = payload.payload || {};
+                if (!data || cleanText(data.shop_id) !== sid) return;
+                const incoming = normalizeRepairRecord(data);
                 if (action === 'INSERT') {
-                    setRepairJobs(prev => {
-                        if (prev.some(j => String(j.id) === String(data.id))) return prev;
-                        return [data, ...prev].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    setRepairJobs((prev) => {
+                        if (prev.some((job) => String(job.id) === String(incoming.id))) return prev;
+                        return sortRepairsByCreatedAt([incoming, ...prev]);
                     });
                 } else if (action === 'UPDATE') {
-                    setRepairJobs(prev => prev.map(j => String(j.id) === String(data.id) ? { ...j, ...data } : j));
+                    setRepairJobs((prev) => sortRepairsByCreatedAt(
+                        prev.map((job) => String(job.id) === String(incoming.id)
+                            ? normalizeRepairRecord({ ...job, ...incoming }, { [incoming.id]: incoming.partsUsed || [] })
+                            : job)
+                    ));
                 } else if (action === 'DELETE') {
-                    setRepairJobs(prev => prev.filter(j => String(j.id) !== String(data.id)));
+                    setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(incoming.id)));
                 }
             })
             .subscribe();
@@ -80,117 +306,181 @@ export function RepairsProvider({ children }) {
         };
     }, [activeShopId]);
 
-    // Generate sequential Ref ID: REP-2026-001 based on current array length
-    // In a real multi-user env, we should query max ID from DB, but this works for now
     const generateRefId = useCallback(() => {
         const year = new Date().getFullYear();
-        const yearJobs = repairJobs.filter(j => j.refId?.startsWith(`REP-${year}`));
+        const yearJobs = repairJobs.filter((job) => String(job?.refId || '').startsWith(`REP-${year}`));
         const nextNum = yearJobs.length + 1;
         return `REP-${year}-${String(nextNum).padStart(3, '0')}`;
     }, [repairJobs]);
 
+    const syncRepairParts = useCallback(async (repairId, partsUsed = [], shopIdOverride = '') => {
+        const sid = cleanText(shopIdOverride || activeShopId);
+        const rid = cleanText(repairId);
+        if (!sid || !rid) return;
+
+        const deleteResult = await supabase
+            .from('repair_parts')
+            .delete()
+            .eq('shop_id', sid)
+            .eq('repair_id', rid);
+
+        if (deleteResult.error && !isMissingRelationError(deleteResult.error, 'repair_parts')) {
+            throw new Error(deleteResult.error.message || 'Failed to clear repair parts.');
+        }
+
+        const payloads = buildRepairPartPayloads(partsUsed, rid, sid);
+        if (!payloads.length) return;
+
+        for (const payload of payloads) {
+            const insertResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('repair_parts').insert([candidate]),
+                payload
+            );
+            if (insertResult.error && !isMissingRelationError(insertResult.error, 'repair_parts')) {
+                throw new Error(insertResult.error.message || 'Failed to save repair parts.');
+            }
+        }
+    }, [activeShopId]);
+
     const addRepair = useCallback(async (repairData) => {
-        const sid = String(activeShopId || '').trim();
+        const sid = cleanText(activeShopId);
         if (!sid) throw new Error('No active shop selected.');
 
         const refId = generateRefId();
-        const newJob = {
-            id: String(Date.now()), // Text ID for Supabase
+        const createdAt = new Date().toISOString();
+        const deliveryAt = toDateOnly(repairData?.delivery_at || repairData?.deliveryDate);
+        const newJob = normalizeRepairRecord({
+            id: String(Date.now()),
             refId,
             ...repairData,
-            status: 'pending', // pending | in_progress | completed
-            createdAt: new Date().toISOString(),
+            status: 'pending',
+            created_at: createdAt,
+            createdAt,
+            completed_at: null,
             completedAt: null,
-            estimatedCost: repairData.estimatedCost || 0,
+            delivery_at: deliveryAt || null,
+            deliveryDate: deliveryAt || '',
+            estimatedCost: parseFloat(repairData?.estimatedCost ?? 0) || 0,
+            advanceAmount: parseFloat(repairData?.advanceAmount ?? 0) || 0,
             partsUsed: [],
-            shop_id: sid
-        };
+            shop_id: sid,
+        });
 
-        // Optimistic UI Update
-        setRepairJobs(prev => [newJob, ...prev]);
+        setRepairJobs((prev) => sortRepairsByCreatedAt([newJob, ...prev]));
 
-        // Supabase DB Update
-        let payloadForInsert = { ...newJob };
-        let { error: insertError } = await supabase.from('repairs').insert([payloadForInsert]);
-        if (insertError && isMissingColumnError(insertError, 'advanceAmount')) {
-            payloadForInsert = stripUnsupportedRepairFields(payloadForInsert);
-            const retry = await supabase.from('repairs').insert([payloadForInsert]);
-            insertError = retry.error;
+        const insertPayload = buildRepairInsertPayload(newJob, sid);
+        const insertResult = await executeWithPrunedColumns(
+            (candidate) => supabase.from('repairs').insert([candidate]),
+            insertPayload
+        );
+
+        if (insertResult.error && isMissingColumnError(insertResult.error, 'advanceAmount')) {
+            const fallbackPayload = { ...insertPayload };
+            delete fallbackPayload.advanceAmount;
+            const retryResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('repairs').insert([candidate]),
+                fallbackPayload
+            );
+            if (retryResult.error) {
+                setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(newJob.id)));
+                throw new Error(retryResult.error.message || 'Failed to save repair job.');
+            }
+        } else if (insertResult.error) {
+            setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(newJob.id)));
+            throw new Error(insertResult.error.message || 'Failed to save repair job.');
         }
-        if (insertError) {
-            setRepairJobs(prev => prev.filter(job => String(job.id) !== String(newJob.id)));
-            throw new Error(insertError.message || 'Failed to save repair job.');
+
+        try {
+            await syncRepairParts(newJob.id, newJob.partsUsed, sid);
+        } catch (partsError) {
+            console.error(partsError);
         }
 
-        // Broadcast Fallback
         supabase.channel(`public:repairs:${sid}`).send({
             type: 'broadcast',
             event: 'repair_sync',
             payload: { action: 'INSERT', data: newJob }
-        }).catch(e => console.error(e));
+        }).catch((error) => console.error(error));
 
         return newJob;
-    }, [generateRefId, activeShopId]);
+    }, [activeShopId, generateRefId, syncRepairParts]);
 
     const updateRepairStatus = useCallback(async (id, status, extras = {}) => {
-        const sid = String(activeShopId || '').trim();
+        const sid = cleanText(activeShopId);
         if (!sid) return;
 
-        const strId = String(id);
-        const payload = {
-            status,
-            ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
-            ...extras,
-        };
-        delete payload.finalAmount;
-        delete payload.partsCost;
+        const strId = cleanText(id);
+        if (!strId) return;
 
-        // Optimistic UI
-        setRepairJobs(prev => prev.map(job => {
-            if (String(job.id) === strId) {
-                return { ...job, ...payload };
+        const currentJob = repairJobs.find((job) => String(job.id) === strId) || null;
+        const patch = buildRepairUpdatePayload(status, extras);
+        const mergedLocal = normalizeRepairRecord({ ...(currentJob || {}), ...patch, id: strId, shop_id: sid }, {
+            [strId]: Array.isArray(patch.partsUsed) ? patch.partsUsed : (currentJob?.partsUsed || [])
+        });
+
+        setRepairJobs((prev) => sortRepairsByCreatedAt(
+            prev.map((job) => String(job.id) === strId ? mergedLocal : job)
+        ));
+
+        const updateResult = await executeWithPrunedColumns(
+            (candidate) => supabase.from('repairs').update(candidate).eq('id', strId).eq('shop_id', sid),
+            patch
+        );
+
+        if (updateResult.error && isMissingColumnError(updateResult.error, 'advanceAmount')) {
+            const fallbackPatch = { ...patch };
+            delete fallbackPatch.advanceAmount;
+            const retryResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('repairs').update(candidate).eq('id', strId).eq('shop_id', sid),
+                fallbackPatch
+            );
+            if (retryResult.error) {
+                throw new Error(retryResult.error.message || 'Failed to update repair job.');
             }
-            return job;
-        }));
-
-        // Supabase DB Update
-        let dbPayload = { ...payload };
-        let { error: updateError } = await supabase.from('repairs').update(dbPayload).eq('id', strId).eq('shop_id', sid);
-        if (updateError && isMissingColumnError(updateError, 'advanceAmount')) {
-            dbPayload = stripUnsupportedRepairFields(dbPayload);
-            const retry = await supabase.from('repairs').update(dbPayload).eq('id', strId).eq('shop_id', sid);
-            updateError = retry.error;
-        }
-        if (updateError) {
-            throw new Error(updateError.message || 'Failed to update repair job.');
+        } else if (updateResult.error) {
+            throw new Error(updateResult.error.message || 'Failed to update repair job.');
         }
 
-        // Broadcast Fallback
+        if (Array.isArray(patch.partsUsed)) {
+            try {
+                await syncRepairParts(strId, patch.partsUsed, sid);
+            } catch (partsError) {
+                console.error(partsError);
+            }
+        }
+
         supabase.channel(`public:repairs:${sid}`).send({
             type: 'broadcast',
             event: 'repair_sync',
-            payload: { action: 'UPDATE', data: { id: strId, shop_id: sid, ...payload } }
-        }).catch(e => console.error(e));
-    }, [activeShopId]);
+            payload: { action: 'UPDATE', data: { id: strId, shop_id: sid, ...mergedLocal } }
+        }).catch((error) => console.error(error));
+    }, [activeShopId, repairJobs, syncRepairParts]);
 
     const deleteRepair = useCallback(async (id) => {
-        const sid = String(activeShopId || '').trim();
+        const sid = cleanText(activeShopId);
         if (!sid) return;
 
-        const strId = String(id);
+        const strId = cleanText(id);
+        if (!strId) return;
 
-        // Optimistic UI
-        setRepairJobs(prev => prev.filter(j => String(j.id) !== strId));
+        setRepairJobs((prev) => prev.filter((job) => String(job.id) !== strId));
 
-        // Supabase DB Update
+        const partsDelete = await supabase
+            .from('repair_parts')
+            .delete()
+            .eq('shop_id', sid)
+            .eq('repair_id', strId);
+        if (partsDelete.error && !isMissingRelationError(partsDelete.error, 'repair_parts')) {
+            throw new Error(partsDelete.error.message || 'Failed to remove linked repair parts.');
+        }
+
         await supabase.from('repairs').delete().eq('id', strId).eq('shop_id', sid);
 
-        // Broadcast Fallback
         supabase.channel(`public:repairs:${sid}`).send({
             type: 'broadcast',
             event: 'repair_sync',
             payload: { action: 'DELETE', data: { id: strId, shop_id: sid } }
-        }).catch(e => console.error(e));
+        }).catch((error) => console.error(error));
     }, [activeShopId]);
 
     const value = {

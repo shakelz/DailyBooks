@@ -53,6 +53,7 @@ export default function RepairModal({ isOpen, onClose }) {
                 problem: form.problem.trim(),
                 advanceAmount: parseFloat(form.advanceAmount) || 0,
                 estimatedCost: parseFloat(form.estimatedCost) || 0,
+                delivery_at: form.deliveryDate,
                 deliveryDate: form.deliveryDate,
             });
 
@@ -95,7 +96,8 @@ export default function RepairModal({ isOpen, onClose }) {
         const receiptShopName = String(activeShop?.name || 'Shop').trim() || 'Shop';
         const receiptShopAddress = String(activeShop?.address || '').trim();
         const receiptShopPhone = String(activeShop?.telephone || activeShop?.phone || '').trim();
-        const parsedDelivery = job?.deliveryDate ? new Date(job.deliveryDate) : null;
+        const deliverySource = job?.deliveryDate || job?.delivery_at || '';
+        const parsedDelivery = deliverySource ? new Date(deliverySource) : null;
         const deliveryFormatted = parsedDelivery && !Number.isNaN(parsedDelivery.getTime())
             ? parsedDelivery.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
             : 'N/A';

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 import { buildProductJSON, generateId, getStockSeverity } from '../data/inventoryStore';
@@ -13,6 +13,285 @@ const CATEGORY_SCOPE_SALES = 'sales';
 const CATEGORY_SCOPE_REVENUE = 'revenue';
 const inMemoryCategoryScopeByShop = new Map();
 let inMemoryTransactionSnapshots = {};
+
+function extractMissingColumnName(error) {
+    const message = String(error?.message || '');
+    if (!message) return '';
+    const patterns = [
+        /column ["']?([a-zA-Z0-9_]+)["']? of relation/i,
+        /column ["']?([a-zA-Z0-9_]+)["']? does not exist/i,
+        /Could not find the ['"]([a-zA-Z0-9_]+)['"] column/i,
+        /record ["']?([a-zA-Z0-9_]+)["']? has no field/i
+    ];
+    for (const pattern of patterns) {
+        const match = message.match(pattern);
+        if (match && match[1]) return String(match[1]);
+    }
+    return '';
+}
+
+function isMissingRelationError(error, relationName = '') {
+    const message = String(error?.message || '').toLowerCase();
+    if (!message.includes('does not exist')) return false;
+    if (!relationName) return message.includes('relation') || message.includes('table');
+    const target = String(relationName || '').toLowerCase();
+    return message.includes(target);
+}
+
+function parseTimestampCandidate(value) {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (!raw) return '';
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toISOString();
+}
+
+function composeLegacyTimestamp(dateValue, timeValue = '') {
+    const dateText = cleanText(dateValue);
+    if (!dateText) return '';
+    const timeText = cleanText(timeValue) || '00:00';
+    return parseTimestampCandidate(`${dateText} ${timeText}`)
+        || parseTimestampCandidate(`${dateText}T${timeText}`)
+        || '';
+}
+
+function resolveTransactionTimestamp(txn = {}) {
+    const directCandidates = [
+        txn?.timestamp,
+        txn?.occurred_at,
+        txn?.created_at,
+        txn?.updated_at,
+        txn?.updatedAt,
+    ];
+    for (const candidate of directCandidates) {
+        const parsed = parseTimestampCandidate(candidate);
+        if (parsed) return parsed;
+    }
+    return composeLegacyTimestamp(txn?.date, txn?.time);
+}
+
+function toLegacyDateLabel(timestamp, fallback = '') {
+    const parsed = timestamp ? new Date(timestamp) : null;
+    if (parsed && !Number.isNaN(parsed.getTime())) {
+        return parsed.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    return cleanText(fallback);
+}
+
+function toLegacyTimeLabel(timestamp, fallback = '') {
+    const parsed = timestamp ? new Date(timestamp) : null;
+    if (parsed && !Number.isNaN(parsed.getTime())) {
+        return parsed.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+    }
+    return cleanText(fallback);
+}
+
+async function executeWithPrunedColumns(operation, payload, maxAttempts = 12) {
+    let candidate = payload && typeof payload === 'object' ? { ...payload } : {};
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const result = await operation(candidate);
+        if (!result?.error) {
+            return { ...result, payload: candidate };
+        }
+        const missingColumn = extractMissingColumnName(result.error);
+        if (!missingColumn || !Object.prototype.hasOwnProperty.call(candidate, missingColumn)) {
+            return { ...result, payload: candidate };
+        }
+        delete candidate[missingColumn];
+    }
+
+    return {
+        data: null,
+        error: { message: 'Too many missing-column retries for this write.' },
+        payload: candidate
+    };
+}
+
+function buildWorkersLookup(salesmen = [], profileRows = []) {
+    const lookup = {};
+    const pushWorker = (worker = {}) => {
+        const id = cleanText(worker?.id);
+        if (!id) return;
+        const salesmanNumber = Number(worker?.salesmanNumber ?? worker?.salesman_number ?? 0) || 0;
+        lookup[id] = {
+            id,
+            name: cleanText(worker?.name),
+            salesmanNumber
+        };
+    };
+    (Array.isArray(salesmen) ? salesmen : []).forEach(pushWorker);
+    (Array.isArray(profileRows) ? profileRows : []).forEach(pushWorker);
+    return lookup;
+}
+
+function buildCategoryLookups(rows = []) {
+    const byId = {};
+    const byName = {};
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+        const id = cleanText(row?.id);
+        const name = cleanText(row?.name);
+        if (id) byId[id] = row;
+        if (name && !byName[name]) byName[name] = row;
+    });
+    return { byId, byName };
+}
+
+function resolveCategoryParentName(record, categoryById = {}) {
+    const fromParent = cleanText(record?.parent);
+    if (fromParent) return fromParent;
+    const parentId = cleanText(record?.parent_id);
+    if (parentId && categoryById[parentId]) {
+        return cleanText(categoryById[parentId]?.name);
+    }
+    return '';
+}
+
+function normalizeTransactionRecord(txn = {}, options = {}) {
+    const workersById = options?.workersById && typeof options.workersById === 'object'
+        ? options.workersById
+        : {};
+    const itemsByTransactionId = options?.itemsByTransactionId && typeof options.itemsByTransactionId === 'object'
+        ? options.itemsByTransactionId
+        : {};
+    const txnId = cleanText(txn?.id) || String(txn?.id ?? '');
+    const linkedItems = txnId ? (itemsByTransactionId[txnId] || []) : [];
+    const primaryItem = linkedItems[0] || null;
+    const resolvedTimestamp = resolveTransactionTimestamp(txn);
+    const workerId = cleanText(txn?.workerId || txn?.worker_id || txn?.user_id);
+    const worker = workerId ? workersById[workerId] : null;
+
+    const parsedQty = parseInt(
+        txn?.quantity
+        ?? txn?.qty
+        ?? primaryItem?.qty
+        ?? primaryItem?.quantity
+        ?? 1,
+        10
+    );
+    const quantity = Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
+
+    const directAmount = parseFloat(txn?.amount);
+    const fallbackAmount = primaryItem
+        ? parseFloat(primaryItem?.line_total ?? primaryItem?.lineTotal ?? 0)
+        : NaN;
+    const amount = Number.isFinite(directAmount)
+        ? directAmount
+        : (Number.isFinite(fallbackAmount) ? fallbackAmount : 0);
+
+    const unitPriceValue = parseFloat(
+        txn?.unitPrice
+        ?? txn?.unit_price
+        ?? primaryItem?.unit_price
+        ?? primaryItem?.unitPrice
+        ?? (quantity > 0 ? amount / quantity : 0)
+    );
+    const unitPrice = Number.isFinite(unitPriceValue) ? unitPriceValue : 0;
+
+    const productId = cleanText(
+        txn?.productId
+        ?? txn?.product_id
+        ?? primaryItem?.product_id
+        ?? primaryItem?.productId
+    );
+
+    const transactionId = cleanText(txn?.transactionId || txn?.transaction_id || txn?.order_id) || txnId;
+
+    return {
+        ...txn,
+        id: txnId || txn?.id,
+        transactionId,
+        occurred_at: resolvedTimestamp || cleanText(txn?.occurred_at),
+        timestamp: resolvedTimestamp || cleanText(txn?.timestamp) || cleanText(txn?.created_at),
+        date: toLegacyDateLabel(resolvedTimestamp, txn?.date),
+        time: toLegacyTimeLabel(resolvedTimestamp, txn?.time),
+        quantity,
+        amount,
+        unitPrice,
+        productId: productId || null,
+        workerId: workerId || null,
+        salesmanName: cleanText(txn?.salesmanName || txn?.salesman_name || txn?.userName || worker?.name || ''),
+        salesmanNumber: Number(txn?.salesmanNumber ?? txn?.salesman_number ?? worker?.salesmanNumber ?? 0) || 0,
+        transactionItems: linkedItems,
+    };
+}
+
+function buildTransactionItemsMap(rows = []) {
+    return (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
+        const txId = cleanText(row?.transaction_id || row?.transactionId);
+        if (!txId) return acc;
+        if (!acc[txId]) acc[txId] = [];
+        acc[txId].push({
+            ...row,
+            qty: parseInt(row?.qty ?? row?.quantity ?? 1, 10) || 1,
+            unit_price: parseFloat(row?.unit_price ?? row?.unitPrice ?? 0) || 0,
+            line_total: parseFloat(row?.line_total ?? row?.lineTotal ?? 0) || 0,
+            product_id: cleanText(row?.product_id || row?.productId) || null
+        });
+        return acc;
+    }, {});
+}
+
+function extractLevel1CategoryName(category) {
+    if (!category) return '';
+    if (typeof category === 'string') return cleanText(category);
+    if (typeof category === 'object') return cleanText(category.level1 || category.name || '');
+    return '';
+}
+
+function buildTransactionItemPayload(txn = {}, shopId = '') {
+    const sid = cleanText(shopId);
+    const txId = cleanText(txn?.id);
+    if (!sid || !txId) return null;
+
+    const quantity = Math.max(1, parseInt(txn?.quantity ?? 1, 10) || 1);
+    const amount = parseFloat(txn?.amount) || 0;
+    const unitPrice = parseFloat(txn?.unitPrice);
+    const resolvedUnitPrice = Number.isFinite(unitPrice) ? unitPrice : (quantity > 0 ? amount / quantity : 0);
+
+    return {
+        id: `ti-${txId}`,
+        shop_id: sid,
+        transaction_id: txId,
+        product_id: cleanText(txn?.productId) || null,
+        qty: quantity,
+        unit_price: resolvedUnitPrice,
+        line_total: amount,
+    };
+}
+
+function buildTransactionItemPayloads(txn = {}, shopId = '') {
+    const sid = cleanText(shopId);
+    const txId = cleanText(txn?.id);
+    if (!sid || !txId) return [];
+
+    const explicitItems = Array.isArray(txn?.transactionItems) ? txn.transactionItems : [];
+    if (explicitItems.length > 0) {
+        return explicitItems
+            .map((item, index) => {
+                const quantity = Math.max(1, parseInt(item?.qty ?? item?.quantity ?? 1, 10) || 1);
+                const lineTotal = parseFloat(item?.line_total ?? item?.lineTotal ?? item?.amount ?? 0) || 0;
+                const unitPriceRaw = parseFloat(item?.unit_price ?? item?.unitPrice);
+                const unitPrice = Number.isFinite(unitPriceRaw) ? unitPriceRaw : (quantity > 0 ? lineTotal / quantity : 0);
+                const productId = cleanText(item?.product_id || item?.productId);
+                if (!productId) return null;
+                return {
+                    id: cleanText(item?.id) || `ti-${txId}-${index + 1}`,
+                    shop_id: sid,
+                    transaction_id: txId,
+                    product_id: productId,
+                    qty: quantity,
+                    unit_price: unitPrice,
+                    line_total: lineTotal,
+                };
+            })
+            .filter(Boolean);
+    }
+
+    const single = buildTransactionItemPayload(txn, sid);
+    if (!single || !single.product_id) return [];
+    return [single];
+}
 
 function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
@@ -171,10 +450,15 @@ function buildCategoryHierarchy(category, categoryPath = null, rawAttributes = {
     return { level1, level2, level3, path };
 }
 
-function normalizeInventoryRecord(product) {
+function normalizeInventoryRecord(product, categoryLookups = null) {
     const source = product || {};
+    const categoryLookupById = categoryLookups && typeof categoryLookups === 'object'
+        ? (categoryLookups.byId || {})
+        : {};
+    const mappedCategoryFromId = cleanText(categoryLookupById[cleanText(source.category_id || source.categoryId)]?.name);
+    const sourceCategory = source.category || mappedCategoryFromId || '';
     const rawAttrs = source.attributes && typeof source.attributes === 'object' ? source.attributes : {};
-    const categoryHierarchy = buildCategoryHierarchy(source.category, source.categoryPath, rawAttrs);
+    const categoryHierarchy = buildCategoryHierarchy(sourceCategory, source.categoryPath, rawAttrs);
     const attributePurchaseFrom = cleanText(rawAttrs[PURCHASE_FROM_KEY]);
     const attributePaymentMode = cleanText(rawAttrs[PAYMENT_MODE_KEY]);
     const attributeImage = cleanText(rawAttrs.image) || cleanText(rawAttrs.imageUrl) || cleanText(rawAttrs.image_url);
@@ -224,12 +508,18 @@ function normalizeInventoryRecord(product) {
         paymentMode: normalizedPaymentMode,
         image: cleanText(source.image) || cleanText(source.image_url) || attributeImage || '',
         timestamp: cleanText(source.timestamp) || cleanText(source.created_at) || '',
+        category_id: cleanText(source.category_id || source.categoryId) || null,
         attributes: normalizedAttrs,
     };
 }
 
-function buildInventoryPayload(product, includeId = false, shopId = '') {
+function buildInventoryPayload(product, includeId = false, shopId = '', categoryNameToId = {}) {
     const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
+    const level1Category = extractLevel1CategoryName(categoryHierarchy.level1 || product?.category);
+    const resolvedCategoryIdFromMap = level1Category && categoryNameToId && typeof categoryNameToId === 'object'
+        ? cleanText(categoryNameToId[level1Category])
+        : '';
+    const resolvedCategoryId = cleanText(product?.category_id || product?.categoryId || resolvedCategoryIdFromMap);
     const purchaseFrom = cleanText(product?.purchaseFrom);
     const paymentMode = cleanText(product?.paymentMode);
     const imageValue = cleanText(product?.image) || cleanText(product?.imageUrl) || cleanText(product?.image_url);
@@ -269,7 +559,8 @@ function buildInventoryPayload(product, includeId = false, shopId = '') {
         purchasePrice: parseFloat(product?.purchasePrice ?? product?.costPrice ?? 0) || 0,
         sellingPrice: parseFloat(product?.sellingPrice ?? product?.price ?? product?.unitPrice ?? product?.amount ?? 0) || 0,
         stock: parseInt(product?.stock ?? product?.quantity ?? 0, 10) || 0,
-        category: categoryHierarchy.level1 || '',
+        category: level1Category || '',
+        category_id: resolvedCategoryId || null,
         barcode: product?.barcode ? String(product.barcode).trim() : '',
         productUrl: product?.productUrl || '',
         attributes: payloadAttributes,
@@ -329,12 +620,17 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
     const snapAttrs = snapshot.attributes && typeof snapshot.attributes === 'object' ? snapshot.attributes : {};
     const txnVerified = txn.verifiedAttributes && typeof txn.verifiedAttributes === 'object' ? txn.verifiedAttributes : {};
     const snapVerified = snapshot.verifiedAttributes && typeof snapshot.verifiedAttributes === 'object' ? snapshot.verifiedAttributes : {};
-    const resolvedTimestamp = cleanText(txn?.timestamp) || cleanText(txn?.created_at)
-        || `${cleanText(txn?.date)} ${cleanText(txn?.time)}`.trim();
+    const resolvedTimestamp = resolveTransactionTimestamp(txn)
+        || parseTimestampCandidate(snapshot?.occurred_at)
+        || parseTimestampCandidate(snapshot?.snapshotTimestamp)
+        || '';
 
     return {
         ...txn,
-        timestamp: resolvedTimestamp,
+        timestamp: resolvedTimestamp || cleanText(txn?.timestamp),
+        occurred_at: resolvedTimestamp || cleanText(txn?.occurred_at),
+        date: toLegacyDateLabel(resolvedTimestamp, txn?.date),
+        time: toLegacyTimeLabel(resolvedTimestamp, txn?.time),
         barcode: txn.barcode || snapshot.barcode || snapshot?.productSnapshot?.barcode || '',
         model: txn.model || snapshot.model || snapshot?.productSnapshot?.model || '',
         brand: txn.brand || snapshot.brand || snapshot?.productSnapshot?.brand || '',
@@ -355,24 +651,43 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
         salesmanNumber: Number(txn.salesmanNumber ?? snapshot.salesmanNumber ?? 0) || 0,
         transactionId: txn.transactionId || snapshot.transactionId || '',
         productSnapshot: txn.productSnapshot || snapshot.productSnapshot || null,
+        transactionItems: Array.isArray(txn.transactionItems) && txn.transactionItems.length > 0
+            ? txn.transactionItems
+            : (Array.isArray(snapshot.transactionItems) ? snapshot.transactionItems : []),
     };
 }
 
 function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
+    const occurredAt = resolveTransactionTimestamp(txn) || new Date().toISOString();
+    const normalizedDate = toLegacyDateLabel(occurredAt, txn?.date);
+    const normalizedTime = toLegacyTimeLabel(occurredAt, txn?.time);
+    const workerId = cleanText(txn?.workerId || txn?.worker_id);
+    const quantity = parseInt(txn?.quantity || 1, 10) || 1;
+    const amount = parseFloat(txn?.amount || 0) || 0;
+
     const payload = withShopId({
         desc: txn?.desc || txn?.name || '',
-        amount: parseFloat(txn?.amount || 0) || 0,
+        amount,
         type: txn?.type || '',
         category: txn?.category?.level1 || txn?.category || '',
         notes: txn?.notes || '',
         source: txn?.source || 'shop',
-        quantity: parseInt(txn?.quantity || 1, 10) || 1,
-        date: txn?.date || new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-        time: txn?.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
+        quantity,
+        occurred_at: occurredAt,
+        timestamp: occurredAt,
+        date: normalizedDate || new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+        time: normalizedTime || new Date().toLocaleTimeString('en-US', { hour12: false }),
         isFixedExpense: txn?.isFixedExpense || false,
         productId: txn?.productId ? String(txn.productId) : null,
-        workerId: txn?.workerId || null,
-        salesmanName: txn?.userName || txn?.salesmanName || txn?.soldBy || ''
+        workerId: workerId || null,
+        paymentMethod: cleanText(txn?.paymentMethod) || null,
+        transactionId: cleanText(txn?.transactionId) || null,
+        customerInfo: txn?.customerInfo && typeof txn.customerInfo === 'object' ? txn.customerInfo : null,
+        unitPrice: parseFloat(txn?.unitPrice ?? (quantity > 0 ? amount / quantity : 0)) || 0,
+        stdPriceAtTime: parseFloat(txn?.stdPriceAtTime ?? txn?.unitPrice ?? 0) || 0,
+        purchasePriceAtTime: parseFloat(txn?.purchasePriceAtTime ?? 0) || 0,
+        includeTax: txn?.includeTax === undefined ? null : Boolean(txn.includeTax),
+        taxInfo: txn?.taxInfo && typeof txn.taxInfo === 'object' ? txn.taxInfo : null,
     }, shopId);
 
     if (includeId) payload.id = String(txn?.id || Date.now());
@@ -381,6 +696,7 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
 }
 
 function buildTransactionSnapshot(txn) {
+    const occurredAt = resolveTransactionTimestamp(txn) || new Date().toISOString();
     const categorySnapshot = txn?.categorySnapshot
         || txn?.productSnapshot?.category
         || (txn?.category && typeof txn.category === 'object' ? txn.category : null);
@@ -395,6 +711,7 @@ function buildTransactionSnapshot(txn) {
 
     const snapshot = {
         transactionId: txn?.transactionId || '',
+        occurred_at: occurredAt,
         barcode: txn?.barcode || txn?.productSnapshot?.barcode || '',
         model: txn?.model || txn?.productSnapshot?.model || '',
         brand: txn?.brand || txn?.productSnapshot?.brand || '',
@@ -413,6 +730,10 @@ function buildTransactionSnapshot(txn) {
         purchaseFrom: txn?.purchaseFrom || txn?.productSnapshot?.purchaseFrom || '',
         salesmanName: txn?.salesmanName || txn?.soldBy || '',
         salesmanNumber: Number(txn?.salesmanNumber || 0) || 0,
+        workerId: cleanText(txn?.workerId || txn?.worker_id) || null,
+        transactionItems: Array.isArray(txn?.transactionItems)
+            ? txn.transactionItems
+            : (txn?.productId ? [buildTransactionItemPayload(txn, cleanText(txn?.shop_id))].filter(Boolean) : []),
         productSnapshot: txn?.productSnapshot || {
             id: txn?.productId || null,
             name: txn?.name || txn?.desc || '',
@@ -435,15 +756,49 @@ function buildTransactionSnapshot(txn) {
 }
 
 export function InventoryProvider({ children }) {
-    const { activeShopId } = useAuth();
+    const { activeShopId, salesmen } = useAuth();
 
     // ── Live Products (Local State mirroring Supabase) ──
     const [products, setProducts] = useState([]);
     const [transactions, setTransactions] = useState([]);
+    const [workerDirectory, setWorkerDirectory] = useState({});
 
     // ── Categories (Supabase Synced) ──
     const [l1Categories, setL1Categories] = useState([]);
     const [l2Map, setL2Map] = useState({});
+    const workerLookup = useMemo(
+        () => buildWorkersLookup(salesmen, Object.values(workerDirectory || {})),
+        [salesmen, workerDirectory]
+    );
+    const workerLookupRef = useRef(workerLookup);
+    useEffect(() => {
+        workerLookupRef.current = workerLookup;
+    }, [workerLookup]);
+    const categoryNameToId = useMemo(() => {
+        return (Array.isArray(l1Categories) ? l1Categories : []).reduce((acc, category) => {
+            const catObject = category && typeof category === 'object' ? category : null;
+            const name = cleanText(catObject?.name || category);
+            const id = cleanText(catObject?.id);
+            if (name && id) acc[name] = id;
+            return acc;
+        }, {});
+    }, [l1Categories]);
+    const categoryLookups = useMemo(() => {
+        const byId = {};
+        const byName = {};
+        (Array.isArray(l1Categories) ? l1Categories : []).forEach((category) => {
+            const catObject = category && typeof category === 'object' ? category : null;
+            const id = cleanText(catObject?.id);
+            const name = cleanText(catObject?.name || category);
+            if (id) byId[id] = catObject || { id, name };
+            if (name && !byName[name]) byName[name] = catObject || { id, name };
+        });
+        return { byId, byName };
+    }, [l1Categories]);
+    const categoryLookupsRef = useRef(categoryLookups);
+    useEffect(() => {
+        categoryLookupsRef.current = categoryLookups;
+    }, [categoryLookups]);
 
     const ensureActiveShopExists = useCallback(async (sid) => {
         const safeShopId = cleanText(sid);
@@ -482,40 +837,61 @@ export function InventoryProvider({ children }) {
         let cancelled = false;
 
         const fetchInitialData = async () => {
-            const [invResult, txnResult, catResult] = await Promise.all([
+            const [invResult, txnResult, catResult, itemResult, profileResult] = await Promise.all([
                 supabase.from('inventory').select('*').eq('shop_id', sid),
-                supabase.from('transactions').select('*').eq('shop_id', sid).order('created_at', { ascending: false }),
+                supabase.from('transactions').select('*').eq('shop_id', sid),
                 supabase.from('categories').select('*').eq('shop_id', sid),
+                supabase.from('transaction_items').select('*').eq('shop_id', sid),
+                supabase.from('profiles').select('id,name,salesman_number,salesmanNumber').eq('shop_id', sid),
             ]);
 
             if (cancelled) return;
 
+            const categoryRows = !catResult.error && Array.isArray(catResult.data) ? catResult.data : [];
+            const categoryLookups = buildCategoryLookups(categoryRows);
+            const scopeMap = readCategoryScopeMap(sid);
+
+            const profileRows = !profileResult.error && Array.isArray(profileResult.data)
+                ? profileResult.data
+                : [];
+            const workersById = buildWorkersLookup(salesmen, profileRows);
+            setWorkerDirectory(workersById);
+
             if (!invResult.error && Array.isArray(invResult.data)) {
-                setProducts(invResult.data.map(normalizeInventoryRecord));
+                setProducts(invResult.data.map((row) => normalizeInventoryRecord(row, categoryLookups)));
             } else {
                 setProducts([]);
             }
 
             if (!txnResult.error && Array.isArray(txnResult.data)) {
+                const itemsByTransactionId = (!itemResult.error && Array.isArray(itemResult.data))
+                    ? buildTransactionItemsMap(itemResult.data)
+                    : {};
                 const snapshotMap = readTransactionSnapshots();
-                const hydratedTransactions = txnResult.data.map(t => mergeTransactionWithSnapshot(t, snapshotMap));
+                const normalizedTransactions = txnResult.data.map((row) => normalizeTransactionRecord(row, {
+                    workersById,
+                    itemsByTransactionId
+                }));
+                const hydratedTransactions = normalizedTransactions.map((row) => mergeTransactionWithSnapshot(row, snapshotMap));
                 hydratedTransactions.sort((a, b) => new Date(cleanText(b?.timestamp) || cleanText(b?.created_at) || 0) - new Date(cleanText(a?.timestamp) || cleanText(a?.created_at) || 0));
                 setTransactions(hydratedTransactions);
+            } else if (itemResult.error && !isMissingRelationError(itemResult.error, 'transaction_items')) {
+                setTransactions([]);
             } else {
                 setTransactions([]);
             }
 
-            if (!catResult.error && Array.isArray(catResult.data)) {
-                const l1 = catResult.data.filter(c => c.level === 1) || [];
-                const l2 = catResult.data.filter(c => c.level === 2) || [];
-                const scopeMap = readCategoryScopeMap(sid);
-
+            if (categoryRows.length > 0) {
+                const l1 = categoryRows.filter(c => Number(c.level) === 1) || [];
+                const l2 = categoryRows.filter(c => Number(c.level) === 2) || [];
                 setL1Categories(applyScopeToCategoryList(l1, scopeMap));
 
                 const map2 = {};
                 l2.forEach(c => {
-                    if (!map2[c.parent]) map2[c.parent] = [];
-                    map2[c.parent].push(withCategoryScope(c, scopeMap));
+                    const parentName = resolveCategoryParentName(c, categoryLookups.byId);
+                    if (!parentName) return;
+                    if (!map2[parentName]) map2[parentName] = [];
+                    map2[parentName].push(withCategoryScope({ ...c, parent: parentName }, scopeMap));
                 });
                 setL2Map(map2);
             } else {
@@ -529,7 +905,11 @@ export function InventoryProvider({ children }) {
         const handleStockUpdate = (e) => {
             if (e.detail && Array.isArray(e.detail.partsUsed)) {
                 e.detail.partsUsed.forEach(part => {
-                    adjustStock(part.productId, -part.quantity);
+                    const partProductId = cleanText(part?.productId || part?.product_id);
+                    const partQty = parseFloat(part?.quantity ?? part?.qty ?? 0) || 0;
+                    if (partProductId && partQty > 0) {
+                        adjustStock(partProductId, -partQty);
+                    }
                 });
             }
         };
@@ -541,14 +921,14 @@ export function InventoryProvider({ children }) {
         const syncSubscription = supabase.channel(`public:unified_sync:${sid}`)
             // TRANSACTIONS
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
-                const mergedTxn = mergeTransactionWithSnapshot(payload.new);
+                const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
                 setTransactions(prev => {
                     if (prev.some(t => String(t.id) === String(payload.new.id))) return prev;
                     return [mergedTxn, ...prev].sort((a, b) => new Date(cleanText(b?.timestamp) || cleanText(b?.created_at) || 0) - new Date(cleanText(a?.timestamp) || cleanText(a?.created_at) || 0));
                 });
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
-                const mergedTxn = mergeTransactionWithSnapshot(payload.new);
+                const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
                 setTransactions(prev => prev.map(t => String(t.id) === String(payload.new.id) ? { ...t, ...mergedTxn } : t));
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
@@ -556,7 +936,7 @@ export function InventoryProvider({ children }) {
             })
             // INVENTORY (Products)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
-                const incoming = normalizeInventoryRecord(payload.new);
+                const incoming = normalizeInventoryRecord(payload.new, categoryLookupsRef.current);
                 setProducts(prev => {
                     if (prev.some(p => String(p.id) === String(payload.new.id))) return prev;
                     return [incoming, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
@@ -565,7 +945,7 @@ export function InventoryProvider({ children }) {
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
                 setProducts(prev => prev.map(p =>
                     String(p.id) === String(payload.new.id)
-                        ? normalizeInventoryRecord({ ...p, ...payload.new })
+                        ? normalizeInventoryRecord({ ...p, ...payload.new }, categoryLookupsRef.current)
                         : p
                 ));
             })
@@ -637,11 +1017,11 @@ export function InventoryProvider({ children }) {
                 if (action === 'UPDATE') {
                     setProducts(prev => prev.map(p =>
                         String(p.id) === String(data.id)
-                            ? normalizeInventoryRecord({ ...p, ...data })
+                            ? normalizeInventoryRecord({ ...p, ...data }, categoryLookupsRef.current)
                             : p
                     ));
                 } else if (action === 'INSERT') {
-                    const incoming = normalizeInventoryRecord(data);
+                    const incoming = normalizeInventoryRecord(data, categoryLookupsRef.current);
                     setProducts(prev => {
                         if (prev.some(p => String(p.id) === String(data.id))) return prev;
                         return [incoming, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
@@ -655,13 +1035,13 @@ export function InventoryProvider({ children }) {
                 if (!data || cleanText(data.shop_id) !== sid) return;
 
                 if (action === 'INSERT') {
-                    const mergedTxn = mergeTransactionWithSnapshot(data);
+                    const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(data, { workersById: workerLookupRef.current }));
                     setTransactions(prev => {
                         if (prev.some(t => String(t.id) === String(data.id))) return prev;
                         return [mergedTxn, ...prev].sort((a, b) => new Date(cleanText(b?.timestamp) || cleanText(b?.created_at) || 0) - new Date(cleanText(a?.timestamp) || cleanText(a?.created_at) || 0));
                     });
                 } else if (action === 'UPDATE') {
-                    const mergedTxn = mergeTransactionWithSnapshot(data);
+                    const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(data, { workersById: workerLookupRef.current }));
                     setTransactions(prev => prev.map(t => String(t.id) === String(data.id) ? { ...t, ...mergedTxn } : t));
                 } else if (action === 'DELETE') {
                     setTransactions(prev => prev.filter(t => String(t.id) !== String(data.id)));
@@ -706,16 +1086,21 @@ export function InventoryProvider({ children }) {
             return [entry, ...prev];
         });
 
-        const payload = buildInventoryPayload(entry, true, sid);
-        const { data, error } = await supabase.from('inventory').insert([payload]).select().single();
+        const payload = buildInventoryPayload(entry, true, sid, categoryNameToId);
+        const insertResult = await executeWithPrunedColumns(
+            (candidate) => supabase.from('inventory').insert([candidate]).select().single(),
+            payload
+        );
 
-        if (error) {
+        if (insertResult.error) {
             // Rollback optimistic insert when cloud save fails
             setProducts(prev => prev.filter(p => String(p.id) !== entry.id));
-            throw new Error(error.message || 'Failed to save product.');
+            throw new Error(insertResult.error.message || 'Failed to save product.');
         }
 
-        const savedEntry = normalizeInventoryRecord(data ? { ...entry, ...data, id: String(data.id || entry.id) } : entry);
+        const savedEntry = normalizeInventoryRecord(
+            insertResult.data ? { ...entry, ...insertResult.data, id: String(insertResult.data.id || entry.id) } : entry
+        );
         setProducts(prev => prev.map(p => String(p.id) === entry.id ? savedEntry : p));
 
         supabase.channel(`public:unified_sync:${sid}`).send({
@@ -725,7 +1110,7 @@ export function InventoryProvider({ children }) {
         }).catch(e => console.error(e));
 
         return savedEntry;
-    }, [activeShopId]);
+    }, [activeShopId, categoryNameToId]);
 
     const deleteProduct = useCallback(async (id) => {
         const sid = cleanText(activeShopId);
@@ -754,16 +1139,21 @@ export function InventoryProvider({ children }) {
         const mergedProduct = { ...previousProduct, ...updatedData, id: strId, shop_id: sid };
         setProducts(prev => prev.map(p => String(p.id) === strId ? mergedProduct : p));
 
-        const payload = buildInventoryPayload(mergedProduct, false, sid);
-        const { data, error } = await supabase.from('inventory').update(payload).eq('id', strId).eq('shop_id', sid).select().single();
+        const payload = buildInventoryPayload(mergedProduct, false, sid, categoryNameToId);
+        const updateResult = await executeWithPrunedColumns(
+            (candidate) => supabase.from('inventory').update(candidate).eq('id', strId).eq('shop_id', sid).select().single(),
+            payload
+        );
 
-        if (error) {
+        if (updateResult.error) {
             // Rollback optimistic update when cloud save fails
             setProducts(prev => prev.map(p => String(p.id) === strId ? previousProduct : p));
-            throw new Error(error.message || 'Failed to update product.');
+            throw new Error(updateResult.error.message || 'Failed to update product.');
         }
 
-        const savedProduct = normalizeInventoryRecord(data ? { ...mergedProduct, ...data, id: strId } : mergedProduct);
+        const savedProduct = normalizeInventoryRecord(
+            updateResult.data ? { ...mergedProduct, ...updateResult.data, id: strId } : mergedProduct
+        );
         setProducts(prev => prev.map(p => String(p.id) === strId ? savedProduct : p));
 
         supabase.channel(`public:unified_sync:${sid}`).send({
@@ -773,7 +1163,7 @@ export function InventoryProvider({ children }) {
         }).catch(e => console.error(e));
 
         return savedProduct;
-    }, [products, activeShopId]);
+    }, [products, activeShopId, categoryNameToId]);
 
     const updateStock = useCallback(async (productRef, newStock) => {
         const sid = cleanText(activeShopId);
@@ -816,7 +1206,7 @@ export function InventoryProvider({ children }) {
             const product = prev.find(p => cleanText(p.shop_id || sid) === sid && String(p.id) === strId);
             if (!product) return prev;
 
-            const updatedStockVal = Math.max(0, (parseInt(product.stock) || 0) + parseInt(delta));
+            const updatedStockVal = Math.max(0, (parseFloat(product.stock) || 0) + (parseFloat(delta) || 0));
 
             // Fire off Supabase and Broadcast asynchronously
             supabase.from('inventory').update({ stock: updatedStockVal }).eq('id', strId).eq('shop_id', sid).then();
@@ -833,14 +1223,47 @@ export function InventoryProvider({ children }) {
 
     // ── Transactions ──
 
+    const syncTransactionItems = useCallback(async (txn, shopIdOverride = '') => {
+        const sid = cleanText(shopIdOverride || activeShopId);
+        if (!sid) return;
+
+        const txId = cleanText(txn?.id);
+        if (!txId) return;
+
+        const payloads = buildTransactionItemPayloads(txn, sid);
+
+        const deleteResult = await supabase
+            .from('transaction_items')
+            .delete()
+            .eq('shop_id', sid)
+            .eq('transaction_id', txId);
+
+        if (deleteResult.error && !isMissingRelationError(deleteResult.error, 'transaction_items')) {
+            throw new Error(deleteResult.error.message || 'Failed to clear transaction item rows.');
+        }
+
+        if (!payloads.length) return;
+
+        for (const payload of payloads) {
+            const insertResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('transaction_items').insert([candidate]),
+                payload
+            );
+            if (insertResult.error && !isMissingRelationError(insertResult.error, 'transaction_items')) {
+                throw new Error(insertResult.error.message || 'Failed to save transaction items.');
+            }
+        }
+    }, [activeShopId, salesmen]);
+
     const addTransaction = useCallback(async (txn) => {
         const sid = cleanText(activeShopId);
         if (!sid) throw new Error('No active shop selected.');
 
         const formattedTxn = buildTransactionDBPayload(txn, true, sid);
-        const snapshot = buildTransactionSnapshot({ ...txn, ...formattedTxn });
+        const normalizedTxn = normalizeTransactionRecord(formattedTxn, { workersById: workerLookup });
+        const snapshot = buildTransactionSnapshot({ ...txn, ...formattedTxn, ...normalizedTxn });
         saveTransactionSnapshot(formattedTxn.id, snapshot);
-        const hydratedTxn = mergeTransactionWithSnapshot(formattedTxn, { [formattedTxn.id]: snapshot });
+        const hydratedTxn = mergeTransactionWithSnapshot(normalizedTxn, { [formattedTxn.id]: snapshot });
 
         setTransactions(prev => {
             if (prev.some(t => String(t.id) === String(hydratedTxn.id))) return prev;
@@ -853,15 +1276,24 @@ export function InventoryProvider({ children }) {
             payload: { action: 'INSERT', data: { ...hydratedTxn, shop_id: sid } }
         }).catch(e => console.error(e));
 
-        const { error } = await supabase.from('transactions').insert([formattedTxn]);
-        if (error) {
+        const insertResult = await executeWithPrunedColumns(
+            (candidate) => supabase.from('transactions').insert([candidate]),
+            formattedTxn
+        );
+        if (insertResult.error) {
             setTransactions(prev => prev.filter(t => String(t.id) !== String(formattedTxn.id)));
             removeTransactionSnapshot(formattedTxn.id);
-            throw new Error(error.message || 'Failed to save transaction.');
+            throw new Error(insertResult.error.message || 'Failed to save transaction.');
+        }
+
+        try {
+            await syncTransactionItems({ ...txn, ...hydratedTxn, ...formattedTxn }, sid);
+        } catch (itemError) {
+            console.error(itemError);
         }
 
         return hydratedTxn;
-    }, [activeShopId]);
+    }, [activeShopId, workerLookup, syncTransactionItems]);
 
     const updateTransaction = useCallback(async (id, updates) => {
         const sid = cleanText(activeShopId);
@@ -874,10 +1306,11 @@ export function InventoryProvider({ children }) {
         const nextTxn = { ...existingTxn, ...updates, id: strId, shop_id: sid };
         const previousSnapshotMap = readTransactionSnapshots();
         const previousSnapshot = previousSnapshotMap[strId];
-        const nextSnapshot = buildTransactionSnapshot(nextTxn);
+        const normalizedNextTxn = normalizeTransactionRecord(nextTxn, { workersById: workerLookup });
+        const nextSnapshot = buildTransactionSnapshot(normalizedNextTxn);
         saveTransactionSnapshot(strId, nextSnapshot);
 
-        const hydratedTxn = mergeTransactionWithSnapshot(nextTxn, { [strId]: nextSnapshot });
+        const hydratedTxn = mergeTransactionWithSnapshot(normalizedNextTxn, { [strId]: nextSnapshot });
         setTransactions(prev => prev.map(t => String(t.id) === strId ? hydratedTxn : t));
 
         supabase.channel(`public:unified_sync:${sid}`).send({
@@ -887,19 +1320,28 @@ export function InventoryProvider({ children }) {
         }).catch(e => console.error(e));
 
         const dbUpdate = buildTransactionDBPayload(nextTxn, false, sid);
-        const { error } = await supabase.from('transactions').update(dbUpdate).eq('id', strId).eq('shop_id', sid);
-        if (error) {
+        const updateResult = await executeWithPrunedColumns(
+            (candidate) => supabase.from('transactions').update(candidate).eq('id', strId).eq('shop_id', sid),
+            dbUpdate
+        );
+        if (updateResult.error) {
             if (previousSnapshot) {
                 saveTransactionSnapshot(strId, previousSnapshot);
             } else {
                 removeTransactionSnapshot(strId);
             }
             setTransactions(prev => prev.map(t => String(t.id) === strId ? existingTxn : t));
-            throw new Error(error.message || 'Failed to update transaction.');
+            throw new Error(updateResult.error.message || 'Failed to update transaction.');
+        }
+
+        try {
+            await syncTransactionItems({ ...nextTxn, ...hydratedTxn }, sid);
+        } catch (itemError) {
+            console.error(itemError);
         }
 
         return hydratedTxn;
-    }, [transactions, activeShopId]);
+    }, [transactions, activeShopId, workerLookup, syncTransactionItems]);
 
     const deleteTransaction = useCallback(async (id) => {
         const sid = cleanText(activeShopId);
@@ -917,6 +1359,15 @@ export function InventoryProvider({ children }) {
 
         setTransactions(prev => prev.filter(t => String(t.id) !== strId));
         removeTransactionSnapshot(strId);
+        const itemDeleteResult = await supabase
+            .from('transaction_items')
+            .delete()
+            .eq('shop_id', sid)
+            .eq('transaction_id', strId);
+        if (itemDeleteResult.error && !isMissingRelationError(itemDeleteResult.error, 'transaction_items')) {
+            throw new Error(itemDeleteResult.error.message || 'Failed to remove linked transaction items.');
+        }
+
         await supabase.from('transactions').delete().eq('id', strId).eq('shop_id', sid);
     }, [transactions, adjustStock, activeShopId]);
 
@@ -987,7 +1438,7 @@ export function InventoryProvider({ children }) {
             throw new Error(error.message || 'Failed to fetch product details.');
         }
 
-        const normalized = normalizeInventoryRecord({ ...(localProduct || {}), ...data, id: strId });
+        const normalized = normalizeInventoryRecord({ ...(localProduct || {}), ...data, id: strId }, categoryLookupsRef.current);
         setProducts(prev => {
             if (prev.some(p => String(p.id) === strId)) {
                 return prev.map(p => String(p.id) === strId ? normalized : p);
@@ -1029,6 +1480,7 @@ export function InventoryProvider({ children }) {
         // Sync to cloud
         let existing = null;
         let hasScopeColumn = true;
+        let resolvedCategoryId = '';
         const scopedSelect = await supabase
             .from('categories')
             .select('id')
@@ -1040,6 +1492,7 @@ export function InventoryProvider({ children }) {
 
         if (!scopedSelect.error) {
             existing = Array.isArray(scopedSelect.data) ? (scopedSelect.data[0] || null) : null;
+            resolvedCategoryId = cleanText(existing?.id);
         } else {
             const scopedErrMsg = String(scopedSelect.error?.message || '').toLowerCase();
             hasScopeColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('scope'));
@@ -1052,6 +1505,7 @@ export function InventoryProvider({ children }) {
                     .eq('level', 1)
                     .limit(1);
                 existing = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
+                resolvedCategoryId = cleanText(existing?.id);
             }
         }
 
@@ -1066,15 +1520,21 @@ export function InventoryProvider({ children }) {
                 }
             }
         } else {
+            const newCategoryId = makeCategoryId();
+            resolvedCategoryId = newCategoryId;
             const insertPayload = {
-                id: makeCategoryId(),
+                id: newCategoryId,
                 name: trimmed,
                 level: 1,
                 parent: null,
                 shop_id: sid,
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
-            const { error: insertError } = await supabase.from('categories').insert([insertPayload]);
+            const insertResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('categories').insert([candidate]),
+                insertPayload
+            );
+            const insertError = insertResult.error;
             if (insertError) {
                 const fallbackSelect = await supabase
                     .from('categories')
@@ -1085,6 +1545,7 @@ export function InventoryProvider({ children }) {
                     .limit(1);
                 const fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
                 if (fallbackExisting) {
+                    resolvedCategoryId = cleanText(fallbackExisting.id);
                     const updatePayload = {
                         ...(hasScopeColumn ? { scope: normalizedScope } : {})
                     };
@@ -1108,15 +1569,16 @@ export function InventoryProvider({ children }) {
                     if (typeof c === 'object') {
                         return {
                             ...c,
+                            id: c.id || resolvedCategoryId || undefined,
                             name: trimmed,
                             image: image || c.image || '',
                             scope: normalizedScope,
                         };
                     }
-                    return { name: trimmed, image: image || '', scope: normalizedScope };
+                    return { id: resolvedCategoryId || undefined, name: trimmed, image: image || '', scope: normalizedScope };
                 });
             }
-            return [...prev, { name: trimmed, image, scope: normalizedScope }];
+            return [...prev, { id: resolvedCategoryId || undefined, name: trimmed, image, scope: normalizedScope }];
         });
         setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
     }, [activeShopId, ensureActiveShopExists]);
@@ -1127,10 +1589,12 @@ export function InventoryProvider({ children }) {
         const trimmed = name.trim();
         if (!trimmed || !l1Name) return;
         const normalizedScope = normalizeCategoryScope(scope);
+        const parentCategoryId = cleanText(categoryNameToId[l1Name]);
 
         // Sync to cloud
         let existing = null;
         let hasScopeColumn = true;
+        let hasParentColumn = true;
         const scopedSelect = await supabase
             .from('categories')
             .select('id')
@@ -1146,16 +1610,21 @@ export function InventoryProvider({ children }) {
         } else {
             const scopedErrMsg = String(scopedSelect.error?.message || '').toLowerCase();
             hasScopeColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('scope'));
-            if (!hasScopeColumn) {
-                const fallbackSelect = await supabase
+            hasParentColumn = !(scopedErrMsg.includes('column') && scopedErrMsg.includes('parent'));
+            if (!hasScopeColumn || !hasParentColumn) {
+                let fallbackSelect = supabase
                     .from('categories')
                     .select('id')
                     .eq('shop_id', sid)
                     .eq('name', trimmed)
-                    .eq('parent', l1Name)
-                    .eq('level', 2)
-                    .limit(1);
-                existing = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
+                    .eq('level', 2);
+                if (hasParentColumn) {
+                    fallbackSelect = fallbackSelect.eq('parent', l1Name);
+                } else if (parentCategoryId) {
+                    fallbackSelect = fallbackSelect.eq('parent_id', parentCategoryId);
+                }
+                const fallbackResult = await fallbackSelect.limit(1);
+                existing = Array.isArray(fallbackResult.data) ? (fallbackResult.data[0] || null) : null;
             }
         }
 
@@ -1174,13 +1643,18 @@ export function InventoryProvider({ children }) {
                 id: makeCategoryId(),
                 name: trimmed,
                 parent: l1Name,
+                parent_id: parentCategoryId || null,
                 level: 2,
                 shop_id: sid,
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
-            const { error: insertError } = await supabase.from('categories').insert([insertPayload]);
+            const insertResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('categories').insert([candidate]),
+                insertPayload
+            );
+            const insertError = insertResult.error;
             if (insertError) {
-                const fallbackSelect = await supabase
+                let fallbackSelect = await supabase
                     .from('categories')
                     .select('id')
                     .eq('shop_id', sid)
@@ -1188,7 +1662,18 @@ export function InventoryProvider({ children }) {
                     .eq('parent', l1Name)
                     .eq('level', 2)
                     .limit(1);
-                const fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
+                let fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
+                if (!fallbackExisting && parentCategoryId) {
+                    fallbackSelect = await supabase
+                        .from('categories')
+                        .select('id')
+                        .eq('shop_id', sid)
+                        .eq('name', trimmed)
+                        .eq('parent_id', parentCategoryId)
+                        .eq('level', 2)
+                        .limit(1);
+                    fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
+                }
                 if (fallbackExisting) {
                     const updatePayload = {
                         ...(hasScopeColumn ? { scope: normalizedScope } : {})
@@ -1216,17 +1701,21 @@ export function InventoryProvider({ children }) {
                             ...c,
                             name: trimmed,
                             image: image || c.image || '',
+                            parent_id: c.parent_id || parentCategoryId || null,
                             scope: normalizedScope,
                         };
                     }
-                    return { name: trimmed, image: image || '', parent: l1Name, scope: normalizedScope };
+                    return { name: trimmed, image: image || '', parent: l1Name, parent_id: parentCategoryId || null, scope: normalizedScope };
                 });
                 return { ...prev, [l1Name]: updatedList };
             }
-            return { ...prev, [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, scope: normalizedScope }] };
+            return {
+                ...prev,
+                [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, parent_id: parentCategoryId || null, scope: normalizedScope }]
+            };
         });
         setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
-    }, [activeShopId, ensureActiveShopExists]);
+    }, [activeShopId, ensureActiveShopExists, categoryNameToId]);
 
     const getCatImage = useCallback((l1, l2) => {
         if (l2 && l2Map[l1]) {
@@ -1255,16 +1744,40 @@ export function InventoryProvider({ children }) {
             removeCategoryScopeBranch(sid, trimmed);
             await supabase.from('categories').delete().eq('shop_id', sid).eq('name', trimmed).eq('level', 1);
             // Delete associated L2 categories in DB
-            await supabase.from('categories').delete().eq('shop_id', sid).eq('parent', trimmed).eq('level', 2);
+            const l2DeleteByParent = await supabase.from('categories').delete().eq('shop_id', sid).eq('parent', trimmed).eq('level', 2);
+            if (l2DeleteByParent.error && extractMissingColumnName(l2DeleteByParent.error) === 'parent') {
+                const parentId = cleanText(categoryNameToId[trimmed]);
+                if (parentId) {
+                    await supabase.from('categories').delete().eq('shop_id', sid).eq('parent_id', parentId).eq('level', 2);
+                }
+            }
         } else if (level === 2 && parentName) {
             setL2Map(prev => {
                 const currentList = prev[parentName] || [];
                 return { ...prev, [parentName]: currentList.filter(c => (typeof c === 'object' ? c?.name : c) !== trimmed) };
             });
             removeCategoryScopeEntry(sid, 2, trimmed, parentName);
-            await supabase.from('categories').delete().eq('shop_id', sid).eq('name', trimmed).eq('parent', parentName).eq('level', 2);
+            const deleteByParentName = await supabase
+                .from('categories')
+                .delete()
+                .eq('shop_id', sid)
+                .eq('name', trimmed)
+                .eq('parent', parentName)
+                .eq('level', 2);
+            if (deleteByParentName.error && extractMissingColumnName(deleteByParentName.error) === 'parent') {
+                const parentId = cleanText(categoryNameToId[parentName]);
+                if (parentId) {
+                    await supabase
+                        .from('categories')
+                        .delete()
+                        .eq('shop_id', sid)
+                        .eq('name', trimmed)
+                        .eq('parent_id', parentId)
+                        .eq('level', 2);
+                }
+            }
         }
-    }, [activeShopId]);
+    }, [activeShopId, categoryNameToId]);
 
     const getLowStockProducts = useCallback(() => {
         return products.filter(p => {
