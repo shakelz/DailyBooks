@@ -1821,6 +1821,21 @@ export function AuthProvider({ children }) {
                 }
             }
 
+            if (!error && Array.isArray(data) && data.length === 0) {
+                const preferredSid = asString(preferredShopId);
+                if (preferredSid) {
+                    const singleById = await selectSingleShopById(preferredSid);
+                    if (!singleById?.error && singleById?.data) {
+                        data = [singleById.data];
+                    } else {
+                        const rpcSingle = await listShopsViaRpc(preferredSid);
+                        if (Array.isArray(rpcSingle.data) && rpcSingle.data[0]) {
+                            data = [rpcSingle.data[0]];
+                        }
+                    }
+                }
+            }
+
             if (error || !Array.isArray(data)) {
                 setShops([]);
                 return [];
