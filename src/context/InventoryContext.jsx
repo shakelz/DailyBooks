@@ -892,7 +892,7 @@ export function InventoryProvider({ children }) {
                 supabase.from('transactions').select('*').eq('shop_id', sid),
                 supabase.from('categories').select('*').eq('shop_id', sid),
                 supabase.from('transaction_items').select('*').eq('shop_id', sid),
-                supabase.from('profiles').select('user_id,full_name,salesman_number').eq('shop_id', sid),
+                supabase.from('profiles').select('user_id,full_name').eq('shop_id', sid),
             ]);
 
             if (cancelled) return;

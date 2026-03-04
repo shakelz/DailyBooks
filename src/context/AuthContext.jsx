@@ -366,7 +366,7 @@ async function verifyOwnerLogin(identifier, password) {
             full_name: asString(row?.full_name || 'Owner'),
             role: 'owner',
             active: true,
-            email: asString(row?.email || row?.username),
+            email: asString(row?.email),
         },
         error: null,
     };
@@ -460,14 +460,14 @@ async function deleteShopById(shopId = '') {
 }
 
 async function resolveAdminEmailFromProfile(profile = {}) {
-    return asString(profile?.email || profile?.username).toLowerCase();
+    return asString(profile?.email).toLowerCase();
 }
 
 async function findAdminProfileByIdentifier(identifier = '') {
     const key = asString(identifier);
     if (!key) return { profile: null, error: null };
 
-    const lookupFields = ['username', 'full_name'];
+    const lookupFields = ['email', 'full_name'];
     for (const field of lookupFields) {
         const { data, error } = await supabase
             .from('profiles')
@@ -480,7 +480,7 @@ async function findAdminProfileByIdentifier(identifier = '') {
             if (isMissingColumnError(error, field)) {
                 continue;
             }
-            return { profile: null, error: asString(error?.message) || 'Unable to validate admin username.' };
+            return { profile: null, error: asString(error?.message) || 'Unable to validate admin identifier.' };
         }
 
         const row = Array.isArray(data) ? data[0] : null;
@@ -519,7 +519,7 @@ async function resolveAdminAuthFromIdentifier(identifier = '') {
     if (!row) return { authEmail: '', profileId: '', role: '', shopId: '', error: '' };
 
     return {
-        authEmail: asString(row?.email || row?.username || '').toLowerCase(),
+        authEmail: asString(row?.email || '').toLowerCase(),
         profileId: asString(getProfileId(row)),
         role: normalizeRoleName(row?.role),
         shopId: asString(row?.shop_id),
@@ -539,7 +539,7 @@ async function requestAdminLogin({ identifier, password }) {
     }
 
     const identifierLower = normalizedIdentifier.toLowerCase();
-    const selectFields = 'user_id,shop_id,full_name,role,active,password_hash,password,email,username';
+    const selectFields = 'user_id,shop_id,full_name,role,active,password_hash,email';
 
     const query = supabase
         .from('profiles')
@@ -584,7 +584,7 @@ async function requestAdminLogin({ identifier, password }) {
         id: fallbackProfileId,
         user_id: fallbackProfileId,
         role: normalizedRole,
-        email: asString(matchedProfile?.email || matchedProfile?.username).toLowerCase(),
+        email: asString(matchedProfile?.email).toLowerCase(),
         active: matchedProfile?.active !== false,
     };
 
@@ -857,9 +857,9 @@ function mergeSalesmanMeta(profile = {}, metaMap = {}) {
     const hasMeta = Boolean(metaMap?.[sid] && typeof metaMap[sid] === 'object' && metaMap[sid][uid]);
     const meta = hasMeta ? sanitizeSalesmanMeta(metaMap[sid][uid]) : null;
 
-    const dbSalesmanNumber = Math.max(0, Math.floor(asNumber(profile.salesmanNumber ?? profile.salesman_number, 0)));
-    const dbCanEdit = asBoolean(profile.canEditTransactions ?? profile.can_edit_transactions);
-    const dbCanBulk = asBoolean(profile.canBulkEdit ?? profile.can_bulk_edit);
+    const dbSalesmanNumber = Math.max(0, Math.floor(asNumber(profile.salesmanNumber, 0)));
+    const dbCanEdit = asBoolean(profile.canEditTransactions);
+    const dbCanBulk = asBoolean(profile.canBulkEdit);
 
     return {
         ...profile,
@@ -931,7 +931,7 @@ function makeRowId() {
 
 function normalizeUserFromProfile(profile) {
     if (!profile || typeof profile !== 'object') return null;
-    const resolvedEmail = asString(profile.email || profile.username || profile.auth_email).toLowerCase();
+    const resolvedEmail = asString(profile.email).toLowerCase();
     const name =
         asString(profile.full_name)
         || asString(profile.workerName)
@@ -946,13 +946,13 @@ function normalizeUserFromProfile(profile) {
         role: normalizedRole,
         pin: '',
         hourlyRate: parseFloat(profile.hourlyRate ?? profile.hourly_rate ?? 12.5) || 12.5,
-        photo: asString(profile.avatar_url || profile.photo || profile.photo_url),
+        photo: asString(profile.photo),
         active: profile.active !== false,
         shop_id: asString(profile.shop_id || profile.shopId),
         is_online: asBoolean(profile.is_online ?? profile.isOnline ?? profile.online),
-        salesmanNumber: Math.max(0, Math.floor(asNumber(profile.salesmanNumber ?? profile.salesman_number, 0))),
-        canEditTransactions: asBoolean(profile.canEditTransactions ?? profile.can_edit_transactions),
-        canBulkEdit: asBoolean(profile.canBulkEdit ?? profile.can_bulk_edit),
+        salesmanNumber: Math.max(0, Math.floor(asNumber(profile.salesmanNumber, 0))),
+        canEditTransactions: asBoolean(profile.canEditTransactions),
+        canBulkEdit: asBoolean(profile.canBulkEdit),
     };
 }
 
@@ -1005,7 +1005,7 @@ function normalizeShop(shop) {
 }
 
 function getProfilePassword(profile) {
-    return asString(profile?.password || profile?.adminPassword || profile?.passcode || profile?.pass_code);
+    return asString(profile?.password_hash);
 }
 
 async function attachShopOwnerCredentials(shopList = []) {
@@ -1029,7 +1029,7 @@ async function attachShopOwnerCredentials(shopList = []) {
         if (!sid || ownersByShop.has(sid)) return;
         ownersByShop.set(sid, {
             owner_profile_id: asString(getProfileId(profile)),
-            owner_email: asString(profile.email || profile.username).toLowerCase(),
+            owner_email: asString(profile.email).toLowerCase(),
             owner_password_hash: getProfilePassword(profile),
         });
     });
@@ -1165,7 +1165,6 @@ function buildShopOwnerProfileUpdatePayloads({ ownerEmail, ownerPassword }) {
     const safeOwnerPassword = ownerPassword === undefined ? undefined : asString(ownerPassword);
     const payload = cleanPayload({
         ...(safeOwnerEmail === undefined ? {} : { email: safeOwnerEmail }),
-        ...(safeOwnerEmail === undefined ? {} : { username: safeOwnerEmail }),
         ...(safeOwnerPassword === undefined ? {} : { password_hash: safeOwnerPassword }),
     });
 
@@ -1174,7 +1173,6 @@ function buildShopOwnerProfileUpdatePayloads({ ownerEmail, ownerPassword }) {
 
 function buildProfileInsertPayloads({
     name,
-    username = '',
     email = '',
     passwordHash = '',
     role = 'salesman',
@@ -1186,7 +1184,6 @@ function buildProfileInsertPayloads({
     requireUserId = false
 }) {
     const safeName = asString(name) || 'User';
-    const safeUsername = asString(username).toLowerCase();
     const safeEmail = asString(email).toLowerCase();
     const safePasswordHash = asString(passwordHash);
     const safePinDigest = asString(pinDigest);
@@ -1194,11 +1191,8 @@ function buildProfileInsertPayloads({
 
     const sid = asString(shopId);
 
-    const idVariants = requireUserId
-        ? [{ user_id: resolvedProfileId }]
-        : [{}, { user_id: resolvedProfileId }];
+    const idVariants = [{ user_id: resolvedProfileId }];
     const shopVariants = sid ? [{ shop_id: sid }] : [{}];
-    const usernameVariants = safeUsername ? [{ username: safeUsername }] : [{}];
     const emailVariants = safeEmail ? [{ email: safeEmail }] : [{}];
     const passwordVariants = safePasswordHash ? [{ password_hash: safePasswordHash }] : [{}];
     const rateValue = Number(hourlyRate);
@@ -1212,25 +1206,22 @@ function buildProfileInsertPayloads({
     const payloads = [];
     for (const idVariant of idVariants) {
         for (const shopVariant of shopVariants) {
-            for (const usernameVariant of usernameVariants) {
-                for (const emailVariant of emailVariants) {
-                    for (const passwordVariant of passwordVariants) {
-                        for (const hourlyVariant of hourlyVariants) {
-                            for (const pinVariant of pinVariants) {
-                                payloads.push(cleanPayload({
-                                    ...idVariant,
-                                    ...shopVariant,
-                                    role: normalizeRoleName(role) || 'salesman',
-                                    full_name: safeName,
-                                    ...usernameVariant,
-                                    ...emailVariant,
-                                    ...passwordVariant,
-                                    ...hourlyVariant,
-                                    active: true,
-                                    is_online: false,
-                                    ...pinVariant,
-                                }));
-                            }
+            for (const emailVariant of emailVariants) {
+                for (const passwordVariant of passwordVariants) {
+                    for (const hourlyVariant of hourlyVariants) {
+                        for (const pinVariant of pinVariants) {
+                            payloads.push(cleanPayload({
+                                ...idVariant,
+                                ...shopVariant,
+                                role: normalizeRoleName(role) || 'salesman',
+                                full_name: safeName,
+                                ...emailVariant,
+                                ...passwordVariant,
+                                ...hourlyVariant,
+                                active: true,
+                                is_online: false,
+                                ...pinVariant,
+                            }));
                         }
                     }
                 }
@@ -1245,7 +1236,6 @@ function buildManagerProfilePayloads({ ownerName, ownerEmail, ownerPasswordHash 
     return buildProfileInsertPayloads({
         name: ownerName,
         email: ownerEmail,
-        username: ownerEmail,
         passwordHash: ownerPasswordHash,
         role: 'owner',
         shopId,
@@ -1256,7 +1246,6 @@ function buildManagerProfilePayloads({ ownerName, ownerEmail, ownerPasswordHash 
 
 function buildSalesmanInsertPayloads({
     name,
-    username = '',
     profileId = '',
     pinDigest,
     shopId,
@@ -1265,7 +1254,6 @@ function buildSalesmanInsertPayloads({
 }) {
     return buildProfileInsertPayloads({
         name,
-        username,
         profileId,
         role: 'salesman',
         shopId,
@@ -1288,12 +1276,6 @@ function buildProfileUpdatePayloads(updates = {}) {
         ...(updates.pin_digest === undefined ? {} : { pin_digest: asString(updates.pin_digest) }),
         ...(updates.hourlyRate === undefined ? {} : { hourly_rate: Number(updates.hourlyRate) || 0 }),
         ...(updates.active === undefined ? {} : { active: asBoolean(updates.active) }),
-        ...((updates.photo === undefined && updates.photoUrl === undefined && updates.avatar_url === undefined)
-            ? {}
-            : { avatar_url: asString(updates.photo ?? updates.photoUrl ?? updates.avatar_url) }),
-        ...(updates.salesmanNumber === undefined ? {} : { salesman_number: Math.max(0, Math.floor(asNumber(updates.salesmanNumber, 0))) }),
-        ...(updates.canEditTransactions === undefined ? {} : { can_edit_transactions: asBoolean(updates.canEditTransactions) }),
-        ...(updates.canBulkEdit === undefined ? {} : { can_bulk_edit: asBoolean(updates.canBulkEdit) }),
         ...((updates.is_online === undefined && updates.isOnline === undefined && updates.online === undefined)
             ? {}
             : { is_online: asBoolean(updates.is_online ?? updates.isOnline ?? updates.online) }),
@@ -2637,7 +2619,7 @@ export function AuthProvider({ children }) {
         }
 
         const { profile, error } = await verifySalesmanPin(enteredPin, sid);
-        const matchedId = asString(profile?.user_id || profile?.id);
+        const matchedId = asString(profile?.user_id);
         if (error || !profile || matchedId !== uid) {
             bumpRateLimit(scope);
             return { success: false, message: 'Invalid PIN.' };
@@ -2719,7 +2701,6 @@ export function AuthProvider({ children }) {
         const profileId = makeRowId();
         const payloadVariants = buildSalesmanInsertPayloads({
             name: trimmedName,
-            username: '',
             profileId,
             pinDigest,
             shopId: sid,
@@ -2738,16 +2719,6 @@ export function AuthProvider({ children }) {
 
         if (createdProfile) {
             const createdUserId = asString(getProfileId(createdProfile));
-            await supabase
-                .from('profiles')
-                .update({
-                    salesman_number: assignedNumber,
-                    can_edit_transactions: permissionPatch.canEditTransactions,
-                    can_bulk_edit: permissionPatch.canBulkEdit,
-                })
-                .eq('user_id', createdUserId)
-                .eq('shop_id', sid);
-
             const withMeta = {
                 ...createdProfile,
                 salesmanNumber: assignedNumber,
@@ -2782,14 +2753,13 @@ export function AuthProvider({ children }) {
         if (!adminEmail) throw new Error('Admin email is required.');
         if (!adminPassword || adminPassword.length < 4) throw new Error('Admin password must be at least 4 characters.');
 
-        const existingAdmin = await trySelectProfileByField('username', adminEmail, ADMIN_ROLES);
+        const existingAdmin = await trySelectProfileByField('email', adminEmail, ADMIN_ROLES);
         if (existingAdmin) {
             throw new Error('Admin email already exists.');
         }
 
         const payloads = buildProfileInsertPayloads({
             name: adminName,
-            username: adminEmail,
             email: adminEmail,
             passwordHash: adminPasswordHash || adminPassword,
             role: 'owner',
