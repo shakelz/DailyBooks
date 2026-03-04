@@ -159,13 +159,6 @@ function asNumber(value, fallback = 0) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function isMissingFunctionError(error, functionName = '') {
-    const message = asString(error?.message).toLowerCase();
-    const target = asString(functionName).toLowerCase();
-    if (!message || !target) return false;
-    return (message.includes('function') || message.includes('could not find')) && message.includes(target);
-}
-
 function isStackDepthError(error) {
     const message = asString(error?.message).toLowerCase();
     return message.includes('stack depth limit exceeded');
@@ -190,7 +183,6 @@ function shouldSkipAdminRateLimit(errorMessage = '') {
     const message = asString(errorMessage).toLowerCase();
     if (!message) return false;
     if (message.includes('column') && (message.includes('does not exist') || message.includes('schema cache'))) return true;
-    if (message.includes('missing sql helper')) return true;
     return false;
 }
 
@@ -439,15 +431,6 @@ async function deleteShopById(shopId = '') {
     return runShopMutationById(shopId, (column, sid) => supabase.from('shops').delete().eq(column, sid));
 }
 
-async function listShopsViaRpc(shopId = '') {
-    const sid = asString(shopId);
-    let query = supabase.from('shops').select('*');
-    if (sid) query = query.eq('shop_id', sid).limit(1);
-    const { data, error } = await query;
-    const rows = Array.isArray(data) ? data : (data ? [data] : []);
-    return { data: rows, error };
-}
-
 async function resolveAdminEmailFromProfile(profile = {}) {
     const directEmail = asString(profile?.owner_email).toLowerCase();
     if (directEmail) return directEmail;
@@ -463,7 +446,7 @@ async function findAdminProfileByIdentifier(identifier = '') {
     const key = asString(identifier);
     if (!key) return { profile: null, error: null };
 
-    const lookupFields = ['username', 'name', 'full_name'];
+    const lookupFields = ['username', 'full_name'];
     for (const field of lookupFields) {
         const { data, error } = await supabase
             .from('profiles')
@@ -1045,7 +1028,6 @@ function normalizeUserFromProfile(profile) {
     const resolvedEmail = asString(profile.owner_email || profile.auth_email).toLowerCase();
     const name =
         asString(profile.full_name)
-        || asString(profile.name)
         || asString(profile.workerName)
         || (resolvedEmail.split('@')[0] || 'User');
     const normalizedRole = normalizeRoleName(profile.role) || 'salesman';
@@ -1885,7 +1867,7 @@ export function AuthProvider({ children }) {
 
     const createShop = useCallback(async ({ shopName, location, address, ownerEmail, telephone }) => {
         if (!isSuperAdminRole(role)) {
-            throw new Error('Only superadmin/superuser can create shops.');
+            throw new Error('Only super_admin can create shops.');
         }
 
         const name = asString(shopName);
@@ -2019,7 +2001,7 @@ export function AuthProvider({ children }) {
 
     const updateShop = useCallback(async (shopId, updates = {}) => {
         if (!isSuperAdminRole(role)) {
-            throw new Error('Only superadmin/superuser can update shops.');
+            throw new Error('Only super_admin can update shops.');
         }
 
         const sid = asString(shopId);
@@ -2264,7 +2246,7 @@ export function AuthProvider({ children }) {
 
     const deleteShop = useCallback(async (shopId) => {
         if (!isSuperAdminRole(role)) {
-            throw new Error('Only superadmin/superuser can delete shops.');
+            throw new Error('Only super_admin can delete shops.');
         }
 
         const sid = asString(shopId);
@@ -2949,7 +2931,7 @@ export function AuthProvider({ children }) {
 
     const addIndependentAdmin = async ({ name, email, password }) => {
         if (!isSuperAdminRole(role)) {
-            throw new Error('Only superadmin/superuser can create independent admins.');
+            throw new Error('Only super_admin can create independent admins.');
         }
 
         const adminName = asString(name) || 'Admin';
