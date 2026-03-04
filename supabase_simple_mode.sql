@@ -43,4 +43,21 @@ drop function if exists public.make_pin_digest(text, text);
 drop function if exists public.make_owner_password_hash(text);
 drop function if exists public.verify_owner_login(text, text);
 
+-- 4) Repairs compatibility: remove 255-char limit on problem description
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'repairs'
+      AND column_name = 'problem'
+      AND data_type IN ('character varying', 'varchar')
+  ) THEN
+    ALTER TABLE public.repairs
+      ALTER COLUMN problem TYPE text;
+  END IF;
+END
+$$;
+
 commit;
