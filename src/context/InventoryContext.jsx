@@ -858,7 +858,7 @@ export function InventoryProvider({ children }) {
 
         const { data, error } = await supabase
             .from('shops')
-            .select('id')
+            .select('shop_id')
             .eq('shop_id', safeShopId)
             .limit(1);
 
