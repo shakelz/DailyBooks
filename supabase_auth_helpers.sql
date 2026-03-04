@@ -357,10 +357,26 @@ begin
 end;
 $$;
 
+create or replace function public.list_shops_safe(
+  p_shop_id text default null
+)
+returns setof public.shops
+language sql
+security definer
+set search_path = public
+as $$
+  select s.*
+  from public.shops s
+  where coalesce(trim(p_shop_id), '') = ''
+     or coalesce(to_jsonb(s) ->> 'id', '') = trim(p_shop_id)
+     or coalesce(to_jsonb(s) ->> 'shop_id', '') = trim(p_shop_id);
+$$;
+
 grant execute on function public.make_pin_digest_global(text) to anon, authenticated, service_role;
 grant execute on function public.verify_salesman_pin(text, text) to anon, authenticated, service_role;
 grant execute on function public.resolve_admin_auth_email(text) to anon, authenticated, service_role;
 grant execute on function public.create_or_link_shop_owner_profile(text, text, text, text, text) to anon, authenticated, service_role;
 grant execute on function public.create_shop_record(text, text, text, text, text) to anon, authenticated, service_role;
+grant execute on function public.list_shops_safe(text) to anon, authenticated, service_role;
 
 commit;

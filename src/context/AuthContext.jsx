@@ -465,6 +465,23 @@ async function deleteShopById(shopId = '') {
     return runShopMutationById(shopId, (column, sid) => supabase.from('shops').delete().eq(column, sid));
 }
 
+async function listShopsViaRpc(shopId = '') {
+    const sid = asString(shopId);
+    const { data, error } = await supabase.rpc('list_shops_safe', {
+        p_shop_id: sid || null,
+    });
+
+    if (error) {
+        if (isMissingFunctionError(error, 'list_shops_safe')) {
+            return { data: null, error: null };
+        }
+        return { data: null, error };
+    }
+
+    const rows = Array.isArray(data) ? data : (data ? [data] : []);
+    return { data: rows, error: null };
+}
+
 async function resolveAdminEmailFromProfile(profile = {}) {
     const directEmail = asString(profile?.email || profile?.owner_email).toLowerCase();
     if (directEmail) return directEmail;
@@ -1795,6 +1812,15 @@ export function AuthProvider({ children }) {
                 error = fallback.error;
             }
 
+            if (!error && Array.isArray(data) && data.length === 0) {
+                const rpcFallback = await listShopsViaRpc();
+                if (Array.isArray(rpcFallback.data) && rpcFallback.data.length > 0) {
+                    data = rpcFallback.data;
+                } else if (rpcFallback.error) {
+                    error = rpcFallback.error;
+                }
+            }
+
             if (error || !Array.isArray(data)) {
                 setShops([]);
                 return [];
@@ -1830,6 +1856,15 @@ export function AuthProvider({ children }) {
 
         const { data, error } = await selectSingleShopById(sid);
         if (error || !data) {
+            const rpcSingle = await listShopsViaRpc(sid);
+            if (Array.isArray(rpcSingle.data) && rpcSingle.data[0]) {
+                const rpcNormalized = normalizeShop(rpcSingle.data[0]);
+                const rpcEnriched = rpcNormalized ? await attachShopOwnerCredentials([rpcNormalized]) : [];
+                const rpcMerged = rpcEnriched.map((shop) => mergeShopMeta(shop, shopMetaMap));
+                setShops(rpcMerged);
+                setActiveShopIdState(sid);
+                return rpcMerged;
+            }
             const fallback = [mergeShopMeta({ id: sid, name: user.shopName || 'My Shop', address: '', owner_email: '' }, shopMetaMap)];
             setShops(fallback);
             setActiveShopIdState(sid);
