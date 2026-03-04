@@ -17,6 +17,7 @@ import ExpensesTab from './components/admin/ExpensesTab'
 import AdminSettings from './components/admin/AdminSettings'
 import RepairsTab from './components/admin/RepairsTab'
 import PWAInstallButton from './components/PWAInstallButton'
+import { supabaseConfigError } from './supabaseClient'
 
 function normalizeRouteRole(value = '') {
   const role = String(value || '').trim().toLowerCase()
@@ -71,6 +72,21 @@ function LegacyDashboardRedirect() {
 }
 
 function App() {
+  if (supabaseConfigError) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+        <div className="max-w-xl w-full rounded-2xl border border-red-500/30 bg-slate-900/80 p-6 shadow-xl">
+          <h1 className="text-xl font-bold text-red-400">Configuration Error</h1>
+          <p className="mt-3 text-sm text-slate-300">The app cannot start because required environment variables are missing in this deployment.</p>
+          <div className="mt-4 rounded-lg bg-slate-950 border border-slate-800 p-3 text-xs text-slate-300 font-mono break-words">
+            {supabaseConfigError}
+          </div>
+          <p className="mt-4 text-xs text-slate-400">Set these variables in Vercel project settings and redeploy.</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <AuthProvider>
       <InventoryProvider>

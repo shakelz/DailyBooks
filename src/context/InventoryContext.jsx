@@ -129,8 +129,8 @@ function buildCategoryLookups(rows = []) {
     const byId = {};
     const byName = {};
     (Array.isArray(rows) ? rows : []).forEach((row) => {
-        const id = cleanText(row?.id);
-        const name = cleanText(row?.name);
+        const id = cleanText(row?.category_id || row?.id);
+        const name = cleanText(row?.category_name || row?.name);
         if (id) byId[id] = row;
         if (name && !byName[name]) byName[name] = row;
     });
@@ -140,7 +140,7 @@ function buildCategoryLookups(rows = []) {
 function resolveCategoryParentName(record, categoryById = {}) {
     const fromParent = cleanText(record?.parent);
     if (fromParent) return fromParent;
-    const parentId = cleanText(record?.parent_id);
+    const parentId = cleanText(record?.parent_category_id || record?.parent_id);
     if (parentId && categoryById[parentId]) {
         return cleanText(categoryById[parentId]?.name);
     }
@@ -154,11 +154,11 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
     const itemsByTransactionId = options?.itemsByTransactionId && typeof options.itemsByTransactionId === 'object'
         ? options.itemsByTransactionId
         : {};
-    const txnId = cleanText(txn?.id) || String(txn?.id ?? '');
+    const txnId = cleanText(txn?.transaction_id || txn?.id) || String(txn?.transaction_id ?? txn?.id ?? '');
     const linkedItems = txnId ? (itemsByTransactionId[txnId] || []) : [];
     const primaryItem = linkedItems[0] || null;
     const resolvedTimestamp = resolveTransactionTimestamp(txn);
-    const workerId = cleanText(txn?.workerId || txn?.worker_id || txn?.user_id);
+    const workerId = cleanText(txn?.created_by || txn?.workerId || txn?.worker_id || txn?.user_id);
     const worker = workerId ? workersById[workerId] : null;
 
     const parsedQty = parseInt(
@@ -201,6 +201,8 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         ...txn,
         id: txnId || txn?.id,
         transactionId,
+        type: cleanText(txn?.tx_type || txn?.type),
+        source: cleanText(txn?.source || 'cash'),
         occurred_at: resolvedTimestamp || cleanText(txn?.occurred_at),
         timestamp: resolvedTimestamp || cleanText(txn?.timestamp) || cleanText(txn?.created_at),
         date: toLegacyDateLabel(resolvedTimestamp, txn?.date),
@@ -455,7 +457,7 @@ function normalizeInventoryRecord(product, categoryLookups = null) {
     const categoryLookupById = categoryLookups && typeof categoryLookups === 'object'
         ? (categoryLookups.byId || {})
         : {};
-    const mappedCategoryFromId = cleanText(categoryLookupById[cleanText(source.category_id || source.categoryId)]?.name);
+    const mappedCategoryFromId = cleanText(categoryLookupById[cleanText(source.category_id || source.categoryId)]?.category_name || categoryLookupById[cleanText(source.category_id || source.categoryId)]?.name);
     const sourceCategory = source.category || mappedCategoryFromId || '';
     const rawAttrs = source.attributes && typeof source.attributes === 'object' ? source.attributes : {};
     const categoryHierarchy = buildCategoryHierarchy(sourceCategory, source.categoryPath, rawAttrs);
@@ -496,9 +498,9 @@ function normalizeInventoryRecord(product, categoryLookups = null) {
 
     return {
         ...source,
-        id: source.id ? String(source.id) : source.id,
-        name: source.name || source.desc || normalizedModel || '',
-        desc: source.desc || source.name || normalizedModel || '',
+        id: source.product_id ? String(source.product_id) : (source.id ? String(source.id) : source.id),
+        name: source.product_name || source.name || source.desc || normalizedModel || '',
+        desc: source.product_name || source.desc || source.name || normalizedModel || '',
         model: normalizedModel,
         brand: normalizedBrand,
         barcode: cleanText(source.barcode),
@@ -509,8 +511,22 @@ function normalizeInventoryRecord(product, categoryLookups = null) {
         image: cleanText(source.image) || cleanText(source.image_url) || attributeImage || '',
         timestamp: cleanText(source.timestamp) || cleanText(source.created_at) || '',
         category_id: cleanText(source.category_id || source.categoryId) || null,
+        purchasePrice: parseFloat(source.purchase_price ?? source.purchasePrice ?? source.costPrice ?? 0) || 0,
+        sellingPrice: parseFloat(source.selling_price ?? source.sellingPrice ?? source.price ?? 0) || 0,
+        stock: parseInt(source.stock ?? 0, 10) || 0,
         attributes: normalizedAttrs,
     };
+}
+
+function mapTxType(value) {
+    const raw = cleanText(value).toLowerCase();
+    if (!raw) return 'product_sale';
+    if (raw === 'income' || raw === 'product_sale' || raw === 'sale') return 'product_sale';
+    if (raw === 'shop_expense' || raw === 'expense') return 'shop_expense';
+    if (raw === 'product_purchase' || raw === 'purchase') return 'product_purchase';
+    if (raw === 'repair_amount' || raw === 'repair') return 'repair_amount';
+    if (raw === 'adjustment_amount' || raw === 'adjustment') return 'adjustment_amount';
+    return 'product_sale';
 }
 
 function buildInventoryPayload(product, includeId = false, shopId = '', categoryNameToId = {}) {
@@ -555,18 +571,18 @@ function buildInventoryPayload(product, includeId = false, shopId = '', category
     }
 
     const payload = withShopId({
-        name: product?.name || product?.desc || product?.model || '',
-        purchasePrice: parseFloat(product?.purchasePrice ?? product?.costPrice ?? 0) || 0,
-        sellingPrice: parseFloat(product?.sellingPrice ?? product?.price ?? product?.unitPrice ?? product?.amount ?? 0) || 0,
+        product_name: product?.name || product?.desc || product?.model || '',
+        purchase_price: parseFloat(product?.purchasePrice ?? product?.costPrice ?? 0) || 0,
+        selling_price: parseFloat(product?.sellingPrice ?? product?.price ?? product?.unitPrice ?? product?.amount ?? 0) || 0,
         stock: parseInt(product?.stock ?? product?.quantity ?? 0, 10) || 0,
-        category: level1Category || '',
         category_id: resolvedCategoryId || null,
         barcode: product?.barcode ? String(product.barcode).trim() : '',
-        productUrl: product?.productUrl || '',
+        purchase_source: cleanText(product?.purchaseSource || product?.purchase_source || 'cash') || 'cash',
+        product_url: product?.productUrl || product?.product_url || '',
         attributes: payloadAttributes,
     }, shopId);
 
-    if (includeId) payload.id = String(product?.id);
+    if (includeId) payload.product_id = String(product?.id);
 
     return payload;
 }
@@ -666,31 +682,19 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
     const amount = parseFloat(txn?.amount || 0) || 0;
 
     const payload = withShopId({
-        desc: txn?.desc || txn?.name || '',
+        tx_type: mapTxType(txn?.tx_type || txn?.type),
+        description: txn?.desc || txn?.name || '',
         amount,
-        type: txn?.type || '',
-        category: txn?.category?.level1 || txn?.category || '',
         notes: txn?.notes || '',
-        source: txn?.source || 'shop',
+        source: cleanText(txn?.source || 'cash') || 'cash',
         quantity,
         occurred_at: occurredAt,
-        timestamp: occurredAt,
-        date: normalizedDate || new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-        time: normalizedTime || new Date().toLocaleTimeString('en-US', { hour12: false }),
         isFixedExpense: txn?.isFixedExpense || false,
-        productId: txn?.productId ? String(txn.productId) : null,
-        workerId: workerId || null,
-        paymentMethod: cleanText(txn?.paymentMethod) || null,
-        transactionId: cleanText(txn?.transactionId) || null,
-        customerInfo: txn?.customerInfo && typeof txn.customerInfo === 'object' ? txn.customerInfo : null,
-        unitPrice: parseFloat(txn?.unitPrice ?? (quantity > 0 ? amount / quantity : 0)) || 0,
-        stdPriceAtTime: parseFloat(txn?.stdPriceAtTime ?? txn?.unitPrice ?? 0) || 0,
-        purchasePriceAtTime: parseFloat(txn?.purchasePriceAtTime ?? 0) || 0,
-        includeTax: txn?.includeTax === undefined ? null : Boolean(txn.includeTax),
-        taxInfo: txn?.taxInfo && typeof txn.taxInfo === 'object' ? txn.taxInfo : null,
+        product_id: txn?.productId ? String(txn.productId) : null,
+        created_by: workerId || null,
     }, shopId);
 
-    if (includeId) payload.id = String(txn?.id || Date.now());
+    if (includeId) payload.transaction_id = String(txn?.id || Date.now());
 
     return payload;
 }
@@ -809,7 +813,7 @@ export function InventoryProvider({ children }) {
         const { data, error } = await supabase
             .from('shops')
             .select('id')
-            .eq('id', safeShopId)
+            .eq('shop_id', safeShopId)
             .limit(1);
 
         if (error) {
@@ -1125,7 +1129,7 @@ export function InventoryProvider({ children }) {
             payload: { action: 'DELETE', data: { id: strId, shop_id: sid } }
         }).catch(e => console.error(e));
 
-        await supabase.from('inventory').delete().eq('id', strId).eq('shop_id', sid);
+        await supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid);
     }, [activeShopId]);
 
     const updateProduct = useCallback(async (id, updatedData) => {
@@ -1141,7 +1145,7 @@ export function InventoryProvider({ children }) {
 
         const payload = buildInventoryPayload(mergedProduct, false, sid, categoryNameToId);
         const updateResult = await executeWithPrunedColumns(
-            (candidate) => supabase.from('inventory').update(candidate).eq('id', strId).eq('shop_id', sid).select().single(),
+            (candidate) => supabase.from('inventory').update(candidate).eq('product_id', strId).eq('shop_id', sid).select().single(),
             payload
         );
 
@@ -1180,7 +1184,7 @@ export function InventoryProvider({ children }) {
         const strId = String(matchedProduct.id);
         const previousStock = parseInt(matchedProduct.stock, 10) || 0;
         setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: nextStock } : p));
-        const { error } = await supabase.from('inventory').update({ stock: nextStock }).eq('id', strId).eq('shop_id', sid);
+        const { error } = await supabase.from('inventory').update({ stock: nextStock }).eq('product_id', strId).eq('shop_id', sid);
 
         if (error) {
             setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: previousStock } : p));
@@ -1209,7 +1213,7 @@ export function InventoryProvider({ children }) {
             const updatedStockVal = Math.max(0, (parseFloat(product.stock) || 0) + (parseFloat(delta) || 0));
 
             // Fire off Supabase and Broadcast asynchronously
-            supabase.from('inventory').update({ stock: updatedStockVal }).eq('id', strId).eq('shop_id', sid).then();
+            supabase.from('inventory').update({ stock: updatedStockVal }).eq('product_id', strId).eq('shop_id', sid).then();
 
             supabase.channel(`public:unified_sync:${sid}`).send({
                 type: 'broadcast',
@@ -1321,7 +1325,7 @@ export function InventoryProvider({ children }) {
 
         const dbUpdate = buildTransactionDBPayload(nextTxn, false, sid);
         const updateResult = await executeWithPrunedColumns(
-            (candidate) => supabase.from('transactions').update(candidate).eq('id', strId).eq('shop_id', sid),
+            (candidate) => supabase.from('transactions').update(candidate).eq('transaction_id', strId).eq('shop_id', sid),
             dbUpdate
         );
         if (updateResult.error) {
@@ -1368,7 +1372,7 @@ export function InventoryProvider({ children }) {
             throw new Error(itemDeleteResult.error.message || 'Failed to remove linked transaction items.');
         }
 
-        await supabase.from('transactions').delete().eq('id', strId).eq('shop_id', sid);
+        await supabase.from('transactions').delete().eq('transaction_id', strId).eq('shop_id', sid);
     }, [transactions, adjustStock, activeShopId]);
 
     const clearTransactions = useCallback(async () => {
@@ -1398,7 +1402,7 @@ export function InventoryProvider({ children }) {
 
         // Fire parallel updates to cloud
         itemsToUpdate.forEach(async (item) => {
-            await supabase.from('inventory').update({ sellingPrice: item.sellingPrice }).eq('id', item.id).eq('shop_id', sid);
+            await supabase.from('inventory').update({ selling_price: item.sellingPrice }).eq('product_id', item.id).eq('shop_id', sid);
         });
     }, [activeShopId]);
 
@@ -1432,7 +1436,7 @@ export function InventoryProvider({ children }) {
 
         if (!sid) return localProduct;
 
-        const { data, error } = await supabase.from('inventory').select('*').eq('id', strId).eq('shop_id', sid).single();
+        const { data, error } = await supabase.from('inventory').select('*').eq('product_id', strId).eq('shop_id', sid).single();
         if (error) {
             if (localProduct) return localProduct;
             throw new Error(error.message || 'Failed to fetch product details.');
@@ -1514,7 +1518,7 @@ export function InventoryProvider({ children }) {
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
             if (Object.keys(updatePayload).length > 0) {
-                const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('id', existing.id).eq('shop_id', sid);
+                const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('category_id', existing.id).eq('shop_id', sid);
                 if (updateError) {
                     throw new Error(updateError.message || 'Failed to update category.');
                 }
@@ -1550,7 +1554,7 @@ export function InventoryProvider({ children }) {
                         ...(hasScopeColumn ? { scope: normalizedScope } : {})
                     };
                     if (Object.keys(updatePayload).length > 0) {
-                        const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('id', fallbackExisting.id).eq('shop_id', sid);
+                        const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('category_id', fallbackExisting.id).eq('shop_id', sid);
                         if (updateError) {
                             throw new Error(updateError.message || 'Failed to persist category scope.');
                         }
@@ -1633,7 +1637,7 @@ export function InventoryProvider({ children }) {
                 ...(hasScopeColumn ? { scope: normalizedScope } : {})
             };
             if (Object.keys(updatePayload).length > 0) {
-                const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('id', existing.id).eq('shop_id', sid);
+                const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('category_id', existing.id).eq('shop_id', sid);
                 if (updateError) {
                     throw new Error(updateError.message || 'Failed to update sub-category.');
                 }
@@ -1679,7 +1683,7 @@ export function InventoryProvider({ children }) {
                         ...(hasScopeColumn ? { scope: normalizedScope } : {})
                     };
                     if (Object.keys(updatePayload).length > 0) {
-                        const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('id', fallbackExisting.id).eq('shop_id', sid);
+                        const { error: updateError } = await supabase.from('categories').update(updatePayload).eq('category_id', fallbackExisting.id).eq('shop_id', sid);
                         if (updateError) {
                             throw new Error(updateError.message || 'Failed to persist sub-category scope.');
                         }

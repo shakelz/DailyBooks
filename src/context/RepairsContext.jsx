@@ -100,7 +100,7 @@ function buildRepairPartsMap(rows = []) {
 }
 
 function normalizeRepairRecord(record = {}, partsByRepair = {}) {
-    const id = cleanText(record?.id) || String(record?.id || '');
+    const id = cleanText(record?.repair_id || record?.id) || String(record?.repair_id || record?.id || '');
     const createdIso = parseIsoTimestamp(record?.created_at || record?.createdAt || record?.timestamp) || new Date().toISOString();
     const completedIso = parseIsoTimestamp(record?.completed_at || record?.completedAt);
     const deliveryAt = toDateOnly(record?.delivery_at || record?.deliveryDate);
@@ -114,7 +114,7 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
         id,
         refId: cleanText(record?.refId || record?.ref_id),
         customerName: cleanText(record?.customerName || record?.customer_name),
-        phone: cleanText(record?.phone || record?.customerPhone),
+        phone: cleanText(record?.customer_phone || record?.phone || record?.customerPhone),
         deviceModel: cleanText(record?.deviceModel || record?.device_model),
         imei: cleanText(record?.imei),
         problem: cleanText(record?.problem || record?.issueType),
@@ -148,23 +148,18 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
     const deliveryAt = toDateOnly(repair?.delivery_at || repair?.deliveryDate);
 
     return {
-        id: cleanText(repair?.id),
-        refId: cleanText(repair?.refId),
-        customerName: cleanText(repair?.customerName),
-        phone: cleanText(repair?.phone),
-        deviceModel: cleanText(repair?.deviceModel),
+        repair_id: cleanText(repair?.id),
+        customer_name: cleanText(repair?.customerName),
+        customer_phone: cleanText(repair?.phone),
+        device_model: cleanText(repair?.deviceModel),
         imei: cleanText(repair?.imei),
         problem: cleanText(repair?.problem),
-        advanceAmount: parseFloat(repair?.advanceAmount ?? 0) || 0,
-        estimatedCost: parseFloat(repair?.estimatedCost ?? 0) || 0,
+        advance_amount: parseFloat(repair?.advanceAmount ?? 0) || 0,
+        estimated_cost: parseFloat(repair?.estimatedCost ?? 0) || 0,
         delivery_at: deliveryAt || null,
-        deliveryDate: deliveryAt || null,
         status: cleanText(repair?.status) || 'pending',
         created_at: createdAt,
-        createdAt: createdAt,
         completed_at: completedAt || null,
-        completedAt: completedAt || null,
-        partsUsed: Array.isArray(repair?.partsUsed) ? repair.partsUsed.map(normalizeRepairPart) : [],
         shop_id: sid,
     };
 }
@@ -277,7 +272,7 @@ export function RepairsProvider({ children }) {
                 ));
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
-                setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(payload.old.id)));
+                setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(payload.old.repair_id || payload.old.id)));
             })
             .on('broadcast', { event: 'repair_sync' }, (payload) => {
                 const { action, data } = payload.payload || {};
@@ -423,7 +418,7 @@ export function RepairsProvider({ children }) {
         ));
 
         const updateResult = await executeWithPrunedColumns(
-            (candidate) => supabase.from('repairs').update(candidate).eq('id', strId).eq('shop_id', sid),
+            (candidate) => supabase.from('repairs').update(candidate).eq('repair_id', strId).eq('shop_id', sid),
             patch
         );
 
@@ -431,7 +426,7 @@ export function RepairsProvider({ children }) {
             const fallbackPatch = { ...patch };
             delete fallbackPatch.advanceAmount;
             const retryResult = await executeWithPrunedColumns(
-                (candidate) => supabase.from('repairs').update(candidate).eq('id', strId).eq('shop_id', sid),
+                (candidate) => supabase.from('repairs').update(candidate).eq('repair_id', strId).eq('shop_id', sid),
                 fallbackPatch
             );
             if (retryResult.error) {
@@ -474,7 +469,7 @@ export function RepairsProvider({ children }) {
             throw new Error(partsDelete.error.message || 'Failed to remove linked repair parts.');
         }
 
-        await supabase.from('repairs').delete().eq('id', strId).eq('shop_id', sid);
+        await supabase.from('repairs').delete().eq('repair_id', strId).eq('shop_id', sid);
 
         supabase.channel(`public:repairs:${sid}`).send({
             type: 'broadcast',

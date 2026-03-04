@@ -157,6 +157,13 @@ function asNumber(value, fallback = 0) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function isMissingFunctionError(error, functionName = '') {
+    const message = asString(error?.message).toLowerCase();
+    const target = asString(functionName).toLowerCase();
+    if (!message || !target) return false;
+    return (message.includes('function') || message.includes('could not find')) && message.includes(target);
+}
+
 function normalizeRoleName(value) {
     const role = asString(value).toLowerCase();
     if (!role) return '';
@@ -306,6 +313,24 @@ async function verifySalesmanPin(pin, shopId = '') {
     const safePin = asString(pin);
     if (!safePin) return { profile: null, error: 'PIN required' };
 
+    const sid = asString(shopId);
+
+    const rpcResult = await supabase.rpc('verify_salesman_pin', {
+        p_pin: safePin,
+        p_shop_id: sid || null,
+    });
+
+    if (!rpcResult.error) {
+        const rpcRows = Array.isArray(rpcResult.data) ? rpcResult.data : [];
+        if (rpcRows.length > 1) {
+            return { profile: null, error: 'PIN conflict found. Ask admin to reset duplicate PINs.' };
+        }
+        const rpcRow = rpcRows[0];
+        if (!rpcRow) return { profile: null, error: 'Invalid PIN' };
+        if (rpcRow.active === false) return { profile: null, error: 'User disabled' };
+        return { profile: rpcRow, error: null };
+    }
+
     const digest = await computePinDigest(shopId, safePin);
     if (!digest) {
         return { profile: null, error: 'Unable to verify PIN. Run SQL helper `make_pin_digest_global`.' };
@@ -319,7 +344,10 @@ async function verifySalesmanPin(pin, shopId = '') {
         .limit(2);
 
     if (error) {
-        return { profile: null, error: asString(error?.message) || 'Invalid PIN' };
+        if (isMissingFunctionError(rpcResult.error, 'verify_salesman_pin')) {
+            return { profile: null, error: asString(error?.message) || 'Invalid PIN' };
+        }
+        return { profile: null, error: 'Salesman PIN verification failed. Run latest SQL helper script and retry.' };
     }
 
     const rows = Array.isArray(data) ? data : [];

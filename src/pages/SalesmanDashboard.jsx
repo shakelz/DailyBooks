@@ -518,6 +518,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         salesmen,
         autoLockEnabled,
         autoLockTimeout,
+        verifySalesmanUnlockPin,
         updateAttendanceLog,
         deleteAttendanceLog,
     } = useAuth();
@@ -661,7 +662,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return;
         }
         const normalizedRole = String(role || '').toLowerCase();
-        const isAdminRole = normalizedRole === 'admin' || normalizedRole === 'superadmin' || normalizedRole === 'superuser';
+        const isAdminRole = normalizedRole === 'owner' || normalizedRole === 'super_admin' || normalizedRole === 'admin' || normalizedRole === 'superadmin' || normalizedRole === 'superuser';
         if (!adminView && normalizedRole !== 'salesman') {
             navigate('/');
             return;
@@ -744,37 +745,28 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         };
     }, [adminView, autoLockEnabled, autoLockTimeout, isLocked, user?.id]);
 
-    const handleUnlock = (event) => {
+    const handleUnlock = async (event) => {
         event?.preventDefault();
         const enteredPin = String(unlockPin || '').trim();
-        const userPin = String(user?.pin || '').trim();
-        const userPassword = String(user?.password || '').trim();
-        if (enteredPin && ((userPin && enteredPin === userPin) || (userPassword && enteredPin === userPassword))) {
+        if (!enteredPin) {
+            setUnlockError(true);
+            setTimeout(() => setUnlockError(false), 1500);
+            return;
+        }
+
+        const result = await verifySalesmanUnlockPin(enteredPin);
+        if (result?.success) {
             setIsLocked(false);
             setUnlockPin('');
             setUnlockError(false);
             writeLockState(Date.now(), false);
             return;
         }
+
         setUnlockError(true);
         setUnlockPin('');
         setTimeout(() => setUnlockError(false), 1500);
     };
-
-    useEffect(() => {
-        if (!isLocked) return;
-        const entered = String(unlockPin || '').trim();
-        if (!entered) return;
-        const userPin = String(user?.pin || '').trim();
-        const userPassword = String(user?.password || '').trim();
-        const isValid = (userPin && entered === userPin) || (userPassword && entered === userPassword);
-        if (!isValid) return;
-
-        setIsLocked(false);
-        setUnlockPin('');
-        setUnlockError(false);
-        writeLockState(Date.now(), false);
-    }, [isLocked, unlockPin, user?.pin, user?.password]);
 
     useEffect(() => {
         writeLockState(readLastActivityAt(), isLocked);

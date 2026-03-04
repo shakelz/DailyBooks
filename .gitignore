@@ -10,6 +10,11 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-electron
+*.blockmap
+latest.yml
+coverage
+*.tsbuildinfo
 *.local
 
 # Editor directories and files
