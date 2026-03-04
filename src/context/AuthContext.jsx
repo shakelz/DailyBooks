@@ -691,7 +691,7 @@ async function requestAttendanceLogs(shopId) {
         };
 
         const events = [];
-        const attendanceRowId = asString(row?.attendance_id || row?.id);
+        const attendanceRowId = asString(row?.attendance_id);
         if (asString(row?.check_in)) {
             events.push({ ...base, id: `${attendanceRowId}:IN`, type: 'IN', timestamp: asString(row?.check_in) });
         }
@@ -769,7 +769,7 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             });
             return { data: null, error: asString(openError.message) || 'Failed to punch out.' };
         }
-        const openAttendanceId = asString(openRow?.attendance_id || openRow?.id);
+        const openAttendanceId = asString(openRow?.attendance_id);
         if (!openAttendanceId) return { data: null, error: 'Cannot punch out without an active punch in.' };
 
         const startMs = new Date(asString(openRow.check_in)).getTime();
@@ -836,7 +836,7 @@ async function requestUserStatus({ shopId, userId }) {
             shop_id: sid,
             is_punched_in: Boolean(openRow),
             active_attendance: openRow ? {
-                id: openRow.attendance_id || openRow.id || null,
+                id: openRow.attendance_id || null,
                 punch_in_time: openRow.check_in || null,
                 punch_out_time: openRow.check_out || null,
                 created_at: openRow.created_at || null,
