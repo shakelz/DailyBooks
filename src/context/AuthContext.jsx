@@ -624,78 +624,39 @@ async function requestAdminLogin({ identifier, password }) {
         return { profile: null, error: 'Email/username and password are required.' };
     }
 
-    let loginEmail = '';
-    let identifierProfile = null;
-    let resolvedFromIdentifier = null;
-
-    if (normalizedIdentifier.includes('@')) {
-        loginEmail = normalizedIdentifier.toLowerCase();
-    } else {
-        const { profile, error } = await findAdminProfileByIdentifier(normalizedIdentifier);
-        if (error) {
-            return { profile: null, error };
-        }
-
-        if (profile) {
-            if (!isAdminRoleName(profile?.role)) {
-                return { profile: null, error: 'Not allowed.' };
-            }
-            identifierProfile = profile;
-            loginEmail = await resolveAdminEmailFromProfile(profile);
-        }
-
-        if (!loginEmail) {
-            resolvedFromIdentifier = await resolveAdminAuthFromIdentifier(normalizedIdentifier);
-            if (resolvedFromIdentifier.error) {
-                return { profile: null, error: resolvedFromIdentifier.error };
-            }
-
-            if (!identifierProfile && resolvedFromIdentifier.profileId) {
-                identifierProfile = await findAdminProfileByPrimaryId(resolvedFromIdentifier.profileId);
-            }
-            if (!identifierProfile && resolvedFromIdentifier.role && isAdminRoleName(resolvedFromIdentifier.role)) {
-                identifierProfile = {
-                    id: resolvedFromIdentifier.profileId,
-                    user_id: resolvedFromIdentifier.profileId,
-                    role: resolvedFromIdentifier.role,
-                    shop_id: resolvedFromIdentifier.shopId,
-                    name: normalizedIdentifier,
-                };
-            }
-
-            loginEmail = resolvedFromIdentifier.authEmail;
-        }
-
-        if (!loginEmail) {
-            return { profile: null, error: 'Admin auth email not found. Link this username to an Auth user and run latest SQL helpers.' };
-        }
+    let resolvedFromIdentifier = await resolveAdminAuthFromIdentifier(normalizedIdentifier);
+    if (resolvedFromIdentifier.error) {
+        return { profile: null, error: resolvedFromIdentifier.error };
     }
 
-    let { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password: normalizedPassword,
-    });
+    const candidateEmails = [];
+    if (normalizedIdentifier.includes('@')) {
+        candidateEmails.push(normalizedIdentifier.toLowerCase());
+    }
+    const resolvedEmail = asString(resolvedFromIdentifier.authEmail).toLowerCase();
+    if (resolvedEmail && !candidateEmails.includes(resolvedEmail)) {
+        candidateEmails.push(resolvedEmail);
+    }
 
-    // If user entered shop-owner email (not actual auth.users email), resolve and retry once.
-    if (authError && isInvalidAuthCredentialsError(authError)) {
-        if (!resolvedFromIdentifier) {
-            resolvedFromIdentifier = await resolveAdminAuthFromIdentifier(normalizedIdentifier);
+    if (!candidateEmails.length) {
+        return { profile: null, error: 'Admin auth email not found. Link this username to an Auth user and run latest SQL helpers.' };
+    }
+
+    let authData = null;
+    let authError = null;
+    let loginEmail = '';
+    for (const emailCandidate of candidateEmails) {
+        const attempt = await supabase.auth.signInWithPassword({
+            email: emailCandidate,
+            password: normalizedPassword,
+        });
+        if (!attempt.error) {
+            authData = attempt.data;
+            authError = null;
+            loginEmail = emailCandidate;
+            break;
         }
-        const fallbackEmail = asString(resolvedFromIdentifier?.authEmail).toLowerCase();
-        if (fallbackEmail && fallbackEmail !== loginEmail) {
-            const retry = await supabase.auth.signInWithPassword({
-                email: fallbackEmail,
-                password: normalizedPassword,
-            });
-            if (!retry.error) {
-                authData = retry.data;
-                authError = null;
-                loginEmail = fallbackEmail;
-                if (!identifierProfile && resolvedFromIdentifier?.profileId) {
-                    identifierProfile = await findAdminProfileByPrimaryId(resolvedFromIdentifier.profileId);
-                }
-            }
-        }
+        authError = attempt.error;
     }
 
     if (authError) {
@@ -709,22 +670,55 @@ async function requestAdminLogin({ identifier, password }) {
     }
 
     const authUser = authData?.user || authData?.session?.user || null;
-    const profile = await getAdminProfileByAuthUser(authUser?.id, loginEmail, identifierProfile);
-    if (!profile) {
+    const authEmail = asString(authUser?.email || loginEmail).toLowerCase();
+    if (!authUser?.id) {
         await supabase.auth.signOut().catch(() => undefined);
-        return { profile: null, error: 'Not allowed.' };
+        return { profile: null, error: 'Auth session not created. Please try again.' };
     }
 
-    const normalizedRole = normalizeRoleName(profile.role);
+    if (!resolvedFromIdentifier.role || !isAdminRoleName(resolvedFromIdentifier.role) || !resolvedFromIdentifier.profileId) {
+        const resolvedByAuthEmail = await resolveAdminAuthFromIdentifier(authEmail);
+        if (resolvedByAuthEmail.error) {
+            await supabase.auth.signOut().catch(() => undefined);
+            return { profile: null, error: resolvedByAuthEmail.error };
+        }
+        resolvedFromIdentifier = {
+            authEmail: resolvedByAuthEmail.authEmail || resolvedFromIdentifier.authEmail,
+            profileId: resolvedByAuthEmail.profileId || resolvedFromIdentifier.profileId,
+            role: resolvedByAuthEmail.role || resolvedFromIdentifier.role,
+            shopId: resolvedByAuthEmail.shopId || resolvedFromIdentifier.shopId,
+            error: '',
+        };
+    }
+
+    const normalizedRole = normalizeRoleName(resolvedFromIdentifier.role);
     if (!isAdminRoleName(normalizedRole)) {
         await supabase.auth.signOut().catch(() => undefined);
         return { profile: null, error: 'Not allowed.' };
     }
 
+    let resolvedProfile = null;
+    if (resolvedFromIdentifier.profileId) {
+        resolvedProfile = await findAdminProfileByPrimaryId(resolvedFromIdentifier.profileId);
+    }
+
+    const fallbackProfileId = asString(resolvedFromIdentifier.profileId || authUser.id);
+    const profile = resolvedProfile || {
+        id: fallbackProfileId,
+        user_id: fallbackProfileId,
+        shop_id: asString(resolvedFromIdentifier.shopId),
+        role: normalizedRole,
+        full_name: normalizedIdentifier,
+        email: authEmail,
+        active: true,
+    };
+
     return {
         profile: {
             ...profile,
             role: normalizedRole,
+            email: asString(profile?.email || authEmail),
+            user_id: asString(profile?.user_id || profile?.id || authUser.id),
         },
         error: null,
     };

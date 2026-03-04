@@ -74,11 +74,11 @@ as $$
   ),
   admin_profiles as (
     select
-      p.id::text as profile_id,
-      coalesce(to_jsonb(p) ->> 'user_id', p.id::text) as linked_user_id,
-      coalesce(to_jsonb(p) ->> 'role', '') as role,
+      coalesce(nullif(to_jsonb(p) ->> 'user_id', ''), nullif(to_jsonb(p) ->> 'id', '')) as profile_id,
+      coalesce(nullif(to_jsonb(p) ->> 'user_id', ''), nullif(to_jsonb(p) ->> 'id', '')) as linked_user_id,
+      lower(coalesce(to_jsonb(p) ->> 'role', '')) as role,
       coalesce(to_jsonb(p) ->> 'shop_id', '') as shop_id,
-      p.created_at
+      coalesce((nullif(to_jsonb(p) ->> 'created_at', ''))::timestamptz, now()) as created_at
     from public.profiles p
     cross join input_key i
     where lower(coalesce(to_jsonb(p) ->> 'role', '')) in ('owner', 'super_admin', 'admin', 'superadmin', 'superuser')
@@ -92,8 +92,8 @@ as $$
             select 1
             from public.shops s
             where (
-              s.id::text = coalesce(to_jsonb(p) ->> 'shop_id', '')
-              or coalesce(to_jsonb(s) ->> 'shop_id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
+              coalesce(to_jsonb(s) ->> 'shop_id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
+              or coalesce(to_jsonb(s) ->> 'id', '') = coalesce(to_jsonb(p) ->> 'shop_id', '')
             )
               and lower(coalesce(s.owner_email, '')) = i.identifier
           )
