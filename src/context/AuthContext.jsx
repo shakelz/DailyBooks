@@ -164,6 +164,29 @@ function isMissingFunctionError(error, functionName = '') {
     return (message.includes('function') || message.includes('could not find')) && message.includes(target);
 }
 
+function isMissingColumnError(error, columnName = '') {
+    const message = asString(error?.message).toLowerCase();
+    if (!message) return false;
+    const missingColumn =
+        message.includes('column')
+        && (
+            message.includes('does not exist')
+            || message.includes('schema cache')
+            || message.includes('could not find')
+        );
+    if (!missingColumn) return false;
+    const target = asString(columnName).toLowerCase();
+    return target ? message.includes(target) : true;
+}
+
+function shouldSkipAdminRateLimit(errorMessage = '') {
+    const message = asString(errorMessage).toLowerCase();
+    if (!message) return false;
+    if (message.includes('column') && (message.includes('does not exist') || message.includes('schema cache'))) return true;
+    if (message.includes('missing sql helper')) return true;
+    return false;
+}
+
 function normalizeRoleName(value) {
     const role = asString(value).toLowerCase();
     if (!role) return '';
@@ -361,7 +384,108 @@ async function verifySalesmanPin(pin, shopId = '') {
     return { profile: row, error: null };
 }
 
-async function getAdminProfileByAuthUser(authUserId, authEmail = '') {
+async function findShopById(shopId = '') {
+    const sid = asString(shopId);
+    if (!sid) return null;
+
+    const byId = await supabase
+        .from('shops')
+        .select('*')
+        .eq('id', sid)
+        .limit(1);
+    if (!byId.error && Array.isArray(byId.data) && byId.data[0]) {
+        return byId.data[0];
+    }
+
+    const byLegacyId = await supabase
+        .from('shops')
+        .select('*')
+        .eq('shop_id', sid)
+        .limit(1);
+    if (!byLegacyId.error && Array.isArray(byLegacyId.data) && byLegacyId.data[0]) {
+        return byLegacyId.data[0];
+    }
+
+    return null;
+}
+
+async function resolveAdminEmailFromProfile(profile = {}) {
+    const directEmail = asString(profile?.email || profile?.owner_email).toLowerCase();
+    if (directEmail) return directEmail;
+
+    const sid = asString(profile?.shop_id || profile?.shopId);
+    if (!sid) return '';
+
+    const shop = await findShopById(sid);
+    return asString(shop?.owner_email).toLowerCase();
+}
+
+async function findAdminProfileByIdentifier(identifier = '') {
+    const key = asString(identifier);
+    if (!key) return { profile: null, error: null };
+
+    const lookupFields = ['username', 'name', 'full_name'];
+    for (const field of lookupFields) {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .ilike(field, key)
+            .in('role', ADMIN_ROLES)
+            .limit(1);
+
+        if (error) {
+            if (isMissingColumnError(error, field)) {
+                continue;
+            }
+            return { profile: null, error: asString(error?.message) || 'Unable to validate admin username.' };
+        }
+
+        const row = Array.isArray(data) ? data[0] : null;
+        if (row) {
+            return { profile: row, error: null };
+        }
+    }
+
+    return { profile: null, error: null };
+}
+
+async function findAdminProfileByShopOwnerEmail(email = '') {
+    const normalizedEmail = asString(email).toLowerCase();
+    if (!normalizedEmail) return null;
+
+    const { data: shopsByEmail, error: shopsError } = await supabase
+        .from('shops')
+        .select('*')
+        .eq('owner_email', normalizedEmail);
+
+    if (shopsError || !Array.isArray(shopsByEmail) || shopsByEmail.length === 0) {
+        return null;
+    }
+
+    const shopIds = shopsByEmail
+        .map((row) => asString(row?.id || row?.shop_id))
+        .filter(Boolean);
+    if (!shopIds.length) return null;
+
+    const { data: profileRows, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('shop_id', shopIds)
+        .in('role', ADMIN_ROLES)
+        .limit(1);
+
+    if (profileError || !Array.isArray(profileRows) || !profileRows[0]) {
+        return null;
+    }
+
+    return profileRows[0];
+}
+
+async function getAdminProfileByAuthUser(authUserId, authEmail = '', preferredProfile = null) {
+    if (preferredProfile && isAdminRoleName(preferredProfile?.role)) {
+        return preferredProfile;
+    }
+
     const uid = asString(authUserId);
     const email = asString(authEmail).toLowerCase();
 
@@ -400,6 +524,11 @@ async function getAdminProfileByAuthUser(authUserId, authEmail = '') {
         if (!byEmail.error && Array.isArray(byEmail.data) && byEmail.data[0]) {
             return byEmail.data[0];
         }
+
+        if (isMissingColumnError(byEmail.error, 'profiles.email') || isMissingColumnError(byEmail.error, 'email')) {
+            const byShopOwnerEmail = await findAdminProfileByShopOwnerEmail(email);
+            if (byShopOwnerEmail) return byShopOwnerEmail;
+        }
     }
 
     return null;
@@ -413,31 +542,26 @@ async function requestAdminLogin({ identifier, password }) {
     }
 
     let loginEmail = '';
+    let identifierProfile = null;
+
     if (normalizedIdentifier.includes('@')) {
         loginEmail = normalizedIdentifier.toLowerCase();
     } else {
-        const { data, error } = await supabase
-            .from('profiles')
-            .select('email,username,role')
-            .ilike('username', normalizedIdentifier)
-            .limit(1);
-
+        const { profile, error } = await findAdminProfileByIdentifier(normalizedIdentifier);
         if (error) {
-            return { profile: null, error: asString(error?.message) || 'Unable to validate username.' };
+            return { profile: null, error };
         }
-
-        const row = Array.isArray(data) ? data[0] : null;
-        if (!row) {
+        if (!profile) {
             return { profile: null, error: 'Invalid credentials.' };
         }
-
-        if (!isAdminRoleName(row.role)) {
+        if (!isAdminRoleName(profile?.role)) {
             return { profile: null, error: 'Not allowed.' };
         }
 
-        loginEmail = asString(row.email).toLowerCase();
+        identifierProfile = profile;
+        loginEmail = await resolveAdminEmailFromProfile(profile);
         if (!loginEmail) {
-            return { profile: null, error: 'Admin email mapping is missing for this username.' };
+            return { profile: null, error: 'Admin email mapping missing. Add `shops.owner_email` (or `profiles.email`) for this admin.' };
         }
     }
 
@@ -451,7 +575,7 @@ async function requestAdminLogin({ identifier, password }) {
     }
 
     const authUser = authData?.user || authData?.session?.user || null;
-    const profile = await getAdminProfileByAuthUser(authUser?.id, loginEmail);
+    const profile = await getAdminProfileByAuthUser(authUser?.id, loginEmail, identifierProfile);
     if (!profile) {
         await supabase.auth.signOut().catch(() => undefined);
         return { profile: null, error: 'Not allowed.' };
@@ -2250,8 +2374,13 @@ export function AuthProvider({ children }) {
                 const password = asString(userData.password);
                 const { profile, error } = await requestAdminLogin({ identifier, password });
                 if (error || !profile) {
-                    bumpRateLimit('admin');
-                    return { success: false, message: error || 'Invalid credentials.' };
+                    const safeError = error || 'Invalid credentials.';
+                    if (shouldSkipAdminRateLimit(safeError)) {
+                        clearRateLimit('admin');
+                    } else {
+                        bumpRateLimit('admin');
+                    }
+                    return { success: false, message: safeError };
                 }
                 clearRateLimit('admin');
 
