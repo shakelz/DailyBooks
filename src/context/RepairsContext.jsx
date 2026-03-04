@@ -68,6 +68,12 @@ function toDateOnly(value) {
     return parsed.toISOString().slice(0, 10);
 }
 
+function isUuidLike(value) {
+    const raw = cleanText(value).toLowerCase();
+    if (!raw) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(raw);
+}
+
 function normalizeRepairPart(part = {}) {
     const quantityRaw = parseFloat(part?.quantity ?? part?.qty ?? 1);
     const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
@@ -150,8 +156,8 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
     const completedAt = parseIsoTimestamp(repair?.completed_at || repair?.completedAt);
     const deliveryAt = toDateOnly(repair?.delivery_date || repair?.delivery_at || repair?.deliveryDate);
 
-    return {
-        repair_id: cleanText(repair?.id),
+    const providedRepairId = cleanText(repair?.id);
+    const payload = {
         customer_name: cleanText(repair?.customerName),
         customer_phone: cleanText(repair?.phone),
         device_model: cleanText(repair?.deviceModel),
@@ -167,6 +173,12 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
         completed_at: completedAt || null,
         shop_id: sid,
     };
+
+    if (isUuidLike(providedRepairId)) {
+        payload.repair_id = providedRepairId;
+    }
+
+    return payload;
 }
 
 function buildRepairUpdatePayload(status, extras = {}) {
@@ -373,7 +385,7 @@ export function RepairsProvider({ children }) {
 
         const insertPayload = buildRepairInsertPayload(newJob, sid);
         const insertResult = await executeWithPrunedColumns(
-            (candidate) => supabase.from('repairs').insert([candidate]),
+            (candidate) => supabase.from('repairs').insert([candidate]).select('*').single(),
             insertPayload
         );
 
@@ -381,20 +393,55 @@ export function RepairsProvider({ children }) {
             const fallbackPayload = { ...insertPayload };
             delete fallbackPayload.advanceAmount;
             const retryResult = await executeWithPrunedColumns(
-                (candidate) => supabase.from('repairs').insert([candidate]),
+                (candidate) => supabase.from('repairs').insert([candidate]).select('*').single(),
                 fallbackPayload
             );
             if (retryResult.error) {
                 setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(newJob.id)));
                 throw new Error(retryResult.error.message || 'Failed to save repair job.');
             }
+            const persisted = normalizeRepairRecord(retryResult.data || {}, {
+                [String(retryResult.data?.repair_id || retryResult.data?.id || newJob.id)]: newJob.partsUsed || []
+            });
+            const persistedId = cleanText(persisted?.id) || cleanText(newJob.id);
+            const savedJob = normalizeRepairRecord({ ...newJob, ...persisted, id: persistedId, shop_id: sid }, {
+                [persistedId]: newJob.partsUsed || []
+            });
+            setRepairJobs((prev) => sortRepairsByCreatedAt(
+                prev.map((job) => String(job.id) === String(newJob.id) ? savedJob : job)
+            ));
+
+            try {
+                await syncRepairParts(persistedId, newJob.partsUsed, sid);
+            } catch (partsError) {
+                console.error(partsError);
+            }
+
+            supabase.channel(`public:repairs:${sid}`).send({
+                type: 'broadcast',
+                event: 'repair_sync',
+                payload: { action: 'INSERT', data: savedJob }
+            }).catch((error) => console.error(error));
+
+            return savedJob;
         } else if (insertResult.error) {
             setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(newJob.id)));
             throw new Error(insertResult.error.message || 'Failed to save repair job.');
         }
 
+        const persisted = normalizeRepairRecord(insertResult.data || {}, {
+            [String(insertResult.data?.repair_id || insertResult.data?.id || newJob.id)]: newJob.partsUsed || []
+        });
+        const persistedId = cleanText(persisted?.id) || cleanText(newJob.id);
+        const savedJob = normalizeRepairRecord({ ...newJob, ...persisted, id: persistedId, shop_id: sid }, {
+            [persistedId]: newJob.partsUsed || []
+        });
+        setRepairJobs((prev) => sortRepairsByCreatedAt(
+            prev.map((job) => String(job.id) === String(newJob.id) ? savedJob : job)
+        ));
+
         try {
-            await syncRepairParts(newJob.id, newJob.partsUsed, sid);
+            await syncRepairParts(persistedId, newJob.partsUsed, sid);
         } catch (partsError) {
             console.error(partsError);
         }
@@ -402,10 +449,10 @@ export function RepairsProvider({ children }) {
         supabase.channel(`public:repairs:${sid}`).send({
             type: 'broadcast',
             event: 'repair_sync',
-            payload: { action: 'INSERT', data: newJob }
+            payload: { action: 'INSERT', data: savedJob }
         }).catch((error) => console.error(error));
 
-        return newJob;
+        return savedJob;
     }, [activeShopId, generateRefId, syncRepairParts]);
 
     const updateRepairStatus = useCallback(async (id, status, extras = {}) => {
