@@ -572,13 +572,20 @@ function mapTxSource(value) {
     return 'cash';
 }
 
+function isUuidLike(value) {
+    const raw = cleanText(value).toLowerCase();
+    if (!raw) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(raw);
+}
+
 function buildInventoryPayload(product, includeId = false, shopId = '', categoryNameToId = {}) {
     const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
     const level1Category = extractLevel1CategoryName(categoryHierarchy.level1 || product?.category);
     const resolvedCategoryIdFromMap = level1Category && categoryNameToId && typeof categoryNameToId === 'object'
         ? cleanText(categoryNameToId[level1Category])
         : '';
-    const resolvedCategoryId = cleanText(product?.category_id || product?.categoryId || resolvedCategoryIdFromMap);
+    const resolvedCategoryIdRaw = cleanText(product?.category_id || product?.categoryId || resolvedCategoryIdFromMap);
+    const resolvedCategoryId = isUuidLike(resolvedCategoryIdRaw) ? resolvedCategoryIdRaw : '';
     const purchaseFrom = cleanText(product?.purchaseFrom);
     const paymentMode = cleanText(product?.paymentMode);
     const imageValue = cleanText(product?.image) || cleanText(product?.imageUrl) || cleanText(product?.image_url);
@@ -1117,7 +1124,12 @@ export function InventoryProvider({ children }) {
         const sid = cleanText(activeShopId);
         if (!sid) throw new Error('No active shop selected.');
 
-        const entry = buildProductJSON(product);
+        const createInput = product && typeof product === 'object' ? { ...product } : {};
+        delete createInput.id;
+        delete createInput.product_id;
+        delete createInput.productId;
+
+        const entry = buildProductJSON(createInput);
         const optimisticId = cleanText(entry.id) || `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         entry.id = optimisticId;
         entry.shop_id = sid;
