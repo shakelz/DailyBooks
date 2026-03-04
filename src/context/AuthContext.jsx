@@ -247,7 +247,7 @@ function getAdminRedirectPath(role) {
 }
 
 function getProfileId(profile = {}) {
-    return asString(profile?.user_id || profile?.id);
+    return asString(profile?.user_id);
 }
 
 function getShopId(shop = {}) {
@@ -539,7 +539,7 @@ async function requestAdminLogin({ identifier, password }) {
     }
 
     const identifierLower = normalizedIdentifier.toLowerCase();
-    const selectFields = 'user_id,id,shop_id,full_name,role,active,password_hash,password,email,username';
+    const selectFields = 'user_id,shop_id,full_name,role,active,password_hash,password,email,username';
 
     const query = supabase
         .from('profiles')
