@@ -292,22 +292,14 @@ async function computePinDigest(shopId, pin) {
     const rawPin = asString(pin);
     if (!rawPin) return '';
 
-    const globalResult = await supabase.rpc('make_pin_digest_global', {
-        p_pin: rawPin,
-    });
-    if (!globalResult.error) {
-        return asString(globalResult.data);
+    if (typeof crypto === 'undefined' || !crypto.subtle || !crypto.subtle.digest) {
+        return '';
     }
 
-    const sid = asString(shopId);
-    if (!sid) return '';
-
-    const legacyResult = await supabase.rpc('make_pin_digest', {
-        p_shop_id: sid,
-        p_pin: rawPin,
-    });
-    if (legacyResult.error) return '';
-    return asString(legacyResult.data);
+    const encoded = new TextEncoder().encode(rawPin);
+    const digestBuffer = await crypto.subtle.digest('SHA-256', encoded);
+    const digestArray = Array.from(new Uint8Array(digestBuffer));
+    return digestArray.map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 async function computeOwnerPasswordHash(password) {
@@ -1413,16 +1405,13 @@ function buildShopUpdatePayloads({ name, address, ownerEmail, telephone, ownerPa
 }
 
 function buildShopOwnerProfileUpdatePayloads({ ownerEmail, ownerPassword }) {
-    const payload = cleanPayload({
-        ...(ownerEmail === undefined ? {} : { email: asString(ownerEmail).toLowerCase() }),
-    });
+    const payload = cleanPayload({});
 
     return Object.keys(payload).length ? [payload] : [];
 }
 
 function buildProfileInsertPayloads({
     name,
-    email = '',
     role = 'salesman',
     shopId,
     pinDigest = '',
@@ -1430,7 +1419,6 @@ function buildProfileInsertPayloads({
     includePinDigest = true
 }) {
     const safeName = asString(name) || 'User';
-    const safeEmail = asString(email).toLowerCase();
     const safePinDigest = asString(pinDigest);
     const profileId = makeRowId();
 
@@ -1438,7 +1426,6 @@ function buildProfileInsertPayloads({
 
     const idVariants = [{ user_id: profileId }, {}];
     const shopVariants = sid ? [{ shop_id: sid }] : [{}];
-    const emailVariants = safeEmail ? [{ email: safeEmail }] : [{}];
     const rateValue = Number(hourlyRate);
     const hourlyVariants = Number.isFinite(rateValue)
         ? [{ hourly_rate: rateValue }, {}]
@@ -1450,21 +1437,18 @@ function buildProfileInsertPayloads({
     const payloads = [];
     for (const idVariant of idVariants) {
         for (const shopVariant of shopVariants) {
-            for (const emailVariant of emailVariants) {
-                for (const hourlyVariant of hourlyVariants) {
-                    for (const pinVariant of pinVariants) {
-                        payloads.push(cleanPayload({
-                            ...idVariant,
-                            ...shopVariant,
-                            role: normalizeRoleName(role) || 'salesman',
-                            full_name: safeName,
-                            ...emailVariant,
-                            ...hourlyVariant,
-                            active: true,
-                            is_online: false,
-                            ...pinVariant,
-                        }));
-                    }
+            for (const hourlyVariant of hourlyVariants) {
+                for (const pinVariant of pinVariants) {
+                    payloads.push(cleanPayload({
+                        ...idVariant,
+                        ...shopVariant,
+                        role: normalizeRoleName(role) || 'salesman',
+                        full_name: safeName,
+                        ...hourlyVariant,
+                        active: true,
+                        is_online: false,
+                        ...pinVariant,
+                    }));
                 }
             }
         }
@@ -1476,7 +1460,6 @@ function buildProfileInsertPayloads({
 function buildManagerProfilePayloads({ ownerName, ownerEmail, shopId }) {
     return buildProfileInsertPayloads({
         name: ownerName,
-        email: ownerEmail,
         role: 'owner',
         shopId,
         hourlyRate: 12.5,
@@ -1498,7 +1481,6 @@ function buildSalesmanInsertPayloads({ name, pinDigest, shopId, hourlyRate = 12.
 function buildProfileUpdatePayloads(updates = {}) {
     const payload = cleanPayload({
         ...(updates.name === undefined ? {} : { full_name: asString(updates.name) }),
-        ...(updates.email === undefined ? {} : { email: asString(updates.email).toLowerCase() }),
         ...(updates.role === undefined ? {} : { role: normalizeRoleName(updates.role) }),
         ...(updates.shop_id === undefined
             ? {}
@@ -1872,6 +1854,27 @@ export function AuthProvider({ children }) {
 
         const sid = asString(preferredShopId || user.shop_id || activeShopId);
         if (!sid) {
+            const ownerEmail = asString(user?.email).toLowerCase();
+            if (!ownerEmail) {
+                setShops([]);
+                return [];
+            }
+
+            const byOwnerEmail = await supabase
+                .from('shops')
+                .select('*')
+                .eq('owner_email', ownerEmail)
+                .limit(1);
+
+            if (!byOwnerEmail.error && Array.isArray(byOwnerEmail.data) && byOwnerEmail.data[0]) {
+                const normalizedByEmail = normalizeShop(byOwnerEmail.data[0]);
+                const enrichedByEmail = normalizedByEmail ? await attachShopOwnerCredentials([normalizedByEmail]) : [];
+                const mergedByEmail = enrichedByEmail.map((shop) => mergeShopMeta(shop, shopMetaMap));
+                setShops(mergedByEmail);
+                setActiveShopIdState(asString(mergedByEmail[0]?.id));
+                return mergedByEmail;
+            }
+
             setShops([]);
             return [];
         }
@@ -2015,8 +2018,12 @@ export function AuthProvider({ children }) {
         if (!name) throw new Error('Shop name is required.');
         if (!email) throw new Error('Owner email is required.');
 
-        const existingOwner = await trySelectProfileByField('email', email, ADMIN_ROLES);
-        if (existingOwner) {
+        const { data: existingShopRows, error: existingShopError } = await supabase
+            .from('shops')
+            .select('id,shop_id')
+            .eq('owner_email', email)
+            .limit(1);
+        if (!existingShopError && Array.isArray(existingShopRows) && existingShopRows.length > 0) {
             throw new Error('Owner email is already linked to an admin account.');
         }
 
