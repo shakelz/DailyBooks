@@ -428,6 +428,38 @@ async function findShopById(shopId = '') {
     return null;
 }
 
+async function runShopMutationById(shopId = '', mutateByColumn) {
+    const sid = asString(shopId);
+    if (!sid || typeof mutateByColumn !== 'function') {
+        return { data: null, error: { message: 'Invalid shop lookup.' } };
+    }
+
+    const byId = await mutateByColumn('id', sid);
+    if (!byId?.error || !isMissingColumnError(byId.error, 'id')) {
+        return byId;
+    }
+
+    return mutateByColumn('shop_id', sid);
+}
+
+async function selectSingleShopById(shopId = '') {
+    return runShopMutationById(shopId, (column, sid) => supabase.from('shops').select('*').eq(column, sid).maybeSingle());
+}
+
+async function updateShopById(shopId = '', payload = {}, withSelect = false) {
+    return runShopMutationById(shopId, (column, sid) => {
+        let query = supabase.from('shops').update(payload).eq(column, sid);
+        if (withSelect) {
+            query = query.select().single();
+        }
+        return query;
+    });
+}
+
+async function deleteShopById(shopId = '') {
+    return runShopMutationById(shopId, (column, sid) => supabase.from('shops').delete().eq(column, sid));
+}
+
 async function resolveAdminEmailFromProfile(profile = {}) {
     const directEmail = asString(profile?.email || profile?.owner_email).toLowerCase();
     if (directEmail) return directEmail;
@@ -1673,10 +1705,7 @@ export function AuthProvider({ children }) {
 
             if (!resolvedTelephone || currentTelephone === resolvedTelephone) continue;
 
-            await supabase
-                .from('shops')
-                .update({ telephone: resolvedTelephone })
-                .eq('id', sid);
+            await updateShopById(sid, { telephone: resolvedTelephone });
         }
     }, []);
 
@@ -1689,7 +1718,29 @@ export function AuthProvider({ children }) {
         const isIndependentAdmin = isAdminRoleName(role) && !isSuperAdminRole(role) && !asString(user?.shop_id);
 
         if (isSuperAdminRole(role) || isIndependentAdmin) {
-            const { data, error } = await supabase.from('shops').select('*').order('name', { ascending: true });
+            let data = null;
+            let error = null;
+            const orderCandidates = ['name', 'shop_name', 'created_at'];
+            for (const orderField of orderCandidates) {
+                const response = await supabase.from('shops').select('*').order(orderField, { ascending: true });
+                if (!response.error && Array.isArray(response.data)) {
+                    data = response.data;
+                    error = null;
+                    break;
+                }
+
+                error = response.error;
+                if (!isMissingColumnError(response.error, orderField)) {
+                    break;
+                }
+            }
+
+            if (!Array.isArray(data)) {
+                const fallback = await supabase.from('shops').select('*');
+                data = fallback.data;
+                error = fallback.error;
+            }
+
             if (error || !Array.isArray(data)) {
                 setShops([]);
                 return [];
@@ -1723,7 +1774,7 @@ export function AuthProvider({ children }) {
             return [];
         }
 
-        const { data, error } = await supabase.from('shops').select('*').eq('id', sid).maybeSingle();
+        const { data, error } = await selectSingleShopById(sid);
         if (error || !data) {
             const fallback = [mergeShopMeta({ id: sid, name: user.shopName || 'My Shop', address: '', owner_email: '' }, shopMetaMap)];
             setShops(fallback);
@@ -1913,7 +1964,7 @@ export function AuthProvider({ children }) {
 
         if (!createdProfile) {
             // Avoid leaving partially created shops without any user mapping.
-            await supabase.from('shops').delete().eq('id', shopId);
+            await deleteShopById(shopId);
             throw new Error(profileError?.message || 'Shop created but admin user creation failed.');
         }
 
@@ -1932,7 +1983,7 @@ export function AuthProvider({ children }) {
             ...(resolvedTelephone ? { telephone: resolvedTelephone } : {})
         };
         if (Object.keys(syncShopPayload).length > 0) {
-            await supabase.from('shops').update(syncShopPayload).eq('id', shopId);
+            await updateShopById(shopId, syncShopPayload);
         }
 
         patchShopMeta(shopId, { address: resolvedAddress, telephone: resolvedTelephone, billShowTax: true });
@@ -2056,12 +2107,7 @@ export function AuthProvider({ children }) {
 
             let updateError = null;
             for (const payload of payloads) {
-                const { data, error } = await supabase
-                    .from('shops')
-                    .update(payload)
-                    .eq('id', sid)
-                    .select()
-                    .single();
+                const { data, error } = await updateShopById(sid, payload, true);
 
                 if (!error && data) {
                     updatedShop = normalizeShop(data);
@@ -2075,10 +2121,7 @@ export function AuthProvider({ children }) {
             }
 
             if (hasTelephone) {
-                const { error } = await supabase
-                    .from('shops')
-                    .update({ telephone: nextTelephone || '' })
-                    .eq('id', sid);
+                const { error } = await updateShopById(sid, { telephone: nextTelephone || '' });
                 if (error) {
                     throw new Error(error.message || 'Failed to update shop telephone column.');
                 }
@@ -2182,10 +2225,7 @@ export function AuthProvider({ children }) {
         };
 
         if (shouldUpdateOwnerPassword) {
-            const { error } = await supabase
-                .from('shops')
-                .update({ password: nextOwnerPassword })
-                .eq('id', sid);
+            const { error } = await updateShopById(sid, { password: nextOwnerPassword });
             if (error) {
                 throw new Error(error.message || 'Failed to sync shop password.');
             }
@@ -2246,7 +2286,7 @@ export function AuthProvider({ children }) {
             }
         }
 
-        const { error: deleteError } = await supabase.from('shops').delete().eq('id', sid);
+        const { error: deleteError } = await deleteShopById(sid);
         if (deleteError) {
             throw new Error(deleteError.message || 'Failed to delete shop.');
         }
