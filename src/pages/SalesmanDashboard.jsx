@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, Wrench, CircleHelp, Wallet, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -603,6 +603,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const deleteUndoTimeoutRef = useRef(null);
     const lockTimerRef = useRef(null);
     const lockDebounceRef = useRef(null);
+    const repairTxnRetryGuardRef = useRef(new Map());
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
     const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
@@ -2006,11 +2007,29 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         ));
     };
 
+    const canAttemptRepairStageTransaction = useCallback((job, stage = 'ADVANCE') => {
+        const marker = `RepairRef:${getRepairInvoiceNumber(job)}|${stage}`;
+        const lastFailedAt = Number(repairTxnRetryGuardRef.current.get(marker) || 0);
+        const RETRY_AFTER_MS = 60 * 1000;
+        return Date.now() - lastFailedAt > RETRY_AFTER_MS;
+    }, []);
+
+    const markRepairStageTransactionFailure = useCallback((job, stage = 'ADVANCE') => {
+        const marker = `RepairRef:${getRepairInvoiceNumber(job)}|${stage}`;
+        repairTxnRetryGuardRef.current.set(marker, Date.now());
+    }, []);
+
+    const clearRepairStageTransactionFailure = useCallback((job, stage = 'ADVANCE') => {
+        const marker = `RepairRef:${getRepairInvoiceNumber(job)}|${stage}`;
+        repairTxnRetryGuardRef.current.delete(marker);
+    }, []);
+
     const ensureRepairAdvanceTransaction = async (job) => {
         if (!job?.id) return;
         const advanceAmount = Number(job.advanceAmount || 0) || 0;
         if (advanceAmount <= 0) return;
         if (hasRepairStageTransaction(job, 'ADVANCE')) return;
+        if (!canAttemptRepairStageTransaction(job, 'ADVANCE')) return;
 
         const repairReference = getRepairInvoiceNumber(job);
         const marker = `RepairRef:${repairReference}`;
@@ -2033,6 +2052,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             date: when.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
             time: when.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
         });
+        clearRepairStageTransactionFailure(job, 'ADVANCE');
     };
 
     useEffect(() => {
@@ -2040,13 +2060,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             for (const job of (repairJobs || [])) {
                 try {
                     await ensureRepairAdvanceTransaction(job);
-                } catch {
-                    // ignore non-critical sync failures
+                } catch (error) {
+                    markRepairStageTransactionFailure(job, 'ADVANCE');
+                    console.error('Repair advance transaction sync failed:', error);
                 }
             }
         };
         syncRepairAdvances();
-    }, [repairJobs, transactions]);
+    }, [repairJobs]);
 
     const completePendingRepair = async (job) => {
         if (!job?.id) return;
@@ -2061,6 +2082,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             await ensureRepairAdvanceTransaction(job);
 
             if (remainingAmount > 0 && !hasRepairStageTransaction(job, 'REMAINING')) {
+                if (!canAttemptRepairStageTransaction(job, 'REMAINING')) {
+                    return;
+                }
                 const repairReference = getRepairInvoiceNumber(job);
                 const marker = `RepairRef:${repairReference}`;
                 const now = new Date();
@@ -2080,10 +2104,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                     time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
                 });
+                clearRepairStageTransactionFailure(job, 'REMAINING');
             }
             setToast(`Repair ${getRepairInvoiceNumber(job) || ''} marked completed`);
             setTimeout(() => setToast(''), 1800);
         } catch (error) {
+            markRepairStageTransactionFailure(job, 'REMAINING');
             alert(error?.message || 'Failed to update repair status');
         }
     };
