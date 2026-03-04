@@ -1,12 +1,30 @@
 import { app, BrowserWindow } from 'electron';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+const REMOTE_URL = 'https://carefone.de';
+const TEMP_PARTITION = 'temp:carefone-online';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const isDev = !app.isPackaged;
+app.commandLine.appendSwitch('disable-http-cache');
 
-function createWindow() {
+async function clearSessionData(sessionInstance) {
+  try {
+    await sessionInstance.clearCache();
+    await sessionInstance.clearStorageData({
+      storages: [
+        'appcache',
+        'cookies',
+        'filesystem',
+        'indexdb',
+        'localstorage',
+        'serviceworkers',
+        'cachestorage',
+        'shadercache',
+      ],
+    });
+  } catch {
+    return;
+  }
+}
+
+async function createWindow() {
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -15,16 +33,49 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      partition: TEMP_PARTITION,
     },
   });
 
-  if (isDev) {
-    window.loadURL('http://localhost:5173');
-    window.webContents.openDevTools({ mode: 'detach' });
-    return;
-  }
+  const appSession = window.webContents.session;
+  await clearSessionData(appSession);
 
-  window.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  const isAdminPath = (rawUrl = '') => {
+    try {
+      const parsed = new URL(String(rawUrl || ''));
+      return parsed.hostname === 'carefone.de' && parsed.pathname.toLowerCase().startsWith('/admin');
+    } catch {
+      return false;
+    }
+  };
+
+  const forceSalesmanHome = () => {
+    if (!window.isDestroyed()) {
+      window.loadURL(REMOTE_URL, { userAgent: 'CareFoneDesktop/1.0' }).catch(() => undefined);
+    }
+  };
+
+  window.webContents.on('will-navigate', (event, url) => {
+    if (!isAdminPath(url)) return;
+    event.preventDefault();
+    forceSalesmanHome();
+  });
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (!isAdminPath(url)) return { action: 'allow' };
+    forceSalesmanHome();
+    return { action: 'deny' };
+  });
+
+  appSession.webRequest.onBeforeRequest({ urls: ['https://carefone.de/admin*'] }, (details, callback) => {
+    if (details.resourceType === 'mainFrame' || details.resourceType === 'subFrame') {
+      callback({ redirectURL: REMOTE_URL });
+      return;
+    }
+    callback({ cancel: false });
+  });
+
+  await window.loadURL(REMOTE_URL, { userAgent: 'CareFoneDesktop/1.0' });
 }
 
 app.whenReady().then(() => {
@@ -35,6 +86,11 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+app.on('before-quit', async () => {
+  const allWindows = BrowserWindow.getAllWindows();
+  await Promise.all(allWindows.map((window) => clearSessionData(window.webContents.session)));
 });
 
 app.on('window-all-closed', () => {

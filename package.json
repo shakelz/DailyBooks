@@ -7,11 +7,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:desktop-renderer": "vite build --base=./",
     "lint": "eslint .",
     "preview": "vite preview",
     "deploy": "vercel --prod",
     "electron:start": "electron .",
-    "dist:desktop": "npm run build && electron-builder"
+    "dist:desktop": "npm run build:desktop-renderer && electron-builder"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.97.0",

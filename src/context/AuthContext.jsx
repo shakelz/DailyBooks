@@ -1179,8 +1179,8 @@ async function attachShopOwnerCredentials(shopList = []) {
         return {
             ...shop,
             owner_email: shop.owner_email || owner.owner_email,
-            owner_password: owner.owner_password || asString(shop.password) || '',
-            password: asString(shop.password) || owner.owner_password || '',
+            owner_password: owner.owner_password || asString(shop.owner_password) || '',
+            password: asString(shop.owner_password) || owner.owner_password || '',
             owner_profile_id: owner.owner_profile_id || '',
         };
     });
@@ -1188,17 +1188,16 @@ async function attachShopOwnerCredentials(shopList = []) {
     return enrichedShops;
 }
 
-function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPassword = '', ownerPasswordHash = '' }) {
+function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPassword = '' }) {
     const safeName = asString(name);
     const safeAddress = asString(address);
     const safeOwnerEmail = asString(ownerEmail).toLowerCase();
     const safeTelephone = asString(telephone);
     const safeOwnerPassword = asString(ownerPassword);
-    const safeOwnerPasswordHash = asString(ownerPasswordHash);
     if (!safeName) return [];
 
     const generatedId = makeRowId();
-    const modernWithId = cleanPayload({
+    const modernWithOwner = cleanPayload({
         id: generatedId,
         name: safeName,
         address: safeAddress,
@@ -1206,31 +1205,65 @@ function buildShopInsertPayloads({ name, address, ownerEmail, telephone, ownerPa
         telephone: safeTelephone,
         owner_password: safeOwnerPassword || undefined,
     });
-    const modernWithoutId = cleanPayload({
+    const modernWithoutOwner = cleanPayload({
+        id: generatedId,
+        name: safeName,
+        address: safeAddress,
+        owner_email: safeOwnerEmail,
+        telephone: safeTelephone,
+    });
+    const modernAutoIdWithOwner = cleanPayload({
         name: safeName,
         address: safeAddress,
         owner_email: safeOwnerEmail,
         telephone: safeTelephone,
         owner_password: safeOwnerPassword || undefined,
     });
-    const legacyWithId = cleanPayload({
+    const modernAutoIdWithoutOwner = cleanPayload({
+        name: safeName,
+        address: safeAddress,
+        owner_email: safeOwnerEmail,
+        telephone: safeTelephone,
+    });
+    const legacyWithOwner = cleanPayload({
         shop_id: generatedId,
         shop_name: safeName,
         address: safeAddress,
         owner_email: safeOwnerEmail,
         telephone: safeTelephone,
-        password: safeOwnerPassword || undefined,
-        owner_password_hash: safeOwnerPasswordHash || undefined,
+        owner_password: safeOwnerPassword || undefined,
     });
-    const legacyWithoutId = cleanPayload({
+    const legacyWithoutOwner = cleanPayload({
+        shop_id: generatedId,
         shop_name: safeName,
         address: safeAddress,
         owner_email: safeOwnerEmail,
         telephone: safeTelephone,
-        password: safeOwnerPassword || undefined,
-        owner_password_hash: safeOwnerPasswordHash || undefined,
     });
-    return dedupePayloads([modernWithId, modernWithoutId, legacyWithId, legacyWithoutId])
+    const legacyAutoIdWithOwner = cleanPayload({
+        shop_name: safeName,
+        address: safeAddress,
+        owner_email: safeOwnerEmail,
+        telephone: safeTelephone,
+        owner_password: safeOwnerPassword || undefined,
+    });
+    const legacyAutoIdWithoutOwner = cleanPayload({
+        shop_name: safeName,
+        address: safeAddress,
+        owner_email: safeOwnerEmail,
+        telephone: safeTelephone,
+    });
+
+    return dedupePayloads([
+        modernWithOwner,
+        modernWithoutOwner,
+        modernAutoIdWithOwner,
+        modernAutoIdWithoutOwner,
+        legacyWithOwner,
+        legacyWithoutOwner,
+        legacyAutoIdWithOwner,
+        legacyAutoIdWithoutOwner,
+    ])
         .filter((payload) => Object.keys(payload).length > 0);
 }
 
@@ -1322,16 +1355,32 @@ function buildShopUpdatePayloads({ name, address, ownerEmail, telephone, ownerPa
         ...(safeTelephone === undefined ? {} : { telephone: safeTelephone }),
         ...(safeOwnerPassword === undefined ? {} : { owner_password: safeOwnerPassword }),
     });
+    const modernPayloadNoOwnerPassword = cleanPayload({
+        ...(safeName === undefined ? {} : { name: safeName }),
+        ...(safeAddress === undefined ? {} : { address: safeAddress }),
+        ...(safeOwnerEmail === undefined ? {} : { owner_email: safeOwnerEmail }),
+        ...(safeTelephone === undefined ? {} : { telephone: safeTelephone }),
+    });
     const legacyPayload = cleanPayload({
         ...(safeName === undefined ? {} : { shop_name: safeName }),
         ...(safeAddress === undefined ? {} : { address: safeAddress }),
         ...(safeOwnerEmail === undefined ? {} : { owner_email: safeOwnerEmail }),
         ...(safeTelephone === undefined ? {} : { telephone: safeTelephone }),
-        ...(safeOwnerPassword === undefined ? {} : { owner_password_hash: safeOwnerPassword }),
-        ...(safeOwnerPassword === undefined ? {} : { password: safeOwnerPassword }),
+        ...(safeOwnerPassword === undefined ? {} : { owner_password: safeOwnerPassword }),
+    });
+    const legacyPayloadNoOwnerPassword = cleanPayload({
+        ...(safeName === undefined ? {} : { shop_name: safeName }),
+        ...(safeAddress === undefined ? {} : { address: safeAddress }),
+        ...(safeOwnerEmail === undefined ? {} : { owner_email: safeOwnerEmail }),
+        ...(safeTelephone === undefined ? {} : { telephone: safeTelephone }),
     });
 
-    return dedupePayloads([modernPayload, legacyPayload]).filter((payload) => Object.keys(payload).length > 0);
+    return dedupePayloads([
+        modernPayload,
+        modernPayloadNoOwnerPassword,
+        legacyPayload,
+        legacyPayloadNoOwnerPassword,
+    ]).filter((payload) => Object.keys(payload).length > 0);
 }
 
 function buildShopOwnerProfileUpdatePayloads({ ownerEmail, ownerPassword }) {
@@ -1910,7 +1959,6 @@ export function AuthProvider({ children }) {
         }
 
         const generatedOwnerPassword = Math.random().toString(36).slice(-8);
-        const generatedOwnerPasswordHash = await computeOwnerPasswordHash(generatedOwnerPassword);
         let createdShop = null;
         let shopError = null;
         const shopPayloads = buildShopInsertPayloads({
@@ -1919,7 +1967,6 @@ export function AuthProvider({ children }) {
             ownerEmail: email,
             telephone: shopTelephone,
             ownerPassword: generatedOwnerPassword,
-            ownerPasswordHash: generatedOwnerPasswordHash,
         });
 
         for (const payload of shopPayloads) {
@@ -1979,7 +2026,7 @@ export function AuthProvider({ children }) {
         const resolvedTelephone = asString(shopTelephone || createdShopWithCredentials.telephone || createdShopWithCredentials.phone || '');
 
         const syncShopPayload = {
-            password: createdShopWithCredentials.owner_password || tempPassword,
+            owner_password: createdShopWithCredentials.owner_password || tempPassword,
             ...(resolvedTelephone ? { telephone: resolvedTelephone } : {})
         };
         if (Object.keys(syncShopPayload).length > 0) {
@@ -2195,7 +2242,7 @@ export function AuthProvider({ children }) {
                 : asString(getProfilePassword(updatedOwnerProfile) || updatedShop?.owner_password || currentShop?.owner_password),
             password: shouldUpdateOwnerPassword
                 ? nextOwnerPassword
-                : asString(updatedShop?.password || currentShop?.password || getProfilePassword(updatedOwnerProfile)),
+                : asString(updatedShop?.owner_password || currentShop?.owner_password || getProfilePassword(updatedOwnerProfile)),
             address: hasAddress
                 ? nextAddress
                 : asString(updatedShop?.address || currentShop?.address),
@@ -2225,7 +2272,7 @@ export function AuthProvider({ children }) {
         };
 
         if (shouldUpdateOwnerPassword) {
-            const { error } = await updateShopById(sid, { password: nextOwnerPassword });
+            const { error } = await updateShopById(sid, { owner_password: nextOwnerPassword });
             if (error) {
                 throw new Error(error.message || 'Failed to sync shop password.');
             }
