@@ -6,6 +6,121 @@ begin;
 create extension if not exists pgcrypto;
 
 -- =========================================
+-- 0) bootstrap core tables (fresh project safe)
+-- =========================================
+create table if not exists public.shops (
+    id text primary key default gen_random_uuid()::text,
+    name text not null,
+    address text,
+    owner_email text,
+    owner_password text,
+    telephone text,
+    created_at timestamptz not null default now()
+);
+
+create table if not exists public.profiles (
+    id text primary key default gen_random_uuid()::text,
+    shop_id text references public.shops(id) on delete set null,
+    name text,
+    email text,
+    password text,
+    pin text,
+    role text not null default 'salesman',
+    active boolean not null default true,
+    is_online boolean not null default false,
+    avatar_url text,
+    hourly_rate numeric default 12.5,
+    salesman_number integer,
+    can_edit_transactions boolean not null default false,
+    can_bulk_edit boolean not null default false,
+    created_at timestamptz not null default now()
+);
+
+create table if not exists public.categories (
+    id text primary key default gen_random_uuid()::text,
+    shop_id text not null references public.shops(id) on delete cascade,
+    name text not null,
+    level integer not null default 1,
+    parent text,
+    scope text default 'sales',
+    created_at timestamptz not null default now()
+);
+
+create table if not exists public.inventory (
+    id text primary key default gen_random_uuid()::text,
+    shop_id text not null references public.shops(id) on delete cascade,
+    name text not null,
+    "purchasePrice" numeric not null default 0,
+    "sellingPrice" numeric not null default 0,
+    stock integer not null default 0,
+    category text,
+    barcode text,
+    "productUrl" text,
+    attributes jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+);
+
+create table if not exists public.repairs (
+    id text primary key default gen_random_uuid()::text,
+    shop_id text not null references public.shops(id) on delete cascade,
+    "refId" text,
+    "customerName" text,
+    phone text,
+    "deviceModel" text,
+    imei text,
+    problem text,
+    status text not null default 'pending',
+    "advanceAmount" numeric not null default 0,
+    "estimatedCost" numeric not null default 0,
+    "deliveryDate" text,
+    "partsUsed" jsonb not null default '[]'::jsonb,
+    "createdAt" timestamptz default now(),
+    "completedAt" timestamptz,
+    created_at timestamptz not null default now(),
+    completed_at timestamptz,
+    delivery_at date
+);
+
+create table if not exists public.transactions (
+    id text primary key default gen_random_uuid()::text,
+    shop_id text not null references public.shops(id) on delete cascade,
+    "desc" text,
+    amount numeric not null default 0,
+    type text,
+    category text,
+    notes text,
+    source text,
+    quantity integer not null default 1,
+    date text,
+    time text,
+    occurred_at timestamptz,
+    created_at timestamptz not null default now(),
+    "isFixedExpense" boolean not null default false,
+    "productId" text,
+    "workerId" text,
+    "salesmanName" text,
+    "paymentMethod" text,
+    "transactionId" text,
+    "customerInfo" jsonb,
+    "unitPrice" numeric,
+    "stdPriceAtTime" numeric,
+    "purchasePriceAtTime" numeric,
+    "includeTax" boolean,
+    "taxInfo" jsonb
+);
+
+create table if not exists public.attendance (
+    id text primary key default gen_random_uuid()::text,
+    shop_id text not null references public.shops(id) on delete cascade,
+    user_id text references public.profiles(id) on delete set null,
+    check_in timestamptz,
+    check_out timestamptz,
+    hours numeric,
+    status text default 'present',
+    created_at timestamptz not null default now()
+);
+
+-- =========================================
 -- 1) categories: add parent_id self-FK
 -- =========================================
 alter table if exists public.categories
