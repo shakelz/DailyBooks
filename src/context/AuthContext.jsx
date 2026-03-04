@@ -733,17 +733,24 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
         }
 
         const attendanceId = makeRowId();
+        const insertPayload = {
+            id: attendanceId,
+            shop_id: sid,
+            user_id: uid,
+            check_in: ts,
+            hourly_rate_snapshot: hourlyRateSnapshot,
+        };
         const { error: inError } = await supabase
             .from('attendance')
-            .insert([{
-                id: attendanceId,
-                shop_id: sid,
-                user_id: uid,
-                check_in: ts,
-                hourly_rate_snapshot: hourlyRateSnapshot,
-            }]);
+            .insert([insertPayload]);
 
-        if (inError) return { data: null, error: asString(inError.message) || 'Failed to punch in.' };
+        if (inError) {
+            console.error('Attendance punch IN insert failed:', {
+                payload: insertPayload,
+                error: inError,
+            });
+            return { data: null, error: asString(inError.message) || 'Failed to punch in.' };
+        }
     } else {
         const { data: openRow, error: openError } = await supabase
             .from('attendance')
@@ -756,7 +763,14 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             .limit(1)
             .maybeSingle();
 
-        if (openError) return { data: null, error: asString(openError.message) || 'Failed to punch out.' };
+        if (openError) {
+            console.error('Attendance open-row lookup failed before punch OUT:', {
+                shop_id: sid,
+                user_id: uid,
+                error: openError,
+            });
+            return { data: null, error: asString(openError.message) || 'Failed to punch out.' };
+        }
         if (!openRow?.id) return { data: null, error: 'Cannot punch out without an active punch in.' };
 
         const startMs = new Date(asString(openRow.check_in)).getTime();
@@ -778,7 +792,18 @@ async function requestAttendanceAction({ userId, shopId, type, timestamp }) {
             })
             .eq('id', openRow.id);
 
-        if (outError) return { data: null, error: asString(outError.message) || 'Failed to punch out.' };
+        if (outError) {
+            console.error('Attendance punch OUT update failed:', {
+                attendance_id: asString(openRow.id),
+                shop_id: sid,
+                user_id: uid,
+                check_out: ts,
+                hours,
+                pay_amount: payAmount,
+                error: outError,
+            });
+            return { data: null, error: asString(outError.message) || 'Failed to punch out.' };
+        }
     }
 
     await syncProfileOnlineStatus(sid, uid);
@@ -1425,7 +1450,15 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', sh
 
 export function AuthProvider({ children }) {
     const initialAuthState = (() => {
-        const savedUser = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
+        const rawSavedUser = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
+        const savedUser = rawSavedUser && typeof rawSavedUser === 'object'
+            ? {
+                ...rawSavedUser,
+                id: getProfileId(rawSavedUser),
+                user_id: getProfileId(rawSavedUser),
+                shop_id: asString(rawSavedUser.shop_id || rawSavedUser.shopId),
+            }
+            : null;
         return {
             role: readAuthState(AUTH_ROLE_STATE_KEY, '') || null,
             user: savedUser && typeof savedUser === 'object' ? savedUser : null,
@@ -2237,6 +2270,8 @@ export function AuthProvider({ children }) {
     // ── Attendance State ──
     const [attendanceLogs, setAttendanceLogs] = useState([]);
     const [isPunchedIn, setIsPunchedIn] = useState(false);
+    const activeUserId = asString(getProfileId(user));
+    const activeUserShopId = asString(user?.shop_id || activeShopId);
 
     const fetchAttendanceState = useCallback(async (shopIdArg, roleArg, userIdArg) => {
         const sid = asString(shopIdArg);
@@ -2265,8 +2300,19 @@ export function AuthProvider({ children }) {
         setAttendanceLogs(formattedLogs);
 
         if (asString(roleArg) === 'salesman' && asString(userIdArg)) {
-            const { data: dbUserStatus } = await requestUserStatus({ shopId: sid, userId: asString(userIdArg) });
-            setIsPunchedIn(asBoolean(dbUserStatus?.is_punched_in));
+            const scopedUserId = asString(userIdArg);
+            const { data: dbUserStatus, error: statusError } = await requestUserStatus({ shopId: sid, userId: scopedUserId });
+            if (statusError) {
+                console.error('Failed to fetch salesman attendance status:', {
+                    shop_id: sid,
+                    user_id: scopedUserId,
+                    error: statusError,
+                });
+                return;
+            }
+            if (dbUserStatus) {
+                setIsPunchedIn(asBoolean(dbUserStatus.is_punched_in));
+            }
             return;
         }
 
@@ -2288,11 +2334,11 @@ export function AuthProvider({ children }) {
     }, []);
 
     useEffect(() => {
-        fetchAttendanceState(activeShopId, role, user?.id);
-    }, [activeShopId, role, user?.id, fetchAttendanceState]);
+        fetchAttendanceState(activeUserShopId, role, activeUserId);
+    }, [activeUserId, activeUserShopId, fetchAttendanceState, role]);
 
     useEffect(() => {
-        const sid = asString(activeShopId);
+        const sid = asString(activeUserShopId);
         if (!sid) return;
 
         let cancelled = false;
@@ -2303,7 +2349,7 @@ export function AuthProvider({ children }) {
             if (debounce) clearTimeout(debounce);
             debounce = setTimeout(() => {
                 if (cancelled) return;
-                fetchAttendanceState(sid, role, user?.id);
+                fetchAttendanceState(sid, role, activeUserId);
             }, 120);
         };
 
@@ -2319,17 +2365,17 @@ export function AuthProvider({ children }) {
             if (debounce) clearTimeout(debounce);
             supabase.removeChannel(channel);
         };
-    }, [activeShopId, fetchAttendanceState, role, user?.id]);
+    }, [activeUserId, activeUserShopId, fetchAttendanceState, role]);
 
     useEffect(() => {
-        const sid = asString(activeShopId);
+        const sid = asString(activeUserShopId);
         if (!sid) return;
 
         let cancelled = false;
         const tick = async () => {
             if (cancelled) return;
             if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-            await fetchAttendanceState(sid, role, user?.id);
+            await fetchAttendanceState(sid, role, activeUserId);
         };
 
         tick();
@@ -2338,17 +2384,28 @@ export function AuthProvider({ children }) {
             cancelled = true;
             clearInterval(intervalId);
         };
-    }, [activeShopId, fetchAttendanceState, role, user?.id]);
+    }, [activeUserId, activeUserShopId, fetchAttendanceState, role]);
 
     const punchIn = useCallback(async () => {
-        if (!user || !activeShopId || isPunchedIn) return;
+        const sid = asString(activeUserShopId);
+        const uid = asString(activeUserId);
+        if (!user || !sid || !uid || isPunchedIn) {
+            if (!uid || !sid) {
+                console.error('Punch IN blocked: missing profile session identifiers.', {
+                    user,
+                    resolved_user_id: uid,
+                    resolved_shop_id: sid,
+                });
+            }
+            return;
+        }
         const ts = new Date();
-        const optimisticId = `optimistic-in-${Date.now()}-${user.id}`;
+        const optimisticId = `optimistic-in-${Date.now()}-${uid}`;
         const optimisticLog = {
             id: optimisticId,
             timestamp: ts.toISOString(),
             type: 'IN',
-            userId: asString(user.id),
+            userId: uid,
             userName: asString(user.name),
             date: ts.toLocaleDateString('en-PK'),
             time: ts.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
@@ -2359,8 +2416,8 @@ export function AuthProvider({ children }) {
         setAttendanceLogs((prev) => [optimisticLog, ...(Array.isArray(prev) ? prev : [])]);
 
         const { error } = await requestAttendanceAction({
-            userId: user.id,
-            shopId: activeShopId,
+            userId: uid,
+            shopId: sid,
             type: 'IN',
             timestamp: ts.toISOString()
         });
@@ -2372,18 +2429,29 @@ export function AuthProvider({ children }) {
             return;
         }
 
-        fetchAttendanceState(activeShopId, role, user?.id);
-    }, [activeShopId, fetchAttendanceState, isPunchedIn, role, user]);
+        fetchAttendanceState(sid, role, uid);
+    }, [activeUserId, activeUserShopId, fetchAttendanceState, isPunchedIn, role, user]);
 
     const punchOut = useCallback(async () => {
-        if (!user || !activeShopId || !isPunchedIn) return;
+        const sid = asString(activeUserShopId);
+        const uid = asString(activeUserId);
+        if (!user || !sid || !uid || !isPunchedIn) {
+            if (!uid || !sid) {
+                console.error('Punch OUT blocked: missing profile session identifiers.', {
+                    user,
+                    resolved_user_id: uid,
+                    resolved_shop_id: sid,
+                });
+            }
+            return;
+        }
         const ts = new Date();
-        const optimisticId = `optimistic-out-${Date.now()}-${user.id}`;
+        const optimisticId = `optimistic-out-${Date.now()}-${uid}`;
         const optimisticLog = {
             id: optimisticId,
             timestamp: ts.toISOString(),
             type: 'OUT',
-            userId: asString(user.id),
+            userId: uid,
             userName: asString(user.name),
             date: ts.toLocaleDateString('en-PK'),
             time: ts.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
@@ -2394,8 +2462,8 @@ export function AuthProvider({ children }) {
         setAttendanceLogs((prev) => [optimisticLog, ...(Array.isArray(prev) ? prev : [])]);
 
         const { error } = await requestAttendanceAction({
-            userId: user.id,
-            shopId: activeShopId,
+            userId: uid,
+            shopId: sid,
             type: 'OUT',
             timestamp: ts.toISOString()
         });
@@ -2407,8 +2475,8 @@ export function AuthProvider({ children }) {
             return;
         }
 
-        fetchAttendanceState(activeShopId, role, user?.id);
-    }, [activeShopId, fetchAttendanceState, isPunchedIn, role, user]);
+        fetchAttendanceState(sid, role, uid);
+    }, [activeUserId, activeUserShopId, fetchAttendanceState, isPunchedIn, role, user]);
 
     const addAttendanceLog = (_userObj, type) => {
         const normalizedType = asString(type).toUpperCase();
@@ -2472,8 +2540,8 @@ export function AuthProvider({ children }) {
             await syncProfileOnlineStatus(sid, targetUserId);
         }
 
-        await fetchAttendanceState(activeShopId, role, user?.id);
-    }, [activeShopId, attendanceLogs, fetchAttendanceState, role, user]);
+        await fetchAttendanceState(activeUserShopId, role, activeUserId);
+    }, [activeUserId, activeUserShopId, attendanceLogs, fetchAttendanceState, role]);
 
     const deleteAttendanceLog = useCallback(async (id) => {
         const sid = asString(activeShopId);
@@ -2520,8 +2588,8 @@ export function AuthProvider({ children }) {
             await syncProfileOnlineStatus(sid, targetUserId);
         }
 
-        await fetchAttendanceState(activeShopId, role, user?.id);
-    }, [activeShopId, attendanceLogs, fetchAttendanceState, role, user]);
+        await fetchAttendanceState(activeUserShopId, role, activeUserId);
+    }, [activeUserId, activeUserShopId, attendanceLogs, fetchAttendanceState, role]);
 
     // ── Auth Logic ──
     const login = useCallback(async (userData) => {
@@ -2550,15 +2618,23 @@ export function AuthProvider({ children }) {
                 if (!normalized || !isAdminRoleName(normalized.role)) {
                     return { success: false, message: 'Not allowed.' };
                 }
-                setRole(normalized.role);
-                setUser(normalized);
-                writeStorage(AUTH_TOKEN_KEY, makeLocalSessionToken(normalized.id, normalized.role));
-                if (normalized.shop_id) {
-                    setActiveShopIdState(normalized.shop_id);
-                } else if (!isSuperAdminRole(normalized.role)) {
+                const normalizedId = asString(getProfileId(normalized));
+                const sessionUser = {
+                    ...normalized,
+                    id: normalizedId,
+                    user_id: normalizedId,
+                    shop_id: asString(normalized.shop_id || normalized.shopId),
+                };
+                setRole(sessionUser.role);
+                setUser(sessionUser);
+                writeAuthState(AUTH_USER_STATE_KEY, JSON.stringify(sessionUser));
+                writeStorage(AUTH_TOKEN_KEY, makeLocalSessionToken(sessionUser.id, sessionUser.role));
+                if (sessionUser.shop_id) {
+                    setActiveShopIdState(sessionUser.shop_id);
+                } else if (!isSuperAdminRole(sessionUser.role)) {
                     setActiveShopIdState('');
                 }
-                return { success: true, role: normalized.role, redirectTo: getAdminRedirectPath(normalized.role) };
+                return { success: true, role: sessionUser.role, redirectTo: getAdminRedirectPath(sessionUser.role) };
 
             }
 
@@ -2578,15 +2654,44 @@ export function AuthProvider({ children }) {
                     if (normalized.active === false) {
                         return { success: false, message: 'User disabled' };
                     }
+                    const normalizedId = asString(getProfileId(normalized));
+                    const sessionUser = {
+                        ...normalized,
+                        id: normalizedId,
+                        user_id: normalizedId,
+                        shop_id: asString(normalized.shop_id || normalized.shopId),
+                    };
+                    if (!sessionUser.id || !sessionUser.shop_id) {
+                        console.error('Salesman login failed to build valid profile session.', {
+                            profile,
+                            normalized,
+                            sessionUser,
+                        });
+                        return { success: false, message: 'Profile mapping is invalid. Contact admin.' };
+                    }
                     setRole('salesman');
-                    setUser(normalized);
-                    setActiveShopIdState(normalized.shop_id);
-                    writeStorage(AUTH_TOKEN_KEY, makeLocalSessionToken(normalized.id, 'salesman'));
+                    setUser(sessionUser);
+                    writeAuthState(AUTH_USER_STATE_KEY, JSON.stringify(sessionUser));
+                    setActiveShopIdState(sessionUser.shop_id);
+                    writeStorage(AUTH_TOKEN_KEY, makeLocalSessionToken(sessionUser.id, 'salesman'));
                     // Fetch actual punch state from attendance source of truth
                     try {
-                        const { data: userStatusData } = await requestUserStatus({ shopId: normalized.shop_id, userId: normalized.id });
-                        setIsPunchedIn(userStatusData ? asBoolean(userStatusData.is_punched_in) : false);
-                    } catch {
+                        const { data: userStatusData, error: userStatusError } = await requestUserStatus({
+                            shopId: sessionUser.shop_id,
+                            userId: sessionUser.id,
+                        });
+                        if (userStatusError) {
+                            console.error('Failed to resolve salesman punch state during login:', {
+                                shop_id: sessionUser.shop_id,
+                                user_id: sessionUser.id,
+                                error: userStatusError,
+                            });
+                        }
+                        if (userStatusData) {
+                            setIsPunchedIn(asBoolean(userStatusData.is_punched_in));
+                        }
+                    } catch (statusError) {
+                        console.error('Unexpected attendance status error during salesman login:', statusError);
                         setIsPunchedIn(false);
                     }
                     return { success: true, role: 'salesman', redirectTo: '/salesman/dashboard' };
