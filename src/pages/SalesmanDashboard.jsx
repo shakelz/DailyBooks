@@ -106,6 +106,11 @@ function normalizeOnlinePartOrder(row = {}) {
     };
 }
 
+function isPartOrderStatusEnumError(error) {
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('invalid input value for enum part_order_status');
+}
+
 function extractCategoryName(category) {
     if (!category) return '';
     if (typeof category === 'string') return category;
@@ -2448,18 +2453,43 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return;
         }
 
-        const { data: inserted, error: insertError } = await supabase
+        const basePayload = {
+            shop_id: shopId,
+            part_name: String(onlineOrderForm.itemName || '').trim(),
+            ordered_from: String(onlineOrderForm.platform || '').trim(),
+            cost: totalCost,
+            delivery_date: String(onlineOrderForm.expectedDeliveryDate || '').trim() || null,
+        };
+
+        let inserted = null;
+        let insertError = null;
+
+        const firstAttempt = await supabase
             .from('online_part_orders')
-            .insert([{
-                shop_id: shopId,
-                part_name: String(onlineOrderForm.itemName || '').trim(),
-                ordered_from: String(onlineOrderForm.platform || '').trim(),
-                cost: totalCost,
-                delivery_date: String(onlineOrderForm.expectedDeliveryDate || '').trim() || null,
-                status: 'ordered',
-            }])
+            .insert([basePayload])
             .select('*')
             .single();
+
+        inserted = firstAttempt.data || null;
+        insertError = firstAttempt.error || null;
+
+        if (insertError && isPartOrderStatusEnumError(insertError)) {
+            const statusCandidates = ['pending', 'open', 'new', 'created', 'ordered'];
+            for (const candidateStatus of statusCandidates) {
+                const retry = await supabase
+                    .from('online_part_orders')
+                    .insert([{ ...basePayload, status: candidateStatus }])
+                    .select('*')
+                    .single();
+
+                if (!retry.error && retry.data) {
+                    inserted = retry.data;
+                    insertError = null;
+                    break;
+                }
+                insertError = retry.error || insertError;
+            }
+        }
 
         if (insertError || !inserted) {
             alert(insertError?.message || 'Failed to save online order');
@@ -2531,18 +2561,35 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
         }
 
-        const { error: updateError } = await supabase
-            .from('online_part_orders')
-            .update({ status: 'received' })
-            .eq('part_order_id', String(id));
+        let updatedRow = null;
+        let updateError = null;
+        const statusCandidates = ['received', 'completed', 'closed', 'delivered', 'done'];
+        for (const candidateStatus of statusCandidates) {
+            const updateAttempt = await supabase
+                .from('online_part_orders')
+                .update({ status: candidateStatus })
+                .eq('part_order_id', String(id))
+                .select('*')
+                .single();
 
-        if (updateError) {
-            alert(updateError.message || 'Failed to update order status');
+            if (!updateAttempt.error && updateAttempt.data) {
+                updatedRow = updateAttempt.data;
+                updateError = null;
+                break;
+            }
+
+            updateError = updateAttempt.error || updateError;
+            if (!isPartOrderStatusEnumError(updateError)) break;
+        }
+
+        if (updateError || !updatedRow) {
+            alert(updateError?.message || 'Failed to update order status');
             return;
         }
 
+        const normalizedUpdated = normalizeOnlinePartOrder(updatedRow);
         setOnlineOrders((prev) => prev.map((order) => order.id === id
-            ? { ...order, status: 'received', receivedAt: new Date().toISOString() }
+            ? { ...order, ...normalizedUpdated, receivedAt: new Date().toISOString() }
             : order));
     };
 
