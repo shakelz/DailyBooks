@@ -9,6 +9,7 @@ create extension if not exists pgcrypto;
 
 alter table if exists public.profiles
   add column if not exists username text,
+  add column if not exists email text,
   add column if not exists pin_digest text;
 
 create unique index if not exists uq_profiles_username

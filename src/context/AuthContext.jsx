@@ -645,21 +645,8 @@ async function getAdminProfileByAuthUser(authUserId, authEmail = '', preferredPr
     }
 
     if (email) {
-        const byEmail = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('email', email)
-            .in('role', DB_ADMIN_ROLES)
-            .limit(1);
-
-        if (!byEmail.error && Array.isArray(byEmail.data) && byEmail.data[0]) {
-            return byEmail.data[0];
-        }
-
-        if (isMissingColumnError(byEmail.error, 'profiles.email') || isMissingColumnError(byEmail.error, 'email')) {
-            const byShopOwnerEmail = await findAdminProfileByShopOwnerEmail(email);
-            if (byShopOwnerEmail) return byShopOwnerEmail;
-        }
+        const byShopOwnerEmail = await findAdminProfileByShopOwnerEmail(email);
+        if (byShopOwnerEmail) return byShopOwnerEmail;
 
         const resolved = await resolveAdminAuthFromIdentifier(email);
         if (resolved.profileId) {
