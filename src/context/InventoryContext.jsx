@@ -596,6 +596,21 @@ function mapTxSource(value) {
     return raw;
 }
 
+function generateInvoiceNumber(seedTimestamp = '', shopId = '') {
+    const parsed = seedTimestamp ? new Date(seedTimestamp) : new Date();
+    const dateObj = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    const pad2 = (value) => String(value).padStart(2, '0');
+    const y = String(dateObj.getFullYear());
+    const m = pad2(dateObj.getMonth() + 1);
+    const d = pad2(dateObj.getDate());
+    const hh = pad2(dateObj.getHours());
+    const mm = pad2(dateObj.getMinutes());
+    const ss = pad2(dateObj.getSeconds());
+    const shopTag = cleanText(shopId).replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-4);
+    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+    return `INV-${y}${m}${d}-${hh}${mm}${ss}${shopTag ? `-${shopTag}` : ''}-${rand}`;
+}
+
 function extractTransactionReferenceKey(notes = '') {
     const normalized = cleanText(notes).toLowerCase().replace(/\s+/g, ' ').trim();
     if (!normalized) return '';
@@ -1593,9 +1608,18 @@ export function InventoryProvider({ children }) {
     const addTransaction = useCallback(async (txn) => {
         const sid = cleanText(activeShopId);
         if (!sid) throw new Error('No active shop selected.');
+        const resolvedTimestamp = resolveTransactionTimestamp(txn) || new Date().toISOString();
+        const providedInvoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
+        const ensuredInvoiceNumber = providedInvoiceNumber || generateInvoiceNumber(resolvedTimestamp, sid);
+        const txnWithInvoice = {
+            ...(txn || {}),
+            timestamp: cleanText(txn?.timestamp) || resolvedTimestamp,
+            invoice_number: ensuredInvoiceNumber,
+            invoiceNumber: ensuredInvoiceNumber,
+        };
 
-        const incomingTxnId = cleanText(txn?.id || txn?.transactionId || txn?.transaction_id);
-        const incomingReferenceKey = extractTransactionReferenceKey(txn?.notes);
+        const incomingTxnId = cleanText(txnWithInvoice?.id || txnWithInvoice?.transactionId || txnWithInvoice?.transaction_id);
+        const incomingReferenceKey = extractTransactionReferenceKey(txnWithInvoice?.notes);
         const activeRows = Array.isArray(transactionsRef.current) ? transactionsRef.current : [];
         const isDuplicateCandidate = (row = {}) => {
             if (incomingTxnId) {
@@ -1627,7 +1651,7 @@ export function InventoryProvider({ children }) {
             if (inFlightMatch) return inFlightMatch;
             const syntheticId = incomingTxnId || `dup-${Date.now()}`;
             return normalizeTransactionRecord(
-                { ...txn, id: syntheticId, transactionId: syntheticId, shop_id: sid },
+                { ...txnWithInvoice, id: syntheticId, transactionId: syntheticId, shop_id: sid },
                 { workersById: workerLookup }
             );
         }
@@ -1639,18 +1663,18 @@ export function InventoryProvider({ children }) {
                 : `txn-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
         );
         try {
-            const formattedTxn = buildTransactionDBPayload(txn, false, sid);
+            const formattedTxn = buildTransactionDBPayload(txnWithInvoice, false, sid);
             const normalizedTxn = normalizeTransactionRecord(
                 {
-                    ...txn,
+                    ...txnWithInvoice,
                     ...formattedTxn,
                     id: optimisticTxnId,
                     transactionId: optimisticTxnId,
-                    invoice_number: cleanText(txn?.invoice_number || txn?.invoiceNumber || formattedTxn?.invoice_number),
+                    invoice_number: ensuredInvoiceNumber || cleanText(formattedTxn?.invoice_number),
                 },
                 { workersById: workerLookup }
             );
-            const snapshot = buildTransactionSnapshot({ ...txn, ...normalizedTxn });
+            const snapshot = buildTransactionSnapshot({ ...txnWithInvoice, ...normalizedTxn });
             saveTransactionSnapshot(optimisticTxnId, snapshot);
             const hydratedTxn = mergeTransactionWithSnapshot(normalizedTxn, { [optimisticTxnId]: snapshot });
 
@@ -1712,20 +1736,20 @@ export function InventoryProvider({ children }) {
             const persistedTxnId = cleanText(insertedRow?.id || insertedRow?.transaction_id || insertedRow?.transactionId) || optimisticTxnId;
             const persistedTxn = normalizeTransactionRecord(
                 {
-                    ...txn,
+                    ...txnWithInvoice,
                     ...writePayload,
                     ...insertedRow,
                     id: persistedTxnId,
                     transactionId: persistedTxnId,
-                    source: cleanText(insertedRow?.source || insertedRow?.tx_source || writePayload?.source || writePayload?.tx_source || txn?.source || 'cash'),
-                    invoice_number: cleanText(insertedRow?.invoice_number || txn?.invoice_number || txn?.invoiceNumber || writePayload?.invoice_number),
+                    source: cleanText(insertedRow?.source || insertedRow?.tx_source || writePayload?.source || writePayload?.tx_source || txnWithInvoice?.source || 'cash'),
+                    invoice_number: cleanText(insertedRow?.invoice_number || txnWithInvoice?.invoice_number || txnWithInvoice?.invoiceNumber || writePayload?.invoice_number || ensuredInvoiceNumber),
                 },
                 { workersById: workerLookup }
             );
             const persistedSnapshot = buildTransactionSnapshot({
-                ...txn,
+                ...txnWithInvoice,
                 ...persistedTxn,
-                transactionItems: hydratedTxn?.transactionItems || txn?.transactionItems || [],
+                transactionItems: hydratedTxn?.transactionItems || txnWithInvoice?.transactionItems || [],
             });
 
             saveTransactionSnapshot(persistedTxnId, persistedSnapshot);
@@ -1751,7 +1775,7 @@ export function InventoryProvider({ children }) {
             try {
                 await syncTransactionItems(
                     {
-                        ...txn,
+                        ...txnWithInvoice,
                         ...hydratedPersistedTxn,
                         id: persistedTxnId,
                         transactionId: persistedTxnId,
