@@ -102,6 +102,48 @@ BEGIN
 END
 $$;
 
+-- 0.5) Categories compatibility: ensure category_purpose exists for sales/expense scoped categories
+alter table if exists public.categories
+  add column if not exists category_purpose text;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'categories'
+      AND column_name = 'category_purpose'
+  ) THEN
+    UPDATE public.categories
+    SET category_purpose = CASE
+      WHEN lower(coalesce(trim(category_purpose), '')) IN ('expense', 'revenue', 'purchase') THEN 'expense'
+      ELSE 'sales'
+    END
+    WHERE coalesce(trim(category_purpose), '') = ''
+       OR lower(coalesce(trim(category_purpose), '')) NOT IN ('sales', 'expense');
+
+    ALTER TABLE public.categories
+      ALTER COLUMN category_purpose SET DEFAULT 'sales';
+
+    ALTER TABLE public.categories
+      ALTER COLUMN category_purpose SET NOT NULL;
+  END IF;
+END
+$$;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'categories_category_purpose_chk'
+  ) THEN
+    ALTER TABLE public.categories
+      ADD CONSTRAINT categories_category_purpose_chk
+      CHECK (category_purpose in ('sales', 'expense'));
+  END IF;
+END
+$$;
+
 -- 1) Disable RLS on app tables
 alter table if exists public.shops disable row level security;
 alter table if exists public.profiles disable row level security;

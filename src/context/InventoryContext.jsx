@@ -1358,6 +1358,167 @@ export function InventoryProvider({ children }) {
 
     // ── Optimistic CRUD Async Helpers ──
 
+    const ensureExpenseCategoriesForInventoryProduct = useCallback(async (shopId, product = {}) => {
+        const sid = cleanText(shopId);
+        if (!sid) return { level1Name: '', level1Id: '', level2Name: '' };
+
+        const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
+        const level1Name = extractLevel1CategoryName(categoryHierarchy.level1 || product?.category);
+        const level2Name = cleanText(categoryHierarchy.level2);
+        if (!level1Name) return { level1Name: '', level1Id: '', level2Name: '' };
+
+        const normalizedScope = CATEGORY_SCOPE_EXPENSE;
+        let level1Id = '';
+
+        const parentSelect = await supabase
+            .from('categories')
+            .select('category_id,id')
+            .eq('shop_id', sid)
+            .eq('category_name', level1Name)
+            .eq('category_purpose', normalizedScope)
+            .is('parent_category_id', null)
+            .limit(1)
+            .maybeSingle();
+
+        if (!parentSelect.error && parentSelect.data) {
+            level1Id = cleanText(parentSelect.data.category_id || parentSelect.data.id);
+        }
+
+        if (!level1Id) {
+            const insertParentResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('categories').insert([candidate]),
+                {
+                    category_name: level1Name,
+                    parent_category_id: null,
+                    category_purpose: normalizedScope,
+                    shop_id: sid,
+                }
+            );
+
+            if (insertParentResult.error) {
+                const fallbackParent = await supabase
+                    .from('categories')
+                    .select('category_id,id')
+                    .eq('shop_id', sid)
+                    .eq('category_name', level1Name)
+                    .eq('category_purpose', normalizedScope)
+                    .is('parent_category_id', null)
+                    .limit(1)
+                    .maybeSingle();
+
+                if (!fallbackParent.error && fallbackParent.data) {
+                    level1Id = cleanText(fallbackParent.data.category_id || fallbackParent.data.id);
+                } else {
+                    throw new Error(insertParentResult.error.message || 'Failed to save expense category.');
+                }
+            } else {
+                const refreshedParent = await supabase
+                    .from('categories')
+                    .select('category_id,id')
+                    .eq('shop_id', sid)
+                    .eq('category_name', level1Name)
+                    .eq('category_purpose', normalizedScope)
+                    .is('parent_category_id', null)
+                    .limit(1)
+                    .maybeSingle();
+                level1Id = cleanText(refreshedParent.data?.category_id || refreshedParent.data?.id);
+            }
+        }
+
+        setL1Categories((prev) => {
+            const existingLocal = (prev || []).find((c) => (typeof c === 'object' ? c?.name : c) === level1Name);
+            if (existingLocal) {
+                return prev.map((c) => {
+                    if ((typeof c === 'object' ? c?.name : c) !== level1Name) return c;
+                    if (typeof c === 'object') {
+                        return {
+                            ...c,
+                            id: c.id || level1Id || undefined,
+                            name: level1Name,
+                            scope: normalizedScope,
+                        };
+                    }
+                    return { id: level1Id || undefined, name: level1Name, scope: normalizedScope };
+                });
+            }
+            return [...prev, { id: level1Id || undefined, name: level1Name, scope: normalizedScope }];
+        });
+        setCategoryScopeEntry(sid, 1, level1Name, '', normalizedScope);
+
+        if (level1Id && level2Name) {
+            const childSelect = await supabase
+                .from('categories')
+                .select('category_id,id')
+                .eq('shop_id', sid)
+                .eq('category_name', level2Name)
+                .eq('category_purpose', normalizedScope)
+                .eq('parent_category_id', level1Id)
+                .limit(1)
+                .maybeSingle();
+
+            if (childSelect.error || !childSelect.data) {
+                const insertChildResult = await executeWithPrunedColumns(
+                    (candidate) => supabase.from('categories').insert([candidate]),
+                    {
+                        category_name: level2Name,
+                        parent_category_id: level1Id,
+                        category_purpose: normalizedScope,
+                        shop_id: sid,
+                    }
+                );
+                if (insertChildResult.error) {
+                    const fallbackChild = await supabase
+                        .from('categories')
+                        .select('category_id,id')
+                        .eq('shop_id', sid)
+                        .eq('category_name', level2Name)
+                        .eq('category_purpose', normalizedScope)
+                        .eq('parent_category_id', level1Id)
+                        .limit(1)
+                        .maybeSingle();
+                    if (fallbackChild.error || !fallbackChild.data) {
+                        throw new Error(insertChildResult.error.message || 'Failed to save expense sub-category.');
+                    }
+                }
+            }
+
+            setL2Map((prev) => {
+                const currentList = prev[level1Name] || [];
+                const existingLocal = currentList.find((c) => (typeof c === 'object' ? c?.name : c) === level2Name);
+                if (existingLocal) {
+                    return {
+                        ...prev,
+                        [level1Name]: currentList.map((c) => {
+                            if ((typeof c === 'object' ? c?.name : c) !== level2Name) return c;
+                            if (typeof c === 'object') {
+                                return {
+                                    ...c,
+                                    name: level2Name,
+                                    parent: level1Name,
+                                    parent_id: c.parent_id || level1Id || null,
+                                    parent_category_id: c.parent_category_id || level1Id || null,
+                                    scope: normalizedScope,
+                                };
+                            }
+                            return { name: level2Name, parent: level1Name, parent_id: level1Id || null, scope: normalizedScope };
+                        }),
+                    };
+                }
+
+                return {
+                    ...prev,
+                    [level1Name]: [
+                        ...currentList,
+                        { name: level2Name, parent: level1Name, parent_id: level1Id || null, parent_category_id: level1Id || null, scope: normalizedScope }
+                    ],
+                };
+            });
+            setCategoryScopeEntry(sid, 2, level2Name, level1Name, normalizedScope);
+        }
+
+        return { level1Name, level1Id, level2Name };
+    }, []);
+
     const addProduct = useCallback(async (product) => {
         const sid = cleanText(activeShopId);
         if (!sid) throw new Error('No active shop selected.');
@@ -1386,13 +1547,26 @@ export function InventoryProvider({ children }) {
             entry.categoryPath = product.categoryPath.filter(Boolean);
         }
 
+        let ensuredExpenseCategory = { level1Name: '', level1Id: '', level2Name: '' };
+        try {
+            ensuredExpenseCategory = await ensureExpenseCategoriesForInventoryProduct(sid, entry);
+        } catch (categoryError) {
+            console.error('Failed to auto-create expense category for inventory add:', categoryError);
+        }
+
         // Optimistic UI Update
         setProducts(prev => {
             if (prev.find(p => String(p.id) === entry.id)) return prev;
             return [entry, ...prev];
         });
 
-        const payload = buildInventoryPayload(entry, false, sid, categoryNameToId);
+        const payloadCategoryMap = {
+            ...(categoryNameToId || {}),
+            ...(ensuredExpenseCategory.level1Name && ensuredExpenseCategory.level1Id
+                ? { [ensuredExpenseCategory.level1Name]: ensuredExpenseCategory.level1Id }
+                : {}),
+        };
+        const payload = buildInventoryPayload(entry, false, sid, payloadCategoryMap);
         const insertResult = await executeWithPrunedColumns(
             (candidate) => supabase.from('inventory').insert([candidate]).select().single(),
             payload
@@ -1463,7 +1637,7 @@ export function InventoryProvider({ children }) {
         }
 
         return savedEntry;
-    }, [activeShopId, categoryNameToId, user]);
+    }, [activeShopId, categoryNameToId, ensureExpenseCategoriesForInventoryProduct, user]);
 
     const deleteProduct = useCallback(async (id) => {
         const sid = cleanText(activeShopId);

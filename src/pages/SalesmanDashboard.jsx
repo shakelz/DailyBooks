@@ -2145,11 +2145,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const updateCategoryContributionMode = useCallback((scope, row, nextMode) => {
         const normalizedMode = normalizeKpiContributionMode(nextMode);
-        const scopedKey = makeScopedProfitCategoryKey(scope, row?.categoryName, row?.subCategoryName);
+        const normalizedScope = normalizeKpiScope(scope);
+        const scopedKey = makeScopedProfitCategoryKey(normalizedScope, row?.categoryName, row?.subCategoryName);
         setHasExplicitContributionModeConfig(true);
         setCategoryContributionModeMap((prev) => {
             const next = { ...(prev || {}) };
             next[scopedKey] = normalizedMode;
+
+            if (Number(row?.depth) === 0) {
+                const parentCategoryName = String(row?.categoryName || '').trim();
+                const scopedPrefix = `${normalizedScope}::${parentCategoryName}::`;
+                Object.keys(next).forEach((key) => {
+                    if (!key.startsWith(scopedPrefix)) return;
+                    const maybeSubCategoryName = key.slice(scopedPrefix.length);
+                    if (!maybeSubCategoryName) return;
+                    delete next[key];
+                });
+            }
+
             return next;
         });
         setContributionModeConfigStatus('');
