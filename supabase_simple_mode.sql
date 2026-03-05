@@ -3,18 +3,59 @@
 
 begin;
 
--- 0) KPI support table: categories that should contribute by profit-only in Revenue KPI
+-- 0) KPI support table: category contribution mode for Revenue/Expense KPI calculations
 create table if not exists public.kpi_profit_category_settings (
   shop_id uuid not null,
   category_name text not null,
   sub_category_name text not null default '',
-  profit_only boolean not null default true,
+  contribution_mode text not null default 'sales',
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now(),
+  constraint kpi_profit_category_settings_mode_chk check (contribution_mode in ('sales', 'profit', 'excluded')),
   primary key (shop_id, category_name, sub_category_name)
 );
 create index if not exists idx_kpi_profit_category_settings_shop
   on public.kpi_profit_category_settings(shop_id);
+
+-- Backward compatibility: migrate older boolean column to contribution_mode if needed.
+alter table if exists public.kpi_profit_category_settings
+  add column if not exists contribution_mode text;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'kpi_profit_category_settings'
+      AND column_name = 'profit_only'
+  ) THEN
+    UPDATE public.kpi_profit_category_settings
+    SET contribution_mode = CASE WHEN coalesce(profit_only, false) THEN 'profit' ELSE 'sales' END
+    WHERE coalesce(trim(contribution_mode), '') = '';
+  ELSE
+    UPDATE public.kpi_profit_category_settings
+    SET contribution_mode = 'sales'
+    WHERE coalesce(trim(contribution_mode), '') = '';
+  END IF;
+END
+$$;
+alter table if exists public.kpi_profit_category_settings
+  alter column contribution_mode set default 'sales';
+alter table if exists public.kpi_profit_category_settings
+  alter column contribution_mode set not null;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'kpi_profit_category_settings_mode_chk'
+  ) THEN
+    ALTER TABLE public.kpi_profit_category_settings
+      ADD CONSTRAINT kpi_profit_category_settings_mode_chk
+      CHECK (contribution_mode in ('sales', 'profit', 'excluded'));
+  END IF;
+END
+$$;
 
 -- 1) Disable RLS on app tables
 alter table if exists public.shops disable row level security;
