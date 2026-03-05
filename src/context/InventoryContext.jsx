@@ -584,14 +584,14 @@ function mapTxType(value, source = '') {
     if (!raw) {
         if (sourceRaw === 'purchase') return 'product_expense';
         if (sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_')) return 'repair_amount';
-        if (sourceRaw === 'expense') return 'shop_expense';
+        if (sourceRaw === 'expense') return 'product_expense';
         return 'product_sale';
     }
     if (sourceRaw === 'purchase' && (raw === 'expense' || raw === 'purchase')) return 'product_expense';
     if ((sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_'))
         && (raw === 'income' || raw === 'repair' || raw === 'sale')) return 'repair_amount';
     if (raw === 'income' || raw === 'product_sale' || raw === 'sale') return 'product_sale';
-    if (raw === 'shop_expense' || raw === 'expense') return 'shop_expense';
+    if (raw === 'shop_expense' || raw === 'expense') return 'product_expense';
     if (raw === 'product_expense' || raw === 'product_purchase' || raw === 'purchase') return 'product_expense';
     if (raw === 'repair_amount' || raw === 'repair') return 'repair_amount';
     if (raw === 'adjustment_amount' || raw === 'adjustment') return 'adjustment_amount';
@@ -1894,8 +1894,8 @@ export function InventoryProvider({ children }) {
                     const fallbackLegacyType = String(txnWithInvoice?.type || '').toLowerCase();
                     const shouldBeExpense = fallbackLegacyType === 'expense'
                         || String(txnWithInvoice?.source || '').toLowerCase() === 'purchase';
-                    fallbackPayload.tx_type = shouldBeExpense ? 'shop_expense' : 'product_sale';
-                    fallbackPayload.type = shouldBeExpense ? 'shop_expense' : 'product_sale';
+                    fallbackPayload.tx_type = shouldBeExpense ? 'product_expense' : 'product_sale';
+                    fallbackPayload.type = shouldBeExpense ? 'product_expense' : 'product_sale';
                 }
                 if (isEnumError(insertResult.error, 'source') || isEnumError(insertResult.error, 'tx_source')) {
                     fallbackPayload.source = 'cash';
