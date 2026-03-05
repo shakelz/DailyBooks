@@ -1488,8 +1488,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             : null;
         const linkedSnapshot = linkedProduct ? resolveProductSnapshot(linkedProduct) : null;
 
+        const sourceText = String(txn?.source || txn?.tx_source || '').toLowerCase();
+        const isRepairSource = sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_');
+        const resolvedCategoryName = isRepairSource
+            ? 'Repair Job'
+            : extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category);
+
         const categoryName = String(
-            extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category)
+            resolvedCategoryName
             || linkedSnapshot?.category
             || 'General'
         ).trim() || 'General';
