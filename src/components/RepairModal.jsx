@@ -14,7 +14,7 @@ export default function RepairModal({ isOpen, onClose }) {
         imei: '',
         problem: '',
         advanceAmount: '',
-        estimatedCost: '',
+        cost: '',
         deliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0], // +3 days default
     });
     const [errors, setErrors] = useState({});
@@ -27,7 +27,7 @@ export default function RepairModal({ isOpen, onClose }) {
     const resetForm = () => {
         setForm({
             customerName: '', phone: '', deviceModel: '', imei: '',
-            problem: '', advanceAmount: '', estimatedCost: '',
+            problem: '', advanceAmount: '', cost: '',
             deliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
         });
         setErrors({});
@@ -52,7 +52,8 @@ export default function RepairModal({ isOpen, onClose }) {
                 imei: form.imei.trim(),
                 problem: form.problem.trim(),
                 advanceAmount: parseFloat(form.advanceAmount) || 0,
-                estimatedCost: parseFloat(form.estimatedCost) || 0,
+                cost: parseFloat(form.cost) || 0,
+                estimatedCost: parseFloat(form.cost) || 0,
                 delivery_at: form.deliveryDate,
                 deliveryDate: form.deliveryDate,
             });
@@ -107,8 +108,8 @@ export default function RepairModal({ isOpen, onClose }) {
             : 'N/A';
         const problemNote = esc(job?.problem || job?.notes || 'N/A');
         const invoiceNumber = esc(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || 'N/A');
-        const estimatedCost = Number.isFinite(parseFloat(job?.estimatedCost))
-            ? parseFloat(job.estimatedCost)
+        const normalizedCost = Number.isFinite(parseFloat(job?.cost ?? job?.estimatedCost))
+            ? parseFloat(job?.cost ?? job?.estimatedCost)
             : 0;
         const advanceAmount = Number.isFinite(parseFloat(job?.advanceAmount))
             ? parseFloat(job.advanceAmount)
@@ -153,7 +154,7 @@ export default function RepairModal({ isOpen, onClose }) {
         ${job.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(job.imei)}</span></div>` : ''}
         <div class="divider"></div>
         <div class="problem"><strong>Fehler:</strong> ${problemNote}</div>
-        <div class="row"><span class="label-text">Kosten:</span><span>€ ${estimatedCost.toFixed(2)}</span></div>
+        <div class="row"><span class="label-text">Kosten:</span><span>€ ${normalizedCost.toFixed(2)}</span></div>
         <div class="row"><span class="label-text">Anzahlung:</span><span>€ ${advanceAmount.toFixed(2)}</span></div>
         <div class="row"><span class="label-text">Abholung:</span><span>${deliveryFormatted}</span></div>
         <div class="divider"></div>
@@ -284,8 +285,8 @@ export default function RepairModal({ isOpen, onClose }) {
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                value={form.estimatedCost}
-                                onChange={e => handleChange('estimatedCost', e.target.value)}
+                                value={form.cost}
+                                onChange={e => handleChange('cost', e.target.value)}
                                 className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium font-mono"
                                 placeholder="0.00"
                             />
