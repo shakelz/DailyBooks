@@ -199,12 +199,21 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
 
     const transactionId = cleanText(txn?.transactionId || txn?.transaction_id || txn?.order_id) || txnId;
 
+    const rawType = cleanText(txn?.tx_type || txn?.type || 'product_sale');
+    const normalizedLegacyType = (() => {
+        const lower = rawType.toLowerCase();
+        if (!lower) return 'income';
+        if (lower === 'income' || lower === 'product_sale' || lower === 'sale' || lower === 'repair_amount') return 'income';
+        if (lower === 'expense' || lower === 'shop_expense' || lower === 'product_purchase' || lower === 'purchase' || lower === 'adjustment_amount' || lower === 'adjustment') return 'expense';
+        return lower.includes('expense') || lower.includes('purchase') ? 'expense' : 'income';
+    })();
+
     return {
         ...txn,
         id: txnId || txn?.id,
         transactionId,
-        type: cleanText(txn?.tx_type || txn?.type || 'product_sale'),
-        tx_type: cleanText(txn?.tx_type || txn?.type || 'product_sale'),
+        type: normalizedLegacyType,
+        tx_type: rawType || 'product_sale',
         source: cleanText(txn?.tx_source || txn?.source || 'cash'),
         tx_source: cleanText(txn?.tx_source || txn?.source || 'cash'),
         occurred_at: resolvedTimestamp || cleanText(txn?.created_at),
@@ -842,7 +851,7 @@ function buildTransactionSnapshot(txn) {
 }
 
 export function InventoryProvider({ children }) {
-    const { activeShopId, salesmen } = useAuth();
+    const { activeShopId, salesmen, user } = useAuth();
 
     // ── Live Products (Local State mirroring Supabase) ──
     const [products, setProducts] = useState([]);
@@ -857,6 +866,7 @@ export function InventoryProvider({ children }) {
         [salesmen, workerDirectory]
     );
     const workerLookupRef = useRef(workerLookup);
+    const addTransactionRef = useRef(null);
     useEffect(() => {
         workerLookupRef.current = workerLookup;
     }, [workerLookup]);
@@ -886,28 +896,128 @@ export function InventoryProvider({ children }) {
         categoryLookupsRef.current = categoryLookups;
     }, [categoryLookups]);
 
+    const resolveShopIdCandidates = useCallback(async (shopRef = '') => {
+        const base = cleanText(shopRef);
+        const seen = new Set();
+        const candidates = [];
+        const push = (value) => {
+            const normalized = cleanText(value);
+            if (!normalized || seen.has(normalized)) return;
+            seen.add(normalized);
+            candidates.push(normalized);
+        };
+
+        push(base);
+        if (!base) return candidates;
+
+        const attempts = [
+            { column: 'shop_id', value: base },
+            { column: 'id', value: base },
+        ];
+
+        for (const attempt of attempts) {
+            const result = await supabase
+                .from('shops')
+                .select('*')
+                .eq(attempt.column, attempt.value)
+                .limit(1);
+
+            if (result.error) {
+                const message = cleanText(result.error?.message).toLowerCase();
+                if (isUuidSyntaxError(result.error, attempt.column)) continue;
+                if (message.includes('column') && (message.includes('does not exist') || message.includes('schema cache') || message.includes('could not find'))) {
+                    continue;
+                }
+                continue;
+            }
+
+            const row = Array.isArray(result.data) ? result.data[0] : null;
+            if (!row) continue;
+            push(row?.shop_id);
+            push(row?.id);
+        }
+
+        return candidates;
+    }, []);
+
+    const selectRowsByShopCandidates = useCallback(async (tableName, buildQuery, shopCandidates = []) => {
+        const candidates = Array.isArray(shopCandidates)
+            ? Array.from(new Set(shopCandidates.map((value) => cleanText(value)).filter(Boolean)))
+            : [];
+
+        if (!candidates.length) {
+            return { data: [], error: { message: 'No shop filter candidate found.' } };
+        }
+
+        let firstEmptySuccess = null;
+        let lastError = null;
+
+        for (const candidate of candidates) {
+            let query = supabase.from(tableName);
+            query = typeof buildQuery === 'function' ? buildQuery(query) : query.select('*');
+            const result = await query.eq('shop_id', candidate);
+
+            if (!result.error) {
+                if (Array.isArray(result.data) && result.data.length > 0) return result;
+                if (!firstEmptySuccess) firstEmptySuccess = result;
+                continue;
+            }
+
+            lastError = result.error;
+            if (isUuidSyntaxError(result.error, 'shop_id')) continue;
+            const message = cleanText(result.error?.message).toLowerCase();
+            if (message.includes('invalid input syntax for type uuid')) continue;
+            return result;
+        }
+
+        if (firstEmptySuccess) return firstEmptySuccess;
+        if (lastError) return { data: null, error: lastError };
+        return { data: [], error: null };
+    }, []);
+
     const ensureActiveShopExists = useCallback(async (sid) => {
         const safeShopId = cleanText(sid);
         if (!safeShopId) {
             throw new Error('No active shop selected. Please select a shop first.');
         }
 
-        const { data, error } = await supabase
-            .from('shops')
-            .select('shop_id')
-            .eq('shop_id', safeShopId)
-            .limit(1);
+        const candidates = await resolveShopIdCandidates(safeShopId);
+        let lastError = null;
 
-        if (error) {
-            throw new Error(error.message || 'Unable to verify selected shop.');
+        for (const candidate of candidates) {
+            const checks = [
+                { column: 'shop_id', value: candidate },
+                { column: 'id', value: candidate },
+            ];
+
+            for (const check of checks) {
+                const result = await supabase
+                    .from('shops')
+                    .select('*')
+                    .eq(check.column, check.value)
+                    .limit(1);
+
+                if (!result.error && Array.isArray(result.data) && result.data.length > 0) {
+                    return safeShopId;
+                }
+
+                if (result.error) {
+                    lastError = result.error;
+                    const message = cleanText(result.error?.message).toLowerCase();
+                    if (isUuidSyntaxError(result.error, check.column)) continue;
+                    if (message.includes('column') && (message.includes('does not exist') || message.includes('schema cache') || message.includes('could not find'))) {
+                        continue;
+                    }
+                }
+            }
         }
 
-        if (!Array.isArray(data) || data.length === 0) {
-            throw new Error('Selected shop is invalid or outdated. Please refresh and select a valid shop.');
+        if (lastError) {
+            throw new Error(lastError.message || 'Unable to verify selected shop.');
         }
 
-        return safeShopId;
-    }, []);
+        throw new Error('Selected shop is invalid or outdated. Please refresh and select a valid shop.');
+    }, [resolveShopIdCandidates]);
 
     // ── Preload Data from Supabase ──
     useEffect(() => {
@@ -923,12 +1033,14 @@ export function InventoryProvider({ children }) {
         let cancelled = false;
 
         const fetchInitialData = async () => {
+            const shopCandidates = await resolveShopIdCandidates(sid);
+            const filterCandidates = shopCandidates.length > 0 ? shopCandidates : [sid];
             const [invResult, txnResult, catResult, itemResult, profileResult] = await Promise.all([
-                supabase.from('inventory').select('*').eq('shop_id', sid),
-                supabase.from('transactions').select('*').eq('shop_id', sid),
-                supabase.from('categories').select('*').eq('shop_id', sid).in('category_purpose', [CATEGORY_SCOPE_SALES, CATEGORY_SCOPE_EXPENSE]),
-                supabase.from('transaction_items').select('*').eq('shop_id', sid),
-                supabase.from('profiles').select('user_id,full_name').eq('shop_id', sid),
+                selectRowsByShopCandidates('inventory', (query) => query.select('*'), filterCandidates),
+                selectRowsByShopCandidates('transactions', (query) => query.select('*'), filterCandidates),
+                selectRowsByShopCandidates('categories', (query) => query.select('*').in('category_purpose', [CATEGORY_SCOPE_SALES, CATEGORY_SCOPE_EXPENSE]), filterCandidates),
+                selectRowsByShopCandidates('transaction_items', (query) => query.select('*'), filterCandidates),
+                selectRowsByShopCandidates('profiles', (query) => query.select('user_id,full_name'), filterCandidates),
             ]);
 
             if (cancelled) return;
@@ -1205,8 +1317,53 @@ export function InventoryProvider({ children }) {
             payload: { action: 'INSERT', data: { ...savedEntry, shop_id: sid } }
         }).catch(e => console.error(e));
 
+        const qty = Math.max(0, parseInt(savedEntry?.stock ?? entry?.stock ?? 0, 10) || 0);
+        const unitCost = parseFloat(savedEntry?.purchasePrice ?? entry?.purchasePrice ?? entry?.costPrice ?? 0) || 0;
+        if (qty > 0 && unitCost > 0 && typeof addTransactionRef.current === 'function') {
+            const now = new Date();
+            const resolvedCategory = extractLevel1CategoryName(savedEntry?.category || entry?.category) || 'Purchase';
+            const resolvedSubCategory = cleanText(
+                (savedEntry?.category && typeof savedEntry.category === 'object' ? savedEntry.category.level2 : '')
+                || (entry?.category && typeof entry.category === 'object' ? entry.category.level2 : '')
+            );
+            const purchaseName = cleanText(savedEntry?.name || entry?.name || 'Inventory Item') || 'Inventory Item';
+
+            try {
+                await addTransactionRef.current({
+                    desc: `Purchase - ${purchaseName}`,
+                    amount: qty * unitCost,
+                    quantity: qty,
+                    type: 'expense',
+                    category: resolvedCategory,
+                    paymentMethod: cleanText(savedEntry?.paymentMode || entry?.paymentMode || 'Cash') || 'Cash',
+                    notes: resolvedSubCategory ? `SubCategory: ${resolvedSubCategory}` : '',
+                    source: 'purchase',
+                    salesmanName: cleanText(user?.name),
+                    salesmanNumber: Number(user?.salesmanNumber || 0) || 0,
+                    workerId: cleanText(user?.id),
+                    productId: savedEntry?.id || entry?.id || undefined,
+                    purchasePriceAtTime: unitCost,
+                    productSnapshot: {
+                        id: savedEntry?.id || entry?.id || '',
+                        name: purchaseName,
+                        category: savedEntry?.category || entry?.category || null,
+                        subCategory: resolvedSubCategory,
+                        purchasePrice: unitCost,
+                        sellingPrice: parseFloat(savedEntry?.sellingPrice ?? entry?.sellingPrice ?? 0) || 0,
+                        purchaseFrom: cleanText(savedEntry?.purchaseFrom || entry?.purchaseFrom),
+                        barcode: cleanText(savedEntry?.barcode || entry?.barcode),
+                    },
+                    timestamp: now.toISOString(),
+                    date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                });
+            } catch (txnError) {
+                console.error('Failed to create purchase transaction for inventory add:', txnError);
+            }
+        }
+
         return savedEntry;
-    }, [activeShopId, categoryNameToId]);
+    }, [activeShopId, categoryNameToId, user]);
 
     const deleteProduct = useCallback(async (id) => {
         const sid = cleanText(activeShopId);
@@ -1418,6 +1575,10 @@ export function InventoryProvider({ children }) {
 
         return hydratedTxn;
     }, [activeShopId, workerLookup, syncTransactionItems]);
+
+    useEffect(() => {
+        addTransactionRef.current = addTransaction;
+    }, [addTransaction]);
 
     const updateTransaction = useCallback(async (id, updates) => {
         const sid = cleanText(activeShopId);

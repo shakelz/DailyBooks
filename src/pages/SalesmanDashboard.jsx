@@ -580,7 +580,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [quickSaleForm, setQuickSaleForm] = useState(newQuickSaleItem());
     const [quickSaleCart, setQuickSaleCart] = useState([]);
     const [showInventoryForm, setShowInventoryForm] = useState(false);
-    const [formMode, setFormMode] = useState('inventory');
     const [showTransactionModal, setShowTransactionModal] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [showSuccess, setShowSuccess] = useState(false);
@@ -1475,34 +1474,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return (mobileInventoryProducts || []).filter((item) => resolveBucket(item.snapshot) === mobileInventoryTab);
     }, [mobileInventoryProducts, mobileInventoryTab]);
 
-    const handleSmartCategorySubmit = async (productData = {}) => {
+    const handleSmartCategorySubmit = async () => {
         setShowInventoryForm(false);
-
-        const qty = Math.max(0, parseInt(productData?.stock || '0', 10) || 0);
-        const unitCost = parseFloat(productData?.purchasePrice || '0') || 0;
-        if (qty > 0 && unitCost > 0) {
-            const now = new Date();
-            const entryCategory = extractCategoryName(productData?.category || '') || 'Purchase';
-            await addTransaction({
-                desc: `Purchase - ${String(productData?.name || 'Inventory Item').trim() || 'Inventory Item'}`,
-                amount: qty * unitCost,
-                quantity: qty,
-                type: 'expense',
-                category: entryCategory,
-                paymentMethod: String(productData?.paymentMode || 'Cash'),
-                notes: productData?.category?.level2 ? `SubCategory: ${productData.category.level2}` : '',
-                source: 'purchase',
-                salesmanName: user?.name,
-                salesmanNumber: user?.salesmanNumber || 0,
-                workerId: String(user?.id || ''),
-                productId: productData?.id || undefined,
-                timestamp: now.toISOString(),
-                date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            });
-        }
-
-        setToast(formMode === 'purchase' ? 'Purchase entry saved' : 'Product added');
+        setToast('Product added');
         setTimeout(() => setToast(''), 1800);
     };
 
@@ -2723,7 +2697,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     </div>
 
                     <div className="flex items-center gap-2.5 text-slate-300">
-                        <button onClick={() => { setFormMode('inventory'); setShowInventoryForm(true); }} title="Add Inventory" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Inventory</span></button>
+                        <button onClick={() => { setShowInventoryForm(true); }} title="Add Inventory" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Inventory</span></button>
                         <button onClick={() => setShowMobileInventoryModal(true)} title="Mobile Inventory" className="fab-animated" style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobile Inventory</span></button>
                         <button onClick={() => setShowOtherInventoryModal(true)} title="Other Inventory" className="fab-animated" style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}><span className="fab-icon"><Scale size={14} /></span><span className="fab-title">Other Inventory</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Pending Jobs" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Pending Jobs</span></button>
@@ -4383,5 +4357,3 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         </div>
     );
 }
-
-
