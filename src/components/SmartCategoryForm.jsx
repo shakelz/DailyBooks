@@ -169,8 +169,8 @@ export default function SmartCategoryForm({
         }
     }, [isOpen, initialData]);
 
-    const l1Categories = getLevel1Categories('expense');
-    const l2Categories = level1 ? getLevel2Categories(level1, 'expense') : [];
+    const l1Categories = getLevel1Categories('sales');
+    const l2Categories = level1 ? getLevel2Categories(level1, 'sales') : [];
     const allChips = [...CHIP_LIBRARY, ...customChips];
     const profit = (parseFloat(sellingPrice) || 0) - (parseFloat(purchasePrice) || 0);
 
@@ -196,14 +196,14 @@ export default function SmartCategoryForm({
 
     const handleAddCustomL1 = async () => {
         if (!customL1.trim()) return;
-        await addLevel1Category(customL1.trim(), null, 'expense');
+        await addLevel1Category(customL1.trim(), null, 'sales');
         setLevel1(customL1.trim());
         setCustomL1(''); setShowCustomL1(false);
     };
 
     const handleAddCustomL2 = async () => {
         if (!customL2.trim() || !level1) return;
-        await addLevel2Category(level1, customL2.trim(), null, 'expense');
+        await addLevel2Category(level1, customL2.trim(), null, 'sales');
         setLevel2(customL2.trim());
         setCustomL2(''); setShowCustomL2(false);
     };
@@ -386,11 +386,11 @@ export default function SmartCategoryForm({
             // Save Custom Categories or Update Images
             let resolvedParentCategoryId = '';
             if (level1 || customL1) {
-                const parentResult = await addLevel1Category(customL1 || level1, null, 'expense');
+                const parentResult = await addLevel1Category(customL1 || level1, null, 'sales');
                 resolvedParentCategoryId = String(parentResult?.categoryId || '').trim();
             }
             if (level2 || customL2) {
-                await addLevel2Category(level1 || customL1, customL2 || level2, null, 'expense', resolvedParentCategoryId);
+                await addLevel2Category(level1 || customL1, customL2 || level2, null, 'sales', resolvedParentCategoryId);
             }
 
             if (typeof onSaveSuccess === 'function') {
