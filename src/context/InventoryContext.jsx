@@ -209,7 +209,7 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         const lower = rawType.toLowerCase();
         if (!lower) return 'income';
         if (lower === 'income' || lower === 'product_sale' || lower === 'sale' || lower === 'repair_amount') return 'income';
-        if (lower === 'expense' || lower === 'shop_expense' || lower === 'product_purchase' || lower === 'purchase' || lower === 'adjustment_amount' || lower === 'adjustment') return 'expense';
+        if (lower === 'expense' || lower === 'shop_expense' || lower === 'product_purchase' || lower === 'product_expense' || lower === 'purchase' || lower === 'adjustment_amount' || lower === 'adjustment') return 'expense';
         return lower.includes('expense') || lower.includes('purchase') ? 'expense' : 'income';
     })();
 
@@ -582,17 +582,17 @@ function mapTxType(value, source = '') {
     const raw = cleanText(value).toLowerCase();
     const sourceRaw = cleanText(source).toLowerCase();
     if (!raw) {
-        if (sourceRaw === 'purchase') return 'product_purchase';
+        if (sourceRaw === 'purchase') return 'product_expense';
         if (sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_')) return 'repair_amount';
         if (sourceRaw === 'expense') return 'shop_expense';
         return 'product_sale';
     }
-    if (sourceRaw === 'purchase' && (raw === 'expense' || raw === 'purchase')) return 'product_purchase';
+    if (sourceRaw === 'purchase' && (raw === 'expense' || raw === 'purchase')) return 'product_expense';
     if ((sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_'))
         && (raw === 'income' || raw === 'repair' || raw === 'sale')) return 'repair_amount';
     if (raw === 'income' || raw === 'product_sale' || raw === 'sale') return 'product_sale';
     if (raw === 'shop_expense' || raw === 'expense') return 'shop_expense';
-    if (raw === 'product_purchase' || raw === 'purchase') return 'product_purchase';
+    if (raw === 'product_expense' || raw === 'product_purchase' || raw === 'purchase') return 'product_expense';
     if (raw === 'repair_amount' || raw === 'repair') return 'repair_amount';
     if (raw === 'adjustment_amount' || raw === 'adjustment') return 'adjustment_amount';
     return 'product_sale';
@@ -1875,10 +1875,14 @@ export function InventoryProvider({ children }) {
                 const normalizedSource = ['cash', 'sum_up'].includes(cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase())
                     ? cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase()
                     : 'cash';
+                const fallbackType = mapTxType(
+                    formattedTxn?.tx_type || formattedTxn?.type || txnWithInvoice?.tx_type || txnWithInvoice?.type,
+                    txnWithInvoice?.source || txnWithInvoice?.tx_source || formattedTxn?.source || formattedTxn?.tx_source
+                );
                 const fallbackPayload = {
                     ...formattedTxn,
-                    tx_type: 'product_sale',
-                    type: 'product_sale',
+                    tx_type: fallbackType || 'product_sale',
+                    type: fallbackType || 'product_sale',
                     source: normalizedSource,
                     tx_source: normalizedSource,
                 };
@@ -1887,8 +1891,11 @@ export function InventoryProvider({ children }) {
                 if (isUuidSyntaxError(insertResult.error, 'repair_id')) fallbackPayload.repair_id = null;
                 if (isUuidSyntaxError(insertResult.error, 'created_by')) fallbackPayload.created_by = null;
                 if (isEnumError(insertResult.error, 'tx_type') || isEnumError(insertResult.error, 'type')) {
-                    fallbackPayload.tx_type = 'product_sale';
-                    fallbackPayload.type = 'product_sale';
+                    const fallbackLegacyType = String(txnWithInvoice?.type || '').toLowerCase();
+                    const shouldBeExpense = fallbackLegacyType === 'expense'
+                        || String(txnWithInvoice?.source || '').toLowerCase() === 'purchase';
+                    fallbackPayload.tx_type = shouldBeExpense ? 'shop_expense' : 'product_sale';
+                    fallbackPayload.type = shouldBeExpense ? 'shop_expense' : 'product_sale';
                 }
                 if (isEnumError(insertResult.error, 'source') || isEnumError(insertResult.error, 'tx_source')) {
                     fallbackPayload.source = 'cash';

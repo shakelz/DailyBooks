@@ -223,7 +223,7 @@ function normalizeTxnType(value = '') {
     const raw = String(value || '').trim().toLowerCase();
     if (!raw) return 'income';
     if (raw === 'income' || raw === 'product_sale' || raw === 'sale' || raw === 'repair_amount') return 'income';
-    if (raw === 'expense' || raw === 'shop_expense' || raw === 'product_purchase' || raw === 'purchase' || raw === 'adjustment_amount' || raw === 'adjustment') return 'expense';
+    if (raw === 'expense' || raw === 'shop_expense' || raw === 'product_purchase' || raw === 'product_expense' || raw === 'purchase' || raw === 'adjustment_amount' || raw === 'adjustment') return 'expense';
     return raw.includes('expense') || raw.includes('purchase') ? 'expense' : 'income';
 }
 
@@ -725,6 +725,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [quickSaleForm, setQuickSaleForm] = useState(newQuickSaleItem());
     const [quickSaleCart, setQuickSaleCart] = useState([]);
     const [showInventoryForm, setShowInventoryForm] = useState(false);
+    const [isInventoryFormSubmitting, setIsInventoryFormSubmitting] = useState(false);
     const [showTransactionModal, setShowTransactionModal] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [showSuccess, setShowSuccess] = useState(false);
@@ -1182,6 +1183,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const txType = String(txn.tx_type || txn.type || '').toLowerCase();
             const source = String(txn.source || '').toLowerCase();
             const isPurchaseType = txType === 'product_purchase'
+                || txType === 'product_expense'
                 || txType === 'shop_expense'
                 || txType === 'adjustment_amount'
                 || txType === 'expense'
@@ -2329,11 +2331,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return (mobileInventoryProducts || []).filter((item) => resolveBucket(item.snapshot) === mobileInventoryTab);
     }, [mobileInventoryProducts, mobileInventoryTab]);
 
-    const handleSmartCategorySubmit = async () => {
-        setShowInventoryForm(false);
-        setToast('Product added');
+    const handleInventoryFormSaveSuccess = useCallback(() => {
+        setToast('Product added successfully');
         setTimeout(() => setToast(''), 1800);
-    };
+    }, []);
+
+    const handleInventoryFormSaveError = useCallback((error) => {
+        setToast(error?.message || 'Failed to add product');
+        setTimeout(() => setToast(''), 2200);
+    }, []);
 
     const buildSelectedDate = (dateValue) => {
         const selected = new Date(`${dateValue}T00:00:00`);
@@ -3609,7 +3615,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     </div>
 
                     <div className="flex items-center gap-2.5 text-slate-300">
-                        <button onClick={() => { setShowInventoryForm(true); }} title="Add Inventory" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Inventory</span></button>
+                        <button
+                            onClick={() => {
+                                if (isInventoryFormSubmitting) return;
+                                setShowInventoryForm(true);
+                            }}
+                            title="Add Inventory"
+                            disabled={isInventoryFormSubmitting}
+                            className={`fab-animated ${isInventoryFormSubmitting ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}
+                        ><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Inventory</span></button>
                         <button onClick={() => setShowMobileInventoryModal(true)} title="Mobile Inventory" className="fab-animated" style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobile Inventory</span></button>
                         <button onClick={() => setShowOtherInventoryModal(true)} title="Other Inventory" className="fab-animated" style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}><span className="fab-icon"><Scale size={14} /></span><span className="fab-title">Other Inventory</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Pending Jobs" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Pending Jobs</span></button>
@@ -4304,6 +4319,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 </div>
             )}
 
+            {isInventoryFormSubmitting && (
+                <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/30 backdrop-blur-[1px]">
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-2xl flex items-center gap-3">
+                        <span className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                        <span className="text-sm font-semibold text-slate-700">Adding product...</span>
+                    </div>
+                </div>
+            )}
+
             {toast && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-xl bg-slate-900 text-white px-3 py-2 text-xs font-semibold z-50">
                     {toast}
@@ -4497,7 +4521,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             <SmartCategoryForm
                 isOpen={showInventoryForm}
                 onClose={() => setShowInventoryForm(false)}
-                onSubmit={handleSmartCategorySubmit}
+                onProcessingChange={setIsInventoryFormSubmitting}
+                onSaveSuccess={handleInventoryFormSaveSuccess}
+                onSaveError={handleInventoryFormSaveError}
             />
 
             <TransactionModal

@@ -20,7 +20,15 @@ const CHIP_LIBRARY = [
 const HIDDEN_SPEC_KEYS = ['imei', 'color', 'condition', 'compatibility', 'quality', 'brand'];
 const PAYMENT_MODE_OPTIONS = ['Cash', 'Visa', 'Online'];
 
-export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialData = null }) {
+export default function SmartCategoryForm({
+    isOpen,
+    onClose,
+    onSubmit,
+    initialData = null,
+    onProcessingChange,
+    onSaveSuccess,
+    onSaveError,
+}) {
     const { activeShopId } = useAuth();
     const {
         lookupBarcode, addProduct, updateProduct,
@@ -67,6 +75,7 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
 
     const [errors, setErrors] = useState({});
     const [submitted, setSubmitted] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -160,8 +169,8 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
         }
     }, [isOpen, initialData]);
 
-    const l1Categories = getLevel1Categories('sales');
-    const l2Categories = level1 ? getLevel2Categories(level1, 'sales') : [];
+    const l1Categories = getLevel1Categories('expense');
+    const l2Categories = level1 ? getLevel2Categories(level1, 'expense') : [];
     const allChips = [...CHIP_LIBRARY, ...customChips];
     const profit = (parseFloat(sellingPrice) || 0) - (parseFloat(purchasePrice) || 0);
 
@@ -187,14 +196,14 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
 
     const handleAddCustomL1 = async () => {
         if (!customL1.trim()) return;
-        await addLevel1Category(customL1.trim(), null, 'sales');
+        await addLevel1Category(customL1.trim(), null, 'expense');
         setLevel1(customL1.trim());
         setCustomL1(''); setShowCustomL1(false);
     };
 
     const handleAddCustomL2 = async () => {
         if (!customL2.trim() || !level1) return;
-        await addLevel2Category(level1, customL2.trim(), null, 'sales');
+        await addLevel2Category(level1, customL2.trim(), null, 'expense');
         setLevel2(customL2.trim());
         setCustomL2(''); setShowCustomL2(false);
     };
@@ -317,45 +326,54 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
 
     const handleSubmit = async (e) => {
         if (e) e.preventDefault();
+        if (isSubmitting) return;
         setSubmitted(true);
         if (!validate()) return;
 
-        const isEditing = Boolean(initialData && initialData.id);
-        const uploadKey = isEditing
-            ? String(initialData.id)
-            : (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-                ? crypto.randomUUID()
-                : `tmp-${Date.now()}`);
-        const resolvedImageUrl = await uploadProductImageIfNeeded(uploadKey);
-
-        const productData = {
-            ...(isEditing ? { id: String(initialData.id) } : {}),
-            model: '',
-            name: name.trim() || `${level1} ${level2}`.trim(),
-            desc: name.trim() || `${level1} ${level2}`.trim(),
-            barcode: barcode ? barcode.trim() : null,
-            category: {
-                level1: customL1 || level1,
-                level2: customL2 || level2,
-                level3: null
-            },
-            purchasePrice: parseFloat(purchasePrice) || 0,
-            sellingPrice: parseFloat(sellingPrice) || 0,
-            purchaseFrom: purchaseFrom.trim(),
-            paymentMode: paymentMode.trim(),
-            stock: parseInt(stock) || 0,
-            stockAlert: {
-                red: parseInt(stockRed) || 0,
-                yellow: parseInt(stockYellow) || 0,
-                green: parseInt(stockGreen) || 0,
-            },
-            attributes: { ...dynamicFields },
-            productUrl: productUrl.trim() || null,
-            notes: notes.trim(),
-            image: resolvedImageUrl,
-        };
+        setIsSubmitting(true);
+        if (typeof onProcessingChange === 'function') {
+            onProcessingChange(true);
+        }
+        if (typeof onClose === 'function') {
+            onClose();
+        }
 
         try {
+            const isEditing = Boolean(initialData && initialData.id);
+            const uploadKey = isEditing
+                ? String(initialData.id)
+                : (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                    ? crypto.randomUUID()
+                    : `tmp-${Date.now()}`);
+            const resolvedImageUrl = await uploadProductImageIfNeeded(uploadKey);
+
+            const productData = {
+                ...(isEditing ? { id: String(initialData.id) } : {}),
+                model: '',
+                name: name.trim() || `${level1} ${level2}`.trim(),
+                desc: name.trim() || `${level1} ${level2}`.trim(),
+                barcode: barcode ? barcode.trim() : null,
+                category: {
+                    level1: customL1 || level1,
+                    level2: customL2 || level2,
+                    level3: null
+                },
+                purchasePrice: parseFloat(purchasePrice) || 0,
+                sellingPrice: parseFloat(sellingPrice) || 0,
+                purchaseFrom: purchaseFrom.trim(),
+                paymentMode: paymentMode.trim(),
+                stock: parseInt(stock) || 0,
+                stockAlert: {
+                    red: parseInt(stockRed) || 0,
+                    yellow: parseInt(stockYellow) || 0,
+                    green: parseInt(stockGreen) || 0,
+                },
+                attributes: { ...dynamicFields },
+                productUrl: productUrl.trim() || null,
+                notes: notes.trim(),
+                image: resolvedImageUrl,
+            };
+
             if (initialData && initialData.id) {
                 await updateProduct(initialData.id, productData);
             } else {
@@ -368,32 +386,28 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
             // Save Custom Categories or Update Images
             let resolvedParentCategoryId = '';
             if (level1 || customL1) {
-                const parentResult = await addLevel1Category(customL1 || level1, null, 'sales');
+                const parentResult = await addLevel1Category(customL1 || level1, null, 'expense');
                 resolvedParentCategoryId = String(parentResult?.categoryId || '').trim();
             }
             if (level2 || customL2) {
-                await addLevel2Category(level1 || customL1, customL2 || level2, null, 'sales', resolvedParentCategoryId);
+                await addLevel2Category(level1 || customL1, customL2 || level2, null, 'expense', resolvedParentCategoryId);
             }
 
-            // Reset
-            setLevel1(''); setLevel2(''); setLevel3Model('');
-            setName(''); setBarcode('');
-            setPurchasePrice(''); setSellingPrice('');
-            setPurchaseFrom('');
-            setPaymentMode('');
-            setStock('1');
-            setStockRed(''); setStockYellow(''); setStockGreen('');
-            setActiveChips([]); setDynamicFields({});
-            setProductUrl(''); setNotes('');
-            setImagePreview(null); setImageFile(null); setErrors({}); setSubmitted(false);
-            setCustomChips([]);
-
-            setTimeout(() => {
-                onClose();
-            }, 500);
+            if (typeof onSaveSuccess === 'function') {
+                onSaveSuccess(productData);
+            }
         } catch (error) {
             console.error('Product save failed:', error);
-            setErrors(prev => ({ ...prev, submit: error?.message || 'Failed to save product. Please try again.' }));
+            if (typeof onSaveError === 'function') {
+                onSaveError(error);
+            } else {
+                setErrors(prev => ({ ...prev, submit: error?.message || 'Failed to save product. Please try again.' }));
+            }
+        } finally {
+            if (typeof onProcessingChange === 'function') {
+                onProcessingChange(false);
+            }
+            setIsSubmitting(false);
         }
     };
 
@@ -636,8 +650,8 @@ export default function SmartCategoryForm({ isOpen, onClose, onSubmit, initialDa
                             </p>
                         )}
                         <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
-                            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-slate-500 font-bold hover:bg-slate-100 transition-colors">Cancel</button>
-                            <button type="submit" className="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 active:scale-95 transition-all">
+                            <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 rounded-lg text-slate-500 font-bold hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">Cancel</button>
+                            <button type="submit" disabled={isSubmitting} className="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
                                 Save Product
                             </button>
                         </div>
