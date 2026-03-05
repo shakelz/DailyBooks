@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useInventory } from '../../context/InventoryContext';
 import { supabase } from '../../supabaseClient';
 import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash, Phone, Upload, RefreshCw } from 'lucide-react';
 
@@ -13,6 +14,7 @@ export default function AdminSettings() {
         autoLockEnabled, setAutoLockEnabled,
         autoLockTimeout, setAutoLockTimeout
     } = useAuth();
+    const { clearLocalInventoryCache } = useInventory();
 
     // ── Password State ──
     const [newPass, setNewPass] = useState('');
@@ -417,6 +419,10 @@ export default function AdminSettings() {
                 }
             });
 
+            if (typeof clearLocalInventoryCache === 'function') {
+                clearLocalInventoryCache();
+            }
+
             if ('caches' in window) {
                 const cacheKeys = await caches.keys();
                 await Promise.all(cacheKeys.map((key) => caches.delete(key)));
@@ -433,6 +439,34 @@ export default function AdminSettings() {
             }, 300);
         } catch (error) {
             setAppRefreshMsg(error?.message || 'Failed to refresh app data. Please try again.');
+            setIsRefreshingAppData(false);
+        }
+    };
+
+    const handleClearLocalCacheOnly = async () => {
+        const confirmed = window.confirm('Clear local DailyBooks cache on this device?');
+        if (!confirmed) return;
+
+        setIsRefreshingAppData(true);
+        setAppRefreshMsg('Clearing local cache...');
+        try {
+            Object.keys(localStorage || {}).forEach((key) => {
+                if (String(key).startsWith('dailybooks_')) {
+                    localStorage.removeItem(key);
+                }
+            });
+            Object.keys(sessionStorage || {}).forEach((key) => {
+                if (String(key).startsWith('dailybooks_')) {
+                    sessionStorage.removeItem(key);
+                }
+            });
+            if (typeof clearLocalInventoryCache === 'function') {
+                clearLocalInventoryCache();
+            }
+            setAppRefreshMsg('Local cache cleared.');
+        } catch (error) {
+            setAppRefreshMsg(error?.message || 'Failed to clear local cache.');
+        } finally {
             setIsRefreshingAppData(false);
         }
     };
@@ -1154,15 +1188,26 @@ export default function AdminSettings() {
                 </div>
                 <div className="max-w-2xl space-y-3">
                     <p className="text-sm text-slate-600">Use this on staff devices when they are seeing old data due to browser cache or old installed app files.</p>
-                    <button
-                        type="button"
-                        onClick={handleForceRefreshAppData}
-                        disabled={isRefreshingAppData}
-                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white font-semibold transition-colors ${isRefreshingAppData ? 'bg-slate-400 cursor-not-allowed' : 'bg-sky-600 hover:bg-sky-700'}`}
-                    >
-                        <RefreshCw size={16} className={isRefreshingAppData ? 'animate-spin' : ''} />
-                        {isRefreshingAppData ? 'Refreshing...' : 'Force Refresh App Data'}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={handleClearLocalCacheOnly}
+                            disabled={isRefreshingAppData}
+                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white font-semibold transition-colors ${isRefreshingAppData ? 'bg-slate-400 cursor-not-allowed' : 'bg-slate-700 hover:bg-slate-800'}`}
+                        >
+                            <Trash2 size={16} />
+                            Clear Local Cache
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleForceRefreshAppData}
+                            disabled={isRefreshingAppData}
+                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white font-semibold transition-colors ${isRefreshingAppData ? 'bg-slate-400 cursor-not-allowed' : 'bg-sky-600 hover:bg-sky-700'}`}
+                        >
+                            <RefreshCw size={16} className={isRefreshingAppData ? 'animate-spin' : ''} />
+                            {isRefreshingAppData ? 'Refreshing...' : 'Force Refresh App Data'}
+                        </button>
+                    </div>
                     {appRefreshMsg && <p className="text-xs font-medium text-slate-500">{appRefreshMsg}</p>}
                 </div>
             </div>

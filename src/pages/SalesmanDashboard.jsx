@@ -668,6 +668,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         deleteTransaction,
         adjustStock,
         deleteProduct,
+        clearLocalInventoryCache,
         getStockSeverity,
         getLevel1Categories,
         getLevel2Categories,
@@ -738,6 +739,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const lockTimerRef = useRef(null);
     const lockDebounceRef = useRef(null);
     const repairTxnRetryGuardRef = useRef(new Map());
+    const syncedRepairAdvanceRefsRef = useRef(new Set());
+    const repairAdvanceSyncBootstrappedRef = useRef(false);
+    const pendingRepairStageTxnRef = useRef(new Set());
     const transactionDetailRequestRef = useRef(0);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
@@ -976,6 +980,38 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     useEffect(() => {
         writeLockState(readLastActivityAt(), isLocked);
     }, [isLocked]);
+
+    const handleClearLocalCache = useCallback(() => {
+        if (!adminView) return;
+        const confirmed = window.confirm('Clear local DailyBooks cache on this browser/device?');
+        if (!confirmed) return;
+
+        try {
+            Object.keys(localStorage || {}).forEach((key) => {
+                if (String(key).startsWith('dailybooks_')) {
+                    localStorage.removeItem(key);
+                }
+            });
+            Object.keys(sessionStorage || {}).forEach((key) => {
+                if (String(key).startsWith('dailybooks_')) {
+                    sessionStorage.removeItem(key);
+                }
+            });
+        } catch {
+            // Ignore browser storage clear issues.
+        }
+
+        repairTxnRetryGuardRef.current.clear();
+        syncedRepairAdvanceRefsRef.current.clear();
+        pendingRepairStageTxnRef.current.clear();
+        repairAdvanceSyncBootstrappedRef.current = false;
+        if (typeof clearLocalInventoryCache === 'function') {
+            clearLocalInventoryCache();
+        }
+
+        setToast('Local cache cleared for this device.');
+        setTimeout(() => setToast(''), 1800);
+    }, [adminView, clearLocalInventoryCache]);
 
 
     const todayStart = useMemo(() => {
@@ -2538,7 +2574,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return dt.toLocaleString('de-DE');
     };
 
-    const getRepairInvoiceNumber = (job = {}) => String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim();
+    const getRepairInvoiceNumber = useCallback((job = {}) => String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim(), []);
 
     const filteredPendingOrders = useMemo(() => {
         const query = String(repairSearchQuery || '').trim().toLowerCase();
@@ -2671,10 +2707,18 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         popup.print();
     };
 
-    const hasRepairStageTransaction = (job, stage = 'ADVANCE') => {
+    const getRepairStageSyncKey = useCallback((job, stage = 'ADVANCE') => {
+        const repairRef = getRepairInvoiceNumber(job);
+        if (!repairRef) return '';
+        return `repair:${String(repairRef).toLowerCase()}|stage:${String(stage || '').toUpperCase()}`;
+    }, [getRepairInvoiceNumber]);
+
+    const hasRepairStageTransaction = useCallback((job, stage = 'ADVANCE') => {
         const marker = `RepairRef:${getRepairInvoiceNumber(job)}`;
         const stageMarker = `${marker} | Stage:${stage}`;
         const stageText = `stage:${String(stage || '').toLowerCase()}`;
+        const syncKey = getRepairStageSyncKey(job, stage);
+        if (syncKey && pendingRepairStageTxnRef.current.has(syncKey)) return true;
         return (transactions || []).some((txn) => {
             const notes = String(txn?.notes || '');
             const notesLower = notes.toLowerCase();
@@ -2684,7 +2728,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 || (descLower.includes('repair advance') && stage === 'ADVANCE' && notesLower.includes(marker.toLowerCase()))
                 || (descLower.includes('repair remaining') && stage === 'REMAINING' && notesLower.includes(marker.toLowerCase()));
         });
-    };
+    }, [getRepairStageSyncKey, transactions]);
 
     const canAttemptRepairStageTransaction = useCallback((job, stage = 'ADVANCE') => {
         const marker = `RepairRef:${getRepairInvoiceNumber(job)}|${stage}`;
@@ -2703,50 +2747,80 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         repairTxnRetryGuardRef.current.delete(marker);
     }, []);
 
-    const ensureRepairAdvanceTransaction = async (job) => {
+    const ensureRepairAdvanceTransaction = useCallback(async (job) => {
         if (!job?.id) return;
         const advanceAmount = Number(job.advanceAmount || 0) || 0;
         if (advanceAmount <= 0) return;
         if (hasRepairStageTransaction(job, 'ADVANCE')) return;
         if (!canAttemptRepairStageTransaction(job, 'ADVANCE')) return;
 
+        const syncKey = getRepairStageSyncKey(job, 'ADVANCE');
+        if (syncKey && pendingRepairStageTxnRef.current.has(syncKey)) return;
+        if (syncKey) pendingRepairStageTxnRef.current.add(syncKey);
+
         const repairReference = getRepairInvoiceNumber(job);
         const marker = `RepairRef:${repairReference}`;
         const bookedAt = job?.createdAt ? new Date(job.createdAt) : new Date();
         const when = Number.isNaN(bookedAt.getTime()) ? new Date() : bookedAt;
 
-        await addTransaction({
-            desc: `Repair Advance: ${job.deviceModel || 'Device'} (${repairReference || '-'})`,
-            amount: advanceAmount,
-            quantity: 1,
-            type: 'income',
-            category: 'Repair Service',
-            paymentMethod: 'Cash',
-            notes: `${marker} | Stage:ADVANCE | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
-            source: 'repair',
-            salesmanName: user?.name,
-            salesmanNumber: user?.salesmanNumber || 0,
-            workerId: String(user?.id || ''),
-            timestamp: when.toISOString(),
-            date: when.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-            time: when.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-        });
-        clearRepairStageTransactionFailure(job, 'ADVANCE');
-    };
+        try {
+            await addTransaction({
+                desc: `Repair Advance: ${job.deviceModel || 'Device'} (${repairReference || '-'})`,
+                amount: advanceAmount,
+                quantity: 1,
+                type: 'income',
+                category: 'Repair Service',
+                paymentMethod: 'Cash',
+                notes: `${marker} | Stage:ADVANCE | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
+                source: 'repair',
+                salesmanName: user?.name,
+                salesmanNumber: user?.salesmanNumber || 0,
+                workerId: String(user?.id || ''),
+                timestamp: when.toISOString(),
+                date: when.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: when.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            });
+            clearRepairStageTransactionFailure(job, 'ADVANCE');
+        } finally {
+            if (syncKey) pendingRepairStageTxnRef.current.delete(syncKey);
+        }
+    }, [addTransaction, canAttemptRepairStageTransaction, clearRepairStageTransactionFailure, getRepairStageSyncKey, hasRepairStageTransaction, user?.id, user?.name, user?.salesmanNumber]);
 
     useEffect(() => {
+        const jobs = Array.isArray(repairJobs) ? repairJobs : [];
+        // Baseline existing DB repairs once; auto-sync only newly observed repairs in this session.
+        if (!repairAdvanceSyncBootstrappedRef.current) {
+            jobs.forEach((job) => {
+                const ref = String(getRepairInvoiceNumber(job) || '').trim().toLowerCase();
+                if (ref) syncedRepairAdvanceRefsRef.current.add(ref);
+            });
+            repairAdvanceSyncBootstrappedRef.current = true;
+            return;
+        }
+
+        const newJobs = jobs.filter((job) => {
+            const ref = String(getRepairInvoiceNumber(job) || '').trim().toLowerCase();
+            if (!ref) return false;
+            if (syncedRepairAdvanceRefsRef.current.has(ref)) return false;
+            syncedRepairAdvanceRefsRef.current.add(ref);
+            return true;
+        });
+        if (!newJobs.length) return;
+
         const syncRepairAdvances = async () => {
-            for (const job of (repairJobs || [])) {
+            for (const job of newJobs) {
                 try {
                     await ensureRepairAdvanceTransaction(job);
                 } catch (error) {
+                    const ref = String(getRepairInvoiceNumber(job) || '').trim().toLowerCase();
+                    if (ref) syncedRepairAdvanceRefsRef.current.delete(ref);
                     markRepairStageTransactionFailure(job, 'ADVANCE');
                     console.error('Repair advance transaction sync failed:', error);
                 }
             }
         };
         syncRepairAdvances();
-    }, [repairJobs]);
+    }, [ensureRepairAdvanceTransaction, getRepairInvoiceNumber, markRepairStageTransactionFailure, repairJobs]);
 
     const completePendingRepair = async (job) => {
         if (!job?.id) return;
@@ -2764,26 +2838,35 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 if (!canAttemptRepairStageTransaction(job, 'REMAINING')) {
                     return;
                 }
+                const remainingSyncKey = getRepairStageSyncKey(job, 'REMAINING');
+                if (remainingSyncKey && pendingRepairStageTxnRef.current.has(remainingSyncKey)) {
+                    return;
+                }
+                if (remainingSyncKey) pendingRepairStageTxnRef.current.add(remainingSyncKey);
                 const repairReference = getRepairInvoiceNumber(job);
                 const marker = `RepairRef:${repairReference}`;
                 const now = new Date();
-                await addTransaction({
-                    desc: `Repair Remaining: ${job.deviceModel || 'Device'} (${repairReference || '-'})`,
-                    amount: remainingAmount,
-                    quantity: 1,
-                    type: 'income',
-                    category: 'Repair Service',
-                    paymentMethod: 'Cash',
-                    notes: `${marker} | Stage:REMAINING | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
-                    source: 'repair',
-                    salesmanName: user?.name,
-                    salesmanNumber: user?.salesmanNumber || 0,
-                    workerId: String(user?.id || ''),
-                    timestamp: now.toISOString(),
-                    date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                    time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-                });
-                clearRepairStageTransactionFailure(job, 'REMAINING');
+                try {
+                    await addTransaction({
+                        desc: `Repair Remaining: ${job.deviceModel || 'Device'} (${repairReference || '-'})`,
+                        amount: remainingAmount,
+                        quantity: 1,
+                        type: 'income',
+                        category: 'Repair Service',
+                        paymentMethod: 'Cash',
+                        notes: `${marker} | Stage:REMAINING | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
+                        source: 'repair',
+                        salesmanName: user?.name,
+                        salesmanNumber: user?.salesmanNumber || 0,
+                        workerId: String(user?.id || ''),
+                        timestamp: now.toISOString(),
+                        date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                        time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                    });
+                    clearRepairStageTransactionFailure(job, 'REMAINING');
+                } finally {
+                    if (remainingSyncKey) pendingRepairStageTxnRef.current.delete(remainingSyncKey);
+                }
             }
             setToast(`Repair ${getRepairInvoiceNumber(job) || ''} marked completed`);
             setTimeout(() => setToast(''), 1800);
@@ -2995,7 +3078,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return () => {
             cancelled = true;
         };
-    }, [user]);
+    }, [user?.shop_id]);
 
     useEffect(() => {
         const query = topBarcodeQuery.trim();
@@ -3369,6 +3452,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
                         <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
                         <button onClick={() => setShowExcludedCategoriesModal(true)} title="Excluded Categories" className="fab-animated" style={{ '--fab-i': '#f59e0b', '--fab-j': '#ea580c' }}><span className="fab-icon"><Tags size={14} /></span><span className="fab-title">Excluded Categories</span></button>
+                        {adminView && (
+                            <button onClick={handleClearLocalCache} title="Clear Local Cache" className="fab-animated" style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}><span className="fab-icon"><Trash2 size={14} /></span><span className="fab-title">Clear Cache</span></button>
+                        )}
                         <button onClick={() => setShowProfileModal(true)} className="h-8 w-8 rounded-lg border border-white/25 bg-white/20 text-white overflow-hidden flex items-center justify-center" title={user?.name || 'Profile'}>
                             {user?.photo ? (
                                 <img src={user.photo} alt={user?.name || 'Profile'} className="w-full h-full object-cover" />

@@ -596,6 +596,21 @@ function mapTxSource(value) {
     return raw;
 }
 
+function extractTransactionReferenceKey(notes = '') {
+    const normalized = cleanText(notes).toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+
+    const referenceMatch = normalized.match(/(repairref|onlineorderref):\s*[^|]+/i);
+    if (!referenceMatch || !referenceMatch[0]) return '';
+    const referenceToken = referenceMatch[0].replace(/\s+/g, '');
+
+    const stageMatch = normalized.match(/stage:\s*([a-z_]+)/i);
+    const stageToken = stageMatch && stageMatch[1]
+        ? `|stage:${String(stageMatch[1]).toLowerCase()}`
+        : '';
+    return `${referenceToken}${stageToken}`;
+}
+
 function isUuidLike(value) {
     const raw = cleanText(value).toLowerCase();
     if (!raw) return false;
@@ -669,6 +684,17 @@ function readTransactionSnapshots() {
 
 function writeTransactionSnapshots(next) {
     inMemoryTransactionSnapshots = next && typeof next === 'object' ? { ...next } : {};
+}
+
+function clearTransactionSnapshotsCache() {
+    inMemoryTransactionSnapshots = {};
+    if (typeof window !== 'undefined') {
+        try {
+            window.localStorage.removeItem(TRANSACTION_SNAPSHOT_STORAGE_KEY);
+        } catch {
+            // Ignore local cache clear failures.
+        }
+    }
 }
 
 function saveTransactionSnapshot(txnId, snapshot) {
@@ -914,10 +940,15 @@ export function InventoryProvider({ children }) {
         [salesmen, workerDirectory]
     );
     const workerLookupRef = useRef(workerLookup);
+    const transactionsRef = useRef(transactions);
+    const pendingTransactionDedupeRef = useRef(new Set());
     const addTransactionRef = useRef(null);
     useEffect(() => {
         workerLookupRef.current = workerLookup;
     }, [workerLookup]);
+    useEffect(() => {
+        transactionsRef.current = Array.isArray(transactions) ? transactions : [];
+    }, [transactions]);
     const categoryNameToId = useMemo(() => {
         return (Array.isArray(l1Categories) ? l1Categories : []).reduce((acc, category) => {
             const catObject = category && typeof category === 'object' ? category : null;
@@ -1564,136 +1595,177 @@ export function InventoryProvider({ children }) {
         if (!sid) throw new Error('No active shop selected.');
 
         const incomingTxnId = cleanText(txn?.id || txn?.transactionId || txn?.transaction_id);
+        const incomingReferenceKey = extractTransactionReferenceKey(txn?.notes);
+        const activeRows = Array.isArray(transactionsRef.current) ? transactionsRef.current : [];
+        const isDuplicateCandidate = (row = {}) => {
+            if (incomingTxnId) {
+                const rowIds = [
+                    cleanText(row?.id),
+                    cleanText(row?.transactionId),
+                    cleanText(row?.transaction_id),
+                ];
+                if (rowIds.includes(incomingTxnId)) return true;
+            }
+            if (incomingReferenceKey) {
+                return extractTransactionReferenceKey(row?.notes) === incomingReferenceKey;
+            }
+            return false;
+        };
+        const matchedExisting = activeRows.find((row) => isDuplicateCandidate(row));
+
+        if (matchedExisting) {
+            return matchedExisting;
+        }
+
+        const dedupeKeys = [];
+        if (incomingTxnId) dedupeKeys.push(`id:${incomingTxnId}`);
+        if (incomingReferenceKey) dedupeKeys.push(`ref:${incomingReferenceKey}`);
+
+        const duplicateInFlight = dedupeKeys.some((key) => pendingTransactionDedupeRef.current.has(key));
+        if (duplicateInFlight) {
+            const inFlightMatch = (Array.isArray(transactionsRef.current) ? transactionsRef.current : []).find((row) => isDuplicateCandidate(row));
+            if (inFlightMatch) return inFlightMatch;
+            const syntheticId = incomingTxnId || `dup-${Date.now()}`;
+            return normalizeTransactionRecord(
+                { ...txn, id: syntheticId, transactionId: syntheticId, shop_id: sid },
+                { workersById: workerLookup }
+            );
+        }
+        dedupeKeys.forEach((key) => pendingTransactionDedupeRef.current.add(key));
+
         const optimisticTxnId = incomingTxnId || (
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()
                 : `txn-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
         );
-
-        const formattedTxn = buildTransactionDBPayload(txn, false, sid);
-        const normalizedTxn = normalizeTransactionRecord(
-            {
-                ...txn,
-                ...formattedTxn,
-                id: optimisticTxnId,
-                transactionId: optimisticTxnId,
-                invoice_number: cleanText(txn?.invoice_number || txn?.invoiceNumber || formattedTxn?.invoice_number),
-            },
-            { workersById: workerLookup }
-        );
-        const snapshot = buildTransactionSnapshot({ ...txn, ...normalizedTxn });
-        saveTransactionSnapshot(optimisticTxnId, snapshot);
-        const hydratedTxn = mergeTransactionWithSnapshot(normalizedTxn, { [optimisticTxnId]: snapshot });
-
-        setTransactions(prev => {
-            if (prev.some(t => String(t.id) === String(hydratedTxn.id))) return prev;
-            return [hydratedTxn, ...prev];
-        });
-
-        const insertResult = await executeWithPrunedColumns(
-            (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
-            formattedTxn
-        );
-
-        let writePayload = formattedTxn;
-        let finalWriteResult = insertResult;
-
-        if (insertResult.error) {
-            const normalizedSource = ['cash', 'sum_up'].includes(cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase())
-                ? cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase()
-                : 'cash';
-            const fallbackPayload = {
-                ...formattedTxn,
-                tx_type: 'product_sale',
-                type: 'product_sale',
-                source: normalizedSource,
-                tx_source: normalizedSource,
-            };
-
-            if (isUuidSyntaxError(insertResult.error, 'product_id')) fallbackPayload.product_id = null;
-            if (isUuidSyntaxError(insertResult.error, 'repair_id')) fallbackPayload.repair_id = null;
-            if (isUuidSyntaxError(insertResult.error, 'created_by')) fallbackPayload.created_by = null;
-            if (isEnumError(insertResult.error, 'tx_type') || isEnumError(insertResult.error, 'type')) {
-                fallbackPayload.tx_type = 'product_sale';
-                fallbackPayload.type = 'product_sale';
-            }
-            if (isEnumError(insertResult.error, 'source') || isEnumError(insertResult.error, 'tx_source')) {
-                fallbackPayload.source = 'cash';
-                fallbackPayload.tx_source = 'cash';
-            }
-
-            const retryResult = await executeWithPrunedColumns(
-                (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
-                fallbackPayload
-            );
-
-            if (retryResult.error) {
-                setTransactions(prev => prev.filter(t => String(t.id) !== String(optimisticTxnId)));
-                removeTransactionSnapshot(optimisticTxnId);
-                throw new Error(retryResult.error?.message || insertResult.error.message || 'Failed to save transaction.');
-            }
-
-            writePayload = fallbackPayload;
-            finalWriteResult = retryResult;
-        }
-
-        const insertedRow = finalWriteResult?.data && typeof finalWriteResult.data === 'object'
-            ? finalWriteResult.data
-            : {};
-        const persistedTxnId = cleanText(insertedRow?.id || insertedRow?.transaction_id || insertedRow?.transactionId) || optimisticTxnId;
-        const persistedTxn = normalizeTransactionRecord(
-            {
-                ...txn,
-                ...writePayload,
-                ...insertedRow,
-                id: persistedTxnId,
-                transactionId: persistedTxnId,
-                source: cleanText(insertedRow?.source || insertedRow?.tx_source || writePayload?.source || writePayload?.tx_source || txn?.source || 'cash'),
-                invoice_number: cleanText(insertedRow?.invoice_number || txn?.invoice_number || txn?.invoiceNumber || writePayload?.invoice_number),
-            },
-            { workersById: workerLookup }
-        );
-        const persistedSnapshot = buildTransactionSnapshot({
-            ...txn,
-            ...persistedTxn,
-            transactionItems: hydratedTxn?.transactionItems || txn?.transactionItems || [],
-        });
-
-        saveTransactionSnapshot(persistedTxnId, persistedSnapshot);
-        if (persistedTxnId !== optimisticTxnId) {
-            removeTransactionSnapshot(optimisticTxnId);
-        }
-
-        const hydratedPersistedTxn = mergeTransactionWithSnapshot(persistedTxn, { [persistedTxnId]: persistedSnapshot });
-        setTransactions(prev => [
-            hydratedPersistedTxn,
-            ...prev.filter((t) => {
-                const rowId = String(t.id || '');
-                return rowId !== String(optimisticTxnId) && rowId !== String(persistedTxnId);
-            }),
-        ]);
-
-        supabase.channel(`public:unified_sync:${sid}`).send({
-            type: 'broadcast',
-            event: 'transaction_sync',
-            payload: { action: 'INSERT', data: { ...hydratedPersistedTxn, shop_id: sid } }
-        }).catch(e => console.error(e));
-
         try {
-            await syncTransactionItems(
+            const formattedTxn = buildTransactionDBPayload(txn, false, sid);
+            const normalizedTxn = normalizeTransactionRecord(
                 {
                     ...txn,
-                    ...hydratedPersistedTxn,
+                    ...formattedTxn,
+                    id: optimisticTxnId,
+                    transactionId: optimisticTxnId,
+                    invoice_number: cleanText(txn?.invoice_number || txn?.invoiceNumber || formattedTxn?.invoice_number),
+                },
+                { workersById: workerLookup }
+            );
+            const snapshot = buildTransactionSnapshot({ ...txn, ...normalizedTxn });
+            saveTransactionSnapshot(optimisticTxnId, snapshot);
+            const hydratedTxn = mergeTransactionWithSnapshot(normalizedTxn, { [optimisticTxnId]: snapshot });
+
+            setTransactions(prev => {
+                if (prev.some(t => String(t.id) === String(hydratedTxn.id))) return prev;
+                return [hydratedTxn, ...prev];
+            });
+
+            const insertResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
+                formattedTxn
+            );
+
+            let writePayload = formattedTxn;
+            let finalWriteResult = insertResult;
+
+            if (insertResult.error) {
+                const normalizedSource = ['cash', 'sum_up'].includes(cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase())
+                    ? cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase()
+                    : 'cash';
+                const fallbackPayload = {
+                    ...formattedTxn,
+                    tx_type: 'product_sale',
+                    type: 'product_sale',
+                    source: normalizedSource,
+                    tx_source: normalizedSource,
+                };
+
+                if (isUuidSyntaxError(insertResult.error, 'product_id')) fallbackPayload.product_id = null;
+                if (isUuidSyntaxError(insertResult.error, 'repair_id')) fallbackPayload.repair_id = null;
+                if (isUuidSyntaxError(insertResult.error, 'created_by')) fallbackPayload.created_by = null;
+                if (isEnumError(insertResult.error, 'tx_type') || isEnumError(insertResult.error, 'type')) {
+                    fallbackPayload.tx_type = 'product_sale';
+                    fallbackPayload.type = 'product_sale';
+                }
+                if (isEnumError(insertResult.error, 'source') || isEnumError(insertResult.error, 'tx_source')) {
+                    fallbackPayload.source = 'cash';
+                    fallbackPayload.tx_source = 'cash';
+                }
+
+                const retryResult = await executeWithPrunedColumns(
+                    (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
+                    fallbackPayload
+                );
+
+                if (retryResult.error) {
+                    setTransactions(prev => prev.filter(t => String(t.id) !== String(optimisticTxnId)));
+                    removeTransactionSnapshot(optimisticTxnId);
+                    throw new Error(retryResult.error?.message || insertResult.error.message || 'Failed to save transaction.');
+                }
+
+                writePayload = fallbackPayload;
+                finalWriteResult = retryResult;
+            }
+
+            const insertedRow = finalWriteResult?.data && typeof finalWriteResult.data === 'object'
+                ? finalWriteResult.data
+                : {};
+            const persistedTxnId = cleanText(insertedRow?.id || insertedRow?.transaction_id || insertedRow?.transactionId) || optimisticTxnId;
+            const persistedTxn = normalizeTransactionRecord(
+                {
+                    ...txn,
+                    ...writePayload,
+                    ...insertedRow,
                     id: persistedTxnId,
                     transactionId: persistedTxnId,
+                    source: cleanText(insertedRow?.source || insertedRow?.tx_source || writePayload?.source || writePayload?.tx_source || txn?.source || 'cash'),
+                    invoice_number: cleanText(insertedRow?.invoice_number || txn?.invoice_number || txn?.invoiceNumber || writePayload?.invoice_number),
                 },
-                sid
+                { workersById: workerLookup }
             );
-        } catch (itemError) {
-            console.error(itemError);
-        }
+            const persistedSnapshot = buildTransactionSnapshot({
+                ...txn,
+                ...persistedTxn,
+                transactionItems: hydratedTxn?.transactionItems || txn?.transactionItems || [],
+            });
 
-        return hydratedPersistedTxn;
+            saveTransactionSnapshot(persistedTxnId, persistedSnapshot);
+            if (persistedTxnId !== optimisticTxnId) {
+                removeTransactionSnapshot(optimisticTxnId);
+            }
+
+            const hydratedPersistedTxn = mergeTransactionWithSnapshot(persistedTxn, { [persistedTxnId]: persistedSnapshot });
+            setTransactions(prev => [
+                hydratedPersistedTxn,
+                ...prev.filter((t) => {
+                    const rowId = String(t.id || '');
+                    return rowId !== String(optimisticTxnId) && rowId !== String(persistedTxnId);
+                }),
+            ]);
+
+            supabase.channel(`public:unified_sync:${sid}`).send({
+                type: 'broadcast',
+                event: 'transaction_sync',
+                payload: { action: 'INSERT', data: { ...hydratedPersistedTxn, shop_id: sid } }
+            }).catch(e => console.error(e));
+
+            try {
+                await syncTransactionItems(
+                    {
+                        ...txn,
+                        ...hydratedPersistedTxn,
+                        id: persistedTxnId,
+                        transactionId: persistedTxnId,
+                    },
+                    sid
+                );
+            } catch (itemError) {
+                console.error(itemError);
+            }
+
+            return hydratedPersistedTxn;
+        } finally {
+            dedupeKeys.forEach((key) => pendingTransactionDedupeRef.current.delete(key));
+        }
     }, [activeShopId, workerLookup, syncTransactionItems]);
 
     useEffect(() => {
@@ -1790,9 +1862,16 @@ export function InventoryProvider({ children }) {
 
     const clearTransactions = useCallback(async () => {
         setTransactions([]);
+        clearTransactionSnapshotsCache();
+        pendingTransactionDedupeRef.current.clear();
         // For safety, let's not actually TRUNCATE the cloud DB on UI click unless explicitly defined
         // We will just clear local UI if they hit clear (maybe we shouldn't even support clearing all on cloud).
         console.warn("Clear transactions ignored on Cloud DB for safety.");
+    }, []);
+
+    const clearLocalInventoryCache = useCallback(() => {
+        clearTransactionSnapshotsCache();
+        pendingTransactionDedupeRef.current.clear();
     }, []);
 
     const bulkUpdateCategoryPricing = useCallback(async (categoryName, percentage) => {
@@ -2148,6 +2227,7 @@ export function InventoryProvider({ children }) {
         updateTransaction,
         deleteTransaction,
         clearTransactions,
+        clearLocalInventoryCache,
         deleteProduct,
         lookupBarcode,
         getProducts: () => [...products],
