@@ -905,16 +905,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         () => rangeTransactions.filter((txn) => {
             if (txn.type !== 'expense') return false;
             if (isCashbookTransaction(txn)) return false;
-            const source = String(txn.source || '').toLowerCase();
-            const desc = String(txn.desc || '').toLowerCase();
-            return source === 'purchase'
-                || source === 'expense'
-                || source === 'online-order'
-                || source === 'repair-parts'
-                || desc.includes('expense')
-                || desc.includes('purchase')
-                || desc.includes('online order')
-                || desc.includes('online purchase');
+            return true;
         }),
         [rangeTransactions]
     );
@@ -977,24 +968,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     const historyRevenueSource = useMemo(() => {
-        const filteredNonMobile = nonMobileRevenueTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
-        const filteredAll = revenueTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
-
-        if (filteredAll.length > 0 && filteredNonMobile.length === 0) {
-            return filteredAll;
-        }
-        return filteredNonMobile;
-    }, [nonMobileRevenueTransactions, revenueTransactions]);
+        return revenueTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
+    }, [revenueTransactions]);
 
     const historyPurchaseSource = useMemo(() => {
-        const filteredNonMobile = nonMobilePurchaseTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
-        const filteredAll = purchaseTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
-
-        if (filteredAll.length > 0 && filteredNonMobile.length === 0) {
-            return filteredAll;
-        }
-        return filteredNonMobile;
-    }, [nonMobilePurchaseTransactions, purchaseTransactions]);
+        return purchaseTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
+    }, [purchaseTransactions]);
 
     const revenueHistoryTransactions = useMemo(() => {
         return historyRevenueSource
@@ -1036,10 +1015,66 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }, 0);
     }, [dashboardRange, onlineOrders]);
 
+    const isDeviceProfitCategoryTransaction = useCallback((txn = {}) => {
+        const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
+            ? productLookup[String(txn.productId)]
+            : null;
+        const linkedSnapshot = linkedProduct ? resolveProductSnapshot(linkedProduct) : null;
+
+        const categoryText = extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category);
+        const subCategoryText = String(txn?.subCategory || txn?.productSnapshot?.subCategory || '').trim();
+        const nameText = String(txn?.name || txn?.desc || txn?.productSnapshot?.name || '').trim();
+        const linkedCategoryText = linkedSnapshot
+            ? `${linkedSnapshot.category || ''} ${linkedSnapshot.subCategory || ''} ${linkedSnapshot.name || ''}`
+            : '';
+
+        const haystack = `${categoryText} ${subCategoryText} ${nameText} ${linkedCategoryText}`.toLowerCase();
+        return haystack.includes('mobile')
+            || haystack.includes('phone')
+            || haystack.includes('laptop')
+            || haystack.includes('notebook')
+            || haystack.includes('tab')
+            || haystack.includes('tablet')
+            || haystack.includes('ipad')
+            || haystack.includes('macbook');
+    }, [productLookup]);
+
+    const isKpiExpenseCategoryTransaction = useCallback((txn = {}) => {
+        const categoryText = extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category);
+        const subCategoryText = String(txn?.subCategory || txn?.productSnapshot?.subCategory || '').trim();
+        const text = `${categoryText} ${subCategoryText}`.toLowerCase();
+        return text.includes('accessor') || text.includes('electronic');
+    }, []);
+
+    const kpiExpenseTransactions = useMemo(
+        () => purchaseTransactions.filter((txn) => isKpiExpenseCategoryTransaction(txn)),
+        [purchaseTransactions, isKpiExpenseCategoryTransaction]
+    );
+
+    const kpiRevenueAmount = useMemo(() => {
+        return revenueTransactions.reduce((sum, txn) => {
+            const amount = parseFloat(txn?.amount) || 0;
+            if (!isDeviceProfitCategoryTransaction(txn)) return sum + amount;
+
+            const quantity = Math.max(1, parseInt(txn?.quantity || '1', 10) || 1);
+            const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
+            const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
+            const linkedPurchase = txn?.productId !== undefined && txn?.productId !== null
+                ? Number(productLookup[String(txn.productId)]?.purchasePrice)
+                : NaN;
+
+            const unitCost = Number.isFinite(purchaseAtTime)
+                ? purchaseAtTime
+                : (Number.isFinite(snapshotPurchase) ? snapshotPurchase : (Number.isFinite(linkedPurchase) ? linkedPurchase : 0));
+
+            const profitAmount = amount - (unitCost * quantity);
+            return sum + profitAmount;
+        }, 0);
+    }, [revenueTransactions, isDeviceProfitCategoryTransaction, productLookup]);
+
     const fallbackStats = useMemo(() => {
-        const totalRevenue = nonMobileRevenueTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-        const totalExpenses = nonMobilePurchaseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
-            + pendingOnlineOrderRemainingInRange;
+        const totalRevenue = kpiRevenueAmount;
+        const totalExpenses = kpiExpenseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
         return {
             totals: {
                 revenue: totalRevenue,
@@ -1047,10 +1082,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 income: totalRevenue - totalExpenses,
             },
         };
-    }, [nonMobilePurchaseTransactions, nonMobileRevenueTransactions, pendingOnlineOrderRemainingInRange]);
+    }, [kpiExpenseTransactions, kpiRevenueAmount]);
 
-    const revenueBreakdown = useMemo(() => buildPaymentBreakdown(nonMobileRevenueTransactions), [nonMobileRevenueTransactions]);
-    const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(nonMobilePurchaseTransactions), [nonMobilePurchaseTransactions]);
+    const revenueBreakdown = useMemo(() => buildPaymentBreakdown(revenueTransactions), [revenueTransactions]);
+    const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(kpiExpenseTransactions), [kpiExpenseTransactions]);
     const incomeBreakdown = useMemo(() => {
         const keys = new Set([...Object.keys(revenueBreakdown), ...Object.keys(purchaseBreakdown)]);
         const combined = {};
