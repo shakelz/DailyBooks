@@ -1412,7 +1412,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const desc = String(txn?.desc || '').toLowerCase();
         const notes = String(txn?.notes || '').toLowerCase();
         return desc.includes('repair advance')
-            || notes.includes('repairref:')
             || notes.includes('stage:advance');
     };
 
