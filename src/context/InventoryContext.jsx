@@ -1373,26 +1373,36 @@ export function InventoryProvider({ children }) {
 
         const normalizedScope = CATEGORY_SCOPE_EXPENSE;
         let level1Id = '';
+        let resolvedLevel1Name = level1Name;
+
+        const findByNormalizedName = (rows = [], expectedName = '') => {
+            const normalizedExpected = normalizeCategoryNameForMatch(expectedName);
+            return (Array.isArray(rows) ? rows : []).find(
+                (row) => normalizeCategoryNameForMatch(row?.category_name || row?.name) === normalizedExpected
+            ) || null;
+        };
 
         const parentSelect = await supabase
             .from('categories')
             .select('category_id,id,category_name')
             .eq('shop_id', sid)
-            .ilike('category_name', level1Name)
             .eq('category_purpose', normalizedScope)
             .is('parent_category_id', null)
             .limit(20);
 
         if (!parentSelect.error && Array.isArray(parentSelect.data)) {
-            const matchedParent = parentSelect.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level1Name));
+            const matchedParent = findByNormalizedName(parentSelect.data, level1Name);
             level1Id = cleanText(matchedParent?.category_id || matchedParent?.id);
+            if (matchedParent?.category_name) {
+                resolvedLevel1Name = cleanText(matchedParent.category_name).replace(/\s+/g, ' ') || resolvedLevel1Name;
+            }
         }
 
         if (!level1Id) {
             const insertParentResult = await executeWithPrunedColumns(
                 (candidate) => supabase.from('categories').insert([candidate]),
                 {
-                    category_name: level1Name,
+                    category_name: resolvedLevel1Name,
                     parent_category_id: null,
                     category_purpose: normalizedScope,
                     shop_id: sid,
@@ -1404,14 +1414,16 @@ export function InventoryProvider({ children }) {
                     .from('categories')
                     .select('category_id,id,category_name')
                     .eq('shop_id', sid)
-                    .ilike('category_name', level1Name)
                     .eq('category_purpose', normalizedScope)
                     .is('parent_category_id', null)
                     .limit(20);
 
                 if (!fallbackParent.error && Array.isArray(fallbackParent.data)) {
-                    const matchedParent = fallbackParent.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level1Name));
+                    const matchedParent = findByNormalizedName(fallbackParent.data, resolvedLevel1Name);
                     level1Id = cleanText(matchedParent?.category_id || matchedParent?.id);
+                    if (matchedParent?.category_name) {
+                        resolvedLevel1Name = cleanText(matchedParent.category_name).replace(/\s+/g, ' ') || resolvedLevel1Name;
+                    }
                 } else {
                     throw new Error(insertParentResult.error.message || 'Failed to save expense category.');
                 }
@@ -1420,56 +1432,58 @@ export function InventoryProvider({ children }) {
                     .from('categories')
                     .select('category_id,id,category_name')
                     .eq('shop_id', sid)
-                    .ilike('category_name', level1Name)
                     .eq('category_purpose', normalizedScope)
                     .is('parent_category_id', null)
                     .limit(20);
                 if (!refreshedParent.error && Array.isArray(refreshedParent.data)) {
-                    const matchedParent = refreshedParent.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level1Name));
+                    const matchedParent = findByNormalizedName(refreshedParent.data, resolvedLevel1Name);
                     level1Id = cleanText(matchedParent?.category_id || matchedParent?.id);
+                    if (matchedParent?.category_name) {
+                        resolvedLevel1Name = cleanText(matchedParent.category_name).replace(/\s+/g, ' ') || resolvedLevel1Name;
+                    }
                 }
             }
         }
 
         setL1Categories((prev) => {
-            const existingLocal = (prev || []).find((c) => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(level1Name));
+            const existingLocal = (prev || []).find((c) => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(resolvedLevel1Name));
             if (existingLocal) {
                 return prev.map((c) => {
-                    if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(level1Name)) return c;
+                    if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(resolvedLevel1Name)) return c;
                     if (typeof c === 'object') {
                         return {
                             ...c,
                             id: c.id || level1Id || undefined,
-                            name: level1Name,
+                            name: resolvedLevel1Name,
                             scope: normalizedScope,
                         };
                     }
-                    return { id: level1Id || undefined, name: level1Name, scope: normalizedScope };
+                    return { id: level1Id || undefined, name: resolvedLevel1Name, scope: normalizedScope };
                 });
             }
-            return [...prev, { id: level1Id || undefined, name: level1Name, scope: normalizedScope }];
+            return [...prev, { id: level1Id || undefined, name: resolvedLevel1Name, scope: normalizedScope }];
         });
-        setCategoryScopeEntry(sid, 1, level1Name, '', normalizedScope);
+        setCategoryScopeEntry(sid, 1, resolvedLevel1Name, '', normalizedScope);
 
         if (level1Id && level2Name) {
             const childSelect = await supabase
                 .from('categories')
                 .select('category_id,id,category_name')
                 .eq('shop_id', sid)
-                .ilike('category_name', level2Name)
                 .eq('category_purpose', normalizedScope)
                 .eq('parent_category_id', level1Id)
                 .limit(20);
 
             const matchedChild = !childSelect.error && Array.isArray(childSelect.data)
-                ? childSelect.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level2Name))
+                ? findByNormalizedName(childSelect.data, level2Name)
                 : null;
+            const resolvedLevel2Name = cleanText(matchedChild?.category_name).replace(/\s+/g, ' ') || level2Name;
 
             if (childSelect.error || !matchedChild) {
                 const insertChildResult = await executeWithPrunedColumns(
                     (candidate) => supabase.from('categories').insert([candidate]),
                     {
-                        category_name: level2Name,
+                        category_name: resolvedLevel2Name,
                         parent_category_id: level1Id,
                         category_purpose: normalizedScope,
                         shop_id: sid,
@@ -1480,12 +1494,11 @@ export function InventoryProvider({ children }) {
                         .from('categories')
                         .select('category_id,id,category_name')
                         .eq('shop_id', sid)
-                        .ilike('category_name', level2Name)
                         .eq('category_purpose', normalizedScope)
                         .eq('parent_category_id', level1Id)
                         .limit(20);
                     const matchedFallbackChild = !fallbackChild.error && Array.isArray(fallbackChild.data)
-                        ? fallbackChild.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level2Name))
+                        ? findByNormalizedName(fallbackChild.data, resolvedLevel2Name)
                         : null;
                     if (fallbackChild.error || !matchedFallbackChild) {
                         throw new Error(insertChildResult.error.message || 'Failed to save expense sub-category.');
@@ -1494,40 +1507,40 @@ export function InventoryProvider({ children }) {
             }
 
             setL2Map((prev) => {
-                const currentList = prev[level1Name] || [];
-                const existingLocal = currentList.find((c) => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(level2Name));
+                const currentList = prev[resolvedLevel1Name] || [];
+                const existingLocal = currentList.find((c) => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(resolvedLevel2Name));
                 if (existingLocal) {
                     return {
                         ...prev,
-                        [level1Name]: currentList.map((c) => {
-                            if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(level2Name)) return c;
+                        [resolvedLevel1Name]: currentList.map((c) => {
+                            if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(resolvedLevel2Name)) return c;
                             if (typeof c === 'object') {
                                 return {
                                     ...c,
-                                    name: level2Name,
-                                    parent: level1Name,
+                                    name: resolvedLevel2Name,
+                                    parent: resolvedLevel1Name,
                                     parent_id: c.parent_id || level1Id || null,
                                     parent_category_id: c.parent_category_id || level1Id || null,
                                     scope: normalizedScope,
                                 };
                             }
-                            return { name: level2Name, parent: level1Name, parent_id: level1Id || null, scope: normalizedScope };
+                            return { name: resolvedLevel2Name, parent: resolvedLevel1Name, parent_id: level1Id || null, scope: normalizedScope };
                         }),
                     };
                 }
 
                 return {
                     ...prev,
-                    [level1Name]: [
+                    [resolvedLevel1Name]: [
                         ...currentList,
-                        { name: level2Name, parent: level1Name, parent_id: level1Id || null, parent_category_id: level1Id || null, scope: normalizedScope }
+                        { name: resolvedLevel2Name, parent: resolvedLevel1Name, parent_id: level1Id || null, parent_category_id: level1Id || null, scope: normalizedScope }
                     ],
                 };
             });
-            setCategoryScopeEntry(sid, 2, level2Name, level1Name, normalizedScope);
+            setCategoryScopeEntry(sid, 2, resolvedLevel2Name, resolvedLevel1Name, normalizedScope);
         }
 
-        return { level1Name, level1Id, level2Name };
+        return { level1Name: resolvedLevel1Name, level1Id, level2Name };
     }, []);
 
     const addProduct = useCallback(async (product) => {
