@@ -1147,9 +1147,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const revenueTransactions = useMemo(
         () => rangeTransactions.filter((txn) => {
-            if (txn.type !== 'income') return false;
-            if (isCashbookTransaction(txn)) return false;
+            const txType = String(txn.tx_type || txn.type || '').toLowerCase();
             const source = String(txn.source || '').toLowerCase();
+            const isRevenueType = txType === 'product_sale' || txType === 'repair_amount' || txType === 'income' || txType === 'sale';
+            if (!isRevenueType) return false;
+            if (isCashbookTransaction(txn)) return false;
             const desc = String(txn.desc || '').toLowerCase();
             if (source === 'purchase' || source === 'expense' || source === 'online-order' || source === 'repair-parts') {
                 return false;
@@ -1163,7 +1165,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     );
     const purchaseTransactions = useMemo(
         () => rangeTransactions.filter((txn) => {
-            if (txn.type !== 'expense') return false;
+            const txType = String(txn.tx_type || txn.type || '').toLowerCase();
+            const source = String(txn.source || '').toLowerCase();
+            const isPurchaseType = txType === 'product_purchase'
+                || txType === 'shop_expense'
+                || txType === 'adjustment_amount'
+                || txType === 'expense'
+                || txType === 'purchase'
+                || source === 'purchase'
+                || source === 'expense';
+            if (!isPurchaseType) return false;
             if (isCashbookTransaction(txn)) return false;
             return true;
         }),

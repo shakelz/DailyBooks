@@ -578,9 +578,18 @@ function normalizeCategoryRecord(row = {}, categoryById = {}) {
     };
 }
 
-function mapTxType(value) {
+function mapTxType(value, source = '') {
     const raw = cleanText(value).toLowerCase();
-    if (!raw) return 'product_sale';
+    const sourceRaw = cleanText(source).toLowerCase();
+    if (!raw) {
+        if (sourceRaw === 'purchase') return 'product_purchase';
+        if (sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_')) return 'repair_amount';
+        if (sourceRaw === 'expense') return 'shop_expense';
+        return 'product_sale';
+    }
+    if (sourceRaw === 'purchase' && (raw === 'expense' || raw === 'purchase')) return 'product_purchase';
+    if ((sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_'))
+        && (raw === 'income' || raw === 'repair' || raw === 'sale')) return 'repair_amount';
     if (raw === 'income' || raw === 'product_sale' || raw === 'sale') return 'product_sale';
     if (raw === 'shop_expense' || raw === 'expense') return 'shop_expense';
     if (raw === 'product_purchase' || raw === 'purchase') return 'product_purchase';
@@ -798,8 +807,8 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
     const productIdRaw = cleanText(txn?.product_id || txn?.productId);
     const repairId = isUuidLike(repairIdRaw) ? repairIdRaw : null;
     const productId = isUuidLike(productIdRaw) ? productIdRaw : null;
-    const mappedType = mapTxType(txn?.tx_type || txn?.type);
     const mappedSource = mapTxSource(txn?.source || txn?.tx_source);
+    const mappedType = mapTxType(txn?.tx_type || txn?.type, mappedSource);
     const invoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
     const description = cleanText(txn?.desc || txn?.description || txn?.name);
     const category = cleanText(txn?.category || txn?.category_name);
