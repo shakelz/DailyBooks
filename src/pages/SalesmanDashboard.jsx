@@ -1609,16 +1609,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return resolveTxnContributionMode(txn, scope) === KPI_MODE_EXCLUDED;
     }, [resolveTxnContributionMode]);
 
-    const isKpiExpenseCategoryTransaction = useCallback((txn = {}) => {
-        const categoryText = extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category);
-        const subCategoryText = String(txn?.subCategory || txn?.productSnapshot?.subCategory || '').trim();
-        const text = `${categoryText} ${subCategoryText}`.toLowerCase();
-        return text.includes('accessor') || text.includes('electronic');
-    }, []);
-
     const kpiExpenseTransactions = useMemo(
-        () => purchaseTransactions.filter((txn) => !isExcludedCategoryTransaction(txn, KPI_SCOPE_EXPENSE) && isKpiExpenseCategoryTransaction(txn)),
-        [isExcludedCategoryTransaction, isKpiExpenseCategoryTransaction, purchaseTransactions]
+        () => purchaseTransactions.filter((txn) => !isExcludedCategoryTransaction(txn, KPI_SCOPE_EXPENSE)),
+        [isExcludedCategoryTransaction, purchaseTransactions]
     );
 
     const resolveKpiRevenueContribution = useCallback((txn = {}) => {
@@ -2203,7 +2196,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             },
             expenses: {
                 title: 'Expense KPI Breakdown',
-                subtitle: 'Only Accessories/Electronics are counted, excluding categories marked as Exclude.',
+                subtitle: 'All purchase/expense categories are counted, excluding categories marked as Exclude.',
                 total: activeStats.totals.expenses,
                 rows: kpiExpenseCategoryBreakdown,
                 positiveClass: 'text-rose-700',
