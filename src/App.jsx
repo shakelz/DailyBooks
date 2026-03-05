@@ -120,17 +120,10 @@ function App() {
                 <Route path="/" element={<LoginPage mode="salesman" />} />
                 <Route path="/admin" element={<LoginPage mode="admin" />} />
 
-                <Route
-                  path="/admin/dashboard"
-                  element={<AdminGuard><SalesmanDashboard adminView /></AdminGuard>}
-                />
-                <Route
-                  path="/admin/owner-dashboard"
-                  element={<AdminGuard><SalesmanDashboard adminView /></AdminGuard>}
-                />
-
                 <Route path="/admin/*" element={<AdminRouteShell />}>
                   <Route index element={<Navigate to="dashboard" replace />} />
+                  <Route path="dashboard" element={<SalesmanDashboard adminView />} />
+                  <Route path="owner-dashboard" element={<SalesmanDashboard adminView />} />
                   <Route path="inventory" element={<InventoryTab />} />
                   <Route path="insights" element={<InsightsTab />} />
                   <Route path="expenses" element={<ExpensesTab />} />
