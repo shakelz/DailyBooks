@@ -117,6 +117,32 @@ function extractCategoryName(category) {
     return category.level1 || '';
 }
 
+function normalizeTxnType(value = '') {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return 'income';
+    if (raw === 'income' || raw === 'product_sale' || raw === 'sale' || raw === 'repair_amount') return 'income';
+    if (raw === 'expense' || raw === 'shop_expense' || raw === 'product_purchase' || raw === 'purchase' || raw === 'adjustment_amount' || raw === 'adjustment') return 'expense';
+    return raw.includes('expense') || raw.includes('purchase') ? 'expense' : 'income';
+}
+
+function stripTransactionPrefix(value = '') {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    return raw
+        .replace(/^(sale|purchase|expense|revenue|income)\s*-\s*/i, '')
+        .trim();
+}
+
+function isGenericTransactionLabel(value = '') {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return true;
+    return raw === 'revenue'
+        || raw === 'purchase'
+        || raw === 'sale'
+        || raw === 'expense'
+        || raw === 'income';
+}
+
 function buildTransactionDraft(txn = {}, defaultShowTax = true) {
     return {
         desc: String(txn.desc || ''),
@@ -594,6 +620,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [showTransactionDetailModal, setShowTransactionDetailModal] = useState(false);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [transactionDraft, setTransactionDraft] = useState(null);
+    const [isLoadingTransactionDetail, setIsLoadingTransactionDetail] = useState(false);
     const [transactionFormError, setTransactionFormError] = useState('');
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
     const [recentlyDeletedTxn, setRecentlyDeletedTxn] = useState(null);
@@ -608,6 +635,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const lockTimerRef = useRef(null);
     const lockDebounceRef = useRef(null);
     const repairTxnRetryGuardRef = useRef(new Map());
+    const transactionDetailRequestRef = useRef(0);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
     const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
@@ -916,6 +944,189 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return acc;
         }, {});
     }, [products]);
+
+    const resolveTransactionDisplayName = useCallback((txn = {}) => {
+        const snapshotName = String(txn?.productSnapshot?.name || '').trim();
+        if (snapshotName) return snapshotName;
+
+        const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
+            ? productLookup[String(txn.productId)]
+            : null;
+        const linkedName = String(linkedProduct?.name || linkedProduct?.product_name || '').trim();
+        if (linkedName) return linkedName;
+
+        const directName = String(txn?.name || txn?.productName || '').trim();
+        if (directName) return directName;
+
+        const firstItemName = Array.isArray(txn?.transactionItems)
+            ? String((txn.transactionItems.find((item) => String(item?.name || item?.product_name || '').trim())?.name
+                || txn.transactionItems.find((item) => String(item?.name || item?.product_name || '').trim())?.product_name
+                || '')).trim()
+            : '';
+        if (firstItemName) return firstItemName;
+
+        const stripped = stripTransactionPrefix(txn?.desc);
+        if (stripped && !isGenericTransactionLabel(stripped)) return stripped;
+
+        return normalizeTxnType(txn?.type) === 'income' ? 'Revenue' : 'Purchase';
+    }, [productLookup]);
+
+    const withTransactionDisplayData = useCallback((txn = {}) => {
+        const base = txn && typeof txn === 'object' ? txn : {};
+        const displayName = resolveTransactionDisplayName(base);
+        const rawDesc = String(base?.desc || '').trim();
+        const stripped = stripTransactionPrefix(rawDesc);
+        const shouldReplaceDesc = !rawDesc || isGenericTransactionLabel(rawDesc) || isGenericTransactionLabel(stripped);
+        return {
+            ...base,
+            displayName,
+            desc: shouldReplaceDesc ? displayName : rawDesc,
+        };
+    }, [resolveTransactionDisplayName]);
+
+    const fetchTransactionDetailsFromDb = useCallback(async (txn = {}) => {
+        const txId = String(txn?.id || txn?.transactionId || '').trim();
+        const shopId = String(user?.shop_id || '').trim();
+        if (!txId) return null;
+
+        const idCandidates = Array.from(new Set([
+            txId,
+            String(txn?.transactionId || '').trim(),
+            String(txn?.id || '').trim(),
+        ].filter(Boolean)));
+
+        const isIgnorableReadError = (error = null) => {
+            const message = String(error?.message || '').toLowerCase();
+            return message.includes('invalid input syntax for type uuid')
+                || (message.includes('column') && (message.includes('does not exist') || message.includes('schema cache') || message.includes('could not find')));
+        };
+
+        let dbTxn = null;
+        const txColumns = ['transaction_id', 'transactionId', 'id'];
+        const scopeModes = shopId ? [true, false] : [false];
+        for (const useShopScope of scopeModes) {
+            for (const idValue of idCandidates) {
+                for (const column of txColumns) {
+                    let query = supabase.from('transactions').select('*');
+                    if (useShopScope) query = query.eq('shop_id', shopId);
+                    const result = await query.eq(column, idValue).limit(1).maybeSingle();
+                    if (!result.error && result.data) {
+                        dbTxn = result.data;
+                        break;
+                    }
+                    if (result.error && !isIgnorableReadError(result.error)) {
+                        break;
+                    }
+                }
+                if (dbTxn) break;
+            }
+            if (dbTxn) break;
+        }
+        if (!dbTxn) return null;
+
+        const resolvedTxnId = String(dbTxn?.transaction_id || dbTxn?.transactionId || dbTxn?.id || txId).trim() || txId;
+        const itemIdCandidates = Array.from(new Set([resolvedTxnId, ...idCandidates]));
+        const itemColumns = ['transaction_id', 'transactionId'];
+        let itemRows = [];
+        for (const useShopScope of scopeModes) {
+            for (const idValue of itemIdCandidates) {
+                for (const column of itemColumns) {
+                    let query = supabase.from('transaction_items').select('*');
+                    if (useShopScope) query = query.eq('shop_id', shopId);
+                    const result = await query.eq(column, idValue);
+                    if (!result.error && Array.isArray(result.data) && result.data.length > 0) {
+                        itemRows = result.data;
+                        break;
+                    }
+                    if (result.error) {
+                        const message = String(result.error?.message || '').toLowerCase();
+                        const missingRelation = message.includes('does not exist')
+                            || message.includes('could not find the table')
+                            || message.includes('in the schema cache');
+                        if (!missingRelation && !isIgnorableReadError(result.error)) {
+                            break;
+                        }
+                    }
+                }
+                if (itemRows.length > 0) break;
+            }
+            if (itemRows.length > 0) break;
+        }
+
+        const normalizedItems = (Array.isArray(itemRows) ? itemRows : []).map((row) => ({
+            ...row,
+            productId: String(row?.product_id || row?.productId || '').trim(),
+            quantity: parseInt(row?.qty ?? row?.quantity ?? 1, 10) || 1,
+            amount: parseFloat(row?.line_total ?? row?.lineTotal ?? row?.amount ?? 0) || 0,
+            unitPrice: parseFloat(row?.unit_price ?? row?.unitPrice ?? 0) || 0,
+            name: String(row?.name || row?.product_name || '').trim(),
+        }));
+
+        const resolvedProductId = String(
+            dbTxn?.product_id
+            || dbTxn?.productId
+            || txn?.productId
+            || (normalizedItems[0]?.productId || '')
+        ).trim();
+
+        let fetchedProductRow = null;
+        if (resolvedProductId) {
+            const productColumns = ['product_id', 'id'];
+            for (const useShopScope of scopeModes) {
+                for (const column of productColumns) {
+                    let query = supabase.from('inventory').select('*');
+                    if (useShopScope) query = query.eq('shop_id', shopId);
+                    const result = await query.eq(column, resolvedProductId).limit(1).maybeSingle();
+                    if (!result.error && result.data) {
+                        fetchedProductRow = result.data;
+                        break;
+                    }
+                    if (result.error && !isIgnorableReadError(result.error)) {
+                        break;
+                    }
+                }
+                if (fetchedProductRow) break;
+            }
+        }
+
+        const dbTimestamp = String(dbTxn?.occurred_at || dbTxn?.created_at || dbTxn?.timestamp || txn?.timestamp || '').trim();
+        const parsedTs = dbTimestamp ? new Date(dbTimestamp) : null;
+        const hasValidTs = parsedTs && !Number.isNaN(parsedTs.getTime());
+        const normalizedType = normalizeTxnType(dbTxn?.tx_type || dbTxn?.type || txn?.type);
+        const mergedSnapshot = {
+            ...(txn?.productSnapshot && typeof txn.productSnapshot === 'object' ? txn.productSnapshot : {}),
+            ...(fetchedProductRow ? resolveProductSnapshot(fetchedProductRow) : {}),
+        };
+
+        const hydratedTxn = {
+            ...txn,
+            ...dbTxn,
+            id: resolvedTxnId,
+            transactionId: resolvedTxnId,
+            type: normalizedType,
+            source: String(dbTxn?.tx_source || dbTxn?.source || txn?.source || '').trim(),
+            desc: String(dbTxn?.description || dbTxn?.desc || txn?.desc || '').trim(),
+            amount: parseFloat(dbTxn?.amount ?? txn?.amount ?? 0) || 0,
+            quantity: Math.max(1, parseInt(dbTxn?.quantity ?? txn?.quantity ?? '1', 10) || 1),
+            category: dbTxn?.category ?? txn?.category ?? mergedSnapshot?.category ?? '',
+            notes: String(dbTxn?.notes || txn?.notes || '').trim(),
+            paymentMethod: String(dbTxn?.paymentMethod || dbTxn?.payment_method || txn?.paymentMethod || 'Cash').trim() || 'Cash',
+            timestamp: dbTimestamp,
+            date: String(dbTxn?.date || txn?.date || (hasValidTs ? parsedTs.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }) : '')).trim(),
+            time: String(dbTxn?.time || txn?.time || (hasValidTs ? parsedTs.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '')).trim(),
+            productId: resolvedProductId || undefined,
+            workerId: String(dbTxn?.workerId || dbTxn?.created_by || dbTxn?.worker_id || txn?.workerId || '').trim(),
+            salesmanName: String(dbTxn?.salesmanName || dbTxn?.salesman_name || txn?.salesmanName || '').trim(),
+            salesmanNumber: Number(dbTxn?.salesmanNumber ?? dbTxn?.salesman_number ?? txn?.salesmanNumber ?? 0) || 0,
+            purchasePriceAtTime: parseFloat(dbTxn?.purchasePriceAtTime ?? dbTxn?.purchase_price_at_time ?? txn?.purchasePriceAtTime ?? 0) || 0,
+            stdPriceAtTime: parseFloat(dbTxn?.stdPriceAtTime ?? dbTxn?.std_price_at_time ?? txn?.stdPriceAtTime ?? 0) || 0,
+            unitPrice: parseFloat(dbTxn?.unitPrice ?? dbTxn?.unit_price ?? txn?.unitPrice ?? 0) || 0,
+            productSnapshot: mergedSnapshot,
+            transactionItems: normalizedItems.length > 0 ? normalizedItems : (Array.isArray(txn?.transactionItems) ? txn.transactionItems : []),
+        };
+
+        return withTransactionDisplayData(hydratedTxn);
+    }, [user?.shop_id, withTransactionDisplayData]);
 
     const isMobileTransaction = (txn = {}) => {
         const source = String(txn?.source || '').toLowerCase();
@@ -1755,12 +1966,27 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         printWindow.document.close();
     };
 
-    const openTransactionDetailModal = (txn) => {
+    const openTransactionDetailModal = async (txn) => {
         if (!txn) return;
-        setSelectedTransaction(txn);
-        setTransactionDraft(buildTransactionDraft(txn, billShowTax));
+        const requestId = Date.now();
+        transactionDetailRequestRef.current = requestId;
+        const initialTxn = withTransactionDisplayData(txn);
+        setSelectedTransaction(initialTxn);
+        setTransactionDraft(buildTransactionDraft(initialTxn, billShowTax));
         setTransactionFormError('');
         setShowTransactionDetailModal(true);
+        setIsLoadingTransactionDetail(true);
+
+        try {
+            const freshTxn = await fetchTransactionDetailsFromDb(initialTxn);
+            if (!freshTxn || transactionDetailRequestRef.current !== requestId) return;
+            setSelectedTransaction(freshTxn);
+            setTransactionDraft(buildTransactionDraft(freshTxn, billShowTax));
+        } finally {
+            if (transactionDetailRequestRef.current === requestId) {
+                setIsLoadingTransactionDetail(false);
+            }
+        }
     };
 
     const handleDeleteHistoryTransaction = async (txn, event) => {
@@ -1813,11 +2039,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     const closeTransactionDetailModal = () => {
+        transactionDetailRequestRef.current += 1;
         setShowTransactionDetailModal(false);
         setSelectedTransaction(null);
         setTransactionDraft(null);
         setTransactionFormError('');
         setIsSavingTransaction(false);
+        setIsLoadingTransactionDetail(false);
     };
 
     const saveTransactionChanges = async () => {
@@ -2015,10 +2243,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const hasRepairStageTransaction = (job, stage = 'ADVANCE') => {
         const marker = `RepairRef:${getRepairInvoiceNumber(job)}`;
         const stageMarker = `${marker} | Stage:${stage}`;
-        return (transactions || []).some((txn) => (
-            String(txn?.source || '').toLowerCase() === 'repair'
-            && String(txn?.notes || '').includes(stageMarker)
-        ));
+        const stageText = `stage:${String(stage || '').toLowerCase()}`;
+        return (transactions || []).some((txn) => {
+            const notes = String(txn?.notes || '');
+            const notesLower = notes.toLowerCase();
+            const descLower = String(txn?.desc || '').toLowerCase();
+            return notes.includes(stageMarker)
+                || (notesLower.includes(marker.toLowerCase()) && notesLower.includes(stageText))
+                || (descLower.includes('repair advance') && stage === 'ADVANCE' && notesLower.includes(marker.toLowerCase()))
+                || (descLower.includes('repair remaining') && stage === 'REMAINING' && notesLower.includes(marker.toLowerCase()));
+        });
     };
 
     const canAttemptRepairStageTransaction = useCallback((job, stage = 'ADVANCE') => {
@@ -3146,7 +3380,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 hover:bg-emerald-50/60 transition-colors cursor-pointer"
                                 >
                                     <div className="min-w-0">
-                                        <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Revenue'}</p>
+                                        <p className="text-xs font-bold text-slate-700 truncate">{resolveTransactionDisplayName(txn)}</p>
                                         <p className="text-[11px] text-slate-400">{txn.time || '--:--'} | Tap to view</p>
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
@@ -3177,7 +3411,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 hover:bg-rose-50/60 transition-colors cursor-pointer"
                                 >
                                     <div className="min-w-0">
-                                        <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Purchase'}</p>
+                                        <p className="text-xs font-bold text-slate-700 truncate">{resolveTransactionDisplayName(txn)}</p>
                                         <p className="text-[11px] text-slate-400">{txn.time || '--:--'} | Tap to view</p>
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
@@ -3256,13 +3490,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             <div>
                                 <h3 className="text-sm font-black text-slate-800">Transaction Details</h3>
                                 <p className="text-[11px] text-slate-500">{selectedTransaction.transactionId || selectedTransaction.id || 'N/A'}</p>
+                                <p className="text-[11px] text-slate-600 font-semibold">{resolveTransactionDisplayName(selectedTransaction)}</p>
+                                {isLoadingTransactionDetail && <p className="text-[10px] text-blue-600">Syncing latest DB details...</p>}
                             </div>
                             <button onClick={closeTransactionDetailModal} className="text-slate-500 hover:text-slate-700">x</button>
                         </div>
 
                         <div className="p-4 space-y-3">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Type</p><p className="font-semibold text-slate-700">{selectedTransaction.type === 'income' ? 'Revenue' : 'Purchase'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Type</p><p className="font-semibold text-slate-700">{normalizeTxnType(selectedTransaction.type) === 'income' ? 'Revenue' : 'Purchase'}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Date</p><p className="font-semibold text-slate-700">{selectedTransaction.date || '-'}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Time</p><p className="font-semibold text-slate-700">{selectedTransaction.time || '-'}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Salesman No</p><p className="font-semibold text-slate-700">{selectedTransaction.salesmanNumber || '-'}</p></div>

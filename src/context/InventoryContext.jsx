@@ -578,9 +578,8 @@ function mapTxType(value) {
 function mapTxSource(value) {
     const raw = cleanText(value).toLowerCase();
     if (!raw) return 'cash';
-    if (raw === 'cash') return 'cash';
     if (raw === 'sum_up' || raw === 'sumup') return 'sum_up';
-    return 'cash';
+    return raw;
 }
 
 function isUuidLike(value) {
