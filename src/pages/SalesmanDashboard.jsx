@@ -237,6 +237,15 @@ function getTransactionInvoiceNumber(txn = {}) {
     return String(txn?.invoiceNumber || txn?.invoice_number || '').trim();
 }
 
+function extractRepairReferenceFromTransaction(txn = {}) {
+    const notes = String(txn?.notes || '');
+    const desc = String(txn?.desc || txn?.description || '');
+    const combined = `${notes} ${desc}`;
+    const markerMatch = combined.match(/RepairRef:([^|\s]+)/i);
+    if (markerMatch && markerMatch[1]) return String(markerMatch[1]).trim();
+    return String(txn?.invoice_number || txn?.invoiceNumber || '').trim();
+}
+
 function buildTransactionDraft(txn = {}, defaultShowTax = true) {
     return {
         desc: String(txn.desc || ''),
@@ -1335,6 +1344,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             category: dbTxn?.category ?? txn?.category ?? mergedSnapshot?.category ?? '',
             notes: String(dbTxn?.notes || txn?.notes || '').trim(),
             paymentMethod: String(dbTxn?.paymentMethod || dbTxn?.payment_method || txn?.paymentMethod || 'Cash').trim() || 'Cash',
+            repair_id: String(dbTxn?.repair_id || txn?.repair_id || txn?.repairId || '').trim() || null,
+            repairId: String(dbTxn?.repair_id || txn?.repair_id || txn?.repairId || '').trim() || null,
             invoice_number: String(dbTxn?.invoice_number || dbTxn?.invoiceNumber || txn?.invoice_number || txn?.invoiceNumber || '').trim(),
             invoiceNumber: String(dbTxn?.invoice_number || dbTxn?.invoiceNumber || txn?.invoice_number || txn?.invoiceNumber || '').trim(),
             timestamp: dbTimestamp,
@@ -1412,6 +1423,25 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const historyPurchaseSource = useMemo(() => {
         return purchaseTransactions.filter((txn) => !isRepairHistoryTransaction(txn));
     }, [purchaseTransactions]);
+
+    const resolveLinkedRepairForTransaction = useCallback((txn = {}) => {
+        const repairId = String(txn?.repair_id || txn?.repairId || '').trim();
+        const repairRef = extractRepairReferenceFromTransaction(txn).toLowerCase();
+        const jobs = Array.isArray(repairJobs) ? repairJobs : [];
+        if (!jobs.length) return null;
+
+        if (repairId) {
+            const byId = jobs.find((job) => String(job?.id || '').trim() === repairId);
+            if (byId) return byId;
+        }
+
+        if (repairRef) {
+            const byRef = jobs.find((job) => String(getRepairInvoiceNumber(job) || '').toLowerCase() === repairRef);
+            if (byRef) return byRef;
+        }
+
+        return null;
+    }, [repairJobs]);
 
     const revenueHistoryTransactions = useMemo(() => {
         return historyRevenueSource
@@ -2465,8 +2495,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const requestId = Date.now();
         transactionDetailRequestRef.current = requestId;
         const initialTxn = withTransactionDisplayData(txn);
-        setSelectedTransaction(initialTxn);
-        setTransactionDraft(buildTransactionDraft(initialTxn, billShowTax));
+        const initialLinkedRepair = resolveLinkedRepairForTransaction(initialTxn);
+        const initialWithRepair = initialLinkedRepair
+            ? { ...initialTxn, linkedRepairJob: initialLinkedRepair }
+            : initialTxn;
+        setSelectedTransaction(initialWithRepair);
+        setTransactionDraft(buildTransactionDraft(initialWithRepair, billShowTax));
         setTransactionFormError('');
         setShowTransactionDetailModal(true);
         setIsLoadingTransactionDetail(true);
@@ -2474,8 +2508,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         try {
             const freshTxn = await fetchTransactionDetailsFromDb(initialTxn);
             if (!freshTxn || transactionDetailRequestRef.current !== requestId) return;
-            setSelectedTransaction(freshTxn);
-            setTransactionDraft(buildTransactionDraft(freshTxn, billShowTax));
+            const linkedRepair = resolveLinkedRepairForTransaction(freshTxn);
+            const hydratedWithRepair = linkedRepair
+                ? { ...freshTxn, linkedRepairJob: linkedRepair }
+                : freshTxn;
+            setSelectedTransaction(hydratedWithRepair);
+            setTransactionDraft(buildTransactionDraft(hydratedWithRepair, billShowTax));
         } finally {
             if (transactionDetailRequestRef.current === requestId) {
                 setIsLoadingTransactionDetail(false);
@@ -2862,6 +2900,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         salesmanName: user?.name,
                         salesmanNumber: user?.salesmanNumber || 0,
                         workerId: String(user?.id || ''),
+                        repair_id: String(job?.id || ''),
+                        repairId: String(job?.id || ''),
+                        invoice_number: repairReference || null,
                         timestamp: now.toISOString(),
                         date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                         time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
@@ -4163,6 +4204,38 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Invoice</p><p className="font-semibold text-slate-700">{getTransactionInvoiceNumber(selectedTransaction) || '-'}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Salesman No</p><p className="font-semibold text-slate-700">{selectedTransaction.salesmanNumber || '-'}</p></div>
                             </div>
+
+                            {(selectedTransaction.linkedRepairJob || selectedTransaction.repair_id || selectedTransaction.repairId) && (
+                                <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
+                                    {selectedTransaction.linkedRepairJob ? (
+                                        <>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div>
+                                                    <p className="text-[11px] font-black text-blue-700">Linked Repair Job</p>
+                                                    <p className="text-[11px] text-slate-700">
+                                                        #{getRepairInvoiceNumber(selectedTransaction.linkedRepairJob) || '-'} • {selectedTransaction.linkedRepairJob.customerName || 'Customer'}
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => printPendingRepairBill(selectedTransaction.linkedRepairJob)}
+                                                    className="rounded-lg border border-blue-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
+                                                >
+                                                    Print Repair Slip
+                                                </button>
+                                            </div>
+                                            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+                                                <p className="text-slate-600"><span className="text-slate-400">Device:</span> {selectedTransaction.linkedRepairJob.deviceModel || '-'}</p>
+                                                <p className="text-slate-600"><span className="text-slate-400">Phone:</span> {selectedTransaction.linkedRepairJob.phone || '-'}</p>
+                                                <p className="text-slate-600"><span className="text-slate-400">Cost:</span> {priceTag(selectedTransaction.linkedRepairJob.estimatedCost || 0)}</p>
+                                                <p className="text-slate-600"><span className="text-slate-400">Status:</span> {selectedTransaction.linkedRepairJob.status || '-'}</p>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <p className="text-[11px] text-blue-700 font-semibold">Linked repair id found in transaction, but job details are not available in current repair list.</p>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                 <div>
