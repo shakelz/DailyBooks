@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, Wrench, CircleHelp, Wallet, Trash2 } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { priceTag } from '../utils/currency';
@@ -15,7 +15,65 @@ import { supabase } from '../supabaseClient';
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
 const SALESMAN_LOCK_NAMESPACE = 'dailybooks_salesman_lock_v1';
+const KPI_PROFIT_CATEGORY_STORAGE_PREFIX = 'dailybooks_kpi_profit_categories_v1';
 const volatileLockState = new Map();
+
+function normalizeCategoryToken(value = '') {
+    return String(value || '').trim().toLowerCase();
+}
+
+function makeProfitCategoryKey(categoryName = '', subCategoryName = '') {
+    return `${normalizeCategoryToken(categoryName)}::${normalizeCategoryToken(subCategoryName)}`;
+}
+
+function isMissingDbObjectError(error = null) {
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('does not exist')
+        || message.includes('could not find the table')
+        || message.includes('schema cache');
+}
+
+function readProfitCategorySettingsFromStorage(shopId = '') {
+    const sid = String(shopId || '').trim();
+    if (!sid || typeof window === 'undefined') return { explicit: false, map: {} };
+    try {
+        const raw = window.localStorage.getItem(`${KPI_PROFIT_CATEGORY_STORAGE_PREFIX}:${sid}`);
+        if (!raw) return { explicit: false, map: {} };
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return { explicit: false, map: {} };
+
+        const explicit = Boolean(parsed?.explicit);
+        const map = parsed?.map && typeof parsed.map === 'object' && !Array.isArray(parsed.map)
+            ? Object.keys(parsed.map).reduce((acc, key) => {
+                if (parsed.map[key]) acc[key] = true;
+                return acc;
+            }, {})
+            : {};
+        return { explicit, map };
+    } catch {
+        return { explicit: false, map: {} };
+    }
+}
+
+function writeProfitCategorySettingsToStorage(shopId = '', settings = {}) {
+    const sid = String(shopId || '').trim();
+    if (!sid || typeof window === 'undefined') return;
+    const explicit = Boolean(settings?.explicit);
+    const map = settings?.map && typeof settings.map === 'object' && !Array.isArray(settings.map)
+        ? Object.keys(settings.map).reduce((acc, key) => {
+            if (settings.map[key]) acc[key] = true;
+            return acc;
+        }, {})
+        : {};
+    try {
+        window.localStorage.setItem(
+            `${KPI_PROFIT_CATEGORY_STORAGE_PREFIX}:${sid}`,
+            JSON.stringify({ explicit, map })
+        );
+    } catch {
+        // Ignore storage write errors; DB save still available.
+    }
+}
 
 const newQuickSaleItem = () => ({
     productId: '',
@@ -459,7 +517,7 @@ function MiniDonut({ items }) {
     );
 }
 
-function CompactTrendCard({ label, value, colorClass }) {
+function CompactTrendCard({ label, value, colorClass, onClick = null, hint = '' }) {
     const iconMap = {
         'Total Revenue': <CircleDollarSign size={16} />,
         'Total Expenses': <Receipt size={16} />,
@@ -467,8 +525,10 @@ function CompactTrendCard({ label, value, colorClass }) {
     };
 
     return (
-        <div
-            className={`kpi-animate-card relative rounded-2xl border px-3 py-3 bg-white shadow-sm ${colorClass}`}
+        <button
+            type="button"
+            onClick={onClick || undefined}
+            className={`kpi-animate-card relative w-full text-left rounded-2xl border px-3 py-3 bg-white shadow-sm transition-transform ${onClick ? 'hover:-translate-y-0.5 cursor-pointer' : 'cursor-default'} ${colorClass}`}
         >
             <div className="flex items-center gap-2 text-slate-500">
                 {iconMap[label] || <BarChart3 size={16} />}
@@ -491,8 +551,9 @@ function CompactTrendCard({ label, value, colorClass }) {
                     <Receipt size={24} className="text-rose-400" />
                 )}
             </div>
+            {hint && <p className="mt-1 text-[10px] font-semibold text-slate-500">{hint}</p>}
 
-        </div>
+        </button>
     );
 }
 
@@ -627,6 +688,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [isLoadingTransactionDetail, setIsLoadingTransactionDetail] = useState(false);
     const [transactionFormError, setTransactionFormError] = useState('');
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
+    const [showExcludedCategoriesModal, setShowExcludedCategoriesModal] = useState(false);
+    const [profitOnlyCategoryMap, setProfitOnlyCategoryMap] = useState({});
+    const [hasExplicitProfitCategoryConfig, setHasExplicitProfitCategoryConfig] = useState(false);
+    const [isSavingProfitCategoryConfig, setIsSavingProfitCategoryConfig] = useState(false);
+    const [profitCategoryConfigStatus, setProfitCategoryConfigStatus] = useState('');
+    const [activeKpiBreakdownType, setActiveKpiBreakdownType] = useState('');
     const [recentlyDeletedTxn, setRecentlyDeletedTxn] = useState(null);
     const [isLocked, setIsLocked] = useState(false);
     const [unlockPin, setUnlockPin] = useState('');
@@ -701,6 +768,62 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const receiptShopName = activeShop?.name || 'Shop';
     const receiptShopAddress = activeShop?.address || '';
     const receiptShopPhone = resolveShopPhone(activeShop);
+    const settingsShopId = String(user?.shop_id || activeShop?.id || '').trim();
+
+    useEffect(() => {
+        if (!settingsShopId) {
+            setProfitOnlyCategoryMap({});
+            setHasExplicitProfitCategoryConfig(false);
+            return;
+        }
+
+        const localSettings = readProfitCategorySettingsFromStorage(settingsShopId);
+        setProfitOnlyCategoryMap(localSettings.map || {});
+        setHasExplicitProfitCategoryConfig(Boolean(localSettings.explicit));
+
+        let cancelled = false;
+        const loadFromDb = async () => {
+            const result = await supabase
+                .from('kpi_profit_category_settings')
+                .select('*')
+                .eq('shop_id', settingsShopId);
+
+            if (cancelled) return;
+            if (result.error) {
+                if (!isMissingDbObjectError(result.error)) {
+                    console.error('Failed to load KPI profit category config:', result.error);
+                }
+                return;
+            }
+
+            if (!Array.isArray(result.data) || result.data.length === 0) return;
+
+            const map = result.data.reduce((acc, row) => {
+                const categoryName = String(row?.category_name || row?.category || '').trim();
+                const subCategoryName = String(row?.sub_category_name || row?.sub_category || '').trim();
+                const enabled = Boolean(row?.profit_only ?? row?.profitOnly ?? row?.is_profit_only);
+                if (!categoryName || !enabled) return acc;
+                acc[makeProfitCategoryKey(categoryName, subCategoryName)] = true;
+                return acc;
+            }, {});
+            setProfitOnlyCategoryMap(map);
+            setHasExplicitProfitCategoryConfig(true);
+            writeProfitCategorySettingsToStorage(settingsShopId, { explicit: true, map });
+        };
+
+        loadFromDb();
+        return () => {
+            cancelled = true;
+        };
+    }, [settingsShopId]);
+
+    useEffect(() => {
+        if (!settingsShopId) return;
+        writeProfitCategorySettingsToStorage(settingsShopId, {
+            explicit: hasExplicitProfitCategoryConfig,
+            map: profitOnlyCategoryMap,
+        });
+    }, [hasExplicitProfitCategoryConfig, profitOnlyCategoryMap, settingsShopId]);
 
     useEffect(() => {
         if (!user) {
@@ -1231,20 +1354,45 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }, 0);
     }, [dashboardRange, onlineOrders]);
 
-    const isDeviceProfitCategoryTransaction = useCallback((txn = {}) => {
+    const enabledProfitCategoryKeySet = useMemo(() => {
+        return new Set(
+            Object.keys(profitOnlyCategoryMap || {}).filter((key) => Boolean(profitOnlyCategoryMap[key]))
+        );
+    }, [profitOnlyCategoryMap]);
+
+    const resolveTxnCategoryParts = useCallback((txn = {}) => {
         const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
             ? productLookup[String(txn.productId)]
             : null;
         const linkedSnapshot = linkedProduct ? resolveProductSnapshot(linkedProduct) : null;
 
-        const categoryText = extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category);
-        const subCategoryText = String(txn?.subCategory || txn?.productSnapshot?.subCategory || '').trim();
-        const nameText = String(txn?.name || txn?.desc || txn?.productSnapshot?.name || '').trim();
+        const categoryName = String(
+            extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category)
+            || linkedSnapshot?.category
+            || 'General'
+        ).trim() || 'General';
+        const subCategoryName = String(
+            txn?.subCategory
+            || txn?.productSnapshot?.subCategory
+            || linkedSnapshot?.subCategory
+            || ''
+        ).trim();
+        const nameText = String(txn?.name || txn?.desc || txn?.productSnapshot?.name || linkedSnapshot?.name || '').trim();
         const linkedCategoryText = linkedSnapshot
             ? `${linkedSnapshot.category || ''} ${linkedSnapshot.subCategory || ''} ${linkedSnapshot.name || ''}`
             : '';
+        const haystack = `${categoryName} ${subCategoryName} ${nameText} ${linkedCategoryText}`.toLowerCase();
 
-        const haystack = `${categoryText} ${subCategoryText} ${nameText} ${linkedCategoryText}`.toLowerCase();
+        return {
+            categoryName,
+            subCategoryName,
+            linkedSnapshot,
+            haystack,
+        };
+    }, [productLookup]);
+
+    const matchesDefaultProfitCategoryRule = useCallback((txn = {}) => {
+        const { haystack } = resolveTxnCategoryParts(txn);
         return haystack.includes('mobile')
             || haystack.includes('phone')
             || haystack.includes('laptop')
@@ -1253,7 +1401,18 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || haystack.includes('tablet')
             || haystack.includes('ipad')
             || haystack.includes('macbook');
-    }, [productLookup]);
+    }, [resolveTxnCategoryParts]);
+
+    const isProfitOnlyCategoryTransaction = useCallback((txn = {}) => {
+        if (!hasExplicitProfitCategoryConfig) {
+            return matchesDefaultProfitCategoryRule(txn);
+        }
+
+        const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
+        const exactKey = makeProfitCategoryKey(categoryName, subCategoryName);
+        const categoryOnlyKey = makeProfitCategoryKey(categoryName, '');
+        return enabledProfitCategoryKeySet.has(exactKey) || enabledProfitCategoryKeySet.has(categoryOnlyKey);
+    }, [enabledProfitCategoryKeySet, hasExplicitProfitCategoryConfig, matchesDefaultProfitCategoryRule, resolveTxnCategoryParts]);
 
     const isKpiExpenseCategoryTransaction = useCallback((txn = {}) => {
         const categoryText = extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category);
@@ -1267,26 +1426,27 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         [purchaseTransactions, isKpiExpenseCategoryTransaction]
     );
 
+    const resolveKpiRevenueContribution = useCallback((txn = {}) => {
+        const amount = parseFloat(txn?.amount) || 0;
+        if (!isProfitOnlyCategoryTransaction(txn)) return amount;
+
+        const quantity = Math.max(1, parseInt(txn?.quantity || '1', 10) || 1);
+        const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
+        const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
+        const linkedPurchase = txn?.productId !== undefined && txn?.productId !== null
+            ? Number(productLookup[String(txn.productId)]?.purchasePrice)
+            : NaN;
+
+        const unitCost = Number.isFinite(purchaseAtTime)
+            ? purchaseAtTime
+            : (Number.isFinite(snapshotPurchase) ? snapshotPurchase : (Number.isFinite(linkedPurchase) ? linkedPurchase : 0));
+
+        return amount - (unitCost * quantity);
+    }, [isProfitOnlyCategoryTransaction, productLookup]);
+
     const kpiRevenueAmount = useMemo(() => {
-        return revenueTransactions.reduce((sum, txn) => {
-            const amount = parseFloat(txn?.amount) || 0;
-            if (!isDeviceProfitCategoryTransaction(txn)) return sum + amount;
-
-            const quantity = Math.max(1, parseInt(txn?.quantity || '1', 10) || 1);
-            const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
-            const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
-            const linkedPurchase = txn?.productId !== undefined && txn?.productId !== null
-                ? Number(productLookup[String(txn.productId)]?.purchasePrice)
-                : NaN;
-
-            const unitCost = Number.isFinite(purchaseAtTime)
-                ? purchaseAtTime
-                : (Number.isFinite(snapshotPurchase) ? snapshotPurchase : (Number.isFinite(linkedPurchase) ? linkedPurchase : 0));
-
-            const profitAmount = amount - (unitCost * quantity);
-            return sum + profitAmount;
-        }, 0);
-    }, [revenueTransactions, isDeviceProfitCategoryTransaction, productLookup]);
+        return revenueTransactions.reduce((sum, txn) => sum + resolveKpiRevenueContribution(txn), 0);
+    }, [revenueTransactions, resolveKpiRevenueContribution]);
 
     const fallbackStats = useMemo(() => {
         const totalRevenue = kpiRevenueAmount;
@@ -1299,6 +1459,53 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             },
         };
     }, [kpiExpenseTransactions, kpiRevenueAmount]);
+
+    const kpiRevenueCategoryBreakdown = useMemo(() => {
+        const grouped = new Map();
+        (revenueTransactions || []).forEach((txn) => {
+            const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
+            const key = makeProfitCategoryKey(categoryName, subCategoryName);
+            const label = subCategoryName ? `${categoryName} / ${subCategoryName}` : categoryName;
+            const amount = resolveKpiRevenueContribution(txn);
+            const current = grouped.get(key) || { key, label, amount: 0, count: 0 };
+            current.amount += amount;
+            current.count += 1;
+            grouped.set(key, current);
+        });
+        return Array.from(grouped.values()).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    }, [resolveKpiRevenueContribution, resolveTxnCategoryParts, revenueTransactions]);
+
+    const kpiExpenseCategoryBreakdown = useMemo(() => {
+        const grouped = new Map();
+        (kpiExpenseTransactions || []).forEach((txn) => {
+            const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
+            const key = makeProfitCategoryKey(categoryName, subCategoryName);
+            const label = subCategoryName ? `${categoryName} / ${subCategoryName}` : categoryName;
+            const amount = parseFloat(txn?.amount) || 0;
+            const current = grouped.get(key) || { key, label, amount: 0, count: 0 };
+            current.amount += amount;
+            current.count += 1;
+            grouped.set(key, current);
+        });
+        return Array.from(grouped.values()).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    }, [kpiExpenseTransactions, resolveTxnCategoryParts]);
+
+    const kpiIncomeCategoryBreakdown = useMemo(() => {
+        const grouped = new Map();
+        kpiRevenueCategoryBreakdown.forEach((row) => {
+            const current = grouped.get(row.key) || { ...row, amount: 0, count: 0 };
+            current.amount += row.amount;
+            current.count += row.count;
+            grouped.set(row.key, current);
+        });
+        kpiExpenseCategoryBreakdown.forEach((row) => {
+            const current = grouped.get(row.key) || { ...row, amount: 0, count: 0 };
+            current.amount -= row.amount;
+            current.count += row.count;
+            grouped.set(row.key, current);
+        });
+        return Array.from(grouped.values()).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    }, [kpiExpenseCategoryBreakdown, kpiRevenueCategoryBreakdown]);
 
     const revenueBreakdown = useMemo(() => buildPaymentBreakdown(revenueTransactions), [revenueTransactions]);
     const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(kpiExpenseTransactions), [kpiExpenseTransactions]);
@@ -1575,6 +1782,135 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const salesSubCategoryOptions = salesSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
     const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category, 'expense') || []) : [];
     const purchaseSubCategoryOptions = purchaseSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+    const kpiProfitCategoryRows = useMemo(() => {
+        const rows = [];
+        const level1Categories = (salesL1Options || [])
+            .map((name) => String(name || '').trim())
+            .filter(Boolean);
+
+        level1Categories.forEach((categoryName) => {
+            rows.push({
+                key: makeProfitCategoryKey(categoryName, ''),
+                categoryName,
+                subCategoryName: '',
+                label: categoryName,
+                depth: 0,
+            });
+
+            const level2Raw = getLevel2Categories(categoryName, 'sales') || [];
+            level2Raw
+                .map((item) => (typeof item === 'string' ? item : item?.name))
+                .map((name) => String(name || '').trim())
+                .filter(Boolean)
+                .forEach((subCategoryName) => {
+                    rows.push({
+                        key: makeProfitCategoryKey(categoryName, subCategoryName),
+                        categoryName,
+                        subCategoryName,
+                        label: `${categoryName} / ${subCategoryName}`,
+                        depth: 1,
+                    });
+                });
+        });
+
+        return rows;
+    }, [getLevel2Categories, salesL1Options]);
+
+    const saveProfitCategoryConfig = useCallback(async () => {
+        if (!settingsShopId) {
+            setProfitCategoryConfigStatus('Select a shop first.');
+            return;
+        }
+
+        setIsSavingProfitCategoryConfig(true);
+        setProfitCategoryConfigStatus('');
+        try {
+            setHasExplicitProfitCategoryConfig(true);
+            const payloadRows = (kpiProfitCategoryRows || []).map((row) => ({
+                shop_id: settingsShopId,
+                category_name: row.categoryName,
+                sub_category_name: row.subCategoryName,
+                profit_only: Boolean(profitOnlyCategoryMap[row.key]),
+                updated_at: new Date().toISOString(),
+            }));
+
+            const deleteResult = await supabase
+                .from('kpi_profit_category_settings')
+                .delete()
+                .eq('shop_id', settingsShopId);
+
+            if (deleteResult.error && !isMissingDbObjectError(deleteResult.error)) {
+                throw new Error(deleteResult.error.message || 'Failed to clear previous KPI category config.');
+            }
+
+            if (!deleteResult.error && payloadRows.length > 0) {
+                const insertResult = await supabase
+                    .from('kpi_profit_category_settings')
+                    .insert(payloadRows);
+                if (insertResult.error && !isMissingDbObjectError(insertResult.error)) {
+                    throw new Error(insertResult.error.message || 'Failed to save KPI category config.');
+                }
+            }
+
+            const localOnly = Boolean(deleteResult.error && isMissingDbObjectError(deleteResult.error));
+            setProfitCategoryConfigStatus(localOnly ? 'Saved locally only (DB table missing).' : 'Saved.');
+        } catch (error) {
+            setProfitCategoryConfigStatus(error?.message || 'Failed to save settings.');
+        } finally {
+            setIsSavingProfitCategoryConfig(false);
+        }
+    }, [kpiProfitCategoryRows, profitOnlyCategoryMap, settingsShopId]);
+
+    const resetProfitCategoryConfigToDefault = useCallback(() => {
+        setProfitOnlyCategoryMap({});
+        setHasExplicitProfitCategoryConfig(false);
+        setProfitCategoryConfigStatus('Default rules restored.');
+    }, []);
+
+    const updateProfitCategorySlider = useCallback((key, sliderValue) => {
+        const enabled = Number(sliderValue) >= 1;
+        setHasExplicitProfitCategoryConfig(true);
+        setProfitOnlyCategoryMap((prev) => {
+            const next = { ...(prev || {}) };
+            if (enabled) next[key] = true;
+            else delete next[key];
+            return next;
+        });
+        setProfitCategoryConfigStatus('');
+    }, []);
+
+    const kpiBreakdownByType = useMemo(() => {
+        return {
+            income: {
+                title: 'Income KPI Breakdown',
+                subtitle: 'Revenue contribution minus KPI expense contribution by category.',
+                total: activeStats.totals.income,
+                rows: kpiIncomeCategoryBreakdown,
+                positiveClass: 'text-blue-700',
+                negativeClass: 'text-rose-700',
+            },
+            revenue: {
+                title: 'Revenue KPI Breakdown',
+                subtitle: 'Category-wise contribution used in KPI Revenue.',
+                total: activeStats.totals.revenue,
+                rows: kpiRevenueCategoryBreakdown,
+                positiveClass: 'text-emerald-700',
+                negativeClass: 'text-rose-700',
+            },
+            expenses: {
+                title: 'Expense KPI Breakdown',
+                subtitle: 'Only Accessories/Electronics categories are counted in KPI Expenses.',
+                total: activeStats.totals.expenses,
+                rows: kpiExpenseCategoryBreakdown,
+                positiveClass: 'text-rose-700',
+                negativeClass: 'text-rose-700',
+            },
+        };
+    }, [activeStats.totals.expenses, activeStats.totals.income, activeStats.totals.revenue, kpiExpenseCategoryBreakdown, kpiIncomeCategoryBreakdown, kpiRevenueCategoryBreakdown]);
+
+    const activeKpiBreakdown = activeKpiBreakdownType
+        ? (kpiBreakdownByType[activeKpiBreakdownType] || null)
+        : null;
 
     const resolveProductSuggestions = (query, level1, level2) => {
         const trimmed = String(query || '').trim();
@@ -2943,7 +3279,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <button onClick={() => setShowPendingOrders(true)} title="Pending Jobs" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Pending Jobs</span></button>
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
                         <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
-                        <button onClick={() => setShowRepairModal(true)} title="Repair Job" className="fab-animated" style={{ '--fab-i': '#f59e0b', '--fab-j': '#ef4444' }}><span className="fab-icon"><Wrench size={14} /></span><span className="fab-title">Repair Job</span></button>
+                        <button onClick={() => setShowExcludedCategoriesModal(true)} title="Excluded Categories" className="fab-animated" style={{ '--fab-i': '#f59e0b', '--fab-j': '#ea580c' }}><span className="fab-icon"><Tags size={14} /></span><span className="fab-title">Excluded Categories</span></button>
                         <button onClick={() => setShowProfileModal(true)} className="h-8 w-8 rounded-lg border border-white/25 bg-white/20 text-white overflow-hidden flex items-center justify-center" title={user?.name || 'Profile'}>
                             {user?.photo ? (
                                 <img src={user.photo} alt={user?.name || 'Profile'} className="w-full h-full object-cover" />
@@ -2962,16 +3298,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         label="Total Income"
                         value={activeStats.totals.income}
                         colorClass="border-blue-200 bg-gradient-to-br from-blue-100 to-indigo-50"
+                        onClick={() => setActiveKpiBreakdownType('income')}
+                        hint="Tap for category split"
                     />
                     <CompactTrendCard
                         label="Total Revenue"
                         value={activeStats.totals.revenue}
                         colorClass="border-emerald-200 bg-gradient-to-br from-emerald-100 to-cyan-50"
+                        onClick={() => setActiveKpiBreakdownType('revenue')}
+                        hint="Tap for category split"
                     />
                     <CompactTrendCard
                         label="Total Expenses"
                         value={activeStats.totals.expenses}
                         colorClass="border-rose-200 bg-gradient-to-br from-rose-100 to-pink-50"
+                        onClick={() => setActiveKpiBreakdownType('expenses')}
+                        hint="Tap for category split"
                     />
                 </section>
 
@@ -3470,6 +3812,118 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     </div>
                 </section>
             </main>
+
+            {activeKpiBreakdown && (
+                <div className="fixed inset-0 z-[84]" onClick={() => setActiveKpiBreakdownType('')}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-black text-slate-800">{activeKpiBreakdown.title}</h3>
+                                <p className="text-[11px] text-slate-500">{activeKpiBreakdown.subtitle}</p>
+                            </div>
+                            <button onClick={() => setActiveKpiBreakdownType('')} className="text-slate-500 hover:text-slate-700">x</button>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-center justify-between">
+                                <p className="text-xs font-semibold text-slate-600">KPI Total</p>
+                                <p className={`text-sm font-black ${activeKpiBreakdown.total >= 0 ? activeKpiBreakdown.positiveClass : activeKpiBreakdown.negativeClass}`}>{priceTag(activeKpiBreakdown.total)}</p>
+                            </div>
+
+                            <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                                {!activeKpiBreakdown.rows.length ? (
+                                    <p className="text-xs text-slate-400 text-center py-10">No category contributions in selected period.</p>
+                                ) : activeKpiBreakdown.rows.map((row) => (
+                                    <div key={`kpi-break-${row.key}`} className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold text-slate-700 truncate">{row.label}</p>
+                                            <p className="text-[10px] text-slate-500">{row.count} transaction(s)</p>
+                                        </div>
+                                        <p className={`text-sm font-black ${row.amount >= 0 ? activeKpiBreakdown.positiveClass : activeKpiBreakdown.negativeClass}`}>{priceTag(row.amount)}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showExcludedCategoriesModal && (
+                <div className="fixed inset-0 z-[85]" onClick={() => setShowExcludedCategoriesModal(false)}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-12 mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-black text-slate-800">Excluded Categories</h3>
+                                <p className="text-[11px] text-slate-500">
+                                    Set which sales categories should contribute by <strong>profit only</strong> in KPI Revenue.
+                                </p>
+                            </div>
+                            <button onClick={() => setShowExcludedCategoriesModal(false)} className="text-slate-500 hover:text-slate-700">x</button>
+                        </div>
+
+                        <div className="p-4 space-y-3">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                                {hasExplicitProfitCategoryConfig
+                                    ? `Custom mode active. ${Object.keys(profitOnlyCategoryMap || {}).length} category scope(s) are set to profit-only.`
+                                    : 'Default mode active: mobile/laptop/tab-like categories use profit-only until you save a custom setup.'}
+                            </div>
+
+                            <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 space-y-2">
+                                {!kpiProfitCategoryRows.length ? (
+                                    <p className="text-xs text-slate-400 text-center py-10">No sales categories found.</p>
+                                ) : kpiProfitCategoryRows.map((row) => {
+                                    const enabled = Boolean(profitOnlyCategoryMap[row.key]);
+                                    return (
+                                        <div
+                                            key={`profit-cat-row-${row.key}`}
+                                            className={`rounded-lg border px-3 py-2 bg-white flex items-center justify-between gap-3 ${row.depth > 0 ? 'border-slate-100 ml-5' : 'border-slate-200'}`}
+                                        >
+                                            <div className="min-w-0">
+                                                <p className={`truncate ${row.depth > 0 ? 'text-[11px] font-semibold text-slate-700' : 'text-xs font-black text-slate-800'}`}>{row.label}</p>
+                                                <p className="text-[10px] text-slate-500">{enabled ? 'Profit only' : 'Selling amount'}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2 min-w-[170px]">
+                                                <span className={`text-[10px] font-semibold ${enabled ? 'text-slate-400' : 'text-emerald-700'}`}>Sales</span>
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="1"
+                                                    step="1"
+                                                    value={enabled ? 1 : 0}
+                                                    onChange={(e) => updateProfitCategorySlider(row.key, e.target.value)}
+                                                    className="w-20 accent-amber-500"
+                                                />
+                                                <span className={`text-[10px] font-semibold ${enabled ? 'text-amber-700' : 'text-slate-400'}`}>Profit</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {profitCategoryConfigStatus && <p className="text-[11px] text-slate-600">{profitCategoryConfigStatus}</p>}
+
+                            <div className="flex flex-wrap justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={resetProfitCategoryConfigToDefault}
+                                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                >
+                                    Use Default Rules
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={saveProfitCategoryConfig}
+                                    disabled={isSavingProfitCategoryConfig}
+                                    className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60"
+                                >
+                                    {isSavingProfitCategoryConfig ? 'Saving...' : 'Save Settings'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {toast && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-xl bg-slate-900 text-white px-3 py-2 text-xs font-semibold z-50">

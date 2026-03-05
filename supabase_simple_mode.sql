@@ -3,6 +3,19 @@
 
 begin;
 
+-- 0) KPI support table: categories that should contribute by profit-only in Revenue KPI
+create table if not exists public.kpi_profit_category_settings (
+  shop_id uuid not null,
+  category_name text not null,
+  sub_category_name text not null default '',
+  profit_only boolean not null default true,
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone not null default now(),
+  primary key (shop_id, category_name, sub_category_name)
+);
+create index if not exists idx_kpi_profit_category_settings_shop
+  on public.kpi_profit_category_settings(shop_id);
+
 -- 1) Disable RLS on app tables
 alter table if exists public.shops disable row level security;
 alter table if exists public.profiles disable row level security;
@@ -12,6 +25,7 @@ alter table if exists public.online_part_orders disable row level security;
 alter table if exists public.repairs disable row level security;
 alter table if exists public.transactions disable row level security;
 alter table if exists public.attendance disable row level security;
+alter table if exists public.kpi_profit_category_settings disable row level security;
 
 -- 2) Drop all existing policies from target tables
 DO $$
@@ -24,7 +38,8 @@ BEGIN
     WHERE schemaname = 'public'
       AND tablename IN (
         'shops', 'profiles', 'categories', 'inventory',
-        'online_part_orders', 'repairs', 'transactions', 'attendance'
+        'online_part_orders', 'repairs', 'transactions', 'attendance',
+        'kpi_profit_category_settings'
       )
   LOOP
     EXECUTE format('drop policy if exists %I on %I.%I;', pol.policyname, pol.schemaname, pol.tablename);
