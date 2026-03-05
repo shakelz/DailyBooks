@@ -220,14 +220,57 @@ export default function AdminSettings() {
 
     const handleSaveEdit = async (e) => {
         e.preventDefault();
-        if (!editName.trim() || editPin.length !== 4) {
-            alert('Name and 4-digit PIN required.');
+        const current = salesmen.find((s) => s.id === editingId);
+        if (!current) {
+            alert('Salesman not found.');
             return;
         }
-        // Check PIN uniqueness (excluding self)
-        if (salesmen.some(s => s.pin === editPin && s.id !== editingId)) {
-            alert('PIN already in use!');
-            return;
+
+        const nextName = String(editName || '').trim();
+        const nextPin = String(editPin || '').trim();
+        const nextRate = parseFloat(editRate);
+        const nextNumber = parseInt(editSalesmanNumber, 10) || 0;
+        const currentRate = parseFloat(current.hourlyRate) || 12.50;
+        const currentNumber = parseInt(current.salesmanNumber, 10) || 0;
+        const currentPhoto = String(current.photo || '');
+        const nextPhotoInput = String(editPhoto || '').trim();
+
+        const payload = {};
+
+        if (nextName !== String(current.name || '')) {
+            if (!nextName) {
+                alert('Name cannot be empty.');
+                return;
+            }
+            payload.name = nextName;
+        }
+
+        if (nextPin && nextPin !== String(current.pin || '')) {
+            if (nextPin.length !== 4) {
+                alert('PIN must be 4 digits.');
+                return;
+            }
+            if (salesmen.some(s => s.pin === nextPin && s.id !== editingId)) {
+                alert('PIN already in use!');
+                return;
+            }
+            payload.pin = nextPin;
+        }
+
+        if (Number.isFinite(nextRate) && Math.abs(nextRate - currentRate) > 0.0001) {
+            payload.hourlyRate = nextRate;
+        }
+
+        if (nextNumber !== currentNumber) {
+            payload.salesmanNumber = nextNumber;
+        }
+
+        if (editCanEditTransactions !== Boolean(current.canEditTransactions)) {
+            payload.canEditTransactions = editCanEditTransactions;
+        }
+
+        if (editCanBulkEdit !== Boolean(current.canBulkEdit)) {
+            payload.canBulkEdit = editCanBulkEdit;
         }
 
         try {
@@ -236,15 +279,18 @@ export default function AdminSettings() {
                 uploadedPhotoUrl = await uploadSalesmanPhoto(editPhotoFile, editingId || `edit-${Date.now()}`);
             }
 
-            await updateSalesman(editingId, {
-                name: editName,
-                pin: editPin,
-                photo: uploadedPhotoUrl || editPhoto,
-                hourlyRate: parseFloat(editRate) || 12.50,
-                salesmanNumber: parseInt(editSalesmanNumber, 10) || 0,
-                canEditTransactions: editCanEditTransactions,
-                canBulkEdit: editCanBulkEdit
-            });
+            if (uploadedPhotoUrl) {
+                payload.photo = uploadedPhotoUrl;
+            } else if (nextPhotoInput !== currentPhoto) {
+                payload.photo = nextPhotoInput;
+            }
+
+            if (Object.keys(payload).length === 0) {
+                setEditingId(null);
+                return;
+            }
+
+            await updateSalesman(editingId, payload);
             setEditingId(null);
         } catch (error) {
             alert(error?.message || 'Failed to update salesman.');
