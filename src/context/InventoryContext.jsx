@@ -388,6 +388,19 @@ function applyScopeToCategoryList(list, scopeMap) {
     return list.map((item) => withCategoryScope(item, scopeMap));
 }
 
+function dedupeCategoryObjectsByName(list = []) {
+    const seen = new Set();
+    const deduped = [];
+    (Array.isArray(list) ? list : []).forEach((item) => {
+        const name = typeof item === 'object' ? item?.name : item;
+        const key = normalizeCategoryNameForMatch(name);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        deduped.push(item);
+    });
+    return deduped;
+}
+
 function setCategoryScopeEntry(shopId, level, name, parentName, scope) {
     const sid = cleanText(shopId);
     if (!sid) return;
@@ -1187,7 +1200,7 @@ export function InventoryProvider({ children }) {
                 const normalizedCategories = categoryRows.map((row) => normalizeCategoryRecord(row, categoryLookups.byId));
                 const l1 = normalizedCategories.filter(c => Number(c.level) === 1) || [];
                 const l2 = normalizedCategories.filter(c => Number(c.level) === 2) || [];
-                setL1Categories(applyScopeToCategoryList(l1, scopeMap));
+                setL1Categories(dedupeCategoryObjectsByName(applyScopeToCategoryList(l1, scopeMap)));
 
                 const map2 = {};
                 l2.forEach(c => {
@@ -1195,6 +1208,9 @@ export function InventoryProvider({ children }) {
                     if (!parentName) return;
                     if (!map2[parentName]) map2[parentName] = [];
                     map2[parentName].push(withCategoryScope({ ...c, parent: parentName }, scopeMap));
+                });
+                Object.keys(map2).forEach((parentName) => {
+                    map2[parentName] = dedupeCategoryObjectsByName(map2[parentName]);
                 });
                 setL2Map(map2);
             } else {
@@ -1260,14 +1276,15 @@ export function InventoryProvider({ children }) {
                 const newCat = withCategoryScope(normalizeCategoryRecord(payload.new, categoryLookupsRef.current.byId), readCategoryScopeMap(sid));
                 if (newCat.level === 1) {
                     setL1Categories(prev => {
-                        if (prev.some(c => (typeof c === 'object' ? c.name : c) === newCat.name)) return prev;
+                        if (prev.some(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name))) return prev;
                         return [...prev, newCat];
                     });
                 } else if (newCat.level === 2) {
                     setL2Map(prev => {
-                        const currentList = prev[newCat.parent] || [];
-                        if (currentList.some(c => (typeof c === 'object' ? c.name : c) === newCat.name)) return prev;
-                        return { ...prev, [newCat.parent]: [...currentList, newCat] };
+                        const parentBucket = Object.keys(prev || {}).find((key) => normalizeCategoryNameForMatch(key) === normalizeCategoryNameForMatch(newCat.parent)) || newCat.parent;
+                        const currentList = prev[parentBucket] || [];
+                        if (currentList.some(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name))) return prev;
+                        return { ...prev, [parentBucket]: [...currentList, { ...newCat, parent: parentBucket }] };
                     });
                 }
             })
@@ -2211,23 +2228,24 @@ export function InventoryProvider({ children }) {
 
     // Stateful Category Helpers
     const getL1Categories = useCallback((scope = 'all') => {
-        if (!scope || String(scope).toLowerCase() === 'all') return l1Categories;
+        if (!scope || String(scope).toLowerCase() === 'all') return dedupeCategoryObjectsByName(l1Categories);
         const normalizedScope = normalizeCategoryScope(scope);
-        return l1Categories.filter((c) => {
+        return dedupeCategoryObjectsByName(l1Categories.filter((c) => {
             if (!c || typeof c !== 'object') return normalizedScope === CATEGORY_SCOPE_SALES;
             return normalizeCategoryScope(c.scope) === normalizedScope;
-        });
+        }));
     }, [l1Categories]);
 
     const getL2Categories = useCallback((l1Name, scope = 'all') => {
         if (!l1Name) return [];
-        const categories = l2Map[l1Name] || [];
-        if (!scope || String(scope).toLowerCase() === 'all') return categories;
+        const parentBucket = Object.keys(l2Map || {}).find((key) => normalizeCategoryNameForMatch(key) === normalizeCategoryNameForMatch(l1Name)) || l1Name;
+        const categories = l2Map[parentBucket] || [];
+        if (!scope || String(scope).toLowerCase() === 'all') return dedupeCategoryObjectsByName(categories);
         const normalizedScope = normalizeCategoryScope(scope);
-        return (categories || []).filter((c) => {
+        return dedupeCategoryObjectsByName((categories || []).filter((c) => {
             if (!c || typeof c !== 'object') return normalizedScope === CATEGORY_SCOPE_SALES;
             return normalizeCategoryScope(c.scope) === normalizedScope;
-        });
+        }));
     }, [l2Map]);
 
     const addL1Category = useCallback(async (name, image = null, scope = CATEGORY_SCOPE_SALES) => {

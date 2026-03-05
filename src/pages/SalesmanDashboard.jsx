@@ -27,6 +27,17 @@ function normalizeCategoryToken(value = '') {
     return String(value || '').trim().toLowerCase();
 }
 
+function dedupeCategoryNameList(list = []) {
+    const seen = new Set();
+    return (Array.isArray(list) ? list : []).reduce((acc, value) => {
+        const normalized = normalizeCategoryToken(value);
+        if (!normalized || seen.has(normalized)) return acc;
+        seen.add(normalized);
+        acc.push(String(value || '').trim());
+        return acc;
+    }, []);
+}
+
 function makeProfitCategoryKey(categoryName = '', subCategoryName = '') {
     return `${normalizeCategoryToken(categoryName)}::${normalizeCategoryToken(subCategoryName)}`;
 }
@@ -1965,9 +1976,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const activeStats = fallbackStats;
 
     const salesL1OptionsRaw = getLevel1Categories('sales') || [];
-    const salesL1Options = salesL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+    const salesL1Options = dedupeCategoryNameList(salesL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean));
     const revenueL1OptionsRaw = getLevel1Categories('expense') || [];
-    const revenueL1Options = revenueL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
+    const revenueL1Options = dedupeCategoryNameList(revenueL1OptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean));
 
     const salesSubCategoryOptionsRaw = salesEntry.category ? (getLevel2Categories(salesEntry.category, 'sales') || []) : [];
     const salesSubCategoryOptions = salesSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
