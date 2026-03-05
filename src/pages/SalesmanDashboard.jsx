@@ -15,7 +15,6 @@ import { supabase } from '../supabaseClient';
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
 const SALESMAN_LOCK_NAMESPACE = 'dailybooks_salesman_lock_v1';
-const KPI_PROFIT_CATEGORY_STORAGE_PREFIX = 'dailybooks_kpi_profit_categories_v1';
 const KPI_MODE_SALES = 'sales';
 const KPI_MODE_PROFIT = 'profit';
 const KPI_MODE_EXCLUDED = 'excluded';
@@ -76,58 +75,6 @@ function isMissingDbObjectError(error = null) {
     return message.includes('does not exist')
         || message.includes('could not find the table')
         || message.includes('schema cache');
-}
-
-function readProfitCategorySettingsFromStorage(shopId = '') {
-    const sid = String(shopId || '').trim();
-    if (!sid || typeof window === 'undefined') return { explicit: false, map: {} };
-    try {
-        const raw = window.localStorage.getItem(`${KPI_PROFIT_CATEGORY_STORAGE_PREFIX}:${sid}`);
-        if (!raw) return { explicit: false, map: {} };
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return { explicit: false, map: {} };
-
-        const explicit = Boolean(parsed?.explicit);
-        const map = parsed?.map && typeof parsed.map === 'object' && !Array.isArray(parsed.map)
-            ? Object.keys(parsed.map).reduce((acc, key) => {
-                const value = parsed.map[key];
-                if (typeof value === 'boolean') {
-                    acc[key] = value ? KPI_MODE_PROFIT : KPI_MODE_SALES;
-                    return acc;
-                }
-                acc[key] = normalizeKpiContributionMode(value);
-                return acc;
-            }, {})
-            : {};
-        return { explicit, map };
-    } catch {
-        return { explicit: false, map: {} };
-    }
-}
-
-function writeProfitCategorySettingsToStorage(shopId = '', settings = {}) {
-    const sid = String(shopId || '').trim();
-    if (!sid || typeof window === 'undefined') return;
-    const explicit = Boolean(settings?.explicit);
-    const map = settings?.map && typeof settings.map === 'object' && !Array.isArray(settings.map)
-        ? Object.keys(settings.map).reduce((acc, key) => {
-            const value = settings.map[key];
-            if (typeof value === 'boolean') {
-                acc[key] = value ? KPI_MODE_PROFIT : KPI_MODE_SALES;
-                return acc;
-            }
-            acc[key] = normalizeKpiContributionMode(value);
-            return acc;
-        }, {})
-        : {};
-    try {
-        window.localStorage.setItem(
-            `${KPI_PROFIT_CATEGORY_STORAGE_PREFIX}:${sid}`,
-            JSON.stringify({ explicit, map })
-        );
-    } catch {
-        // Ignore storage write errors; DB save still available.
-    }
 }
 
 const newQuickSaleItem = () => ({
@@ -855,9 +802,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return;
         }
 
-        const localSettings = readProfitCategorySettingsFromStorage(settingsShopId);
-        setCategoryContributionModeMap(localSettings.map || {});
-        setHasExplicitContributionModeConfig(Boolean(localSettings.explicit));
+        setCategoryContributionModeMap({});
+        setHasExplicitContributionModeConfig(false);
 
         let cancelled = false;
         const loadFromDb = async () => {
@@ -891,7 +837,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }, {});
             setCategoryContributionModeMap(map);
             setHasExplicitContributionModeConfig(true);
-            writeProfitCategorySettingsToStorage(settingsShopId, { explicit: true, map });
         };
 
         loadFromDb();
@@ -899,14 +844,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             cancelled = true;
         };
     }, [settingsShopId]);
-
-    useEffect(() => {
-        if (!settingsShopId) return;
-        writeProfitCategorySettingsToStorage(settingsShopId, {
-            explicit: hasExplicitContributionModeConfig,
-            map: categoryContributionModeMap,
-        });
-    }, [categoryContributionModeMap, hasExplicitContributionModeConfig, settingsShopId]);
 
     useEffect(() => {
         if (!user) {
@@ -2135,7 +2072,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 }
             }
 
-            setContributionModeConfigStatus(dbMissing ? 'Saved locally only (DB table/column missing).' : 'Saved.');
+            setContributionModeConfigStatus(dbMissing ? 'DB table/column missing. Could not save.' : 'Saved.');
         } catch (error) {
             setContributionModeConfigStatus(error?.message || 'Failed to save settings.');
         } finally {
