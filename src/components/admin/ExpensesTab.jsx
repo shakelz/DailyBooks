@@ -56,6 +56,10 @@ function isCashbookEntry(txn) {
     return source === 'admin' || source === 'admin-income' || source === 'admin-expense' || source === 'cashbook';
 }
 
+function getTxnInvoiceNumber(txn) {
+    return String(txn?.invoiceNumber || txn?.invoice_number || '').trim();
+}
+
 export default function ExpensesTab() {
     const { transactions, addTransaction, updateTransaction, deleteTransaction } = useInventory();
     const { attendanceLogs, salesmen } = useAuth();
@@ -367,7 +371,11 @@ export default function ExpensesTab() {
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="min-w-0">
                                         <p className="text-sm font-bold text-slate-800 truncate">{txn.desc}</p>
-                                        <p className="text-[11px] text-slate-500">{txn.date} {txn.time} | {txn.category || 'General'} | {txn.paymentMethod || 'Cash'}{isSynthetic ? ' | Auto from staff production' : ''}</p>
+                                        <p className="text-[11px] text-slate-500">
+                                            {txn.date} {txn.time} | {txn.category || 'General'} | {txn.paymentMethod || 'Cash'}
+                                            {getTxnInvoiceNumber(txn) ? ` | Inv: ${getTxnInvoiceNumber(txn)}` : ''}
+                                            {isSynthetic ? ' | Auto from staff production' : ''}
+                                        </p>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <p className={`text-sm font-black ${isIncome ? 'text-emerald-600' : 'text-red-600'}`}>{isIncome ? '+' : '-'}{priceTag(txn.amount)}</p>
@@ -430,4 +438,3 @@ export default function ExpensesTab() {
         </div>
     );
 }
-

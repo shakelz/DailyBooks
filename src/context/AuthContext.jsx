@@ -2378,27 +2378,19 @@ export function AuthProvider({ children }) {
 
         let cancelled = false;
         let inFlight = false;
-
-        const canAcquireAuthLock = async () => {
-            if (typeof navigator === 'undefined' || !navigator?.locks?.request) return true;
-            try {
-                const acquired = await navigator.locks.request('supabase-auth-token', { ifAvailable: true, mode: 'exclusive' }, (lock) => Boolean(lock));
-                return Boolean(acquired);
-            } catch {
-                return false;
-            }
-        };
+        let lastSyncAt = 0;
+        const MIN_REFRESH_INTERVAL_MS = 1200;
 
         const tick = async () => {
             if (cancelled || inFlight) return;
             if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-
-            const hasLock = await canAcquireAuthLock();
-            if (!hasLock) return;
+            const now = Date.now();
+            if (now - lastSyncAt < MIN_REFRESH_INTERVAL_MS) return;
 
             inFlight = true;
             try {
                 await fetchAttendanceState(sid, role, activeUserId);
+                lastSyncAt = Date.now();
             } finally {
                 inFlight = false;
             }

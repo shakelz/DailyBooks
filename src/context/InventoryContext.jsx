@@ -156,7 +156,8 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
     const itemsByTransactionId = options?.itemsByTransactionId && typeof options.itemsByTransactionId === 'object'
         ? options.itemsByTransactionId
         : {};
-    const txnId = cleanText(txn?.transaction_id || txn?.id) || String(txn?.transaction_id ?? txn?.id ?? '');
+    const txnId = cleanText(txn?.id || txn?.transaction_id || txn?.transactionId)
+        || String(txn?.id ?? txn?.transaction_id ?? txn?.transactionId ?? '');
     const linkedItems = txnId ? (itemsByTransactionId[txnId] || []) : [];
     const primaryItem = linkedItems[0] || null;
     const resolvedTimestamp = resolveTransactionTimestamp(txn);
@@ -197,7 +198,11 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         ?? primaryItem?.productId
     );
 
-    const transactionId = cleanText(txn?.transactionId || txn?.transaction_id || txn?.order_id) || txnId;
+    const transactionId = cleanText(txn?.transactionId || txn?.transaction_id || txn?.id || txn?.order_id) || txnId;
+    const normalizedDesc = cleanText(txn?.desc || txn?.description || txn?.name || '');
+    const normalizedCategory = cleanText(txn?.category || txn?.category_name || '');
+    const normalizedPaymentMethod = cleanText(txn?.paymentMethod || txn?.payment_method || txn?.payment || '');
+    const normalizedInvoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
 
     const rawType = cleanText(txn?.tx_type || txn?.type || 'product_sale');
     const normalizedLegacyType = (() => {
@@ -212,9 +217,12 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         ...txn,
         id: txnId || txn?.id,
         transactionId,
+        desc: normalizedDesc,
+        description: normalizedDesc,
+        category: normalizedCategory || txn?.category || '',
         type: normalizedLegacyType,
         tx_type: rawType || 'product_sale',
-        source: cleanText(txn?.tx_source || txn?.source || 'cash'),
+        source: cleanText(txn?.source || txn?.tx_source || 'cash'),
         tx_source: cleanText(txn?.tx_source || txn?.source || 'cash'),
         occurred_at: resolvedTimestamp || cleanText(txn?.created_at),
         created_at: resolvedTimestamp || cleanText(txn?.created_at),
@@ -230,8 +238,11 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         is_fixed_expense: Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false),
         isFixedExpense: Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false),
         unitPrice,
+        paymentMethod: normalizedPaymentMethod || txn?.paymentMethod || '',
         productId: productId || null,
         workerId: workerId || null,
+        invoice_number: normalizedInvoiceNumber,
+        invoiceNumber: normalizedInvoiceNumber,
         salesmanName: cleanText(txn?.salesmanName || txn?.salesman_name || txn?.userName || worker?.name || ''),
         salesmanNumber: Number(txn?.salesmanNumber ?? txn?.salesman_number ?? worker?.salesmanNumber ?? 0) || 0,
         transactionItems: linkedItems,
@@ -263,19 +274,21 @@ function extractLevel1CategoryName(category) {
 
 function buildTransactionItemPayload(txn = {}, shopId = '') {
     const sid = cleanText(shopId);
-    const txId = cleanText(txn?.id);
+    const txId = cleanText(txn?.id || txn?.transactionId || txn?.transaction_id);
     if (!sid || !txId) return null;
 
     const quantity = Math.max(1, parseInt(txn?.quantity ?? 1, 10) || 1);
     const amount = parseFloat(txn?.amount) || 0;
     const unitPrice = parseFloat(txn?.unitPrice);
     const resolvedUnitPrice = Number.isFinite(unitPrice) ? unitPrice : (quantity > 0 ? amount / quantity : 0);
+    const productIdRaw = cleanText(txn?.productId || txn?.product_id);
+    const productId = isUuidLike(productIdRaw) ? productIdRaw : null;
 
     return {
-        id: `ti-${txId}`,
         shop_id: sid,
         transaction_id: txId,
-        product_id: cleanText(txn?.productId) || null,
+        transactionId: txId,
+        product_id: productId,
         qty: quantity,
         unit_price: resolvedUnitPrice,
         line_total: amount,
@@ -284,23 +297,24 @@ function buildTransactionItemPayload(txn = {}, shopId = '') {
 
 function buildTransactionItemPayloads(txn = {}, shopId = '') {
     const sid = cleanText(shopId);
-    const txId = cleanText(txn?.id);
+    const txId = cleanText(txn?.id || txn?.transactionId || txn?.transaction_id);
     if (!sid || !txId) return [];
 
     const explicitItems = Array.isArray(txn?.transactionItems) ? txn.transactionItems : [];
     if (explicitItems.length > 0) {
         return explicitItems
-            .map((item, index) => {
+            .map((item) => {
                 const quantity = Math.max(1, parseInt(item?.qty ?? item?.quantity ?? 1, 10) || 1);
                 const lineTotal = parseFloat(item?.line_total ?? item?.lineTotal ?? item?.amount ?? 0) || 0;
                 const unitPriceRaw = parseFloat(item?.unit_price ?? item?.unitPrice);
                 const unitPrice = Number.isFinite(unitPriceRaw) ? unitPriceRaw : (quantity > 0 ? lineTotal / quantity : 0);
-                const productId = cleanText(item?.product_id || item?.productId);
+                const productIdRaw = cleanText(item?.product_id || item?.productId);
+                const productId = isUuidLike(productIdRaw) ? productIdRaw : '';
                 if (!productId) return null;
                 return {
-                    id: cleanText(item?.id) || `ti-${txId}-${index + 1}`,
                     shop_id: sid,
                     transaction_id: txId,
+                    transactionId: txId,
                     product_id: productId,
                     qty: quantity,
                     unit_price: unitPrice,
@@ -735,6 +749,7 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
 }
 
 function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
+    void includeId;
     const occurredAt = resolveTransactionTimestamp(txn) || new Date().toISOString();
     const workerId = cleanText(txn?.workerId || txn?.worker_id);
     const quantity = parseInt(txn?.quantity || 1, 10) || 1;
@@ -745,13 +760,22 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
     const productIdRaw = cleanText(txn?.product_id || txn?.productId);
     const repairId = isUuidLike(repairIdRaw) ? repairIdRaw : null;
     const productId = isUuidLike(productIdRaw) ? productIdRaw : null;
+    const mappedType = mapTxType(txn?.tx_type || txn?.type);
+    const mappedSource = mapTxSource(txn?.source || txn?.tx_source);
+    const invoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
+    const description = cleanText(txn?.desc || txn?.description || txn?.name);
+    const category = cleanText(txn?.category || txn?.category_name);
+    const paymentMethod = cleanText(txn?.paymentMethod || txn?.payment_method || txn?.payment);
 
     const payload = withShopId({
-        tx_type: mapTxType(txn?.tx_type || txn?.type),
-        description: txn?.desc || txn?.name || '',
+        tx_type: mappedType,
+        type: mappedType,
+        description,
+        desc: description,
         amount,
         notes: txn?.notes || '',
-        tx_source: mapTxSource(txn?.tx_source || txn?.source),
+        source: mappedSource,
+        tx_source: mappedSource,
         quantity,
         created_at: occurredAt,
         updated_at: occurredAt,
@@ -759,17 +783,12 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
         discount_amount: discountAmount,
         repair_id: repairId,
         product_id: productId,
+        invoice_number: invoiceNumber || null,
+        category: category || null,
+        payment_method: paymentMethod || null,
+        paymentMethod: paymentMethod || null,
         created_by: isUuidLike(workerId) ? workerId : null,
     }, shopId);
-
-    if (includeId) {
-        const incomingTxId = cleanText(txn?.transaction_id || txn?.transactionId || txn?.id);
-        if (isUuidLike(incomingTxId)) {
-            payload.transaction_id = incomingTxId;
-        } else if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-            payload.transaction_id = crypto.randomUUID();
-        }
-    }
 
     return payload;
 }
@@ -786,6 +805,36 @@ function isUuidSyntaxError(error = null, fieldName = '') {
     if (!message.includes('invalid input syntax for type uuid')) return false;
     if (!fieldName) return true;
     return message.includes(String(fieldName).toLowerCase()) || message.includes('uuid');
+}
+
+function isMissingColumnError(error = null) {
+    const message = cleanText(error?.message || error || '').toLowerCase();
+    if (!message.includes('column')) return false;
+    return message.includes('does not exist')
+        || message.includes('schema cache')
+        || message.includes('could not find');
+}
+
+async function executeByColumnCandidates(operation, columns = []) {
+    const candidateColumns = Array.isArray(columns)
+        ? Array.from(new Set(columns.map((value) => cleanText(value)).filter(Boolean)))
+        : [];
+    let lastError = null;
+
+    for (const column of candidateColumns) {
+        const result = await operation(column);
+        if (!result?.error) return { ...result, column };
+        lastError = result.error;
+        if (isUuidSyntaxError(result.error, column)) continue;
+        if (isMissingColumnError(result.error)) continue;
+        return { ...result, column };
+    }
+
+    return {
+        data: null,
+        error: lastError || { message: 'Unable to match transaction column.' },
+        column: '',
+    };
 }
 
 function buildTransactionSnapshot(txn) {
@@ -1479,16 +1528,19 @@ export function InventoryProvider({ children }) {
         const sid = cleanText(shopIdOverride || activeShopId);
         if (!sid) return;
 
-        const txId = cleanText(txn?.id);
+        const txId = cleanText(txn?.id || txn?.transactionId || txn?.transaction_id);
         if (!txId) return;
 
         const payloads = buildTransactionItemPayloads(txn, sid);
 
-        const deleteResult = await supabase
-            .from('transaction_items')
-            .delete()
-            .eq('shop_id', sid)
-            .eq('transaction_id', txId);
+        const deleteResult = await executeByColumnCandidates(
+            (column) => supabase
+                .from('transaction_items')
+                .delete()
+                .eq('shop_id', sid)
+                .eq(column, txId),
+            ['transaction_id', 'transactionId']
+        );
 
         if (deleteResult.error && !isMissingRelationError(deleteResult.error, 'transaction_items')) {
             throw new Error(deleteResult.error.message || 'Failed to clear transaction item rows.');
@@ -1511,68 +1563,137 @@ export function InventoryProvider({ children }) {
         const sid = cleanText(activeShopId);
         if (!sid) throw new Error('No active shop selected.');
 
-        const formattedTxn = buildTransactionDBPayload(txn, true, sid);
-        const normalizedTxn = normalizeTransactionRecord(formattedTxn, { workersById: workerLookup });
-        const snapshot = buildTransactionSnapshot({ ...txn, ...formattedTxn, ...normalizedTxn });
-        saveTransactionSnapshot(normalizedTxn.id, snapshot);
-        const hydratedTxn = mergeTransactionWithSnapshot(normalizedTxn, { [normalizedTxn.id]: snapshot });
+        const incomingTxnId = cleanText(txn?.id || txn?.transactionId || txn?.transaction_id);
+        const optimisticTxnId = incomingTxnId || (
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `txn-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+        );
+
+        const formattedTxn = buildTransactionDBPayload(txn, false, sid);
+        const normalizedTxn = normalizeTransactionRecord(
+            {
+                ...txn,
+                ...formattedTxn,
+                id: optimisticTxnId,
+                transactionId: optimisticTxnId,
+                invoice_number: cleanText(txn?.invoice_number || txn?.invoiceNumber || formattedTxn?.invoice_number),
+            },
+            { workersById: workerLookup }
+        );
+        const snapshot = buildTransactionSnapshot({ ...txn, ...normalizedTxn });
+        saveTransactionSnapshot(optimisticTxnId, snapshot);
+        const hydratedTxn = mergeTransactionWithSnapshot(normalizedTxn, { [optimisticTxnId]: snapshot });
 
         setTransactions(prev => {
             if (prev.some(t => String(t.id) === String(hydratedTxn.id))) return prev;
             return [hydratedTxn, ...prev];
         });
 
-        supabase.channel(`public:unified_sync:${sid}`).send({
-            type: 'broadcast',
-            event: 'transaction_sync',
-            payload: { action: 'INSERT', data: { ...hydratedTxn, shop_id: sid } }
-        }).catch(e => console.error(e));
-
         const insertResult = await executeWithPrunedColumns(
-            (candidate) => supabase.from('transactions').insert([candidate]),
+            (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
             formattedTxn
         );
+
+        let writePayload = formattedTxn;
+        let finalWriteResult = insertResult;
+
         if (insertResult.error) {
+            const normalizedSource = ['cash', 'sum_up'].includes(cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase())
+                ? cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase()
+                : 'cash';
             const fallbackPayload = {
                 ...formattedTxn,
                 tx_type: 'product_sale',
-                tx_source: ['cash', 'sum_up'].includes(cleanText(formattedTxn?.tx_source || '').toLowerCase())
-                    ? cleanText(formattedTxn?.tx_source || '').toLowerCase()
-                    : 'cash',
+                type: 'product_sale',
+                source: normalizedSource,
+                tx_source: normalizedSource,
             };
 
             if (isUuidSyntaxError(insertResult.error, 'product_id')) fallbackPayload.product_id = null;
             if (isUuidSyntaxError(insertResult.error, 'repair_id')) fallbackPayload.repair_id = null;
             if (isUuidSyntaxError(insertResult.error, 'created_by')) fallbackPayload.created_by = null;
-            if (isEnumError(insertResult.error, 'tx_type')) fallbackPayload.tx_type = 'product_sale';
-            if (isEnumError(insertResult.error, 'tx_source')) fallbackPayload.tx_source = 'cash';
+            if (isEnumError(insertResult.error, 'tx_type') || isEnumError(insertResult.error, 'type')) {
+                fallbackPayload.tx_type = 'product_sale';
+                fallbackPayload.type = 'product_sale';
+            }
+            if (isEnumError(insertResult.error, 'source') || isEnumError(insertResult.error, 'tx_source')) {
+                fallbackPayload.source = 'cash';
+                fallbackPayload.tx_source = 'cash';
+            }
 
             const retryResult = await executeWithPrunedColumns(
-                (candidate) => supabase.from('transactions').insert([candidate]),
+                (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
                 fallbackPayload
             );
 
-            if (!retryResult.error) {
-                try {
-                    await syncTransactionItems({ ...txn, ...hydratedTxn, ...fallbackPayload }, sid);
-                } catch (itemError) {
-                    console.error(itemError);
-                }
-                return hydratedTxn;
+            if (retryResult.error) {
+                setTransactions(prev => prev.filter(t => String(t.id) !== String(optimisticTxnId)));
+                removeTransactionSnapshot(optimisticTxnId);
+                throw new Error(retryResult.error?.message || insertResult.error.message || 'Failed to save transaction.');
             }
 
-            setTransactions(prev => prev.filter(t => String(t.id) !== String(normalizedTxn.id)));
-            removeTransactionSnapshot(normalizedTxn.id);
-            throw new Error(retryResult.error?.message || insertResult.error.message || 'Failed to save transaction.');
+            writePayload = fallbackPayload;
+            finalWriteResult = retryResult;
         }
 
+        const insertedRow = finalWriteResult?.data && typeof finalWriteResult.data === 'object'
+            ? finalWriteResult.data
+            : {};
+        const persistedTxnId = cleanText(insertedRow?.id || insertedRow?.transaction_id || insertedRow?.transactionId) || optimisticTxnId;
+        const persistedTxn = normalizeTransactionRecord(
+            {
+                ...txn,
+                ...writePayload,
+                ...insertedRow,
+                id: persistedTxnId,
+                transactionId: persistedTxnId,
+                source: cleanText(insertedRow?.source || insertedRow?.tx_source || writePayload?.source || writePayload?.tx_source || txn?.source || 'cash'),
+                invoice_number: cleanText(insertedRow?.invoice_number || txn?.invoice_number || txn?.invoiceNumber || writePayload?.invoice_number),
+            },
+            { workersById: workerLookup }
+        );
+        const persistedSnapshot = buildTransactionSnapshot({
+            ...txn,
+            ...persistedTxn,
+            transactionItems: hydratedTxn?.transactionItems || txn?.transactionItems || [],
+        });
+
+        saveTransactionSnapshot(persistedTxnId, persistedSnapshot);
+        if (persistedTxnId !== optimisticTxnId) {
+            removeTransactionSnapshot(optimisticTxnId);
+        }
+
+        const hydratedPersistedTxn = mergeTransactionWithSnapshot(persistedTxn, { [persistedTxnId]: persistedSnapshot });
+        setTransactions(prev => [
+            hydratedPersistedTxn,
+            ...prev.filter((t) => {
+                const rowId = String(t.id || '');
+                return rowId !== String(optimisticTxnId) && rowId !== String(persistedTxnId);
+            }),
+        ]);
+
+        supabase.channel(`public:unified_sync:${sid}`).send({
+            type: 'broadcast',
+            event: 'transaction_sync',
+            payload: { action: 'INSERT', data: { ...hydratedPersistedTxn, shop_id: sid } }
+        }).catch(e => console.error(e));
+
         try {
-            await syncTransactionItems({ ...txn, ...hydratedTxn, ...formattedTxn }, sid);
+            await syncTransactionItems(
+                {
+                    ...txn,
+                    ...hydratedPersistedTxn,
+                    id: persistedTxnId,
+                    transactionId: persistedTxnId,
+                },
+                sid
+            );
         } catch (itemError) {
             console.error(itemError);
         }
 
-        return hydratedTxn;
+        return hydratedPersistedTxn;
     }, [activeShopId, workerLookup, syncTransactionItems]);
 
     useEffect(() => {
@@ -1605,7 +1726,10 @@ export function InventoryProvider({ children }) {
 
         const dbUpdate = buildTransactionDBPayload(nextTxn, false, sid);
         const updateResult = await executeWithPrunedColumns(
-            (candidate) => supabase.from('transactions').update(candidate).eq('transaction_id', strId).eq('shop_id', sid),
+            (candidate) => executeByColumnCandidates(
+                (column) => supabase.from('transactions').update(candidate).eq(column, strId).eq('shop_id', sid),
+                ['id', 'transaction_id', 'transactionId']
+            ),
             dbUpdate
         );
         if (updateResult.error) {
@@ -1643,16 +1767,25 @@ export function InventoryProvider({ children }) {
 
         setTransactions(prev => prev.filter(t => String(t.id) !== strId));
         removeTransactionSnapshot(strId);
-        const itemDeleteResult = await supabase
-            .from('transaction_items')
-            .delete()
-            .eq('shop_id', sid)
-            .eq('transaction_id', strId);
+        const itemDeleteResult = await executeByColumnCandidates(
+            (column) => supabase
+                .from('transaction_items')
+                .delete()
+                .eq('shop_id', sid)
+                .eq(column, strId),
+            ['transaction_id', 'transactionId']
+        );
         if (itemDeleteResult.error && !isMissingRelationError(itemDeleteResult.error, 'transaction_items')) {
             throw new Error(itemDeleteResult.error.message || 'Failed to remove linked transaction items.');
         }
 
-        await supabase.from('transactions').delete().eq('transaction_id', strId).eq('shop_id', sid);
+        const deleteResult = await executeByColumnCandidates(
+            (column) => supabase.from('transactions').delete().eq(column, strId).eq('shop_id', sid),
+            ['id', 'transaction_id', 'transactionId']
+        );
+        if (deleteResult.error) {
+            throw new Error(deleteResult.error.message || 'Failed to delete transaction.');
+        }
     }, [transactions, adjustStock, activeShopId]);
 
     const clearTransactions = useCallback(async () => {

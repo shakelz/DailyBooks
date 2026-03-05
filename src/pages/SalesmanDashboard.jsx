@@ -143,6 +143,10 @@ function isGenericTransactionLabel(value = '') {
         || raw === 'income';
 }
 
+function getTransactionInvoiceNumber(txn = {}) {
+    return String(txn?.invoiceNumber || txn?.invoice_number || '').trim();
+}
+
 function buildTransactionDraft(txn = {}, defaultShowTax = true) {
     return {
         desc: String(txn.desc || ''),
@@ -1104,13 +1108,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             id: resolvedTxnId,
             transactionId: resolvedTxnId,
             type: normalizedType,
-            source: String(dbTxn?.tx_source || dbTxn?.source || txn?.source || '').trim(),
+            source: String(dbTxn?.source || dbTxn?.tx_source || txn?.source || '').trim(),
             desc: String(dbTxn?.description || dbTxn?.desc || txn?.desc || '').trim(),
             amount: parseFloat(dbTxn?.amount ?? txn?.amount ?? 0) || 0,
             quantity: Math.max(1, parseInt(dbTxn?.quantity ?? txn?.quantity ?? '1', 10) || 1),
             category: dbTxn?.category ?? txn?.category ?? mergedSnapshot?.category ?? '',
             notes: String(dbTxn?.notes || txn?.notes || '').trim(),
             paymentMethod: String(dbTxn?.paymentMethod || dbTxn?.payment_method || txn?.paymentMethod || 'Cash').trim() || 'Cash',
+            invoice_number: String(dbTxn?.invoice_number || dbTxn?.invoiceNumber || txn?.invoice_number || txn?.invoiceNumber || '').trim(),
+            invoiceNumber: String(dbTxn?.invoice_number || dbTxn?.invoiceNumber || txn?.invoice_number || txn?.invoiceNumber || '').trim(),
             timestamp: dbTimestamp,
             date: String(dbTxn?.date || txn?.date || (hasValidTs ? parsedTs.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }) : '')).trim(),
             time: String(dbTxn?.time || txn?.time || (hasValidTs ? parsedTs.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '')).trim(),
@@ -1858,7 +1864,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             shopAddress: receiptShopAddress,
             shopPhone: receiptShopPhone,
             issuedAt: txnDate,
-            receiptNo: txn.transactionId || txn.id || '-',
+            receiptNo: getTransactionInvoiceNumber(txn) || txn.transactionId || txn.id || '-',
             paymentMethod: txn.paymentMethod || 'Cash',
             showTax: txn.includeTax === undefined ? billShowTax : Boolean(txn.includeTax),
             items: [
@@ -3381,7 +3387,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 >
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{resolveTransactionDisplayName(txn)}</p>
-                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'} | Tap to view</p>
+                                        <p className="text-[11px] text-slate-400">
+                                            {txn.time || '--:--'}
+                                            {getTransactionInvoiceNumber(txn) ? ` | Inv: ${getTransactionInvoiceNumber(txn)}` : ''}
+                                            {' | Tap to view'}
+                                        </p>
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-emerald-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
@@ -3412,7 +3422,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 >
                                     <div className="min-w-0">
                                         <p className="text-xs font-bold text-slate-700 truncate">{resolveTransactionDisplayName(txn)}</p>
-                                        <p className="text-[11px] text-slate-400">{txn.time || '--:--'} | Tap to view</p>
+                                        <p className="text-[11px] text-slate-400">
+                                            {txn.time || '--:--'}
+                                            {getTransactionInvoiceNumber(txn) ? ` | Inv: ${getTransactionInvoiceNumber(txn)}` : ''}
+                                            {' | Tap to view'}
+                                        </p>
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-rose-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
@@ -3497,10 +3511,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         </div>
 
                         <div className="p-4 space-y-3">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-[11px]">
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Type</p><p className="font-semibold text-slate-700">{normalizeTxnType(selectedTransaction.type) === 'income' ? 'Revenue' : 'Purchase'}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Date</p><p className="font-semibold text-slate-700">{selectedTransaction.date || '-'}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Time</p><p className="font-semibold text-slate-700">{selectedTransaction.time || '-'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Invoice</p><p className="font-semibold text-slate-700">{getTransactionInvoiceNumber(selectedTransaction) || '-'}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2 py-1.5"><p className="text-slate-400">Salesman No</p><p className="font-semibold text-slate-700">{selectedTransaction.salesmanNumber || '-'}</p></div>
                             </div>
 

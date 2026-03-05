@@ -12,9 +12,10 @@ const SUPABASE_SINGLETON_KEY = '__dailybooks_supabase_singleton_v1__';
 function createSupabaseSingleton() {
   return createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
+      // App runs custom profile auth; disable Supabase Auth session locks in browser.
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
     },
   });
 }
