@@ -333,6 +333,10 @@ function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeCategoryNameForMatch(value) {
+    return cleanText(value).replace(/\s+/g, ' ').toLowerCase();
+}
+
 function isDataImageUri(value) {
     return /^data:image\//i.test(cleanText(value));
 }
@@ -1363,8 +1367,8 @@ export function InventoryProvider({ children }) {
         if (!sid) return { level1Name: '', level1Id: '', level2Name: '' };
 
         const categoryHierarchy = buildCategoryHierarchy(product?.category, product?.categoryPath, product?.attributes);
-        const level1Name = extractLevel1CategoryName(categoryHierarchy.level1 || product?.category);
-        const level2Name = cleanText(categoryHierarchy.level2);
+        const level1Name = cleanText(extractLevel1CategoryName(categoryHierarchy.level1 || product?.category)).replace(/\s+/g, ' ');
+        const level2Name = cleanText(categoryHierarchy.level2).replace(/\s+/g, ' ');
         if (!level1Name) return { level1Name: '', level1Id: '', level2Name: '' };
 
         const normalizedScope = CATEGORY_SCOPE_EXPENSE;
@@ -1372,16 +1376,16 @@ export function InventoryProvider({ children }) {
 
         const parentSelect = await supabase
             .from('categories')
-            .select('category_id,id')
+            .select('category_id,id,category_name')
             .eq('shop_id', sid)
-            .eq('category_name', level1Name)
+            .ilike('category_name', level1Name)
             .eq('category_purpose', normalizedScope)
             .is('parent_category_id', null)
-            .limit(1)
-            .maybeSingle();
+            .limit(20);
 
-        if (!parentSelect.error && parentSelect.data) {
-            level1Id = cleanText(parentSelect.data.category_id || parentSelect.data.id);
+        if (!parentSelect.error && Array.isArray(parentSelect.data)) {
+            const matchedParent = parentSelect.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level1Name));
+            level1Id = cleanText(matchedParent?.category_id || matchedParent?.id);
         }
 
         if (!level1Id) {
@@ -1398,38 +1402,40 @@ export function InventoryProvider({ children }) {
             if (insertParentResult.error) {
                 const fallbackParent = await supabase
                     .from('categories')
-                    .select('category_id,id')
+                    .select('category_id,id,category_name')
                     .eq('shop_id', sid)
-                    .eq('category_name', level1Name)
+                    .ilike('category_name', level1Name)
                     .eq('category_purpose', normalizedScope)
                     .is('parent_category_id', null)
-                    .limit(1)
-                    .maybeSingle();
+                    .limit(20);
 
-                if (!fallbackParent.error && fallbackParent.data) {
-                    level1Id = cleanText(fallbackParent.data.category_id || fallbackParent.data.id);
+                if (!fallbackParent.error && Array.isArray(fallbackParent.data)) {
+                    const matchedParent = fallbackParent.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level1Name));
+                    level1Id = cleanText(matchedParent?.category_id || matchedParent?.id);
                 } else {
                     throw new Error(insertParentResult.error.message || 'Failed to save expense category.');
                 }
             } else {
                 const refreshedParent = await supabase
                     .from('categories')
-                    .select('category_id,id')
+                    .select('category_id,id,category_name')
                     .eq('shop_id', sid)
-                    .eq('category_name', level1Name)
+                    .ilike('category_name', level1Name)
                     .eq('category_purpose', normalizedScope)
                     .is('parent_category_id', null)
-                    .limit(1)
-                    .maybeSingle();
-                level1Id = cleanText(refreshedParent.data?.category_id || refreshedParent.data?.id);
+                    .limit(20);
+                if (!refreshedParent.error && Array.isArray(refreshedParent.data)) {
+                    const matchedParent = refreshedParent.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level1Name));
+                    level1Id = cleanText(matchedParent?.category_id || matchedParent?.id);
+                }
             }
         }
 
         setL1Categories((prev) => {
-            const existingLocal = (prev || []).find((c) => (typeof c === 'object' ? c?.name : c) === level1Name);
+            const existingLocal = (prev || []).find((c) => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(level1Name));
             if (existingLocal) {
                 return prev.map((c) => {
-                    if ((typeof c === 'object' ? c?.name : c) !== level1Name) return c;
+                    if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(level1Name)) return c;
                     if (typeof c === 'object') {
                         return {
                             ...c,
@@ -1448,15 +1454,18 @@ export function InventoryProvider({ children }) {
         if (level1Id && level2Name) {
             const childSelect = await supabase
                 .from('categories')
-                .select('category_id,id')
+                .select('category_id,id,category_name')
                 .eq('shop_id', sid)
-                .eq('category_name', level2Name)
+                .ilike('category_name', level2Name)
                 .eq('category_purpose', normalizedScope)
                 .eq('parent_category_id', level1Id)
-                .limit(1)
-                .maybeSingle();
+                .limit(20);
 
-            if (childSelect.error || !childSelect.data) {
+            const matchedChild = !childSelect.error && Array.isArray(childSelect.data)
+                ? childSelect.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level2Name))
+                : null;
+
+            if (childSelect.error || !matchedChild) {
                 const insertChildResult = await executeWithPrunedColumns(
                     (candidate) => supabase.from('categories').insert([candidate]),
                     {
@@ -1469,14 +1478,16 @@ export function InventoryProvider({ children }) {
                 if (insertChildResult.error) {
                     const fallbackChild = await supabase
                         .from('categories')
-                        .select('category_id,id')
+                        .select('category_id,id,category_name')
                         .eq('shop_id', sid)
-                        .eq('category_name', level2Name)
+                        .ilike('category_name', level2Name)
                         .eq('category_purpose', normalizedScope)
                         .eq('parent_category_id', level1Id)
-                        .limit(1)
-                        .maybeSingle();
-                    if (fallbackChild.error || !fallbackChild.data) {
+                        .limit(20);
+                    const matchedFallbackChild = !fallbackChild.error && Array.isArray(fallbackChild.data)
+                        ? fallbackChild.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(level2Name))
+                        : null;
+                    if (fallbackChild.error || !matchedFallbackChild) {
                         throw new Error(insertChildResult.error.message || 'Failed to save expense sub-category.');
                     }
                 }
@@ -1484,12 +1495,12 @@ export function InventoryProvider({ children }) {
 
             setL2Map((prev) => {
                 const currentList = prev[level1Name] || [];
-                const existingLocal = currentList.find((c) => (typeof c === 'object' ? c?.name : c) === level2Name);
+                const existingLocal = currentList.find((c) => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(level2Name));
                 if (existingLocal) {
                     return {
                         ...prev,
                         [level1Name]: currentList.map((c) => {
-                            if ((typeof c === 'object' ? c?.name : c) !== level2Name) return c;
+                            if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(level2Name)) return c;
                             if (typeof c === 'object') {
                                 return {
                                     ...c,
@@ -2178,7 +2189,7 @@ export function InventoryProvider({ children }) {
     const addL1Category = useCallback(async (name, image = null, scope = CATEGORY_SCOPE_SALES) => {
         const sid = await ensureActiveShopExists(activeShopId);
 
-        const trimmed = name.trim();
+        const trimmed = cleanText(name).replace(/\s+/g, ' ');
         if (!trimmed) return;
         const normalizedScope = normalizeCategoryScope(scope);
 
@@ -2187,15 +2198,17 @@ export function InventoryProvider({ children }) {
         let resolvedCategoryId = '';
         const scopedSelect = await supabase
             .from('categories')
-            .select('category_id')
+            .select('category_id,category_name')
             .eq('shop_id', sid)
-            .eq('category_name', trimmed)
+            .ilike('category_name', trimmed)
             .eq('category_purpose', normalizedScope)
             .is('parent_category_id', null)
-            .limit(1);
+            .limit(20);
 
         if (!scopedSelect.error) {
-            existing = Array.isArray(scopedSelect.data) ? (scopedSelect.data[0] || null) : null;
+            existing = Array.isArray(scopedSelect.data)
+                ? (scopedSelect.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(trimmed)) || null)
+                : null;
             resolvedCategoryId = cleanText(existing?.category_id || existing?.id);
         }
 
@@ -2216,13 +2229,15 @@ export function InventoryProvider({ children }) {
             if (insertError) {
                 const fallbackSelect = await supabase
                     .from('categories')
-                    .select('category_id')
+                    .select('category_id,category_name')
                     .eq('shop_id', sid)
-                    .eq('category_name', trimmed)
+                    .ilike('category_name', trimmed)
                     .eq('category_purpose', normalizedScope)
                     .is('parent_category_id', null)
-                    .limit(1);
-                const fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
+                    .limit(20);
+                const fallbackExisting = Array.isArray(fallbackSelect.data)
+                    ? (fallbackSelect.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(trimmed)) || null)
+                    : null;
                 if (fallbackExisting) {
                     resolvedCategoryId = cleanText(fallbackExisting.category_id || fallbackExisting.id);
                 } else {
@@ -2232,10 +2247,10 @@ export function InventoryProvider({ children }) {
         }
 
         setL1Categories(prev => {
-            const existingLocal = prev.find(c => (typeof c === 'object' ? c?.name : c) === trimmed);
+            const existingLocal = prev.find(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed));
             if (existingLocal) {
                 return prev.map((c) => {
-                    if ((typeof c === 'object' ? c?.name : c) !== trimmed) return c;
+                    if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(trimmed)) return c;
                     if (typeof c === 'object') {
                         return {
                             ...c,
@@ -2257,22 +2272,24 @@ export function InventoryProvider({ children }) {
     const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES, parentCategoryIdOverride = '') => {
         const sid = await ensureActiveShopExists(activeShopId);
 
-        const trimmed = name.trim();
+        const trimmed = cleanText(name).replace(/\s+/g, ' ');
         if (!trimmed || !l1Name) return;
         const normalizedScope = normalizeCategoryScope(scope);
         let parentCategoryId = cleanText(parentCategoryIdOverride) || cleanText(categoryNameToId[l1Name]);
         if (!parentCategoryId) {
             const parentLookup = await supabase
                 .from('categories')
-                .select('category_id')
+                .select('category_id,category_name')
                 .eq('shop_id', sid)
-                .eq('category_name', l1Name)
+                .ilike('category_name', l1Name)
                 .eq('category_purpose', normalizedScope)
                 .is('parent_category_id', null)
-                .limit(1)
-                .maybeSingle();
-            if (!parentLookup.error && parentLookup.data) {
-                parentCategoryId = cleanText(parentLookup.data.category_id || parentLookup.data.id);
+                .limit(20);
+            if (!parentLookup.error && Array.isArray(parentLookup.data)) {
+                const matchedParent = parentLookup.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(l1Name));
+                if (matchedParent) {
+                    parentCategoryId = cleanText(matchedParent.category_id || matchedParent.id);
+                }
             }
         }
         if (!parentCategoryId) {
@@ -2283,15 +2300,17 @@ export function InventoryProvider({ children }) {
         let existing = null;
         const scopedSelect = await supabase
             .from('categories')
-            .select('category_id')
+            .select('category_id,category_name')
             .eq('shop_id', sid)
-            .eq('category_name', trimmed)
+            .ilike('category_name', trimmed)
             .eq('category_purpose', normalizedScope)
             .eq('parent_category_id', parentCategoryId)
-            .limit(1);
+            .limit(20);
 
         if (!scopedSelect.error) {
-            existing = Array.isArray(scopedSelect.data) ? (scopedSelect.data[0] || null) : null;
+            existing = Array.isArray(scopedSelect.data)
+                ? (scopedSelect.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(trimmed)) || null)
+                : null;
         }
 
         if (existing) {
@@ -2311,13 +2330,15 @@ export function InventoryProvider({ children }) {
             if (insertError) {
                 let fallbackSelect = await supabase
                     .from('categories')
-                    .select('category_id')
+                    .select('category_id,category_name')
                     .eq('shop_id', sid)
-                    .eq('category_name', trimmed)
+                    .ilike('category_name', trimmed)
                     .eq('category_purpose', normalizedScope)
                     .eq('parent_category_id', parentCategoryId)
-                    .limit(1);
-                let fallbackExisting = Array.isArray(fallbackSelect.data) ? (fallbackSelect.data[0] || null) : null;
+                    .limit(20);
+                let fallbackExisting = Array.isArray(fallbackSelect.data)
+                    ? (fallbackSelect.data.find((row) => normalizeCategoryNameForMatch(row?.category_name) === normalizeCategoryNameForMatch(trimmed)) || null)
+                    : null;
                 if (fallbackExisting) {
                     // already persisted
                 } else {
@@ -2328,10 +2349,10 @@ export function InventoryProvider({ children }) {
 
         setL2Map(prev => {
             const currentList = prev[l1Name] || [];
-            const existingLocal = currentList.find(c => (typeof c === 'object' ? c?.name : c) === trimmed);
+            const existingLocal = currentList.find(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed));
             if (existingLocal) {
                 const updatedList = currentList.map((c) => {
-                    if ((typeof c === 'object' ? c?.name : c) !== trimmed) return c;
+                    if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(trimmed)) return c;
                     if (typeof c === 'object') {
                         return {
                             ...c,
