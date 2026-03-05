@@ -4,8 +4,6 @@ import { useAuth } from './AuthContext';
 import { buildProductJSON, generateId, getStockSeverity } from '../data/inventoryStore';
 
 const InventoryContext = createContext(null);
-const TRANSACTION_SNAPSHOT_STORAGE_KEY = 'dailybooks_transaction_snapshots_v1';
-const CATEGORY_SCOPE_STORAGE_KEY = 'dailybooks_category_scopes_v1';
 const CATEGORY_HIERARCHY_KEY = '__categoryHierarchy';
 const PURCHASE_FROM_KEY = '__purchaseFrom';
 const PAYMENT_MODE_KEY = '__paymentMode';
@@ -726,13 +724,6 @@ function writeTransactionSnapshots(next) {
 
 function clearTransactionSnapshotsCache() {
     inMemoryTransactionSnapshots = {};
-    if (typeof window !== 'undefined') {
-        try {
-            window.localStorage.removeItem(TRANSACTION_SNAPSHOT_STORAGE_KEY);
-        } catch {
-            // Ignore local cache clear failures.
-        }
-    }
 }
 
 function saveTransactionSnapshot(txnId, snapshot) {
