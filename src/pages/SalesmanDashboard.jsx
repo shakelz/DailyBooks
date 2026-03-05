@@ -3454,33 +3454,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const target = onlineOrders.find((order) => String(order.id) === String(id));
         if (!target) return;
 
-        const { totalCost, advanceAmount, remainingAmount } = resolveOnlineOrderTotals(target);
-        const marker = `OnlineOrderRef:${target.orderId || target.id}`;
-
-        if (remainingAmount > 0 && !hasOnlineOrderStageTransaction(target, 'REMAINING')) {
-            const settledAt = new Date();
-            try {
-                await addTransaction({
-                    desc: `Online Order Remaining: ${target.itemName || 'Order'}`,
-                    amount: remainingAmount,
-                    quantity: 1,
-                    type: 'expense',
-                    category: 'Online Purchase',
-                    paymentMethod: 'Online',
-                    notes: `${marker} | Stage:REMAINING | Platform: ${target.platform || '-'} | Total: ${totalCost.toFixed(2)} | Advance: ${advanceAmount.toFixed(2)}`,
-                    source: 'online-order',
-                    salesmanName: user?.name,
-                    salesmanNumber: user?.salesmanNumber || 0,
-                    workerId: String(user?.id || ''),
-                    timestamp: settledAt.toISOString(),
-                    date: settledAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                    time: settledAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-                });
-            } catch (transactionError) {
-                console.error('Online order remaining transaction failed (status still updated):', transactionError);
-            }
-        }
-
         let updatedRow = null;
         let updateError = null;
         const statusCandidates = ['received', 'completed', 'closed', 'delivered', 'done', 'RECEIVED', 'COMPLETED'];
