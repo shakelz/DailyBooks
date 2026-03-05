@@ -68,6 +68,15 @@ function toDateOnly(value) {
     return parsed.toISOString().slice(0, 10);
 }
 
+function formatShortInvoiceNumber(value = new Date()) {
+    const parsed = value instanceof Date ? value : new Date(value);
+    const safeDate = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    const year = String(safeDate.getFullYear()).slice(-2);
+    const month = String(safeDate.getMonth() + 1).padStart(2, '0');
+    const day = String(safeDate.getDate()).padStart(2, '0');
+    return `${year}${month}${day}`;
+}
+
 function isUuidLike(value) {
     const raw = cleanText(value).toLowerCase();
     if (!raw) return false;
@@ -214,11 +223,9 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
         shop_id: sid,
     };
 
-    const referenceValue = cleanText(repair?.invoiceNumber || repair?.invoice_number || repair?.refId || repair?.ref_id);
-    if (referenceValue) {
-        payload.ref_id = referenceValue;
-        payload.invoice_number = referenceValue;
-    }
+    const referenceValue = formatShortInvoiceNumber(createdAt);
+    payload.ref_id = referenceValue;
+    payload.invoice_number = referenceValue;
 
     if (isUuidLike(providedRepairId)) {
         payload.repair_id = providedRepairId;
@@ -371,12 +378,7 @@ export function RepairsProvider({ children }) {
         };
     }, [activeShopId]);
 
-    const generateRefId = useCallback(() => {
-        const year = new Date().getFullYear();
-        const yearJobs = repairJobs.filter((job) => String(job?.refId || '').startsWith(`REP-${year}`));
-        const nextNum = yearJobs.length + 1;
-        return `REP-${year}-${String(nextNum).padStart(3, '0')}`;
-    }, [repairJobs]);
+    const generateRefId = useCallback(() => formatShortInvoiceNumber(new Date()), []);
 
     const syncRepairParts = useCallback(async (repairId, partsUsed = [], shopIdOverride = '') => {
         const sid = cleanText(shopIdOverride || activeShopId);
@@ -415,9 +417,11 @@ export function RepairsProvider({ children }) {
         const createdAt = new Date().toISOString();
         const deliveryAt = toDateOnly(repairData?.delivery_at || repairData?.deliveryDate);
         const newJob = normalizeRepairRecord({
+            ...repairData,
             id: String(Date.now()),
             refId,
-            ...repairData,
+            invoiceNumber: refId,
+            invoice_number: refId,
             status: 'pending',
             created_at: createdAt,
             createdAt,

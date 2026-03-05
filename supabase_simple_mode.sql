@@ -145,7 +145,43 @@ BEGIN
 END
 $$;
 
--- 6) Introspection helpers (run these manually in SQL editor when debugging schema drift)
+-- 6) Repairs compatibility: allow short date invoice numbers (YYMMDD) without unique-key collisions
+DO $$
+DECLARE
+  idx record;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'repairs_invoice_number_key'
+      AND conrelid = 'public.repairs'::regclass
+  ) THEN
+    ALTER TABLE public.repairs
+      DROP CONSTRAINT repairs_invoice_number_key;
+  END IF;
+
+  FOR idx IN
+    SELECT i.relname AS index_name
+    FROM pg_class t
+    JOIN pg_index x ON x.indrelid = t.oid
+    JOIN pg_class i ON i.oid = x.indexrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE n.nspname = 'public'
+      AND t.relname = 'repairs'
+      AND x.indisunique = true
+      AND EXISTS (
+        SELECT 1
+        FROM unnest(x.indkey) WITH ORDINALITY AS k(attnum, ord)
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+        WHERE a.attname = 'invoice_number'
+      )
+  LOOP
+    EXECUTE format('drop index if exists public.%I;', idx.index_name);
+  END LOOP;
+END
+$$;
+
+-- 7) Introspection helpers (run these manually in SQL editor when debugging schema drift)
 -- A) List online_part_orders columns + data types
 -- SELECT column_name, data_type, udt_name
 -- FROM information_schema.columns

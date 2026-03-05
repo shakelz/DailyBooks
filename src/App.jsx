@@ -10,7 +10,6 @@ import LatestDashboard from './pages/LatestDashboard'
 import InventoryManager from './pages/InventoryManager'
 import ComingSoonPage from './pages/ComingSoonPage'
 import AdminPanel from './pages/AdminPanel'
-import AdminDashboard from './components/admin/AdminDashboard'
 import InventoryTab from './components/admin/InventoryTab'
 import InsightsTab from './components/admin/InsightsTab'
 import ExpensesTab from './components/admin/ExpensesTab'
@@ -121,10 +120,17 @@ function App() {
                 <Route path="/" element={<LoginPage mode="salesman" />} />
                 <Route path="/admin" element={<LoginPage mode="admin" />} />
 
+                <Route
+                  path="/admin/dashboard"
+                  element={<AdminGuard><SalesmanDashboard adminView /></AdminGuard>}
+                />
+                <Route
+                  path="/admin/owner-dashboard"
+                  element={<AdminGuard><SalesmanDashboard adminView /></AdminGuard>}
+                />
+
                 <Route path="/admin/*" element={<AdminRouteShell />}>
                   <Route index element={<Navigate to="dashboard" replace />} />
-                  <Route path="dashboard" element={<AdminDashboard />} />
-                  <Route path="owner-dashboard" element={<AdminDashboard />} />
                   <Route path="inventory" element={<InventoryTab />} />
                   <Route path="insights" element={<InsightsTab />} />
                   <Route path="expenses" element={<ExpensesTab />} />
