@@ -673,7 +673,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         getLevel1Categories,
         getLevel2Categories,
     } = useInventory();
-    const { repairJobs, updateRepairStatus } = useRepairs();
+    const { repairJobs, repairsLoaded, updateRepairStatus } = useRepairs();
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
 
     const [showProfileModal, setShowProfileModal] = useState(false);
@@ -805,6 +805,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const receiptShopAddress = activeShop?.address || '';
     const receiptShopPhone = resolveShopPhone(activeShop);
     const settingsShopId = String(user?.shop_id || activeShop?.id || '').trim();
+
+    useEffect(() => {
+        syncedRepairAdvanceRefsRef.current.clear();
+        pendingRepairStageTxnRef.current.clear();
+        repairTxnRetryGuardRef.current.clear();
+        repairAdvanceSyncBootstrappedRef.current = false;
+    }, [settingsShopId]);
 
     useEffect(() => {
         if (!settingsShopId) {
@@ -2714,19 +2721,31 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [getRepairInvoiceNumber]);
 
     const hasRepairStageTransaction = useCallback((job, stage = 'ADVANCE') => {
-        const marker = `RepairRef:${getRepairInvoiceNumber(job)}`;
+        const repairRef = String(getRepairInvoiceNumber(job) || '').trim();
+        if (!repairRef) return false;
+        const marker = `RepairRef:${repairRef}`;
         const stageMarker = `${marker} | Stage:${stage}`;
         const stageText = `stage:${String(stage || '').toLowerCase()}`;
+        const markerLower = marker.toLowerCase();
+        const refLower = repairRef.toLowerCase();
+        const expectedStageLower = String(stage || '').toLowerCase();
         const syncKey = getRepairStageSyncKey(job, stage);
         if (syncKey && pendingRepairStageTxnRef.current.has(syncKey)) return true;
         return (transactions || []).some((txn) => {
             const notes = String(txn?.notes || '');
             const notesLower = notes.toLowerCase();
-            const descLower = String(txn?.desc || '').toLowerCase();
+            const descLower = String(txn?.desc || txn?.description || '').toLowerCase();
+            const sourceLower = String(txn?.source || txn?.tx_source || '').toLowerCase();
+            const isRepairSource = sourceLower === 'repair' || sourceLower.startsWith('repair-') || sourceLower.startsWith('repair_');
+            const hasReference = notesLower.includes(markerLower)
+                || descLower.includes(markerLower)
+                || descLower.includes(refLower);
+            const stageMatched = expectedStageLower === 'advance'
+                ? (notesLower.includes('stage:advance') || descLower.includes('repair advance'))
+                : (notesLower.includes('stage:remaining') || descLower.includes('repair remaining'));
             return notes.includes(stageMarker)
                 || (notesLower.includes(marker.toLowerCase()) && notesLower.includes(stageText))
-                || (descLower.includes('repair advance') && stage === 'ADVANCE' && notesLower.includes(marker.toLowerCase()))
-                || (descLower.includes('repair remaining') && stage === 'REMAINING' && notesLower.includes(marker.toLowerCase()));
+                || (isRepairSource && hasReference && stageMatched);
         });
     }, [getRepairStageSyncKey, transactions]);
 
@@ -2787,6 +2806,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [addTransaction, canAttemptRepairStageTransaction, clearRepairStageTransactionFailure, getRepairStageSyncKey, hasRepairStageTransaction, user?.id, user?.name, user?.salesmanNumber]);
 
     useEffect(() => {
+        if (!repairsLoaded) return;
         const jobs = Array.isArray(repairJobs) ? repairJobs : [];
         // Baseline existing DB repairs once; auto-sync only newly observed repairs in this session.
         if (!repairAdvanceSyncBootstrappedRef.current) {
@@ -2820,7 +2840,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
         };
         syncRepairAdvances();
-    }, [ensureRepairAdvanceTransaction, getRepairInvoiceNumber, markRepairStageTransactionFailure, repairJobs]);
+    }, [ensureRepairAdvanceTransaction, getRepairInvoiceNumber, markRepairStageTransactionFailure, repairJobs, repairsLoaded]);
 
     const completePendingRepair = async (job) => {
         if (!job?.id) return;

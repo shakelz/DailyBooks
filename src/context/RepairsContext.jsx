@@ -245,15 +245,18 @@ function buildRepairPartPayloads(partsUsed = [], repairId = '', shopId = '') {
 export function RepairsProvider({ children }) {
     const { activeShopId } = useAuth();
     const [repairJobs, setRepairJobs] = useState([]);
+    const [repairsLoaded, setRepairsLoaded] = useState(false);
 
     useEffect(() => {
         const sid = cleanText(activeShopId);
         if (!sid) {
             setRepairJobs([]);
+            setRepairsLoaded(false);
             return undefined;
         }
 
         let cancelled = false;
+        setRepairsLoaded(false);
 
         const fetchRepairs = async () => {
             const [repairsResult, partsResult] = await Promise.all([
@@ -273,6 +276,7 @@ export function RepairsProvider({ children }) {
             } else {
                 setRepairJobs([]);
             }
+            setRepairsLoaded(true);
         };
         fetchRepairs();
 
@@ -537,6 +541,7 @@ export function RepairsProvider({ children }) {
 
     const value = {
         repairJobs,
+        repairsLoaded,
         addRepair,
         updateRepairStatus,
         deleteRepair,
