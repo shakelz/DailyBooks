@@ -1602,8 +1602,13 @@ export function InventoryProvider({ children }) {
             payload: { action: 'INSERT', data: { ...savedEntry, shop_id: sid } }
         }).catch(e => console.error(e));
 
-        const qty = Math.max(0, parseInt(savedEntry?.stock ?? entry?.stock ?? 0, 10) || 0);
-        const unitCost = parseFloat(savedEntry?.purchasePrice ?? entry?.purchasePrice ?? entry?.costPrice ?? 0) || 0;
+        const savedQty = Math.max(0, parseInt(savedEntry?.stock ?? 0, 10) || 0);
+        const entryQty = Math.max(0, parseInt(entry?.stock ?? 0, 10) || 0);
+        const qty = savedQty > 0 ? savedQty : entryQty;
+
+        const savedUnitCost = parseFloat(savedEntry?.purchasePrice ?? 0) || 0;
+        const entryUnitCost = parseFloat(entry?.purchasePrice ?? entry?.costPrice ?? 0) || 0;
+        const unitCost = savedUnitCost > 0 ? savedUnitCost : entryUnitCost;
         if (qty > 0 && unitCost > 0 && typeof addTransactionRef.current === 'function') {
             const now = new Date();
             const resolvedCategory = extractLevel1CategoryName(savedEntry?.category || entry?.category) || 'Purchase';
