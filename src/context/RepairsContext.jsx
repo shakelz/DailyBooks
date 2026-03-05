@@ -35,6 +35,12 @@ function isMissingRelationError(error, relationName = '') {
     return message.includes(String(relationName || '').toLowerCase());
 }
 
+function isInvoiceNumberUniqueConstraintError(error) {
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('repairs_invoice_number_key')
+        || (message.includes('duplicate key value') && message.includes('invoice_number'));
+}
+
 async function executeWithPrunedColumns(operation, payload, maxAttempts = 24) {
     let candidate = payload && typeof payload === 'object' ? { ...payload } : {};
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -438,10 +444,19 @@ export function RepairsProvider({ children }) {
         setRepairJobs((prev) => sortRepairsByCreatedAt([newJob, ...prev]));
 
         const insertPayload = buildRepairInsertPayload(newJob, sid);
-        const insertResult = await executeWithPrunedColumns(
+        let insertResult = await executeWithPrunedColumns(
             (candidate) => supabase.from('repairs').insert([candidate]).select('*').single(),
             insertPayload
         );
+
+        if (insertResult.error && isInvoiceNumberUniqueConstraintError(insertResult.error)) {
+            const duplicateFallbackPayload = { ...insertPayload };
+            delete duplicateFallbackPayload.invoice_number;
+            insertResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('repairs').insert([candidate]).select('*').single(),
+                duplicateFallbackPayload
+            );
+        }
 
         if (insertResult.error && isMissingColumnError(insertResult.error, 'advanceAmount')) {
             const fallbackPayload = { ...insertPayload };
