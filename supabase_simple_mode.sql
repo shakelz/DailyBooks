@@ -6,18 +6,63 @@ begin;
 -- 0) KPI support table: category contribution mode for Revenue/Expense KPI calculations
 create table if not exists public.kpi_profit_category_settings (
   shop_id uuid not null,
+  kpi_scope text not null default 'sales',
   category_name text not null,
   sub_category_name text not null default '',
   contribution_mode text not null default 'sales',
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now(),
+  constraint kpi_profit_category_settings_scope_chk check (kpi_scope in ('sales', 'expense')),
   constraint kpi_profit_category_settings_mode_chk check (contribution_mode in ('sales', 'profit', 'excluded')),
-  primary key (shop_id, category_name, sub_category_name)
+  primary key (shop_id, kpi_scope, category_name, sub_category_name)
 );
 create index if not exists idx_kpi_profit_category_settings_shop
   on public.kpi_profit_category_settings(shop_id);
 
 -- Backward compatibility: migrate older boolean column to contribution_mode if needed.
+alter table if exists public.kpi_profit_category_settings
+  add column if not exists kpi_scope text;
+DO $$
+BEGIN
+  UPDATE public.kpi_profit_category_settings
+  SET kpi_scope = 'sales'
+  WHERE coalesce(trim(kpi_scope), '') = '';
+END
+$$;
+alter table if exists public.kpi_profit_category_settings
+  alter column kpi_scope set default 'sales';
+alter table if exists public.kpi_profit_category_settings
+  alter column kpi_scope set not null;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'kpi_profit_category_settings_scope_chk'
+  ) THEN
+    ALTER TABLE public.kpi_profit_category_settings
+      ADD CONSTRAINT kpi_profit_category_settings_scope_chk
+      CHECK (kpi_scope in ('sales', 'expense'));
+  END IF;
+END
+$$;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'kpi_profit_category_settings_pkey'
+  ) THEN
+    ALTER TABLE public.kpi_profit_category_settings
+      DROP CONSTRAINT kpi_profit_category_settings_pkey;
+  END IF;
+
+  ALTER TABLE public.kpi_profit_category_settings
+    ADD CONSTRAINT kpi_profit_category_settings_pkey
+    PRIMARY KEY (shop_id, kpi_scope, category_name, sub_category_name);
+END
+$$;
+
 alter table if exists public.kpi_profit_category_settings
   add column if not exists contribution_mode text;
 DO $$

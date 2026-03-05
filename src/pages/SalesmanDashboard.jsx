@@ -19,6 +19,8 @@ const KPI_PROFIT_CATEGORY_STORAGE_PREFIX = 'dailybooks_kpi_profit_categories_v1'
 const KPI_MODE_SALES = 'sales';
 const KPI_MODE_PROFIT = 'profit';
 const KPI_MODE_EXCLUDED = 'excluded';
+const KPI_SCOPE_SALES = 'sales';
+const KPI_SCOPE_EXPENSE = 'expense';
 const volatileLockState = new Map();
 
 function normalizeCategoryToken(value = '') {
@@ -27,6 +29,16 @@ function normalizeCategoryToken(value = '') {
 
 function makeProfitCategoryKey(categoryName = '', subCategoryName = '') {
     return `${normalizeCategoryToken(categoryName)}::${normalizeCategoryToken(subCategoryName)}`;
+}
+
+function normalizeKpiScope(value = '') {
+    const raw = String(value || '').trim().toLowerCase();
+    if (raw === KPI_SCOPE_EXPENSE || raw === 'purchase') return KPI_SCOPE_EXPENSE;
+    return KPI_SCOPE_SALES;
+}
+
+function makeScopedProfitCategoryKey(scope = KPI_SCOPE_SALES, categoryName = '', subCategoryName = '') {
+    return `${normalizeKpiScope(scope)}::${makeProfitCategoryKey(categoryName, subCategoryName)}`;
 }
 
 function normalizeKpiContributionMode(value = '') {
@@ -731,6 +743,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [transactionFormError, setTransactionFormError] = useState('');
     const [isSavingTransaction, setIsSavingTransaction] = useState(false);
     const [showExcludedCategoriesModal, setShowExcludedCategoriesModal] = useState(false);
+    const [activeKpiContributionTab, setActiveKpiContributionTab] = useState(KPI_SCOPE_SALES);
     const [categoryContributionModeMap, setCategoryContributionModeMap] = useState({});
     const [hasExplicitContributionModeConfig, setHasExplicitContributionModeConfig] = useState(false);
     const [isSavingContributionModeConfig, setIsSavingContributionModeConfig] = useState(false);
@@ -852,6 +865,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             if (!Array.isArray(result.data) || result.data.length === 0) return;
 
             const map = result.data.reduce((acc, row) => {
+                const scope = normalizeKpiScope(row?.kpi_scope || row?.scope);
                 const categoryName = String(row?.category_name || row?.category || '').trim();
                 const subCategoryName = String(row?.sub_category_name || row?.sub_category || '').trim();
                 if (!categoryName) return acc;
@@ -860,7 +874,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 const mode = modeFromContributionColumn === undefined || modeFromContributionColumn === null
                     ? (Boolean(modeFromLegacyBool) ? KPI_MODE_PROFIT : KPI_MODE_SALES)
                     : normalizeKpiContributionMode(modeFromContributionColumn);
-                acc[makeProfitCategoryKey(categoryName, subCategoryName)] = mode;
+                acc[makeScopedProfitCategoryKey(scope, categoryName, subCategoryName)] = mode;
                 return acc;
             }, {});
             setCategoryContributionModeMap(map);
@@ -1558,13 +1572,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return matchesDeviceLikeCategoryText(haystack);
     }, [resolveTxnCategoryParts]);
 
-    const resolveConfiguredContributionMode = useCallback((categoryName = '', subCategoryName = '') => {
-        const exactKey = makeProfitCategoryKey(categoryName, subCategoryName);
+    const resolveConfiguredContributionMode = useCallback((categoryName = '', subCategoryName = '', scope = KPI_SCOPE_SALES) => {
+        const normalizedScope = normalizeKpiScope(scope);
+        const exactKey = makeScopedProfitCategoryKey(normalizedScope, categoryName, subCategoryName);
         if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, exactKey)) {
             return normalizeKpiContributionMode(categoryContributionModeMap[exactKey]);
         }
 
-        const categoryOnlyKey = makeProfitCategoryKey(categoryName, '');
+        const categoryOnlyKey = makeScopedProfitCategoryKey(normalizedScope, categoryName, '');
         if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, categoryOnlyKey)) {
             return normalizeKpiContributionMode(categoryContributionModeMap[categoryOnlyKey]);
         }
@@ -1572,18 +1587,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return '';
     }, [categoryContributionModeMap]);
 
-    const resolveTxnContributionMode = useCallback((txn = {}) => {
+    const resolveTxnContributionMode = useCallback((txn = {}, scope = KPI_SCOPE_SALES) => {
+        const normalizedScope = normalizeKpiScope(scope);
+        const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
         if (!hasExplicitContributionModeConfig) {
-            return matchesDefaultProfitCategoryRule(txn) ? KPI_MODE_PROFIT : KPI_MODE_SALES;
+            return normalizedScope === KPI_SCOPE_SALES
+                ? (matchesDefaultProfitCategoryRule(txn) ? KPI_MODE_PROFIT : KPI_MODE_SALES)
+                : KPI_MODE_SALES;
         }
 
-        const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
-        const configuredMode = resolveConfiguredContributionMode(categoryName, subCategoryName);
-        return configuredMode || (matchesDefaultProfitCategoryRule(txn) ? KPI_MODE_PROFIT : KPI_MODE_SALES);
+        const configuredMode = resolveConfiguredContributionMode(categoryName, subCategoryName, normalizedScope);
+        if (configuredMode) return configuredMode;
+        return normalizedScope === KPI_SCOPE_SALES
+            ? (matchesDefaultProfitCategoryRule(txn) ? KPI_MODE_PROFIT : KPI_MODE_SALES)
+            : KPI_MODE_SALES;
     }, [hasExplicitContributionModeConfig, matchesDefaultProfitCategoryRule, resolveConfiguredContributionMode, resolveTxnCategoryParts]);
 
-    const isExcludedCategoryTransaction = useCallback((txn = {}) => {
-        return resolveTxnContributionMode(txn) === KPI_MODE_EXCLUDED;
+    const isExcludedCategoryTransaction = useCallback((txn = {}, scope = KPI_SCOPE_SALES) => {
+        return resolveTxnContributionMode(txn, scope) === KPI_MODE_EXCLUDED;
     }, [resolveTxnContributionMode]);
 
     const isKpiExpenseCategoryTransaction = useCallback((txn = {}) => {
@@ -1594,12 +1615,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, []);
 
     const kpiExpenseTransactions = useMemo(
-        () => purchaseTransactions.filter((txn) => !isExcludedCategoryTransaction(txn) && isKpiExpenseCategoryTransaction(txn)),
+        () => purchaseTransactions.filter((txn) => !isExcludedCategoryTransaction(txn, KPI_SCOPE_EXPENSE) && isKpiExpenseCategoryTransaction(txn)),
         [isExcludedCategoryTransaction, isKpiExpenseCategoryTransaction, purchaseTransactions]
     );
 
     const resolveKpiRevenueContribution = useCallback((txn = {}) => {
-        const mode = resolveTxnContributionMode(txn);
+        const mode = resolveTxnContributionMode(txn, KPI_SCOPE_SALES);
         if (mode === KPI_MODE_EXCLUDED) return 0;
         const amount = parseFloat(txn?.amount) || 0;
         if (mode === KPI_MODE_SALES) return amount;
@@ -1957,7 +1978,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const salesSubCategoryOptions = salesSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
     const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category, 'expense') || []) : [];
     const purchaseSubCategoryOptions = purchaseSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
-    const kpiContributionCategoryRows = useMemo(() => {
+    const salesKpiContributionCategoryRows = useMemo(() => {
         const rows = [];
         const level1Categories = (salesL1Options || [])
             .map((name) => String(name || '').trim())
@@ -1991,30 +2012,71 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return rows;
     }, [getLevel2Categories, salesL1Options]);
 
-    const resolveDefaultCategoryMode = useCallback((categoryName = '', subCategoryName = '') => {
+    const expenseKpiContributionCategoryRows = useMemo(() => {
+        const rows = [];
+        const level1Categories = (revenueL1Options || [])
+            .map((name) => String(name || '').trim())
+            .filter(Boolean);
+
+        level1Categories.forEach((categoryName) => {
+            rows.push({
+                key: makeProfitCategoryKey(categoryName, ''),
+                categoryName,
+                subCategoryName: '',
+                label: categoryName,
+                depth: 0,
+            });
+
+            const level2Raw = getLevel2Categories(categoryName, 'expense') || [];
+            level2Raw
+                .map((item) => (typeof item === 'string' ? item : item?.name))
+                .map((name) => String(name || '').trim())
+                .filter(Boolean)
+                .forEach((subCategoryName) => {
+                    rows.push({
+                        key: makeProfitCategoryKey(categoryName, subCategoryName),
+                        categoryName,
+                        subCategoryName,
+                        label: `${categoryName} / ${subCategoryName}`,
+                        depth: 1,
+                    });
+                });
+        });
+
+        return rows;
+    }, [getLevel2Categories, revenueL1Options]);
+
+    const activeKpiContributionRows = activeKpiContributionTab === KPI_SCOPE_EXPENSE
+        ? expenseKpiContributionCategoryRows
+        : salesKpiContributionCategoryRows;
+
+    const resolveDefaultCategoryMode = useCallback((categoryName = '', subCategoryName = '', scope = KPI_SCOPE_SALES) => {
+        const normalizedScope = normalizeKpiScope(scope);
+        if (normalizedScope === KPI_SCOPE_EXPENSE) return KPI_MODE_SALES;
         return matchesDeviceLikeCategoryText(`${categoryName} ${subCategoryName}`) ? KPI_MODE_PROFIT : KPI_MODE_SALES;
     }, []);
 
-    const resolveCategoryRowMode = useCallback((row = {}) => {
+    const resolveCategoryRowMode = useCallback((row = {}, scope = KPI_SCOPE_SALES) => {
+        const normalizedScope = normalizeKpiScope(scope);
         if (!row?.key) return KPI_MODE_SALES;
         if (!hasExplicitContributionModeConfig) {
-            return resolveDefaultCategoryMode(row.categoryName, row.subCategoryName);
+            return resolveDefaultCategoryMode(row.categoryName, row.subCategoryName, normalizedScope);
         }
 
-        const ownMode = categoryContributionModeMap[row.key];
+        const ownMode = categoryContributionModeMap[makeScopedProfitCategoryKey(normalizedScope, row.categoryName, row.subCategoryName)];
         if (ownMode !== undefined && ownMode !== null) {
             return normalizeKpiContributionMode(ownMode);
         }
 
         if (row.depth > 0) {
-            const parentKey = makeProfitCategoryKey(row.categoryName, '');
+            const parentKey = makeScopedProfitCategoryKey(normalizedScope, row.categoryName, '');
             const parentMode = categoryContributionModeMap[parentKey];
             if (parentMode !== undefined && parentMode !== null) {
                 return normalizeKpiContributionMode(parentMode);
             }
         }
 
-        return resolveDefaultCategoryMode(row.categoryName, row.subCategoryName);
+        return resolveDefaultCategoryMode(row.categoryName, row.subCategoryName, normalizedScope);
     }, [categoryContributionModeMap, hasExplicitContributionModeConfig, resolveDefaultCategoryMode]);
 
     const saveCategoryContributionModeConfig = useCallback(async () => {
@@ -2028,11 +2090,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         try {
             setHasExplicitContributionModeConfig(true);
             let dbMissing = false;
-            const payloadRows = (kpiContributionCategoryRows || []).map((row) => ({
+            const allScopedRows = [
+                ...((salesKpiContributionCategoryRows || []).map((row) => ({ row, scope: KPI_SCOPE_SALES }))),
+                ...((expenseKpiContributionCategoryRows || []).map((row) => ({ row, scope: KPI_SCOPE_EXPENSE }))),
+            ];
+            const payloadRows = allScopedRows.map(({ row, scope }) => ({
                 shop_id: settingsShopId,
+                kpi_scope: scope,
                 category_name: row.categoryName,
                 sub_category_name: row.subCategoryName,
-                contribution_mode: resolveCategoryRowMode(row),
+                contribution_mode: resolveCategoryRowMode(row, scope),
                 updated_at: new Date().toISOString(),
             }));
 
@@ -2068,7 +2135,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         } finally {
             setIsSavingContributionModeConfig(false);
         }
-    }, [kpiContributionCategoryRows, resolveCategoryRowMode, settingsShopId]);
+    }, [expenseKpiContributionCategoryRows, resolveCategoryRowMode, salesKpiContributionCategoryRows, settingsShopId]);
 
     const resetCategoryContributionModeConfigToDefault = useCallback(() => {
         setCategoryContributionModeMap({});
@@ -2076,12 +2143,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setContributionModeConfigStatus('Default rules restored.');
     }, []);
 
-    const updateCategoryContributionMode = useCallback((key, nextMode) => {
+    const updateCategoryContributionMode = useCallback((scope, row, nextMode) => {
         const normalizedMode = normalizeKpiContributionMode(nextMode);
+        const scopedKey = makeScopedProfitCategoryKey(scope, row?.categoryName, row?.subCategoryName);
         setHasExplicitContributionModeConfig(true);
         setCategoryContributionModeMap((prev) => {
             const next = { ...(prev || {}) };
-            next[key] = normalizedMode;
+            next[scopedKey] = normalizedMode;
             return next;
         });
         setContributionModeConfigStatus('');
@@ -2093,12 +2161,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             [KPI_MODE_PROFIT]: 0,
             [KPI_MODE_EXCLUDED]: 0,
         };
-        (kpiContributionCategoryRows || []).forEach((row) => {
-            const mode = normalizeKpiContributionMode(resolveCategoryRowMode(row));
+        (activeKpiContributionRows || []).forEach((row) => {
+            const mode = normalizeKpiContributionMode(resolveCategoryRowMode(row, activeKpiContributionTab));
             counts[mode] = (counts[mode] || 0) + 1;
         });
         return counts;
-    }, [kpiContributionCategoryRows, resolveCategoryRowMode]);
+    }, [activeKpiContributionRows, activeKpiContributionTab, resolveCategoryRowMode]);
 
     const kpiBreakdownByType = useMemo(() => {
         return {
@@ -4121,23 +4189,48 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         </div>
 
                         <div className="p-4 space-y-3">
+                            <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveKpiContributionTab(KPI_SCOPE_SALES)}
+                                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${activeKpiContributionTab === KPI_SCOPE_SALES ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600'}`}
+                                >
+                                    Sales
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveKpiContributionTab(KPI_SCOPE_EXPENSE)}
+                                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${activeKpiContributionTab === KPI_SCOPE_EXPENSE ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600'}`}
+                                >
+                                    Expense/Purchase
+                                </button>
+                            </div>
+
                             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
                                 {hasExplicitContributionModeConfig
                                     ? `Custom mode active. Sales: ${categoryContributionModeCounts[KPI_MODE_SALES]} | Profit: ${categoryContributionModeCounts[KPI_MODE_PROFIT]} | Excluded: ${categoryContributionModeCounts[KPI_MODE_EXCLUDED]}`
-                                    : 'Default mode active: mobile/laptop/tab-like categories use Profit mode, other categories use Sales mode.'}
+                                    : (activeKpiContributionTab === KPI_SCOPE_SALES
+                                        ? 'Default mode active: mobile/laptop/tab-like categories use Profit mode, other categories use Sales mode.'
+                                        : 'Default mode active: expense/purchase categories are included in KPI expenses unless excluded.')} 
                             </div>
 
                             <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 space-y-2">
-                                {!kpiContributionCategoryRows.length ? (
-                                    <p className="text-xs text-slate-400 text-center py-10">No sales categories found.</p>
-                                ) : kpiContributionCategoryRows.map((row) => {
-                                    const activeMode = resolveCategoryRowMode(row);
+                                {!activeKpiContributionRows.length ? (
+                                    <p className="text-xs text-slate-400 text-center py-10">No categories found for this tab.</p>
+                                ) : activeKpiContributionRows.map((row) => {
+                                    const activeMode = resolveCategoryRowMode(row, activeKpiContributionTab);
                                     const modeDescription = activeMode === KPI_MODE_EXCLUDED
-                                        ? 'Excluded from Revenue, Expenses, and Profit KPIs'
-                                        : (activeMode === KPI_MODE_PROFIT ? 'KPI uses profit only (sell - purchase)' : 'KPI uses full selling amount');
+                                        ? (activeKpiContributionTab === KPI_SCOPE_SALES
+                                            ? 'Excluded from Revenue, Expenses, and Profit KPIs'
+                                            : 'Excluded from KPI Expenses')
+                                        : (activeMode === KPI_MODE_PROFIT
+                                            ? 'KPI uses profit only (sell - purchase)'
+                                            : (activeKpiContributionTab === KPI_SCOPE_SALES
+                                                ? 'KPI uses full selling amount'
+                                                : 'Included in KPI Expenses'));
                                     return (
                                         <div
-                                            key={`profit-cat-row-${row.key}`}
+                                            key={`profit-cat-row-${activeKpiContributionTab}-${row.key}`}
                                             className={`rounded-xl border px-3 py-2.5 bg-white flex items-center justify-between gap-3 ${row.depth > 0 ? 'border-slate-100 ml-5' : 'border-slate-200'}`}
                                         >
                                             <div className="min-w-0">
@@ -4147,21 +4240,23 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 p-1 shadow-inner min-w-[222px]">
                                                 <button
                                                     type="button"
-                                                    onClick={() => updateCategoryContributionMode(row.key, KPI_MODE_SALES)}
+                                                    onClick={() => updateCategoryContributionMode(activeKpiContributionTab, row, KPI_MODE_SALES)}
                                                     className={`rounded-full px-3 py-1 text-[10px] font-bold transition-all duration-200 ease-out ${activeMode === KPI_MODE_SALES ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
                                                 >
-                                                    Sales
+                                                    {activeKpiContributionTab === KPI_SCOPE_SALES ? 'Sales' : 'Include'}
                                                 </button>
+                                                {activeKpiContributionTab === KPI_SCOPE_SALES ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => updateCategoryContributionMode(activeKpiContributionTab, row, KPI_MODE_PROFIT)}
+                                                        className={`rounded-full px-3 py-1 text-[10px] font-bold transition-all duration-200 ease-out ${activeMode === KPI_MODE_PROFIT ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+                                                    >
+                                                        Profit
+                                                    </button>
+                                                ) : null}
                                                 <button
                                                     type="button"
-                                                    onClick={() => updateCategoryContributionMode(row.key, KPI_MODE_PROFIT)}
-                                                    className={`rounded-full px-3 py-1 text-[10px] font-bold transition-all duration-200 ease-out ${activeMode === KPI_MODE_PROFIT ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
-                                                >
-                                                    Profit
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => updateCategoryContributionMode(row.key, KPI_MODE_EXCLUDED)}
+                                                    onClick={() => updateCategoryContributionMode(activeKpiContributionTab, row, KPI_MODE_EXCLUDED)}
                                                     className={`rounded-full px-3 py-1 text-[10px] font-bold transition-all duration-200 ease-out ${activeMode === KPI_MODE_EXCLUDED ? 'bg-slate-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
                                                 >
                                                     Exclude
