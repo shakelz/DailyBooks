@@ -2600,47 +2600,58 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         let updateError = null;
         const statusCandidates = ['received', 'completed', 'closed', 'delivered', 'done', 'RECEIVED', 'COMPLETED'];
         const statusColumns = ['status', 'part_order_status', 'order_status', 'state'];
+        const idColumns = ['part_order_id', 'id', 'order_id'];
 
-        for (const statusColumn of statusColumns) {
-            for (const candidateStatus of statusCandidates) {
-                const updateAttempt = await supabase
-                    .from('online_part_orders')
-                    .update({ [statusColumn]: candidateStatus })
-                    .eq('part_order_id', String(id))
-                    .select('*')
-                    .single();
+        for (const idColumn of idColumns) {
+            for (const statusColumn of statusColumns) {
+                for (const candidateStatus of statusCandidates) {
+                    const updateAttempt = await supabase
+                        .from('online_part_orders')
+                        .update({ [statusColumn]: candidateStatus })
+                        .eq(idColumn, String(id))
+                        .select('*')
+                        .single();
 
-                if (!updateAttempt.error && updateAttempt.data) {
-                    updatedRow = updateAttempt.data;
-                    updateError = null;
-                    break;
+                    if (!updateAttempt.error && updateAttempt.data) {
+                        updatedRow = updateAttempt.data;
+                        updateError = null;
+                        break;
+                    }
+
+                    updateError = updateAttempt.error || updateError;
+                    if (!isPartOrderStatusEnumError(updateError) && !String(updateError?.message || '').toLowerCase().includes('column')) {
+                        break;
+                    }
                 }
 
-                updateError = updateAttempt.error || updateError;
-                if (!isPartOrderStatusEnumError(updateError) && !String(updateError?.message || '').toLowerCase().includes('column')) {
-                    break;
-                }
+                if (updatedRow) break;
             }
 
             if (updatedRow) break;
+            if (updateError && !String(updateError?.message || '').toLowerCase().includes('column')) {
+                break;
+            }
         }
 
         if (!updatedRow) {
             const receivedAtCandidates = ['received_at', 'delivered_at', 'completed_at', 'updated_at'];
-            for (const timestampColumn of receivedAtCandidates) {
-                const updateAttempt = await supabase
-                    .from('online_part_orders')
-                    .update({ [timestampColumn]: new Date().toISOString() })
-                    .eq('part_order_id', String(id))
-                    .select('*')
-                    .single();
+            for (const idColumn of idColumns) {
+                for (const timestampColumn of receivedAtCandidates) {
+                    const updateAttempt = await supabase
+                        .from('online_part_orders')
+                        .update({ [timestampColumn]: new Date().toISOString() })
+                        .eq(idColumn, String(id))
+                        .select('*')
+                        .single();
 
-                if (!updateAttempt.error && updateAttempt.data) {
-                    updatedRow = updateAttempt.data;
-                    updateError = null;
-                    break;
+                    if (!updateAttempt.error && updateAttempt.data) {
+                        updatedRow = updateAttempt.data;
+                        updateError = null;
+                        break;
+                    }
+                    updateError = updateAttempt.error || updateError;
                 }
-                updateError = updateAttempt.error || updateError;
+                if (updatedRow) break;
             }
         }
 

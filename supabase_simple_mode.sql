@@ -60,4 +60,48 @@ BEGIN
 END
 $$;
 
+-- 5) Online orders compatibility: make status columns text to avoid enum value mismatches
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'online_part_orders'
+      AND column_name = 'status'
+      AND data_type = 'USER-DEFINED'
+  ) THEN
+    ALTER TABLE public.online_part_orders
+      ALTER COLUMN status TYPE text USING status::text;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'online_part_orders'
+      AND column_name = 'part_order_status'
+      AND data_type = 'USER-DEFINED'
+  ) THEN
+    ALTER TABLE public.online_part_orders
+      ALTER COLUMN part_order_status TYPE text USING part_order_status::text;
+  END IF;
+END
+$$;
+
+-- 6) Introspection helpers (run these manually in SQL editor when debugging schema drift)
+-- A) List online_part_orders columns + data types
+-- SELECT column_name, data_type, udt_name
+-- FROM information_schema.columns
+-- WHERE table_schema='public' AND table_name='online_part_orders'
+-- ORDER BY ordinal_position;
+
+-- B) List enum labels for any enum used by online_part_orders columns
+-- SELECT c.column_name, t.typname AS enum_type, e.enumlabel
+-- FROM information_schema.columns c
+-- JOIN pg_type t ON t.typname = c.udt_name
+-- JOIN pg_enum e ON e.enumtypid = t.oid
+-- WHERE c.table_schema='public' AND c.table_name='online_part_orders'
+-- ORDER BY c.column_name, e.enumsortorder;
+
 commit;
