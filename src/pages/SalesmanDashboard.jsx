@@ -1392,15 +1392,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const isRepairHistoryTransaction = (txn = {}) => {
         const source = String(txn?.source || '').toLowerCase();
-        if (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_')) return true;
+        if (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_')) {
+            const notes = String(txn?.notes || '').toLowerCase();
+            const desc = String(txn?.desc || '').toLowerCase();
+            return notes.includes('stage:advance') || desc.includes('repair advance');
+        }
 
         const desc = String(txn?.desc || '').toLowerCase();
         const notes = String(txn?.notes || '').toLowerCase();
         return desc.includes('repair advance')
-            || desc.includes('repair complete')
             || notes.includes('repairref:')
-            || notes.includes('stage:advance')
-            || notes.includes('stage:complete');
+            || notes.includes('stage:advance');
     };
 
     const historyRevenueSource = useMemo(() => {
@@ -2761,7 +2763,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 || descLower.includes(refLower);
             const stageMatched = expectedStageLower === 'advance'
                 ? (notesLower.includes('stage:advance') || descLower.includes('repair advance'))
-                : (notesLower.includes('stage:remaining') || descLower.includes('repair remaining'));
+                : expectedStageLower === 'complete'
+                    ? (notesLower.includes('stage:complete') || descLower.includes('repair complete'))
+                    : (notesLower.includes('stage:remaining') || descLower.includes('repair remaining'));
             return notes.includes(stageMarker)
                 || (notesLower.includes(marker.toLowerCase()) && notesLower.includes(stageText))
                 || (isRepairSource && hasReference && stageMatched);
@@ -2825,76 +2829,35 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
     }, [addTransaction, canAttemptRepairStageTransaction, clearRepairStageTransactionFailure, getRepairReferenceForSync, getRepairStageSyncKey, hasRepairStageTransaction, user?.id, user?.name, user?.salesmanNumber]);
 
-    useEffect(() => {
-        if (!repairsLoaded) return;
-        const jobs = Array.isArray(repairJobs) ? repairJobs : [];
-        // Baseline existing DB repairs once; auto-sync only newly observed repairs in this session.
-        if (!repairAdvanceSyncBootstrappedRef.current) {
-            jobs.forEach((job) => {
-                const ref = String(getRepairReferenceForSync(job) || '').trim().toLowerCase();
-                if (ref) syncedRepairAdvanceRefsRef.current.add(ref);
-            });
-            repairAdvanceSyncBootstrappedRef.current = true;
-            return;
-        }
-
-        const newJobs = jobs.filter((job) => {
-            const ref = String(getRepairReferenceForSync(job) || '').trim().toLowerCase();
-            if (!ref) return false;
-            if (syncedRepairAdvanceRefsRef.current.has(ref)) return false;
-            syncedRepairAdvanceRefsRef.current.add(ref);
-            return true;
-        });
-        if (!newJobs.length) return;
-
-        const syncRepairAdvances = async () => {
-            for (const job of newJobs) {
-                try {
-                    await ensureRepairAdvanceTransaction(job);
-                } catch (error) {
-                    const ref = String(getRepairReferenceForSync(job) || '').trim().toLowerCase();
-                    if (ref) syncedRepairAdvanceRefsRef.current.delete(ref);
-                    markRepairStageTransactionFailure(job, 'ADVANCE');
-                    console.error('Repair advance transaction sync failed:', error);
-                }
-            }
-        };
-        syncRepairAdvances();
-    }, [ensureRepairAdvanceTransaction, getRepairReferenceForSync, markRepairStageTransactionFailure, repairJobs, repairsLoaded]);
-
     const completePendingRepair = async (job) => {
         if (!job?.id) return;
         try {
-            const finalAmount = Number(job.estimatedCost || 0) || 0;
-            const advanceAmount = Number(job.advanceAmount || 0) || 0;
-            const remainingAmount = Math.max(0, finalAmount - advanceAmount);
+            const totalAmount = Number(job.estimatedCost || 0) || 0;
             await updateRepairStatus(job.id, 'completed', {
                 completedAt: new Date().toISOString()
             });
 
-            await ensureRepairAdvanceTransaction(job);
-
-            if (remainingAmount > 0 && !hasRepairStageTransaction(job, 'REMAINING')) {
-                if (!canAttemptRepairStageTransaction(job, 'REMAINING')) {
+            if (totalAmount > 0 && !hasRepairStageTransaction(job, 'COMPLETE')) {
+                if (!canAttemptRepairStageTransaction(job, 'COMPLETE')) {
                     return;
                 }
-                const remainingSyncKey = getRepairStageSyncKey(job, 'REMAINING');
-                if (remainingSyncKey && pendingRepairStageTxnRef.current.has(remainingSyncKey)) {
+                const completeSyncKey = getRepairStageSyncKey(job, 'COMPLETE');
+                if (completeSyncKey && pendingRepairStageTxnRef.current.has(completeSyncKey)) {
                     return;
                 }
-                if (remainingSyncKey) pendingRepairStageTxnRef.current.add(remainingSyncKey);
+                if (completeSyncKey) pendingRepairStageTxnRef.current.add(completeSyncKey);
                 const repairReference = getRepairInvoiceNumber(job);
                 const marker = `RepairRef:${repairReference}`;
                 const now = new Date();
                 try {
                     await addTransaction({
-                        desc: `Repair Remaining: ${job.deviceModel || 'Device'} (${repairReference || '-'})`,
-                        amount: remainingAmount,
+                        desc: `Repair Complete: ${job.deviceModel || 'Device'} (${repairReference || '-'})`,
+                        amount: totalAmount,
                         quantity: 1,
                         type: 'income',
                         category: 'Repair Service',
                         paymentMethod: 'Cash',
-                        notes: `${marker} | Stage:REMAINING | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
+                        notes: `${marker} | Stage:COMPLETE | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
                         source: 'repair',
                         salesmanName: user?.name,
                         salesmanNumber: user?.salesmanNumber || 0,
@@ -2903,15 +2866,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                         time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
                     });
-                    clearRepairStageTransactionFailure(job, 'REMAINING');
+                    clearRepairStageTransactionFailure(job, 'COMPLETE');
                 } finally {
-                    if (remainingSyncKey) pendingRepairStageTxnRef.current.delete(remainingSyncKey);
+                    if (completeSyncKey) pendingRepairStageTxnRef.current.delete(completeSyncKey);
                 }
             }
             setToast(`Repair ${getRepairInvoiceNumber(job) || ''} marked completed`);
             setTimeout(() => setToast(''), 1800);
         } catch (error) {
-            markRepairStageTransactionFailure(job, 'REMAINING');
+            markRepairStageTransactionFailure(job, 'COMPLETE');
             alert(error?.message || 'Failed to update repair status');
         }
     };
@@ -4920,13 +4883,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         <p className="text-sm text-slate-500 mt-2">No pending orders</p>
                                     </div>
                                 ) : filteredPendingOrders.map((job) => (
-                                    <div key={job.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                                    <div key={job.id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm ring-1 ring-slate-100/70 space-y-3">
                                         <div className="flex items-start justify-between gap-2">
                                             <div className="min-w-0">
-                                                <p className="text-xs font-black text-blue-600">{getRepairInvoiceNumber(job) || '-'}</p>
-                                                <p className="text-sm font-bold text-slate-800 truncate">{job.customerName || 'Customer'}</p>
+                                                <p className="text-xs font-extrabold tracking-wide text-blue-700">#{getRepairInvoiceNumber(job) || '-'}</p>
+                                                <p className="text-sm font-bold text-slate-900 truncate">{job.customerName || 'Customer'}</p>
                                             </div>
-                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">{job.status || 'pending'}</span>
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold capitalize">{job.status || 'pending'}</span>
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-1 text-[11px]">
@@ -4947,20 +4910,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             </p>
                                         ) : null}
 
-                                        <div className="grid grid-cols-2 gap-1 text-[10px]">
-                                            {(() => {
-                                                const partsCost = Array.isArray(job.partsUsed)
-                                                    ? job.partsUsed.reduce((sum, part) => sum + ((parseFloat(part?.costPrice) || 0) * (parseInt(part?.quantity || 0, 10) || 0)), 0)
-                                                    : 0;
-                                                return (
-                                                    <>
-                                            <span className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1 text-emerald-700 font-semibold">Est: {priceTag(job.estimatedCost || 0)}</span>
-                                            <span className="rounded-md bg-sky-50 border border-sky-200 px-2 py-1 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
-                                            <span className="rounded-md bg-violet-50 border border-violet-200 px-2 py-1 text-violet-700 font-semibold">Final: {priceTag(job.estimatedCost || 0)}</span>
-                                            <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-1 text-orange-700 font-semibold">Parts: {priceTag(partsCost)}</span>
-                                                    </>
-                                                );
-                                            })()}
+                                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                            <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 text-emerald-700 font-semibold">Cost: {priceTag(job.estimatedCost || 0)}</span>
+                                            <span className="rounded-lg bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
                                         </div>
 
                                         <div className="flex justify-end gap-2">
