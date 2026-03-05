@@ -1922,50 +1922,31 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category, 'expense') || []) : [];
     const purchaseSubCategoryOptions = purchaseSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
 
-    // Extract unique categories from actual transactions (sales/revenue)
-    const salesCategoriesFromTransactions = useMemo(() => {
-        const categoryMap = new Map();
-        (revenueTransactions || []).forEach((txn) => {
-            const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
-            if (!categoryName || categoryName === 'General') return;
-            const catKey = categoryName.toLowerCase().replace(/\s+/g, ' ').trim();
-            if (!categoryMap.has(catKey)) {
-                categoryMap.set(catKey, { name: categoryName, subs: new Map() });
-            }
-            if (subCategoryName) {
-                const subKey = subCategoryName.toLowerCase().replace(/\s+/g, ' ').trim();
-                if (!categoryMap.get(catKey).subs.has(subKey)) {
-                    categoryMap.get(catKey).subs.set(subKey, subCategoryName);
-                }
-            }
-        });
-        return categoryMap;
-    }, [revenueTransactions, resolveTxnCategoryParts]);
-
-    // Extract unique categories from actual transactions (expense/purchase)
-    const expenseCategoriesFromTransactions = useMemo(() => {
-        const categoryMap = new Map();
-        (purchaseTransactions || []).forEach((txn) => {
-            const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
-            if (!categoryName || categoryName === 'General') return;
-            const catKey = categoryName.toLowerCase().replace(/\s+/g, ' ').trim();
-            if (!categoryMap.has(catKey)) {
-                categoryMap.set(catKey, { name: categoryName, subs: new Map() });
-            }
-            if (subCategoryName) {
-                const subKey = subCategoryName.toLowerCase().replace(/\s+/g, ' ').trim();
-                if (!categoryMap.get(catKey).subs.has(subKey)) {
-                    categoryMap.get(catKey).subs.set(subKey, subCategoryName);
-                }
-            }
-        });
-        return categoryMap;
-    }, [purchaseTransactions, resolveTxnCategoryParts]);
-
-    // Build contribution rows from transaction-derived categories (sales)
+    // Build contribution rows from kpi_profit_category_settings table (already loaded in categoryContributionModeMap)
     const salesKpiContributionCategoryRows = useMemo(() => {
         const rows = [];
-        salesCategoriesFromTransactions.forEach((catData) => {
+        const mainCategoriesMap = new Map();
+
+        // Parse the categoryContributionModeMap (already loaded from DB)
+        Object.keys(categoryContributionModeMap || {}).forEach((scopedKey) => {
+            // Key format: "sales::CategoryName::SubCategoryName" or "sales::CategoryName::"
+            if (!scopedKey.startsWith('sales::')) return;
+            const parts = scopedKey.slice(7).split('::'); // Remove "sales::" prefix
+            const categoryName = String(parts[0] || '').trim();
+            const subCategoryName = String(parts[1] || '').trim();
+            if (!categoryName) return;
+
+            const catKey = categoryName.toLowerCase().replace(/\s+/g, ' ').trim();
+            if (!mainCategoriesMap.has(catKey)) {
+                mainCategoriesMap.set(catKey, { name: categoryName, subs: new Map() });
+            }
+            if (subCategoryName) {
+                const subKey = subCategoryName.toLowerCase().replace(/\s+/g, ' ').trim();
+                mainCategoriesMap.get(catKey).subs.set(subKey, subCategoryName);
+            }
+        });
+
+        mainCategoriesMap.forEach((catData) => {
             const categoryName = catData.name;
             rows.push({
                 key: makeProfitCategoryKey(categoryName, ''),
@@ -1984,13 +1965,35 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 });
             });
         });
-        return rows;
-    }, [salesCategoriesFromTransactions]);
 
-    // Build contribution rows from transaction-derived categories (expense)
+        return rows;
+    }, [categoryContributionModeMap]);
+
+    // Build contribution rows from kpi_profit_category_settings table (expense scope)
     const expenseKpiContributionCategoryRows = useMemo(() => {
         const rows = [];
-        expenseCategoriesFromTransactions.forEach((catData) => {
+        const mainCategoriesMap = new Map();
+
+        // Parse the categoryContributionModeMap (already loaded from DB)
+        Object.keys(categoryContributionModeMap || {}).forEach((scopedKey) => {
+            // Key format: "expense::CategoryName::SubCategoryName" or "expense::CategoryName::"
+            if (!scopedKey.startsWith('expense::')) return;
+            const parts = scopedKey.slice(9).split('::'); // Remove "expense::" prefix
+            const categoryName = String(parts[0] || '').trim();
+            const subCategoryName = String(parts[1] || '').trim();
+            if (!categoryName) return;
+
+            const catKey = categoryName.toLowerCase().replace(/\s+/g, ' ').trim();
+            if (!mainCategoriesMap.has(catKey)) {
+                mainCategoriesMap.set(catKey, { name: categoryName, subs: new Map() });
+            }
+            if (subCategoryName) {
+                const subKey = subCategoryName.toLowerCase().replace(/\s+/g, ' ').trim();
+                mainCategoriesMap.get(catKey).subs.set(subKey, subCategoryName);
+            }
+        });
+
+        mainCategoriesMap.forEach((catData) => {
             const categoryName = catData.name;
             rows.push({
                 key: makeProfitCategoryKey(categoryName, ''),
@@ -2009,8 +2012,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 });
             });
         });
+
         return rows;
-    }, [expenseCategoriesFromTransactions]);
+    }, [categoryContributionModeMap]);
 
     const activeKpiContributionRows = activeKpiContributionTab === KPI_SCOPE_EXPENSE
         ? expenseKpiContributionCategoryRows

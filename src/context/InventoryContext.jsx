@@ -399,6 +399,54 @@ function dedupeCategoryObjectsByName(list = []) {
     return deduped;
 }
 
+// Upsert category into kpi_profit_category_settings table (no duplicates)
+async function upsertKpiCategorySetting(shopId, kpiScope, categoryName, subCategoryName = '') {
+    const sid = cleanText(shopId);
+    const scope = normalizeCategoryScope(kpiScope);
+    const catName = cleanText(categoryName).replace(/\s+/g, ' ');
+    const subName = cleanText(subCategoryName).replace(/\s+/g, ' ');
+    if (!sid || !catName) return;
+
+    try {
+        // Check if already exists (case-insensitive)
+        const existingCheck = await supabase
+            .from('kpi_profit_category_settings')
+            .select('shop_id,kpi_scope,category_name,sub_category_name')
+            .eq('shop_id', sid)
+            .eq('kpi_scope', scope)
+            .ilike('category_name', catName)
+            .ilike('sub_category_name', subName || '')
+            .limit(1);
+
+        if (!existingCheck.error && Array.isArray(existingCheck.data) && existingCheck.data.length > 0) {
+            // Already exists, skip insert
+            return;
+        }
+
+        // Insert with default contribution_mode = 'sales' (meaning included in KPI)
+        const insertResult = await supabase
+            .from('kpi_profit_category_settings')
+            .insert([{
+                shop_id: sid,
+                kpi_scope: scope,
+                category_name: catName,
+                sub_category_name: subName || '',
+                contribution_mode: 'sales',
+                updated_at: new Date().toISOString(),
+            }]);
+
+        if (insertResult.error && !isMissingRelationError(insertResult.error, 'kpi_profit_category_settings')) {
+            // If duplicate key error, ignore (concurrent insert)
+            const msg = String(insertResult.error.message || '').toLowerCase();
+            if (!msg.includes('duplicate') && !msg.includes('unique')) {
+                console.warn('upsertKpiCategorySetting insert error:', insertResult.error.message);
+            }
+        }
+    } catch (err) {
+        console.warn('upsertKpiCategorySetting error:', err?.message || err);
+    }
+}
+
 function setCategoryScopeEntry(shopId, level, name, parentName, scope) {
     const sid = cleanText(shopId);
     if (!sid) return;
@@ -1546,7 +1594,13 @@ export function InventoryProvider({ children }) {
                 };
             });
             setCategoryScopeEntry(sid, 2, resolvedLevel2Name, resolvedLevel1Name, normalizedScope);
+
+            // Upsert sub-category into kpi_profit_category_settings (expense scope)
+            upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, resolvedLevel1Name, resolvedLevel2Name);
         }
+
+        // Upsert main category into kpi_profit_category_settings (expense scope)
+        upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, resolvedLevel1Name, '');
 
         return { level1Name: resolvedLevel1Name, level1Id, level2Name };
     }, []);
@@ -2319,6 +2373,12 @@ export function InventoryProvider({ children }) {
             return [...prev, { id: resolvedCategoryId || undefined, name: trimmed, image, scope: normalizedScope }];
         });
         setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
+
+        // Upsert main category into kpi_profit_category_settings (sales scope for Category Manager)
+        if (normalizedScope === CATEGORY_SCOPE_SALES) {
+            upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, trimmed, '');
+        }
+
         return { categoryId: resolvedCategoryId, name: trimmed, shopId: sid };
     }, [activeShopId, ensureActiveShopExists]);
 
@@ -2426,6 +2486,12 @@ export function InventoryProvider({ children }) {
             };
         });
         setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
+
+        // Upsert sub-category into kpi_profit_category_settings (sales scope for Category Manager)
+        if (normalizedScope === CATEGORY_SCOPE_SALES) {
+            upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, l1Name, trimmed);
+        }
+
         return { parentCategoryId, name: trimmed, shopId: sid };
     }, [activeShopId, ensureActiveShopExists, categoryNameToId]);
 
