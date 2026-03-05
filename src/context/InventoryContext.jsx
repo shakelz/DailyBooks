@@ -599,16 +599,13 @@ function mapTxSource(value) {
 function generateInvoiceNumber(seedTimestamp = '', shopId = '') {
     const parsed = seedTimestamp ? new Date(seedTimestamp) : new Date();
     const dateObj = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    void shopId;
     const pad2 = (value) => String(value).padStart(2, '0');
-    const y = String(dateObj.getFullYear());
+    const y = String(dateObj.getFullYear()).slice(-2);
     const m = pad2(dateObj.getMonth() + 1);
     const d = pad2(dateObj.getDate());
-    const hh = pad2(dateObj.getHours());
-    const mm = pad2(dateObj.getMinutes());
-    const ss = pad2(dateObj.getSeconds());
-    const shopTag = cleanText(shopId).replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-4);
-    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-    return `INV-${y}${m}${d}-${hh}${mm}${ss}${shopTag ? `-${shopTag}` : ''}-${rand}`;
+    const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
+    return `INV-${y}${m}${d}-${rand}`;
 }
 
 function extractTransactionReferenceKey(notes = '') {

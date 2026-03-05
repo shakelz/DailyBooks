@@ -144,8 +144,46 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
     };
 }
 
+function buildRepairDedupeKey(record = {}) {
+    const idKey = cleanText(record?.id || record?.repair_id).toLowerCase();
+    if (idKey) return `id:${idKey}`;
+    const refKey = cleanText(record?.invoiceNumber || record?.invoice_number || record?.refId || record?.ref_id).toLowerCase();
+    if (refKey) return `ref:${refKey}`;
+    const createdAt = cleanText(record?.created_at || record?.createdAt);
+    const customer = cleanText(record?.customerName || record?.customer_name);
+    const device = cleanText(record?.deviceModel || record?.device_model);
+    return `tmp:${createdAt}:${customer}:${device}`;
+}
+
+function mergeRepairRecords(base = {}, incoming = {}) {
+    const merged = { ...base, ...incoming };
+    const mergedRef = cleanText(merged?.refId || merged?.ref_id || base?.refId || base?.ref_id || incoming?.refId || incoming?.ref_id);
+    const mergedInvoice = cleanText(merged?.invoiceNumber || merged?.invoice_number || base?.invoiceNumber || base?.invoice_number || incoming?.invoiceNumber || incoming?.invoice_number || mergedRef);
+    if (mergedRef) merged.refId = mergedRef;
+    if (mergedInvoice) {
+        merged.invoiceNumber = mergedInvoice;
+        merged.invoice_number = mergedInvoice;
+    }
+    if ((!Array.isArray(merged.partsUsed) || merged.partsUsed.length === 0)) {
+        if (Array.isArray(incoming.partsUsed) && incoming.partsUsed.length > 0) merged.partsUsed = incoming.partsUsed;
+        else if (Array.isArray(base.partsUsed) && base.partsUsed.length > 0) merged.partsUsed = base.partsUsed;
+    }
+    return merged;
+}
+
 function sortRepairsByCreatedAt(rows = []) {
-    return [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
+    const deduped = new Map();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+        const key = buildRepairDedupeKey(row);
+        const existing = deduped.get(key);
+        if (!existing) {
+            deduped.set(key, row);
+            return;
+        }
+        deduped.set(key, mergeRepairRecords(existing, row));
+    });
+
+    return [...deduped.values()].sort((a, b) => {
         const aMs = Date.parse(a?.created_at || a?.createdAt || '');
         const bMs = Date.parse(b?.created_at || b?.createdAt || '');
         return (Number.isFinite(bMs) ? bMs : 0) - (Number.isFinite(aMs) ? aMs : 0);
@@ -175,6 +213,12 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
         completed_at: completedAt || null,
         shop_id: sid,
     };
+
+    const referenceValue = cleanText(repair?.invoiceNumber || repair?.invoice_number || repair?.refId || repair?.ref_id);
+    if (referenceValue) {
+        payload.ref_id = referenceValue;
+        payload.invoice_number = referenceValue;
+    }
 
     if (isUuidLike(providedRepairId)) {
         payload.repair_id = providedRepairId;
