@@ -971,7 +971,7 @@ function mergeSalesmanMeta(profile = {}, metaMap = {}) {
     const hasMeta = Boolean(metaMap?.[sid] && typeof metaMap[sid] === 'object' && metaMap[sid][uid]);
     const meta = hasMeta ? sanitizeSalesmanMeta(metaMap[sid][uid]) : null;
 
-    const dbSalesmanNumber = Math.max(0, Math.floor(asNumber(profile.salesmanNumber, 0)));
+    const dbSalesmanNumber = Math.max(0, Math.floor(asNumber(profile.salesmanNumber ?? profile.salesman_number, 0)));
     const dbCanEdit = asBoolean(profile.canEditTransactions);
     const dbCanBulk = asBoolean(profile.canBulkEdit);
 
@@ -1060,11 +1060,12 @@ function normalizeUserFromProfile(profile) {
         role: normalizedRole,
         pin: '',
         hourlyRate: parseFloat(profile.hourlyRate ?? profile.hourly_rate ?? 12.5) || 12.5,
-        photo: asString(profile.photo),
+        photo: asString(profile.profile_image || profile.photo),
+        profileImage: asString(profile.profile_image || profile.photo),
         active: profile.active !== false,
         shop_id: asString(profile.shop_id || profile.shopId),
         is_online: asBoolean(profile.is_online ?? profile.isOnline ?? profile.online),
-        salesmanNumber: Math.max(0, Math.floor(asNumber(profile.salesmanNumber, 0))),
+        salesmanNumber: Math.max(0, Math.floor(asNumber(profile.salesmanNumber ?? profile.salesman_number, 0))),
         canEditTransactions: asBoolean(profile.canEditTransactions),
         canBulkEdit: asBoolean(profile.canBulkEdit),
     };
@@ -1395,6 +1396,10 @@ function buildProfileUpdatePayloads(updates = {}) {
             : { shop_id: updates.shop_id === null ? null : asString(updates.shop_id) }),
         ...(updates.pin_digest === undefined ? {} : { pin_digest: asString(updates.pin_digest) }),
         ...(updates.hourlyRate === undefined ? {} : { hourly_rate: Number(updates.hourlyRate) || 0 }),
+        ...(updates.salesmanNumber === undefined ? {} : { salesman_number: Math.max(0, Math.floor(asNumber(updates.salesmanNumber, 0))) }),
+        ...((updates.photo === undefined && updates.profileImage === undefined)
+            ? {}
+            : { profile_image: asString(updates.profileImage ?? updates.photo) }),
         ...(updates.active === undefined ? {} : { active: asBoolean(updates.active) }),
         ...((updates.is_online === undefined && updates.isOnline === undefined && updates.online === undefined)
             ? {}

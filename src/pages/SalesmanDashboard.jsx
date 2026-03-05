@@ -1374,10 +1374,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             salesmanNumber: Number(
                 dbTxn?.salesmanNumber
                 ?? dbTxn?.salesman_number
-                ?? dbTxn?.salesman_no
                 ?? txn?.salesmanNumber
                 ?? fetchedProfileRow?.salesman_number
-                ?? fetchedProfileRow?.salesman_no
                 ?? 0
             ) || 0,
             purchasePriceAtTime: parseFloat(dbTxn?.purchasePriceAtTime ?? dbTxn?.purchase_price_at_time ?? txn?.purchasePriceAtTime ?? 0) || 0,

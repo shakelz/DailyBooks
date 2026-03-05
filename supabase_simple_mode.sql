@@ -181,20 +181,66 @@ BEGIN
 END
 $$;
 
--- 7) Profiles compatibility: support salesman_no field used by admin settings and transaction lookups
-alter table if exists public.profiles
-  add column if not exists salesman_no integer;
+-- 7) Profiles compatibility: keep single salesman number column + profile image column
 alter table if exists public.profiles
   add column if not exists salesman_number integer;
+alter table if exists public.profiles
+  add column if not exists profile_image text;
 
 DO $$
 BEGIN
-  UPDATE public.profiles
-  SET salesman_no = coalesce(salesman_no, salesman_number)
-  WHERE salesman_no IS NULL;
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'profiles'
+      AND column_name = 'salesman_no'
+  ) THEN
+    UPDATE public.profiles
+    SET salesman_number = coalesce(salesman_number, salesman_no)
+    WHERE salesman_number IS NULL;
+
+    ALTER TABLE public.profiles DROP COLUMN salesman_no;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'profiles'
+      AND column_name = 'photo'
+  ) THEN
+    UPDATE public.profiles
+    SET profile_image = coalesce(profile_image, photo)
+    WHERE profile_image IS NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'profiles'
+      AND column_name = 'image_url'
+  ) THEN
+    UPDATE public.profiles
+    SET profile_image = coalesce(profile_image, image_url)
+    WHERE profile_image IS NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'profiles'
+      AND column_name = 'avatar_url'
+  ) THEN
+    UPDATE public.profiles
+    SET profile_image = coalesce(profile_image, avatar_url)
+    WHERE profile_image IS NULL;
+  END IF;
 
   UPDATE public.profiles
-  SET salesman_number = coalesce(salesman_number, salesman_no)
+  SET salesman_number = coalesce(salesman_number, 0)
   WHERE salesman_number IS NULL;
 END
 $$;
