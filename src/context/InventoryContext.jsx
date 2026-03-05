@@ -1979,9 +1979,7 @@ export function InventoryProvider({ children }) {
         }
     }, [activeShopId, workerLookup, syncTransactionItems]);
 
-    useEffect(() => {
-        addTransactionRef.current = addTransaction;
-    }, [addTransaction]);
+    addTransactionRef.current = addTransaction;
 
     const updateTransaction = useCallback(async (id, updates) => {
         const sid = cleanText(activeShopId);
