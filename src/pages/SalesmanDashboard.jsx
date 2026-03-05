@@ -404,7 +404,7 @@ function buildReceiptHtml({
     const grossTotal = rows.reduce((sum, row) => sum + (Number(row?.total) || 0), 0);
     const netTotal = grossTotal / 1.19;
     const taxTotal = grossTotal - netTotal;
-    const formatMoney = (value) => `${Number(value || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR`;
+    const formatMoney = (value) => `${Number(value || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
     const dt = issuedAt instanceof Date && !Number.isNaN(issuedAt.getTime()) ? issuedAt : new Date();
     const safeRows = rows.map((row) => {
         const qty = Math.max(1, parseInt(row?.quantity || '1', 10) || 1);
@@ -1322,6 +1322,23 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
         }
 
+        const resolvedWorkerId = String(dbTxn?.created_by || dbTxn?.worker_id || txn?.workerId || '').trim();
+        let fetchedProfileRow = null;
+        if (resolvedWorkerId) {
+            for (const useShopScope of scopeModes) {
+                let query = supabase.from('profiles').select('*');
+                if (useShopScope) query = query.eq('shop_id', shopId);
+                const result = await query.eq('id', resolvedWorkerId).limit(1).maybeSingle();
+                if (!result.error && result.data) {
+                    fetchedProfileRow = result.data;
+                    break;
+                }
+                if (result.error && !isIgnorableReadError(result.error)) {
+                    break;
+                }
+            }
+        }
+
         const dbTimestamp = String(dbTxn?.occurred_at || dbTxn?.created_at || dbTxn?.timestamp || txn?.timestamp || '').trim();
         const parsedTs = dbTimestamp ? new Date(dbTimestamp) : null;
         const hasValidTs = parsedTs && !Number.isNaN(parsedTs.getTime());
@@ -1352,9 +1369,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             date: String(dbTxn?.date || txn?.date || (hasValidTs ? parsedTs.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }) : '')).trim(),
             time: String(dbTxn?.time || txn?.time || (hasValidTs ? parsedTs.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '')).trim(),
             productId: resolvedProductId || undefined,
-            workerId: String(dbTxn?.workerId || dbTxn?.created_by || dbTxn?.worker_id || txn?.workerId || '').trim(),
-            salesmanName: String(dbTxn?.salesmanName || dbTxn?.salesman_name || txn?.salesmanName || '').trim(),
-            salesmanNumber: Number(dbTxn?.salesmanNumber ?? dbTxn?.salesman_number ?? txn?.salesmanNumber ?? 0) || 0,
+            workerId: resolvedWorkerId,
+            salesmanName: String(dbTxn?.salesmanName || dbTxn?.salesman_name || txn?.salesmanName || fetchedProfileRow?.name || fetchedProfileRow?.full_name || '').trim(),
+            salesmanNumber: Number(
+                dbTxn?.salesmanNumber
+                ?? dbTxn?.salesman_number
+                ?? dbTxn?.salesman_no
+                ?? txn?.salesmanNumber
+                ?? fetchedProfileRow?.salesman_number
+                ?? fetchedProfileRow?.salesman_no
+                ?? 0
+            ) || 0,
             purchasePriceAtTime: parseFloat(dbTxn?.purchasePriceAtTime ?? dbTxn?.purchase_price_at_time ?? txn?.purchasePriceAtTime ?? 0) || 0,
             stdPriceAtTime: parseFloat(dbTxn?.stdPriceAtTime ?? dbTxn?.std_price_at_time ?? txn?.stdPriceAtTime ?? 0) || 0,
             unitPrice: parseFloat(dbTxn?.unitPrice ?? dbTxn?.unit_price ?? txn?.unitPrice ?? 0) || 0,

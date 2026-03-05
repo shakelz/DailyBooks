@@ -181,7 +181,25 @@ BEGIN
 END
 $$;
 
--- 7) Introspection helpers (run these manually in SQL editor when debugging schema drift)
+-- 7) Profiles compatibility: support salesman_no field used by admin settings and transaction lookups
+alter table if exists public.profiles
+  add column if not exists salesman_no integer;
+alter table if exists public.profiles
+  add column if not exists salesman_number integer;
+
+DO $$
+BEGIN
+  UPDATE public.profiles
+  SET salesman_no = coalesce(salesman_no, salesman_number)
+  WHERE salesman_no IS NULL;
+
+  UPDATE public.profiles
+  SET salesman_number = coalesce(salesman_number, salesman_no)
+  WHERE salesman_number IS NULL;
+END
+$$;
+
+-- 8) Introspection helpers (run these manually in SQL editor when debugging schema drift)
 -- A) List online_part_orders columns + data types
 -- SELECT column_name, data_type, udt_name
 -- FROM information_schema.columns

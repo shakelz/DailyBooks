@@ -30,7 +30,10 @@ function isMissingColumnError(error, columnName) {
 
 function isMissingRelationError(error, relationName = '') {
     const message = String(error?.message || '').toLowerCase();
-    if (!message.includes('does not exist')) return false;
+    const isMissing = message.includes('does not exist')
+        || message.includes('could not find the table')
+        || message.includes('in the schema cache');
+    if (!isMissing) return false;
     if (!relationName) return message.includes('relation') || message.includes('table');
     return message.includes(String(relationName || '').toLowerCase());
 }
@@ -254,6 +257,12 @@ function buildRepairUpdatePayload(status, extras = {}) {
         next.completedAt = nowIso;
     }
 
+    if (Object.prototype.hasOwnProperty.call(next, 'completedAt')) {
+        const parsedCompletedAt = parseIsoTimestamp(next.completedAt);
+        next.completed_at = parsedCompletedAt || next.completed_at || null;
+        delete next.completedAt;
+    }
+
     if (Object.prototype.hasOwnProperty.call(next, 'deliveryDate') || Object.prototype.hasOwnProperty.call(next, 'delivery_date') || Object.prototype.hasOwnProperty.call(next, 'delivery_at')) {
         const delivery = toDateOnly(next.delivery_date || next.delivery_at || next.deliveryDate);
         next.delivery_date = delivery || null;
@@ -300,7 +309,7 @@ function buildRepairPartPayloads(partsUsed = [], repairId = '', shopId = '') {
 }
 
 export function RepairsProvider({ children }) {
-    const { activeShopId } = useAuth();
+    const { activeShopId, user } = useAuth();
     const [repairJobs, setRepairJobs] = useState([]);
     const [repairsLoaded, setRepairsLoaded] = useState(false);
 
@@ -429,6 +438,8 @@ export function RepairsProvider({ children }) {
             invoiceNumber: refId,
             invoice_number: refId,
             status: 'pending',
+            created_by: isUuidLike(String(user?.id || '').trim()) ? String(user.id).trim() : null,
+            createdBy: isUuidLike(String(user?.id || '').trim()) ? String(user.id).trim() : null,
             created_at: createdAt,
             createdAt,
             completed_at: null,
@@ -522,7 +533,7 @@ export function RepairsProvider({ children }) {
         }).catch((error) => console.error(error));
 
         return savedJob;
-    }, [activeShopId, generateRefId, syncRepairParts]);
+    }, [activeShopId, generateRefId, syncRepairParts, user?.id]);
 
     const updateRepairStatus = useCallback(async (id, status, extras = {}) => {
         const sid = cleanText(activeShopId);
