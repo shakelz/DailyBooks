@@ -1596,11 +1596,11 @@ export function InventoryProvider({ children }) {
             setCategoryScopeEntry(sid, 2, resolvedLevel2Name, resolvedLevel1Name, normalizedScope);
 
             // Upsert sub-category into kpi_profit_category_settings (expense scope)
-            upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, resolvedLevel1Name, resolvedLevel2Name);
+            await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, resolvedLevel1Name, resolvedLevel2Name);
         }
 
         // Upsert main category into kpi_profit_category_settings (expense scope)
-        upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, resolvedLevel1Name, '');
+        await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, resolvedLevel1Name, '');
 
         return { level1Name: resolvedLevel1Name, level1Id, level2Name };
     }, []);
@@ -2376,7 +2376,7 @@ export function InventoryProvider({ children }) {
 
         // Upsert main category into kpi_profit_category_settings (sales scope for Category Manager)
         if (normalizedScope === CATEGORY_SCOPE_SALES) {
-            upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, trimmed, '');
+            await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, trimmed, '');
         }
 
         return { categoryId: resolvedCategoryId, name: trimmed, shopId: sid };
@@ -2489,7 +2489,7 @@ export function InventoryProvider({ children }) {
 
         // Upsert sub-category into kpi_profit_category_settings (sales scope for Category Manager)
         if (normalizedScope === CATEGORY_SCOPE_SALES) {
-            upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, l1Name, trimmed);
+            await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, l1Name, trimmed);
         }
 
         return { parentCategoryId, name: trimmed, shopId: sid };

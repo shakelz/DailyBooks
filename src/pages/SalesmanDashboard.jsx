@@ -1112,14 +1112,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         () => rangeTransactions.filter((txn) => {
             const txType = String(txn.tx_type || txn.type || '').toLowerCase();
             const source = String(txn.source || '').toLowerCase();
-            const isRevenueType = txType === 'product_sale' || txType === 'repair_amount' || txType === 'income' || txType === 'sale';
+            const isRevenueType = txType === 'product_sale'
+                || txType === 'repair_amount'
+                || txType === 'income'
+                || txType === 'sale';
             if (!isRevenueType) return false;
             if (isCashbookTransaction(txn)) return false;
-            const desc = String(txn.desc || '').toLowerCase();
             if (source === 'purchase' || source === 'expense' || source === 'online-order' || source === 'repair-parts') {
-                return false;
-            }
-            if (desc.includes('purchase') || desc.includes('expense') || desc.includes('online order')) {
                 return false;
             }
             return true;
@@ -1946,7 +1945,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
         });
 
-        mainCategoriesMap.forEach((catData) => {
+        const sortedCategories = Array.from(mainCategoriesMap.values()).sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+        sortedCategories.forEach((catData) => {
             const categoryName = catData.name;
             rows.push({
                 key: makeProfitCategoryKey(categoryName, ''),
@@ -1955,7 +1955,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 label: categoryName,
                 depth: 0,
             });
-            catData.subs.forEach((subCategoryName) => {
+            const sortedSubs = Array.from(catData.subs.values()).sort((a, b) => String(a || '').localeCompare(String(b || '')));
+            sortedSubs.forEach((subCategoryName) => {
                 rows.push({
                     key: makeProfitCategoryKey(categoryName, subCategoryName),
                     categoryName,
@@ -1993,7 +1994,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
         });
 
-        mainCategoriesMap.forEach((catData) => {
+        const sortedCategories = Array.from(mainCategoriesMap.values()).sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+        sortedCategories.forEach((catData) => {
             const categoryName = catData.name;
             rows.push({
                 key: makeProfitCategoryKey(categoryName, ''),
@@ -2002,7 +2004,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 label: categoryName,
                 depth: 0,
             });
-            catData.subs.forEach((subCategoryName) => {
+            const sortedSubs = Array.from(catData.subs.values()).sort((a, b) => String(a || '').localeCompare(String(b || '')));
+            sortedSubs.forEach((subCategoryName) => {
                 rows.push({
                     key: makeProfitCategoryKey(categoryName, subCategoryName),
                     categoryName,
@@ -2145,6 +2148,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             [KPI_MODE_EXCLUDED]: 0,
         };
         (activeKpiContributionRows || []).forEach((row) => {
+            if (Number(row?.depth) === 0) return;
             const mode = normalizeKpiContributionMode(resolveCategoryRowMode(row, activeKpiContributionTab));
             counts[mode] = (counts[mode] || 0) + 1;
         });
@@ -4187,6 +4191,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 {!activeKpiContributionRows.length ? (
                                     <p className="text-xs text-slate-400 text-center py-10">No categories found for this tab.</p>
                                 ) : activeKpiContributionRows.map((row) => {
+                                    const isHeaderRow = Number(row?.depth) === 0;
                                     const activeMode = resolveCategoryRowMode(row, activeKpiContributionTab);
                                     const modeDescription = activeMode === KPI_MODE_EXCLUDED
                                         ? (activeKpiContributionTab === KPI_SCOPE_SALES
@@ -4197,6 +4202,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             : (activeKpiContributionTab === KPI_SCOPE_SALES
                                                 ? 'KPI uses full selling amount'
                                                 : 'Included in KPI Expenses'));
+                                    if (isHeaderRow) {
+                                        return (
+                                            <div
+                                                key={`profit-cat-row-${activeKpiContributionTab}-${row.key}`}
+                                                className="rounded-xl border border-slate-200 bg-white px-3 py-2"
+                                            >
+                                                <p className="text-xs font-black text-slate-800 truncate">{row.label}</p>
+                                            </div>
+                                        );
+                                    }
+
                                     return (
                                         <div
                                             key={`profit-cat-row-${activeKpiContributionTab}-${row.key}`}
