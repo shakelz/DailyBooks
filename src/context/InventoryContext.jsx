@@ -1891,6 +1891,9 @@ export function InventoryProvider({ children }) {
                 const normalizedSource = ['cash', 'sum_up'].includes(cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase())
                     ? cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase()
                     : 'cash';
+                const fallbackLegacyType = String(txnWithInvoice?.type || '').toLowerCase();
+                const shouldBeExpense = fallbackLegacyType === 'expense'
+                    || String(txnWithInvoice?.source || '').toLowerCase() === 'purchase';
                 const fallbackType = mapTxType(
                     formattedTxn?.tx_type || formattedTxn?.type || txnWithInvoice?.tx_type || txnWithInvoice?.type,
                     txnWithInvoice?.source || txnWithInvoice?.tx_source || formattedTxn?.source || formattedTxn?.tx_source
@@ -1907,9 +1910,6 @@ export function InventoryProvider({ children }) {
                 if (isUuidSyntaxError(insertResult.error, 'repair_id')) fallbackPayload.repair_id = null;
                 if (isUuidSyntaxError(insertResult.error, 'created_by')) fallbackPayload.created_by = null;
                 if (isEnumError(insertResult.error, 'tx_type') || isEnumError(insertResult.error, 'type')) {
-                    const fallbackLegacyType = String(txnWithInvoice?.type || '').toLowerCase();
-                    const shouldBeExpense = fallbackLegacyType === 'expense'
-                        || String(txnWithInvoice?.source || '').toLowerCase() === 'purchase';
                     fallbackPayload.tx_type = shouldBeExpense ? 'product_expense' : 'product_sale';
                     fallbackPayload.type = shouldBeExpense ? 'product_expense' : 'product_sale';
                 }
@@ -1923,14 +1923,40 @@ export function InventoryProvider({ children }) {
                     fallbackPayload
                 );
 
-                if (retryResult.error) {
+                let finalRetryResult = retryResult;
+                if (finalRetryResult.error && (isEnumError(finalRetryResult.error, 'tx_type') || isEnumError(finalRetryResult.error, 'type'))) {
+                    const typeCandidates = shouldBeExpense
+                        ? ['product_expense', 'product_purchase', 'shop_expense', 'expense']
+                        : ['product_sale', 'income'];
+
+                    for (const candidateType of typeCandidates) {
+                        if (candidateType === fallbackPayload.tx_type) continue;
+                        const candidatePayload = {
+                            ...fallbackPayload,
+                            tx_type: candidateType,
+                            type: candidateType,
+                        };
+                        const candidateResult = await executeWithPrunedColumns(
+                            (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
+                            candidatePayload
+                        );
+                        if (!candidateResult.error) {
+                            fallbackPayload.tx_type = candidateType;
+                            fallbackPayload.type = candidateType;
+                            finalRetryResult = candidateResult;
+                            break;
+                        }
+                    }
+                }
+
+                if (finalRetryResult.error) {
                     setTransactions(prev => prev.filter(t => String(t.id) !== String(optimisticTxnId)));
                     removeTransactionSnapshot(optimisticTxnId);
-                    throw new Error(retryResult.error?.message || insertResult.error.message || 'Failed to save transaction.');
+                    throw new Error(finalRetryResult.error?.message || insertResult.error.message || 'Failed to save transaction.');
                 }
 
                 writePayload = fallbackPayload;
-                finalWriteResult = retryResult;
+                finalWriteResult = finalRetryResult;
             }
 
             const insertedRow = finalWriteResult?.data && typeof finalWriteResult.data === 'object'

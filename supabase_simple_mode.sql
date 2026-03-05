@@ -232,6 +232,59 @@ BEGIN
 END
 $$;
 
+-- 5.5) Transactions compatibility: make tx_type/source columns text to avoid enum value mismatches
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'transactions'
+      AND column_name = 'tx_type'
+      AND data_type = 'USER-DEFINED'
+  ) THEN
+    ALTER TABLE public.transactions
+      ALTER COLUMN tx_type TYPE text USING tx_type::text;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'transactions'
+      AND column_name = 'source'
+      AND data_type = 'USER-DEFINED'
+  ) THEN
+    ALTER TABLE public.transactions
+      ALTER COLUMN source TYPE text USING source::text;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'transactions'
+      AND column_name = 'tx_source'
+      AND data_type = 'USER-DEFINED'
+  ) THEN
+    ALTER TABLE public.transactions
+      ALTER COLUMN tx_source TYPE text USING tx_source::text;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'transactions'
+      AND column_name = 'type'
+      AND data_type = 'USER-DEFINED'
+  ) THEN
+    ALTER TABLE public.transactions
+      ALTER COLUMN type TYPE text USING type::text;
+  END IF;
+END
+$$;
+
 -- 6) Repairs compatibility: allow short date invoice numbers (YYMMDD) without unique-key collisions
 DO $$
 DECLARE
