@@ -407,10 +407,18 @@ export default function InsightsTab() {
             }
         });
 
-        const totalProfit = unified.totals.revenue;
-        const totalFixedExpenses = unified.totals.fixedExpenses;
-        const productProfit = unified.productProfit;
-        const serviceProfit = unified.serviceProfit;
+        const strictKpi = unified.strictKpi || {};
+        const productProfit = Number.isFinite(strictKpi.productProfit) ? strictKpi.productProfit : unified.productProfit;
+        const serviceProfit = Number.isFinite(strictKpi.serviceProfit) ? strictKpi.serviceProfit : unified.serviceProfit;
+        const totalProfit = Number.isFinite(strictKpi.grossNetProfit) ? strictKpi.grossNetProfit : (productProfit + serviceProfit);
+        const totalFixedExpenses = Number.isFinite(strictKpi.fixedExpenses) ? strictKpi.fixedExpenses : unified.totals.fixedExpenses;
+        const totalNonFixedExpenses = Number.isFinite(strictKpi.nonFixedExpenses) ? strictKpi.nonFixedExpenses : unified.totals.smallExpenses;
+        const totalInventoryPurchases = Number.isFinite(strictKpi.inventoryPurchases)
+            ? strictKpi.inventoryPurchases
+            : (unified.totals.inventoryPurchases || unified.totals.purchases || 0);
+        const finalProfit = Number.isFinite(strictKpi.finalProfit)
+            ? strictKpi.finalProfit
+            : ((productProfit + serviceProfit) - (totalFixedExpenses + totalNonFixedExpenses + totalInventoryPurchases));
         const avgMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
         const salesGrowth = unified.salesGrowth;
 
@@ -420,8 +428,9 @@ export default function InsightsTab() {
             productProfit,
             serviceProfit,
             totalFixedExpenses,
-            totalInventoryPurchases: unified.totals.inventoryPurchases || unified.totals.purchases || 0,
-            finalProfit: unified.totals.finalProfit,
+            totalNonFixedExpenses,
+            totalInventoryPurchases,
+            finalProfit,
             avgMargin,
             salesGrowth,
             turnoverRatio,
@@ -434,9 +443,9 @@ export default function InsightsTab() {
             sourceBreakdown: {
                 productSaleRevenue: unified.totals.productSaleRevenue,
                 repairProfit: unified.totals.repairProfit,
-                smallExpenses: unified.totals.smallExpenses,
-                purchases: unified.totals.purchases,
-                fixedExpenses: unified.totals.fixedExpenses,
+                smallExpenses: totalNonFixedExpenses,
+                purchases: totalInventoryPurchases,
+                fixedExpenses: totalFixedExpenses,
             },
             supplierData,
             categoryData,
@@ -672,7 +681,7 @@ export default function InsightsTab() {
             </div>
 
             {/* ── 1. Financial KPIs (The Big Picture) ── */}
-            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-5 gap-4">
                 {isAdminLike && (
                     <div className="min-w-0">
                         <MetricCard
@@ -695,6 +704,17 @@ export default function InsightsTab() {
                             icon={<Activity size={24} />}
                             color="red"
                             subtext="Rent, Salary, etc."
+                        />
+                    </div>
+                )}
+                {isAdminLike && (
+                    <div className="min-w-0">
+                        <MetricCard
+                            title="Non-fixed Expenses"
+                            value={priceTag(analytics.totalNonFixedExpenses)}
+                            icon={<AlertCircle size={24} />}
+                            color="amber"
+                            subtext="tx_type: product_expense, source: expense"
                         />
                     </div>
                 )}
@@ -725,7 +745,7 @@ export default function InsightsTab() {
                 <div className="bg-white border border-emerald-100 rounded-3xl shadow-sm p-5">
                     <div className="flex items-center justify-between gap-3 mb-4">
                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Final Profit Calculation</h3>
-                        <span className="text-xs font-bold text-emerald-600">Net = (Product Profit + Service Profit) - (Inventory Purchases + Fixed Expenses)</span>
+                        <span className="text-xs font-bold text-emerald-600">Net = (Product Profit + Service Profit) - (Fixed Expenses + Non-fixed Expenses + Inventory Purchases)</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                         <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
@@ -743,6 +763,10 @@ export default function InsightsTab() {
                         <div className="rounded-2xl border border-red-100 bg-red-50 p-3">
                             <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Total Fixed Expenses</p>
                             <p className="text-lg font-black text-red-700">{priceTag(analytics.totalFixedExpenses)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-orange-100 bg-orange-50 p-3">
+                            <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Non-fixed Expenses</p>
+                            <p className="text-lg font-black text-orange-700">{priceTag(analytics.totalNonFixedExpenses)}</p>
                         </div>
                         <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3">
                             <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Inventory Purchases</p>
@@ -1284,6 +1308,7 @@ function MetricCard({ title, value, icon, color, trend, subtext, onClick, isActi
         indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100',
         purple: 'bg-purple-50 text-purple-600 border-purple-100',
         red: 'bg-red-50 text-red-600 border-red-100',
+        amber: 'bg-amber-50 text-amber-600 border-amber-100',
     };
 
     const sharedClassName = `p-4 xl:p-6 rounded-3xl border shadow-sm flex items-start justify-between bg-white border-slate-100 md:hover:border-blue-300 md:hover:shadow-md transition-all group w-full text-left ${onClick ? 'cursor-pointer' : ''} ${isActive ? 'ring-2 ring-emerald-200 border-emerald-200' : ''}`;

@@ -319,6 +319,7 @@ export function calculateFilteredTotal({
   scope = KPI_SCOPE_SALES,
   categoryContributionModeMap = {},
   productById = {},
+  applyProfitModeForExpenseScope = false,
 }) {
   const { linkedProduct, categoryId, categoryName, subCategoryName } = resolveTxnCategoryParts(txn, productById);
   const mode = resolveConfiguredMode(categoryContributionModeMap, scope, categoryName, subCategoryName, categoryId);
@@ -336,7 +337,9 @@ export function calculateFilteredTotal({
   }
 
   const rawAmount = safeNumber(txn?.amount, 0);
-  const amount = (scope === KPI_SCOPE_SALES && mode === KPI_MODE_PROFIT)
+  const shouldApplyProfitMode = mode === KPI_MODE_PROFIT
+    && (scope === KPI_SCOPE_SALES || (scope === KPI_SCOPE_EXPENSE && applyProfitModeForExpenseScope));
+  const amount = shouldApplyProfitMode
     ? computeTxnGrossProfit(txn, linkedProduct)
     : rawAmount;
 
@@ -387,6 +390,15 @@ export function computeUnifiedKpiSnapshot({
       productProfit: 0,
       serviceProfit: 0,
       rawSalesTotal: 0,
+      strictKpi: {
+        productProfit: 0,
+        serviceProfit: 0,
+        grossNetProfit: 0,
+        fixedExpenses: 0,
+        nonFixedExpenses: 0,
+        inventoryPurchases: 0,
+        finalProfit: 0,
+      },
     };
   }
 
@@ -406,6 +418,11 @@ export function computeUnifiedKpiSnapshot({
   let productProfit = 0;
   let serviceProfit = 0;
   let rawSalesTotal = 0;
+  let strictProductProfit = 0;
+  let strictServiceProfit = 0;
+  let strictFixedExpenses = 0;
+  let strictNonFixedExpenses = 0;
+  let strictInventoryPurchases = 0;
 
   const includedSalesTransactions = [];
   const revenueBreakdownMap = new Map();
@@ -430,6 +447,55 @@ export function computeUnifiedKpiSnapshot({
 
     const period = ensurePeriod(periodMap, date, periodType);
     const { linkedProduct, categoryName, subCategoryName } = resolveTxnCategoryParts(txn, productById);
+    const txType = getTxType(txn);
+    const sourceText = normalizeToken(txn?.source || txn?.tx_source || '');
+
+    if (txType === 'product_sale' && sourceText === 'shop') {
+      const filtered = calculateFilteredTotal({
+        txn,
+        scope: KPI_SCOPE_SALES,
+        categoryContributionModeMap,
+        productById,
+      });
+      if (filtered.included) strictProductProfit += filtered.amount;
+    } else if (txType === 'repair_amount' && sourceText === 'repair') {
+      const filtered = calculateFilteredTotal({
+        txn,
+        scope: KPI_SCOPE_SALES,
+        categoryContributionModeMap,
+        productById,
+      });
+      if (filtered.included) strictServiceProfit += filtered.amount;
+    } else if (txType === 'fixed_expense' && sourceText === 'admin-expense') {
+      if (includeAdminFixedExpenses) {
+        const filtered = calculateFilteredTotal({
+          txn,
+          scope: KPI_SCOPE_EXPENSE,
+          categoryContributionModeMap,
+          productById,
+          applyProfitModeForExpenseScope: true,
+        });
+        if (filtered.included) strictFixedExpenses += filtered.amount;
+      }
+    } else if (txType === 'product_expense' && sourceText === 'expense') {
+      const filtered = calculateFilteredTotal({
+        txn,
+        scope: KPI_SCOPE_EXPENSE,
+        categoryContributionModeMap,
+        productById,
+        applyProfitModeForExpenseScope: true,
+      });
+      if (filtered.included) strictNonFixedExpenses += filtered.amount;
+    } else if (txType === 'product_expense' && sourceText === 'purchase') {
+      const filtered = calculateFilteredTotal({
+        txn,
+        scope: KPI_SCOPE_EXPENSE,
+        categoryContributionModeMap,
+        productById,
+        applyProfitModeForExpenseScope: true,
+      });
+      if (filtered.included) strictInventoryPurchases += filtered.amount;
+    }
 
     if (isSalesTxn(txn) && !isCashbookTransaction(txn)) {
       const filtered = calculateFilteredTotal({
@@ -458,7 +524,6 @@ export function computeUnifiedKpiSnapshot({
       return;
     }
 
-    const txType = getTxType(txn);
     const shouldSkipAsCashbookExpense = isCashbookTransaction(txn)
       && txType !== 'fixed_expense'
       && !isFixedExpenseTxn(txn);
@@ -523,6 +588,8 @@ export function computeUnifiedKpiSnapshot({
   const expenses = fixedExpenses + smallExpenses + purchases;
   const income = revenue - expenses;
   const finalProfit = (productProfit + serviceProfit) - (inventoryPurchases + fixedExpenses);
+  const strictGrossNetProfit = strictProductProfit + strictServiceProfit;
+  const strictFinalProfit = strictGrossNetProfit - (strictFixedExpenses + strictNonFixedExpenses + strictInventoryPurchases);
 
   const periodData = Object.values(periodMap)
     .sort((a, b) => a.periodStartMs - b.periodStartMs)
@@ -580,5 +647,14 @@ export function computeUnifiedKpiSnapshot({
     productProfit,
     serviceProfit,
     rawSalesTotal,
+    strictKpi: {
+      productProfit: strictProductProfit,
+      serviceProfit: strictServiceProfit,
+      grossNetProfit: strictGrossNetProfit,
+      fixedExpenses: strictFixedExpenses,
+      nonFixedExpenses: strictNonFixedExpenses,
+      inventoryPurchases: strictInventoryPurchases,
+      finalProfit: strictFinalProfit,
+    },
   };
 }
