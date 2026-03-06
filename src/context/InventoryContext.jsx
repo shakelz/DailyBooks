@@ -391,7 +391,10 @@ function dedupeCategoryObjectsByName(list = []) {
     const deduped = [];
     (Array.isArray(list) ? list : []).forEach((item) => {
         const name = typeof item === 'object' ? item?.name : item;
-        const key = normalizeCategoryNameForMatch(name);
+        const scope = typeof item === 'object'
+            ? normalizeCategoryScope(item?.scope || item?.category_purpose)
+            : '';
+        const key = `${scope}::${normalizeCategoryNameForMatch(name)}`;
         if (!key || seen.has(key)) return;
         seen.add(key);
         deduped.push(item);
@@ -1194,7 +1197,7 @@ export function InventoryProvider({ children }) {
             const [invResult, txnResult, catResult, itemResult, profileResult] = await Promise.all([
                 selectRowsByShopCandidates('inventory', (query) => query.select('*'), filterCandidates),
                 selectRowsByShopCandidates('transactions', (query) => query.select('*'), filterCandidates),
-                selectRowsByShopCandidates('categories', (query) => query.select('*').in('category_purpose', [CATEGORY_SCOPE_SALES, CATEGORY_SCOPE_EXPENSE]), filterCandidates),
+                selectRowsByShopCandidates('categories', (query) => query.select('*'), filterCandidates),
                 selectRowsByShopCandidates('transaction_items', (query) => query.select('*'), filterCandidates),
                 selectRowsByShopCandidates('profiles', (query) => query.select('user_id,full_name'), filterCandidates),
             ]);
@@ -2354,10 +2357,20 @@ export function InventoryProvider({ children }) {
         }
 
         setL1Categories(prev => {
-            const existingLocal = prev.find(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed));
+            const existingLocal = prev.find((c) => {
+                const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed);
+                const sameScope = typeof c === 'object'
+                    ? normalizeCategoryScope(c?.scope || c?.category_purpose) === normalizedScope
+                    : normalizedScope === CATEGORY_SCOPE_SALES;
+                return sameName && sameScope;
+            });
             if (existingLocal) {
                 return prev.map((c) => {
-                    if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(trimmed)) return c;
+                    const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed);
+                    const sameScope = typeof c === 'object'
+                        ? normalizeCategoryScope(c?.scope || c?.category_purpose) === normalizedScope
+                        : normalizedScope === CATEGORY_SCOPE_SALES;
+                    if (!(sameName && sameScope)) return c;
                     if (typeof c === 'object') {
                         return {
                             ...c,
@@ -2462,10 +2475,20 @@ export function InventoryProvider({ children }) {
 
         setL2Map(prev => {
             const currentList = prev[l1Name] || [];
-            const existingLocal = currentList.find(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed));
+            const existingLocal = currentList.find((c) => {
+                const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed);
+                const sameScope = typeof c === 'object'
+                    ? normalizeCategoryScope(c?.scope || c?.category_purpose) === normalizedScope
+                    : normalizedScope === CATEGORY_SCOPE_SALES;
+                return sameName && sameScope;
+            });
             if (existingLocal) {
                 const updatedList = currentList.map((c) => {
-                    if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(trimmed)) return c;
+                    const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed);
+                    const sameScope = typeof c === 'object'
+                        ? normalizeCategoryScope(c?.scope || c?.category_purpose) === normalizedScope
+                        : normalizedScope === CATEGORY_SCOPE_SALES;
+                    if (!(sameName && sameScope)) return c;
                     if (typeof c === 'object') {
                         return {
                             ...c,

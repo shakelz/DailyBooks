@@ -1115,16 +1115,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const revenueTransactions = useMemo(
         () => rangeTransactions.filter((txn) => {
             const txType = String(txn.tx_type || txn.type || '').toLowerCase();
-            const source = String(txn.source || '').toLowerCase();
             const isRevenueType = txType === 'product_sale'
                 || txType === 'repair_amount'
+                || txType === 'adjustment_amount'
                 || txType === 'income'
                 || txType === 'sale';
             if (!isRevenueType) return false;
             if (isCashbookTransaction(txn)) return false;
-            if (source === 'purchase' || source === 'expense' || source === 'online-order' || source === 'repair-parts') {
-                return false;
-            }
             return true;
         }),
         [rangeTransactions]
@@ -1136,7 +1133,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const isPurchaseType = txType === 'product_purchase'
                 || txType === 'product_expense'
                 || txType === 'shop_expense'
-                || txType === 'adjustment_amount'
                 || txType === 'expense'
                 || txType === 'purchase'
                 || source === 'purchase'
@@ -1999,16 +1995,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 label: categoryName,
                 depth: 0,
             });
-            const sortedSubs = Array.from(catData.subs.values()).sort((a, b) => String(a || '').localeCompare(String(b || '')));
-            sortedSubs.forEach((subCategoryName) => {
-                rows.push({
-                    key: makeProfitCategoryKey(categoryName, subCategoryName),
-                    categoryName,
-                    subCategoryName,
-                    label: `${categoryName} / ${subCategoryName}`,
-                    depth: 1,
-                });
-            });
         });
 
         return rows;
@@ -2141,7 +2127,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             [KPI_MODE_EXCLUDED]: 0,
         };
         (activeKpiContributionRows || []).forEach((row) => {
-            if (Number(row?.depth) === 0) return;
+            if (activeKpiContributionTab === KPI_SCOPE_SALES && Number(row?.depth) === 0) return;
             const mode = normalizeKpiContributionMode(resolveCategoryRowMode(row, activeKpiContributionTab));
             counts[mode] = (counts[mode] || 0) + 1;
         });
@@ -4184,7 +4170,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 {!activeKpiContributionRows.length ? (
                                     <p className="text-xs text-slate-400 text-center py-10">No categories found for this tab.</p>
                                 ) : activeKpiContributionRows.map((row) => {
-                                    const isHeaderRow = Number(row?.depth) === 0;
+                                    const isHeaderRow = activeKpiContributionTab === KPI_SCOPE_SALES && Number(row?.depth) === 0;
                                     const activeMode = resolveCategoryRowMode(row, activeKpiContributionTab);
                                     const modeDescription = activeMode === KPI_MODE_EXCLUDED
                                         ? (activeKpiContributionTab === KPI_SCOPE_SALES
