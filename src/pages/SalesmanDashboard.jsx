@@ -1636,7 +1636,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [unifiedKpiStats]);
 
     const kpiExpenseCategoryBreakdown = useMemo(() => {
-        return Array.isArray(unifiedKpiStats?.expenseBreakdown) ? unifiedKpiStats.expenseBreakdown : [];
+        const rows = Array.isArray(unifiedKpiStats?.expenseBreakdown) ? unifiedKpiStats.expenseBreakdown : [];
+        return rows.filter((row) => {
+            const label = String(row?.label || '').trim().toLowerCase();
+            return label !== 'general' && !label.startsWith('general /');
+        });
     }, [unifiedKpiStats]);
 
     const kpiIncomeCategoryBreakdown = useMemo(() => {
@@ -2164,7 +2168,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             expenses: {
                 title: 'Expense KPI Breakdown',
                 subtitle: 'All purchase/expense categories are counted, excluding categories marked as Exclude.',
-                total: activeStats.totals.expenses,
+                total: kpiExpenseCategoryBreakdown.reduce((sum, row) => sum + (Number(row?.amount) || 0), 0),
                 rows: kpiExpenseCategoryBreakdown,
                 positiveClass: 'text-rose-700',
                 negativeClass: 'text-rose-700',
