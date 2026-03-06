@@ -205,3 +205,10 @@
     --btnShadeD: rgb(253, 164, 175);
     --btnShadeE: rgb(255, 228, 230);
 }
+
+select,
+select option {
+    font-size: 1rem !important;
+    font-weight: 500 !important;
+    line-height: 1.4;
+}
