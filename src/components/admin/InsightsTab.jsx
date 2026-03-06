@@ -150,9 +150,15 @@ export default function InsightsTab() {
                 const subCategoryName = String(row?.sub_category_name || '').trim();
                 const categoryId = String(row?.category_id || row?.categoryId || '').trim();
                 if (!categoryName) return acc;
-                acc[scopedCategoryKey(scope, categoryName, subCategoryName)] = normalizeContributionMode(row?.contribution_mode);
+                const modeFromContributionColumn = row?.contribution_mode ?? row?.contributionMode;
+                const modeFromLegacyBool = row?.profit_only ?? row?.profitOnly ?? row?.is_profit_only;
+                const resolvedMode = (modeFromContributionColumn === undefined || modeFromContributionColumn === null || String(modeFromContributionColumn).trim() === '')
+                    ? (Boolean(modeFromLegacyBool) ? KPI_MODE_PROFIT : KPI_MODE_SALES)
+                    : normalizeContributionMode(modeFromContributionColumn);
+
+                acc[scopedCategoryKey(scope, categoryName, subCategoryName)] = resolvedMode;
                 if (categoryId) {
-                    acc[scopedCategoryIdKey(scope, categoryId)] = normalizeContributionMode(row?.contribution_mode);
+                    acc[scopedCategoryIdKey(scope, categoryId)] = resolvedMode;
                 }
                 return acc;
             }, {});

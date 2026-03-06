@@ -15,6 +15,9 @@ function normalizeKpiScope(value = '') {
 }
 
 function normalizeContributionMode(value = '') {
+  if (typeof value === 'boolean') {
+    return value ? KPI_MODE_PROFIT : KPI_MODE_SALES;
+  }
   const raw = normalizeToken(value);
   if (raw === KPI_MODE_PROFIT) return KPI_MODE_PROFIT;
   if (raw === KPI_MODE_EXCLUDED || raw === 'exclude') return KPI_MODE_EXCLUDED;
@@ -87,11 +90,7 @@ function isFixedExpenseTxn(txn = {}) {
 
 function isSalesTxn(txn = {}) {
   const txType = getTxType(txn);
-  return txType === 'product_sale'
-    || txType === 'repair_amount'
-    || txType === 'adjustment_amount'
-    || txType === 'sale'
-    || txType === 'income';
+  return txType === 'product_sale' || txType === 'sale' || txType === 'income';
 }
 
 function isExpenseTxn(txn = {}) {
@@ -313,7 +312,7 @@ export function calculateFilteredTotal({
   }
 
   const rawAmount = safeNumber(txn?.amount, 0);
-  const amount = mode === KPI_MODE_PROFIT
+  const amount = (scope === KPI_SCOPE_SALES && mode === KPI_MODE_PROFIT)
     ? computeTxnGrossProfit(txn, linkedProduct)
     : rawAmount;
 
