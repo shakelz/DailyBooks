@@ -820,7 +820,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 return;
             }
 
-            if (!Array.isArray(result.data) || result.data.length === 0) return;
+            if (!Array.isArray(result.data)) {
+                setCategoryContributionModeMap({});
+                setHasExplicitContributionModeConfig(true);
+                return;
+            }
 
             const map = result.data.reduce((acc, row) => {
                 const scope = normalizeKpiScope(row?.kpi_scope || row?.scope);
@@ -1516,11 +1520,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         };
     }, [productLookup]);
 
-    const matchesDefaultProfitCategoryRule = useCallback((txn = {}) => {
-        const { haystack } = resolveTxnCategoryParts(txn);
-        return matchesDeviceLikeCategoryText(haystack);
-    }, [resolveTxnCategoryParts]);
-
     const resolveConfiguredContributionMode = useCallback((categoryName = '', subCategoryName = '', scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
         const exactKey = makeScopedProfitCategoryKey(normalizedScope, categoryName, subCategoryName);
@@ -1540,17 +1539,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const normalizedScope = normalizeKpiScope(scope);
         const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
         if (!hasExplicitContributionModeConfig) {
-            return normalizedScope === KPI_SCOPE_SALES
-                ? (matchesDefaultProfitCategoryRule(txn) ? KPI_MODE_PROFIT : KPI_MODE_SALES)
-                : KPI_MODE_SALES;
+            return KPI_MODE_SALES;
         }
 
         const configuredMode = resolveConfiguredContributionMode(categoryName, subCategoryName, normalizedScope);
         if (configuredMode) return configuredMode;
-        return normalizedScope === KPI_SCOPE_SALES
-            ? (matchesDefaultProfitCategoryRule(txn) ? KPI_MODE_PROFIT : KPI_MODE_SALES)
-            : KPI_MODE_SALES;
-    }, [hasExplicitContributionModeConfig, matchesDefaultProfitCategoryRule, resolveConfiguredContributionMode, resolveTxnCategoryParts]);
+        return KPI_MODE_SALES;
+    }, [hasExplicitContributionModeConfig, resolveConfiguredContributionMode, resolveTxnCategoryParts]);
 
     const isExcludedCategoryTransaction = useCallback((txn = {}, scope = KPI_SCOPE_SALES) => {
         return resolveTxnContributionMode(txn, scope) === KPI_MODE_EXCLUDED;
@@ -2023,10 +2018,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         ? expenseKpiContributionCategoryRows
         : salesKpiContributionCategoryRows;
 
-    const resolveDefaultCategoryMode = useCallback((categoryName = '', subCategoryName = '', scope = KPI_SCOPE_SALES) => {
-        const normalizedScope = normalizeKpiScope(scope);
-        if (normalizedScope === KPI_SCOPE_EXPENSE) return KPI_MODE_SALES;
-        return matchesDeviceLikeCategoryText(`${categoryName} ${subCategoryName}`) ? KPI_MODE_PROFIT : KPI_MODE_SALES;
+    const resolveDefaultCategoryMode = useCallback((_categoryName = '', _subCategoryName = '', _scope = KPI_SCOPE_SALES) => {
+        return KPI_MODE_SALES;
     }, []);
 
     const resolveCategoryRowMode = useCallback((row = {}, scope = KPI_SCOPE_SALES) => {
@@ -4162,18 +4155,18 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         </div>
 
                         <div className="p-4 space-y-3">
-                            <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+                            <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 p-1 shadow-inner">
                                 <button
                                     type="button"
                                     onClick={() => setActiveKpiContributionTab(KPI_SCOPE_SALES)}
-                                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${activeKpiContributionTab === KPI_SCOPE_SALES ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600'}`}
+                                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${activeKpiContributionTab === KPI_SCOPE_SALES ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600'}`}
                                 >
                                     Sales
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setActiveKpiContributionTab(KPI_SCOPE_EXPENSE)}
-                                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${activeKpiContributionTab === KPI_SCOPE_EXPENSE ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600'}`}
+                                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${activeKpiContributionTab === KPI_SCOPE_EXPENSE ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600'}`}
                                 >
                                     Expense/Purchase
                                 </button>
@@ -4228,17 +4221,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                     onClick={() => updateCategoryContributionMode(activeKpiContributionTab, row, KPI_MODE_SALES)}
                                                     className={`rounded-full px-3 py-1 text-[10px] font-bold transition-all duration-200 ease-out ${activeMode === KPI_MODE_SALES ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
                                                 >
-                                                    {activeKpiContributionTab === KPI_SCOPE_SALES ? 'Sales' : 'Include'}
+                                                    Sales
                                                 </button>
-                                                {activeKpiContributionTab === KPI_SCOPE_SALES ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => updateCategoryContributionMode(activeKpiContributionTab, row, KPI_MODE_PROFIT)}
-                                                        className={`rounded-full px-3 py-1 text-[10px] font-bold transition-all duration-200 ease-out ${activeMode === KPI_MODE_PROFIT ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
-                                                    >
-                                                        Profit
-                                                    </button>
-                                                ) : null}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => updateCategoryContributionMode(activeKpiContributionTab, row, KPI_MODE_PROFIT)}
+                                                    className={`rounded-full px-3 py-1 text-[10px] font-bold transition-all duration-200 ease-out ${activeMode === KPI_MODE_PROFIT ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+                                                >
+                                                    Profit
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => updateCategoryContributionMode(activeKpiContributionTab, row, KPI_MODE_EXCLUDED)}

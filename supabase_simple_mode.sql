@@ -144,6 +144,61 @@ BEGIN
 END
 $$;
 
+-- 0.6) One-time backfill: seed KPI category settings from categories table (dual scope)
+-- Rules:
+--  - For every category/sub-category pair, seed BOTH scopes: sales + expense
+--  - contribution_mode defaults to 'sales' (included)
+--  - ON CONFLICT prevents duplicates
+INSERT INTO public.kpi_profit_category_settings (
+  shop_id,
+  kpi_scope,
+  category_name,
+  sub_category_name,
+  contribution_mode,
+  created_at,
+  updated_at
+)
+SELECT
+  src.shop_id,
+  scope.seed_scope AS kpi_scope,
+  src.category_name,
+  src.sub_category_name,
+  'sales'::text AS contribution_mode,
+  now() AS created_at,
+  now() AS updated_at
+FROM (
+  -- Main categories: sub_category_name is empty
+  SELECT DISTINCT
+    c.shop_id,
+    trim(c.category_name)::text AS category_name,
+    ''::text AS sub_category_name
+  FROM public.categories c
+  WHERE c.shop_id IS NOT NULL
+    AND c.parent_category_id IS NULL
+    AND coalesce(trim(c.category_name), '') <> ''
+
+  UNION
+
+  -- Sub-categories: map child -> parent main category
+  SELECT DISTINCT
+    child.shop_id,
+    trim(parent.category_name)::text AS category_name,
+    trim(child.category_name)::text AS sub_category_name
+  FROM public.categories child
+  JOIN public.categories parent
+    ON parent.category_id = child.parent_category_id
+   AND parent.shop_id = child.shop_id
+  WHERE child.shop_id IS NOT NULL
+    AND child.parent_category_id IS NOT NULL
+    AND coalesce(trim(parent.category_name), '') <> ''
+    AND coalesce(trim(child.category_name), '') <> ''
+) AS src
+CROSS JOIN (
+  VALUES ('sales'::text), ('expense'::text)
+) AS scope(seed_scope)
+ON CONFLICT (shop_id, kpi_scope, category_name, sub_category_name)
+DO NOTHING;
+
 -- 1) Disable RLS on app tables
 alter table if exists public.shops disable row level security;
 alter table if exists public.profiles disable row level security;
