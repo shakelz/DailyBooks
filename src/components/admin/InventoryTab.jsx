@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
 import SmartCategoryForm from '../SmartCategoryForm';
 import DateRangeFilter from './DateRangeFilter';
+import { useSupplierLinks } from '../../hooks/useSupplierLinks';
 import {
     Package,
     AlertTriangle,
@@ -23,9 +24,6 @@ import {
     CheckCircle,
     XCircle
 } from 'lucide-react';
-import { getServerState, setServerState } from '../../serverStateClient';
-
-const PURCHASE_LINKS_STORAGE_KEY = 'dailybooks_purchase_links_v1';
 
 export default function InventoryTab() {
     const {
@@ -64,10 +62,10 @@ export default function InventoryTab() {
     const [showAuditMode, setShowAuditMode] = useState(false);
     const [auditScans, setAuditScans] = useState(new Set());
     const [lastScanned, setLastScanned] = useState(null);
-    const [importantLinks, setImportantLinks] = useState([]);
     const [linkName, setLinkName] = useState('');
     const [linkUrl, setLinkUrl] = useState('');
     const [editingLinkId, setEditingLinkId] = useState('');
+    const { links: importantLinks, addLink, updateLink, deleteLink, loading: linksLoading } = useSupplierLinks(activeShopId);
 
     const getProductCategoryL1 = useCallback((product) => {
         if (!product) return '';
@@ -316,87 +314,55 @@ export default function InventoryTab() {
         }
     }, [searchTerm, showAuditMode, products]);
 
-    const linksStorageKey = `${PURCHASE_LINKS_STORAGE_KEY}:${String(activeShopId || '')}`;
-
-    useEffect(() => {
-        let cancelled = false;
-        const loadLinks = async () => {
-            if (!activeShopId) {
-                if (!cancelled) setImportantLinks([]);
-                return;
-            }
-            const { value } = await getServerState({
-                key: linksStorageKey,
-                shopId: String(activeShopId),
-                userId: '',
-            });
-            if (cancelled) return;
-            setImportantLinks(Array.isArray(value) ? value : []);
-        };
-
-        loadLinks();
-        return () => {
-            cancelled = true;
-        };
-    }, [activeShopId, linksStorageKey]);
-
-    useEffect(() => {
-        if (!activeShopId) return;
-        setServerState({
-            key: linksStorageKey,
-            value: Array.isArray(importantLinks) ? importantLinks : [],
-            shopId: String(activeShopId),
-            userId: '',
-        });
-    }, [importantLinks, activeShopId, linksStorageKey]);
-
-    const normalizeLinkUrl = useCallback((url) => {
-        const raw = String(url || '').trim();
-        if (!raw) return '';
-        if (/^https?:\/\//i.test(raw)) return raw;
-        return `https://${raw}`;
-    }, []);
-
-    const handleSaveImportantLink = useCallback(() => {
+    const handleSaveImportantLink = useCallback(async () => {
         const name = String(linkName || '').trim();
-        const url = normalizeLinkUrl(linkUrl);
+        const url = String(linkUrl || '').trim();
+        if (!activeShopId) {
+            alert('Please select a shop before saving links.');
+            return;
+        }
         if (!name || !url) {
             alert('Please enter link title and URL.');
             return;
         }
 
         if (editingLinkId) {
-            setImportantLinks((prev) => prev.map((row) => (
-                String(row.id) === String(editingLinkId)
-                    ? { ...row, name, url }
-                    : row
-            )));
+            const { error } = await updateLink(editingLinkId, { title: name, url });
+            if (error) {
+                alert(`Failed to update link: ${error.message || 'Unknown error'}`);
+                return;
+            }
         } else {
-            setImportantLinks((prev) => ([
-                { id: `link-${Date.now()}`, name, url, createdAt: new Date().toISOString() },
-                ...prev
-            ]));
+            const { error } = await addLink({ title: name, url });
+            if (error) {
+                alert(`Failed to add link: ${error.message || 'Unknown error'}`);
+                return;
+            }
         }
         setEditingLinkId('');
         setLinkName('');
         setLinkUrl('');
-    }, [linkName, linkUrl, editingLinkId, normalizeLinkUrl]);
+    }, [linkName, linkUrl, editingLinkId, activeShopId, addLink, updateLink]);
 
     const startEditImportantLink = useCallback((row) => {
         setEditingLinkId(String(row?.id || ''));
-        setLinkName(String(row?.name || ''));
+        setLinkName(String(row?.title || row?.name || ''));
         setLinkUrl(String(row?.url || ''));
     }, []);
 
-    const deleteImportantLink = useCallback((id) => {
+    const deleteImportantLink = useCallback(async (id) => {
         if (!window.confirm('Delete this purchase link?')) return;
-        setImportantLinks((prev) => prev.filter((row) => String(row.id) !== String(id)));
+        const { error } = await deleteLink(id);
+        if (error) {
+            alert(`Failed to delete link: ${error.message || 'Unknown error'}`);
+            return;
+        }
         if (String(editingLinkId) === String(id)) {
             setEditingLinkId('');
             setLinkName('');
             setLinkUrl('');
         }
-    }, [editingLinkId]);
+    }, [editingLinkId, deleteLink]);
 
 
     return (
@@ -816,13 +782,15 @@ export default function InventoryTab() {
                         </div>
 
                         <div className="space-y-2">
-                            {importantLinks.length === 0 ? (
+                            {linksLoading ? (
+                                <p className="text-xs text-slate-400 italic">Loading supplier links...</p>
+                            ) : importantLinks.length === 0 ? (
                                 <p className="text-xs text-slate-400 italic">No links yet. Add your supplier URLs above.</p>
                             ) : importantLinks.map((row) => (
                                 <div key={row.id} className="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="min-w-0">
-                                            <p className="text-xs font-bold text-slate-700 truncate">{row.name}</p>
+                                            <p className="text-xs font-bold text-slate-700 truncate">{row.title || row.name}</p>
                                             <p className="text-[10px] text-slate-400 truncate">{row.url}</p>
                                         </div>
                                         <div className="flex items-center gap-1">
