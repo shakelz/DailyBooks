@@ -81,6 +81,7 @@ export default function AdminPanel() {
         { label: 'Inventory', route: `${ADMIN_BASE_ROUTE}/inventory`, icon: <Package size={18} /> },
         { label: 'Repairs', route: `${ADMIN_BASE_ROUTE}/repairs`, icon: <Wrench size={18} /> },
     ];
+    const topTabs = menuItems.filter((item) => item.route !== `${ADMIN_BASE_ROUTE}/settings` || role !== 'salesman');
 
     const handleLogout = () => {
         logout();
@@ -192,6 +193,28 @@ export default function AdminPanel() {
 
                 <main className="flex-1 overflow-auto p-4 pb-24 md:p-8 md:pb-8 relative">
                     <div className="max-w-7xl mx-auto">
+                        <div className="mb-4 border border-slate-200 bg-white rounded-2xl p-2 shadow-sm overflow-x-auto">
+                            <div className="flex items-center gap-2 min-w-max">
+                                {topTabs.map((item) => {
+                                    const isActive = location.pathname.startsWith(item.route);
+                                    return (
+                                        <button
+                                            key={`top-tab-${item.route}`}
+                                            type="button"
+                                            onClick={() => navigateTo(item.route)}
+                                            className={`px-3 py-2 rounded-xl text-xs font-bold tracking-wide transition-all flex items-center gap-2 ${isActive
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                                                }`}
+                                        >
+                                            {item.icon}
+                                            <span>{item.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
                         <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
                             {isDashboardRoute ? (
                                 <DateRangeFilter
