@@ -96,7 +96,8 @@ function isSalesTxn(txn = {}) {
 function isExpenseTxn(txn = {}) {
   const txType = getTxType(txn);
   const source = normalizeToken(txn?.source || txn?.tx_source || '');
-  return txType === 'shop_expense'
+  return txType === 'fixed_expense'
+    || txType === 'shop_expense'
     || txType === 'expense'
     || txType === 'product_expense'
     || txType === 'product_purchase'
@@ -368,9 +369,11 @@ export function computeUnifiedKpiSnapshot({
         revenue: 0,
         expenses: 0,
         income: 0,
+        finalProfit: 0,
         fixedExpenses: 0,
         smallExpenses: 0,
         purchases: 0,
+        inventoryPurchases: 0,
         repairProfit: 0,
         productSaleRevenue: 0,
       },
@@ -397,6 +400,7 @@ export function computeUnifiedKpiSnapshot({
   let fixedExpenses = 0;
   let smallExpenses = 0;
   let purchases = 0;
+  let inventoryPurchases = 0;
   let repairProfit = 0;
   let productProfit = 0;
   let serviceProfit = 0;
@@ -464,15 +468,16 @@ export function computeUnifiedKpiSnapshot({
 
       const amount = filtered.rawAmount;
       pushBreakdown(expenseBreakdownMap, filtered.categoryName || txn?.category || 'Other', filtered.subCategoryName, amount, 'Expenses');
+      const txType = getTxType(txn);
 
-      if (isFixedExpenseTxn(txn)) {
+      if (isFixedExpenseTxn(txn) || txType === 'fixed_expense') {
         fixedExpenses += amount;
         period.fixedExpenses += amount;
       } else {
-        const txType = getTxType(txn);
         const isPurchaseLike = txType === 'product_purchase' || txType === 'product_expense' || txType === 'purchase';
         if (isPurchaseLike) {
           purchases += amount;
+          inventoryPurchases += amount;
           period.purchases += amount;
         } else {
           smallExpenses += amount;
@@ -483,32 +488,6 @@ export function computeUnifiedKpiSnapshot({
       period.expenses += amount;
       return;
     }
-  });
-
-  (Array.isArray(products) ? products : []).forEach((product) => {
-    const date = parseProductDate(product);
-    if (!date || date < start || date > end) return;
-
-    const categoryName = resolveCategoryLevel1(product?.category) || 'Inventory';
-    const mode = resolveConfiguredMode(
-      categoryContributionModeMap,
-      KPI_SCOPE_EXPENSE,
-      categoryName,
-      String(product?.subCategory || '').trim(),
-      String(product?.category_id || product?.categoryId || '').trim(),
-    );
-    if (mode === KPI_MODE_EXCLUDED) return;
-
-    const stock = safeNumber(product?.stock, 0);
-    const purchasePrice = safeNumber(product?.purchasePrice, 0);
-    const inventoryCost = purchasePrice * Math.max(0, stock);
-    if (inventoryCost <= 0) return;
-
-    const period = ensurePeriod(periodMap, date, periodType);
-    purchases += inventoryCost;
-    period.purchases += inventoryCost;
-    period.expenses += inventoryCost;
-    pushBreakdown(expenseBreakdownMap, categoryName, String(product?.subCategory || '').trim(), inventoryCost, 'Inventory');
   });
 
   (Array.isArray(repairJobs) ? repairJobs : []).forEach((job) => {
@@ -535,6 +514,7 @@ export function computeUnifiedKpiSnapshot({
 
   const expenses = fixedExpenses + smallExpenses + purchases;
   const income = revenue - expenses;
+  const finalProfit = (productProfit + serviceProfit) - (inventoryPurchases + fixedExpenses);
 
   const periodData = Object.values(periodMap)
     .sort((a, b) => a.periodStartMs - b.periodStartMs)
@@ -575,9 +555,11 @@ export function computeUnifiedKpiSnapshot({
       revenue,
       expenses,
       income,
+      finalProfit,
       fixedExpenses,
       smallExpenses,
       purchases,
+      inventoryPurchases,
       repairProfit,
       productSaleRevenue,
     },

@@ -216,13 +216,17 @@ export default function ExpensesTab() {
             return;
         }
         try {
+            const isFixedExpenseEntry = entryType === 'expense';
             await addTransaction({
                 desc: `${entryType === 'income' ? 'Income' : 'Expense'}: ${desc.trim()}`,
                 amount: value,
                 type: entryType,
+                tx_type: isFixedExpenseEntry ? 'fixed_expense' : 'product_sale',
                 category: resolvedCategory,
                 paymentMethod,
                 source: entryType === 'income' ? 'admin-income' : 'admin-expense',
+                is_fixed_expense: isFixedExpenseEntry,
+                isFixedExpense: isFixedExpenseEntry,
                 date: dt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                 time: dt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
                 timestamp: dt.toISOString(),
@@ -263,13 +267,17 @@ export default function ExpensesTab() {
             return;
         }
         try {
+            const isFixedExpenseEntry = editType === 'expense';
             await updateTransaction(txnId, {
                 desc: `${editType === 'income' ? 'Income' : 'Expense'}: ${editDesc.trim()}`,
                 amount: value,
                 type: editType,
+                tx_type: isFixedExpenseEntry ? 'fixed_expense' : 'product_sale',
                 category: resolvedCategory,
                 paymentMethod: editPaymentMethod,
                 source: editType === 'income' ? 'admin-income' : 'admin-expense',
+                is_fixed_expense: isFixedExpenseEntry,
+                isFixedExpense: isFixedExpenseEntry,
                 date: dt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                 time: dt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
                 timestamp: dt.toISOString(),

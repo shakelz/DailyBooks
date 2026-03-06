@@ -656,6 +656,7 @@ function mapTxType(value, source = '') {
     if (sourceRaw === 'purchase' && (raw === 'expense' || raw === 'purchase')) return 'product_expense';
     if ((sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_'))
         && (raw === 'income' || raw === 'repair' || raw === 'sale')) return 'repair_amount';
+    if (raw === 'fixed_expense') return 'fixed_expense';
     if (raw === 'income' || raw === 'product_sale' || raw === 'sale') return 'product_sale';
     if (raw === 'shop_expense' || raw === 'expense') return 'product_expense';
     if (raw === 'product_expense' || raw === 'product_purchase' || raw === 'purchase') return 'product_expense';
@@ -867,7 +868,9 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
     const repairId = isUuidLike(repairIdRaw) ? repairIdRaw : null;
     const productId = isUuidLike(productIdRaw) ? productIdRaw : null;
     const mappedSource = mapTxSource(txn?.source || txn?.tx_source);
-    const mappedType = mapTxType(txn?.tx_type || txn?.type, mappedSource);
+    const mappedType = isFixedExpense
+        ? 'fixed_expense'
+        : mapTxType(txn?.tx_type || txn?.type, mappedSource);
     const invoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
     const description = cleanText(txn?.desc || txn?.description || txn?.name);
     const category = cleanText(txn?.category || txn?.category_name);

@@ -420,7 +420,8 @@ export default function InsightsTab() {
             productProfit,
             serviceProfit,
             totalFixedExpenses,
-            finalProfit: unified.totals.income,
+            totalInventoryPurchases: unified.totals.inventoryPurchases || unified.totals.purchases || 0,
+            finalProfit: unified.totals.finalProfit,
             avgMargin,
             salesGrowth,
             turnoverRatio,
@@ -724,7 +725,7 @@ export default function InsightsTab() {
                 <div className="bg-white border border-emerald-100 rounded-3xl shadow-sm p-5">
                     <div className="flex items-center justify-between gap-3 mb-4">
                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Final Profit Calculation</h3>
-                        <span className="text-xs font-bold text-emerald-600">Net = Gross Profit - Fixed Expenses</span>
+                        <span className="text-xs font-bold text-emerald-600">Net = (Product Profit + Service Profit) - (Inventory Purchases + Fixed Expenses)</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                         <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
@@ -742,6 +743,10 @@ export default function InsightsTab() {
                         <div className="rounded-2xl border border-red-100 bg-red-50 p-3">
                             <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Total Fixed Expenses</p>
                             <p className="text-lg font-black text-red-700">{priceTag(analytics.totalFixedExpenses)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3">
+                            <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Inventory Purchases</p>
+                            <p className="text-lg font-black text-amber-700">{priceTag(analytics.totalInventoryPurchases)}</p>
                         </div>
                         <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 md:col-span-2 xl:col-span-2">
                             <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Final Profit (Net-Net)</p>
