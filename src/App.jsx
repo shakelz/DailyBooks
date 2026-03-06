@@ -5,6 +5,7 @@ import { InventoryProvider } from './context/InventoryContext'
 import { RepairsProvider } from './context/RepairsContext'
 import { CartProvider } from './context/CartContext'
 import LoginPage from './pages/LoginPage'
+import LandingPage from './pages/LandingPage'
 import SalesmanDashboard from './pages/SalesmanDashboard'
 import LatestDashboard from './pages/LatestDashboard'
 import InventoryManager from './pages/InventoryManager'
@@ -17,6 +18,9 @@ import AdminSettings from './components/admin/AdminSettings'
 import RepairsTab from './components/admin/RepairsTab'
 import PWAInstallButton from './components/PWAInstallButton'
 import { supabaseConfigError } from './supabaseClient'
+
+const SALESMAN_LOGIN_PATH = '/terminal-access-v1'
+const ADMIN_LOGIN_PATH = '/management-portal-v1'
 
 function normalizeRouteRole(value = '') {
   const role = String(value || '').trim().toLowerCase()
@@ -32,7 +36,7 @@ function isAdminRole(value = '') {
 
 function getAdminHomeByRole(value = '') {
   const role = normalizeRouteRole(value)
-  return role === 'super_admin' ? '/admin/dashboard' : '/admin/owner-dashboard'
+  return role === 'super_admin' ? `${ADMIN_LOGIN_PATH}/dashboard` : `${ADMIN_LOGIN_PATH}/owner-dashboard`
 }
 
 function AdminGuard({ children }) {
@@ -47,7 +51,7 @@ function AdminGuard({ children }) {
   }, [allowed, hasUser, logout])
 
   if (!allowed) {
-    return <Navigate to="/admin" replace />
+    return <Navigate to={ADMIN_LOGIN_PATH} replace />
   }
 
   return children
@@ -56,7 +60,7 @@ function AdminGuard({ children }) {
 function AdminRouteShell() {
   const { user, role, logout } = useAuth()
   const location = useLocation()
-  const isAdminLoginPath = location.pathname === '/admin' || location.pathname === '/admin/'
+  const isAdminLoginPath = location.pathname === ADMIN_LOGIN_PATH || location.pathname === `${ADMIN_LOGIN_PATH}/`
   const hasUser = Boolean(user)
   const allowed = hasUser && isAdminRole(role)
 
@@ -71,7 +75,7 @@ function AdminRouteShell() {
   }
 
   if (!allowed) {
-    return <Navigate to="/admin" replace />
+    return <Navigate to={ADMIN_LOGIN_PATH} replace />
   }
 
   return <AdminPanel />
@@ -83,7 +87,7 @@ function SalesmanGuard({ children }) {
   const allowed = Boolean(user) && normalizedRole === 'salesman'
 
   if (!allowed) {
-    return <Navigate to="/" replace />
+    return <Navigate to={SALESMAN_LOGIN_PATH} replace />
   }
 
   return children
@@ -117,10 +121,11 @@ function App() {
           <CartProvider>
             <BrowserRouter>
               <Routes>
-                <Route path="/" element={<LoginPage mode="salesman" />} />
-                <Route path="/admin" element={<LoginPage mode="admin" />} />
+                <Route path="/" element={<LandingPage />} />
+                <Route path={SALESMAN_LOGIN_PATH} element={<LoginPage mode="salesman" />} />
+                <Route path={ADMIN_LOGIN_PATH} element={<LoginPage mode="admin" />} />
 
-                <Route path="/admin/*" element={<AdminRouteShell />}>
+                <Route path={`${ADMIN_LOGIN_PATH}/*`} element={<AdminRouteShell />}>
                   <Route index element={<Navigate to="dashboard" replace />} />
                   <Route path="dashboard" element={<SalesmanDashboard adminView />} />
                   <Route path="owner-dashboard" element={<SalesmanDashboard adminView />} />
@@ -131,7 +136,7 @@ function App() {
                   <Route path="settings" element={<AdminSettings />} />
                 </Route>
 
-                <Route path="/dashboard" element={<AdminGuard><LegacyDashboardRedirect /></AdminGuard>} />
+                <Route path="/dashboard" element={<Navigate to={ADMIN_LOGIN_PATH} replace />} />
                 <Route path="/inventory-manager" element={<AdminGuard><InventoryManager /></AdminGuard>} />
 
                 <Route path="/salesman" element={<Navigate to="/salesman/dashboard" replace />} />

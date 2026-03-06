@@ -7,6 +7,8 @@ import {
     LogOut, ChevronLeft, ChevronRight, Menu, FileText, Wrench
 } from 'lucide-react';
 
+const ADMIN_BASE_ROUTE = '/management-portal-v1';
+
 export default function AdminPanel() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -58,31 +60,31 @@ export default function AdminPanel() {
     }, [location.pathname, isMobile]);
 
     if (!isAdminLike) {
-        return <Navigate to={role === 'salesman' ? '/salesman/dashboard' : '/admin'} replace />;
+        return <Navigate to={role === 'salesman' ? '/salesman/dashboard' : ADMIN_BASE_ROUTE} replace />;
     }
 
-    const dashboardRoute = role === 'owner' ? '/admin/owner-dashboard' : '/admin/dashboard';
+    const dashboardRoute = role === 'owner' ? `${ADMIN_BASE_ROUTE}/owner-dashboard` : `${ADMIN_BASE_ROUTE}/dashboard`;
 
     const menuItems = [
         { label: 'Dashboard', route: dashboardRoute, icon: <LayoutDashboard size={20} /> },
-        { label: 'Inventory', route: '/admin/inventory', icon: <Package size={20} /> },
-        { label: 'Insights', route: '/admin/insights', icon: <TrendingUp size={20} /> },
-        { label: 'Repairs', route: '/admin/repairs', icon: <Wrench size={20} /> },
-        { label: 'Expenses', route: '/admin/expenses', icon: <FileText size={20} /> },
+        { label: 'Inventory', route: `${ADMIN_BASE_ROUTE}/inventory`, icon: <Package size={20} /> },
+        { label: 'Insights', route: `${ADMIN_BASE_ROUTE}/insights`, icon: <TrendingUp size={20} /> },
+        { label: 'Repairs', route: `${ADMIN_BASE_ROUTE}/repairs`, icon: <Wrench size={20} /> },
+        { label: 'Expenses', route: `${ADMIN_BASE_ROUTE}/expenses`, icon: <FileText size={20} /> },
         (role === 'super_admin')
-            ? { label: 'Manage All Shops', route: '/admin/settings', icon: <Settings size={20} /> }
-            : ((role !== 'salesman') ? { label: 'Settings', route: '/admin/settings', icon: <Settings size={20} /> } : null),
+            ? { label: 'Manage All Shops', route: `${ADMIN_BASE_ROUTE}/settings`, icon: <Settings size={20} /> }
+            : ((role !== 'salesman') ? { label: 'Settings', route: `${ADMIN_BASE_ROUTE}/settings`, icon: <Settings size={20} /> } : null),
     ].filter(Boolean);
     const mobileBottomItems = [
         { label: 'Home', route: dashboardRoute, icon: <LayoutDashboard size={18} /> },
-        { label: 'Sales', route: '/admin/insights', icon: <TrendingUp size={18} /> },
-        { label: 'Inventory', route: '/admin/inventory', icon: <Package size={18} /> },
-        { label: 'Repairs', route: '/admin/repairs', icon: <Wrench size={18} /> },
+        { label: 'Sales', route: `${ADMIN_BASE_ROUTE}/insights`, icon: <TrendingUp size={18} /> },
+        { label: 'Inventory', route: `${ADMIN_BASE_ROUTE}/inventory`, icon: <Package size={18} /> },
+        { label: 'Repairs', route: `${ADMIN_BASE_ROUTE}/repairs`, icon: <Wrench size={18} /> },
     ];
 
     const handleLogout = () => {
         logout();
-        navigate('/admin', { replace: true });
+        navigate(ADMIN_BASE_ROUTE, { replace: true });
     };
 
     const navigateTo = (route) => {
@@ -91,8 +93,8 @@ export default function AdminPanel() {
     };
 
     const showSidebarLabels = isMobile || sidebarOpen;
-    const isDashboardRoute = location.pathname.startsWith('/admin/dashboard')
-        || location.pathname.startsWith('/admin/owner-dashboard');
+    const isDashboardRoute = location.pathname.startsWith(`${ADMIN_BASE_ROUTE}/dashboard`)
+        || location.pathname.startsWith(`${ADMIN_BASE_ROUTE}/owner-dashboard`);
 
     return (
         <div className="flex h-screen bg-slate-50 overflow-hidden">

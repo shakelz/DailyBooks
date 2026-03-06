@@ -1,6 +1,5 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
 const REMOTE_URL = 'https://www.carefone.de/';
-const TEMP_PARTITION = 'temp:carefone-online';
 
 app.commandLine.appendSwitch('disable-http-cache');
 
@@ -35,7 +34,7 @@ async function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      partition: TEMP_PARTITION,
+      partition: 'nopersist',
     },
   });
 
@@ -100,6 +99,11 @@ async function createWindow() {
   });
 
   await window.loadURL(REMOTE_URL);
+
+  window.on('close', () => {
+    session.defaultSession.clearStorageData().catch(() => undefined);
+    session.defaultSession.clearCache().catch(() => undefined);
+  });
 }
 
 app.whenReady().then(() => {

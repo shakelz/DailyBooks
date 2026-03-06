@@ -254,7 +254,7 @@ function isAdminRoleName(value) {
 }
 
 function getAdminRedirectPath(role) {
-    return isSuperAdminRole(role) ? '/admin/dashboard' : '/admin/owner-dashboard';
+    return isSuperAdminRole(role) ? '/management-portal-v1/dashboard' : '/management-portal-v1/owner-dashboard';
 }
 
 function getProfileId(profile = {}) {

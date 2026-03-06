@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
+const SALESMAN_LOGIN_PATH = '/terminal-access-v1'
+const ADMIN_LOGIN_PATH = '/management-portal-v1'
+
 function normalizeRole(value = '') {
     const role = String(value || '').trim().toLowerCase()
     if (role === 'superadmin' || role === 'superuser') return 'super_admin'
@@ -10,7 +13,7 @@ function normalizeRole(value = '') {
 }
 
 function adminTargetByRole(role = '') {
-    return normalizeRole(role) === 'super_admin' ? '/admin/dashboard' : '/admin/owner-dashboard'
+    return normalizeRole(role) === 'super_admin' ? `${ADMIN_LOGIN_PATH}/dashboard` : `${ADMIN_LOGIN_PATH}/owner-dashboard`
 }
 
 export default function LoginPage({ mode = 'salesman' }) {
@@ -42,7 +45,7 @@ export default function LoginPage({ mode = 'salesman' }) {
             return
         }
 
-        navigate(isAdminMode ? '/admin' : '/', { replace: true })
+        navigate(isAdminMode ? ADMIN_LOGIN_PATH : SALESMAN_LOGIN_PATH, { replace: true })
     }, [authRole, authUser, isAdminMode, navigate])
 
     const handlePinInput = useCallback(async (digit) => {
@@ -120,7 +123,7 @@ export default function LoginPage({ mode = 'salesman' }) {
             })
 
             if (result?.success) {
-                navigate(result?.redirectTo || '/admin/dashboard', { replace: true })
+                navigate(result?.redirectTo || `${ADMIN_LOGIN_PATH}/dashboard`, { replace: true })
                 return
             }
 
