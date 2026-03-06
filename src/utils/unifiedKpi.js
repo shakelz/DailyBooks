@@ -360,6 +360,7 @@ export function computeUnifiedKpiSnapshot({
   rangeEnd,
   periodType = 'monthly',
   categoryContributionModeMap = {},
+  includeAdminFixedExpenses = true,
 }) {
   const start = rangeStart instanceof Date ? rangeStart : new Date(rangeStart);
   const end = rangeEnd instanceof Date ? rangeEnd : new Date(rangeEnd);
@@ -474,6 +475,10 @@ export function computeUnifiedKpiSnapshot({
       const amount = filtered.rawAmount;
       pushBreakdown(expenseBreakdownMap, filtered.categoryName || txn?.category || 'Other', filtered.subCategoryName, amount, 'Expenses');
       if (isFixedExpenseTxn(txn) || txType === 'fixed_expense') {
+        const sourceText = normalizeToken(txn?.source || txn?.tx_source || '');
+        if (!includeAdminFixedExpenses && sourceText === 'admin-expense') {
+          return;
+        }
         fixedExpenses += amount;
         period.fixedExpenses += amount;
       } else {

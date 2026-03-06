@@ -1577,6 +1577,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             rangeEnd: dashboardRange.end,
             periodType: 'monthly',
             categoryContributionModeMap,
+            includeAdminFixedExpenses: false,
         });
     }, [transactions, products, repairJobs, dashboardRange, categoryContributionModeMap, kpiSettingsVersion]);
 
