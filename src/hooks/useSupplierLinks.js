@@ -10,61 +10,32 @@ function normalizeLinkUrl(url = '') {
 
 function normalizeSupplierLink(row = {}) {
   return {
-    id: row?.id,
-    title: String(row?.title || row?.name || '').trim(),
+    id: row?.link_id || row?.id,
+    title: String(row?.title || '').trim(),
     url: String(row?.url || '').trim(),
     createdAt: row?.created_at || row?.createdAt || null,
+    updatedAt: row?.updated_at || row?.updatedAt || null,
     shopId: row?.shop_id || row?.shopId || null,
   };
 }
 
 async function insertSupplierLink(payload) {
-  const primaryAttempt = await supabase
-    .from('supplier_links')
-    .insert(payload)
-    .select('*')
-    .single();
-
-  if (!primaryAttempt.error) return primaryAttempt;
-
-  const message = String(primaryAttempt.error?.message || '').toLowerCase();
-  if (!message.includes('title') && !message.includes('column')) {
-    return primaryAttempt;
-  }
-
-  const fallbackPayload = {
-    shop_id: payload.shop_id,
-    name: payload.title,
-    url: payload.url,
-  };
-
   return supabase
     .from('supplier_links')
-    .insert(fallbackPayload)
+    .insert(payload)
     .select('*')
     .single();
 }
 
 async function updateSupplierLink(linkId, payload) {
-  const primaryAttempt = await supabase
-    .from('supplier_links')
-    .update({ title: payload.title, url: payload.url })
-    .eq('id', linkId)
-    .eq('shop_id', payload.shop_id)
-    .select('*')
-    .single();
-
-  if (!primaryAttempt.error) return primaryAttempt;
-
-  const message = String(primaryAttempt.error?.message || '').toLowerCase();
-  if (!message.includes('title') && !message.includes('column')) {
-    return primaryAttempt;
-  }
-
   return supabase
     .from('supplier_links')
-    .update({ name: payload.title, url: payload.url })
-    .eq('id', linkId)
+    .update({
+      title: payload.title,
+      url: payload.url,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('link_id', linkId)
     .eq('shop_id', payload.shop_id)
     .select('*')
     .single();
@@ -184,7 +155,7 @@ export function useSupplierLinks(shopId) {
     const result = await supabase
       .from('supplier_links')
       .delete()
-      .eq('id', linkId)
+      .eq('link_id', linkId)
       .eq('shop_id', String(shopId));
 
     if (result.error) {
