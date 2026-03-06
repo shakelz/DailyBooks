@@ -116,6 +116,15 @@ function resolveCategoryLevel1(rawCategory) {
   return '';
 }
 
+function resolveCategoryLevel2(rawCategory) {
+  if (!rawCategory) return '';
+  if (typeof rawCategory === 'string') return '';
+  if (typeof rawCategory === 'object') {
+    return String(rawCategory?.level2 || rawCategory?.subCategory || rawCategory?.sub_category || '').trim();
+  }
+  return '';
+}
+
 function resolveTxnCategoryParts(txn = {}, productById = {}) {
   const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
     ? productById[String(txn.productId)]
@@ -137,8 +146,22 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
     txn?.subCategory
       || txn?.subcategory
       || txn?.sub_category
+      || txn?.categorySnapshot?.level2
+      || txn?.categorySnapshot?.subCategory
       || txn?.productSnapshot?.subCategory
+      || txn?.productSnapshot?.sub_category
+      || resolveCategoryLevel2(txn?.category)
+      || resolveCategoryLevel2(txn?.categorySnapshot)
+      || resolveCategoryLevel2(txn?.productSnapshot?.category)
+      || (Array.isArray(txn?.categoryPath) ? txn.categoryPath[1] : '')
+      || (Array.isArray(txn?.productSnapshot?.categoryPath) ? txn.productSnapshot.categoryPath[1] : '')
+      || resolveCategoryLevel2(linkedProduct?.category)
       || linkedProduct?.subCategory
+      || linkedProduct?.subcategory
+      || linkedProduct?.sub_category
+      || linkedProduct?.category_level2
+      || linkedProduct?.categoryLevel2
+      || (Array.isArray(linkedProduct?.categoryPath) ? linkedProduct.categoryPath[1] : '')
       || ''
   ).trim();
 
