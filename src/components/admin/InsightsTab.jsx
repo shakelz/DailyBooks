@@ -36,6 +36,10 @@ function scopedCategoryKey(scope = 'sales', categoryName = '', subCategoryName =
     return `${normalizeKpiScope(scope)}::${normalizeToken(categoryName)}::${normalizeToken(subCategoryName)}`;
 }
 
+function scopedCategoryIdKey(scope = 'sales', categoryId = '') {
+    return `${normalizeKpiScope(scope)}::id::${normalizeToken(categoryId)}`;
+}
+
 function toLocalDateKey(value) {
     const d = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(d.getTime())) return '';
@@ -144,8 +148,12 @@ export default function InsightsTab() {
                 const scope = normalizeKpiScope(row?.kpi_scope || row?.scope);
                 const categoryName = String(row?.category_name || '').trim();
                 const subCategoryName = String(row?.sub_category_name || '').trim();
+                const categoryId = String(row?.category_id || row?.categoryId || '').trim();
                 if (!categoryName) return acc;
                 acc[scopedCategoryKey(scope, categoryName, subCategoryName)] = normalizeContributionMode(row?.contribution_mode);
+                if (categoryId) {
+                    acc[scopedCategoryIdKey(scope, categoryId)] = normalizeContributionMode(row?.contribution_mode);
+                }
                 return acc;
             }, {});
             setCategoryContributionModeMap(nextMap);

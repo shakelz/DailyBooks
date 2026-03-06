@@ -25,6 +25,10 @@ function scopedCategoryKey(scope = KPI_SCOPE_SALES, categoryName = '', subCatego
   return `${normalizeKpiScope(scope)}::${normalizeToken(categoryName)}::${normalizeToken(subCategoryName)}`;
 }
 
+function scopedCategoryIdKey(scope = KPI_SCOPE_SALES, categoryId = '') {
+  return `${normalizeKpiScope(scope)}::id::${normalizeToken(categoryId)}`;
+}
+
 function parseTransactionDate(txn = {}) {
   const candidates = [
     txn?.timestamp,
@@ -141,12 +145,26 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
 
   return {
     linkedProduct,
+    categoryId: String(
+      txn?.category_id
+      || txn?.categoryId
+      || txn?.productSnapshot?.category_id
+      || txn?.productSnapshot?.categoryId
+      || linkedProduct?.category_id
+      || linkedProduct?.categoryId
+      || ''
+    ).trim(),
     categoryName,
     subCategoryName,
   };
 }
 
-function resolveConfiguredMode(categoryContributionModeMap = {}, scope = KPI_SCOPE_SALES, categoryName = '', subCategoryName = '') {
+function resolveConfiguredMode(categoryContributionModeMap = {}, scope = KPI_SCOPE_SALES, categoryName = '', subCategoryName = '', categoryId = '') {
+  const idKey = scopedCategoryIdKey(scope, categoryId);
+  if (normalizeToken(categoryId) && Object.prototype.hasOwnProperty.call(categoryContributionModeMap || {}, idKey)) {
+    return normalizeContributionMode(categoryContributionModeMap[idKey]);
+  }
+
   const exact = scopedCategoryKey(scope, categoryName, subCategoryName);
   if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap || {}, exact)) {
     return normalizeContributionMode(categoryContributionModeMap[exact]);
@@ -161,8 +179,8 @@ function resolveConfiguredMode(categoryContributionModeMap = {}, scope = KPI_SCO
 }
 
 function resolveTxnContributionMode(txn = {}, scope = KPI_SCOPE_SALES, categoryContributionModeMap = {}, productById = {}) {
-  const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn, productById);
-  return resolveConfiguredMode(categoryContributionModeMap, scope, categoryName, subCategoryName);
+  const { categoryId, categoryName, subCategoryName } = resolveTxnCategoryParts(txn, productById);
+  return resolveConfiguredMode(categoryContributionModeMap, scope, categoryName, subCategoryName, categoryId);
 }
 
 function safeNumber(value, fallback = 0) {
@@ -261,6 +279,56 @@ function calculateRepairProfit(job = {}) {
   return estimated - partsCost;
 }
 
+function makeBreakdownKey(categoryName = '', subCategoryName = '', fallback = 'General') {
+  const main = String(categoryName || '').trim() || fallback;
+  const sub = String(subCategoryName || '').trim();
+  return `${normalizeToken(main)}::${normalizeToken(sub)}`;
+}
+
+function makeBreakdownLabel(categoryName = '', subCategoryName = '', fallback = 'General') {
+  const main = String(categoryName || '').trim() || fallback;
+  const sub = String(subCategoryName || '').trim();
+  return sub ? `${main} / ${sub}` : main;
+}
+
+export function calculateFilteredTotal({
+  txn = {},
+  scope = KPI_SCOPE_SALES,
+  categoryContributionModeMap = {},
+  productById = {},
+}) {
+  const { linkedProduct, categoryId, categoryName, subCategoryName } = resolveTxnCategoryParts(txn, productById);
+  const mode = resolveConfiguredMode(categoryContributionModeMap, scope, categoryName, subCategoryName, categoryId);
+  if (mode === KPI_MODE_EXCLUDED) {
+    return {
+      included: false,
+      mode,
+      amount: 0,
+      categoryId,
+      categoryName,
+      subCategoryName,
+      linkedProduct,
+      rawAmount: safeNumber(txn?.amount, 0),
+    };
+  }
+
+  const rawAmount = safeNumber(txn?.amount, 0);
+  const amount = mode === KPI_MODE_PROFIT
+    ? computeTxnGrossProfit(txn, linkedProduct)
+    : rawAmount;
+
+  return {
+    included: true,
+    mode,
+    amount,
+    categoryId,
+    categoryName,
+    subCategoryName,
+    linkedProduct,
+    rawAmount,
+  };
+}
+
 export function computeUnifiedKpiSnapshot({
   transactions = [],
   products = [],
@@ -286,6 +354,9 @@ export function computeUnifiedKpiSnapshot({
       },
       periodData: [],
       includedSalesTransactions: [],
+      revenueBreakdown: [],
+      expenseBreakdown: [],
+      incomeBreakdown: [],
       salesGrowth: 0,
       productProfit: 0,
       serviceProfit: 0,
@@ -310,6 +381,21 @@ export function computeUnifiedKpiSnapshot({
   let rawSalesTotal = 0;
 
   const includedSalesTransactions = [];
+  const revenueBreakdownMap = new Map();
+  const expenseBreakdownMap = new Map();
+
+  const pushBreakdown = (map, categoryName, subCategoryName, amount, fallbackLabel = 'General') => {
+    const key = makeBreakdownKey(categoryName, subCategoryName, fallbackLabel);
+    const current = map.get(key) || {
+      key,
+      label: makeBreakdownLabel(categoryName, subCategoryName, fallbackLabel),
+      amount: 0,
+      count: 0,
+    };
+    current.amount += amount;
+    current.count += 1;
+    map.set(key, current);
+  };
 
   (Array.isArray(transactions) ? transactions : []).forEach((txn) => {
     const date = parseTransactionDate(txn);
@@ -319,22 +405,26 @@ export function computeUnifiedKpiSnapshot({
     const { linkedProduct, categoryName, subCategoryName } = resolveTxnCategoryParts(txn, productById);
 
     if (isSalesTxn(txn) && !isCashbookTransaction(txn)) {
-      const amount = safeNumber(txn?.amount, 0);
-      rawSalesTotal += amount;
-      if (isProductSaleTxn(txn)) productSaleRevenue += amount;
+      const filtered = calculateFilteredTotal({
+        txn,
+        scope: KPI_SCOPE_SALES,
+        categoryContributionModeMap,
+        productById,
+      });
+      rawSalesTotal += filtered.rawAmount;
+      if (isProductSaleTxn(txn)) productSaleRevenue += filtered.rawAmount;
 
-      const mode = resolveTxnContributionMode(txn, KPI_SCOPE_SALES, categoryContributionModeMap, productById);
-      if (mode !== KPI_MODE_EXCLUDED) {
-        const grossProfit = computeTxnGrossProfit(txn, linkedProduct);
-        const contribution = mode === KPI_MODE_PROFIT ? grossProfit : amount;
+      if (filtered.included) {
+        const contribution = filtered.amount;
         revenue += contribution;
         period.revenue += contribution;
-        period.sales += amount;
+        period.sales += filtered.rawAmount;
         period.profit += contribution;
         includedSalesTransactions.push(txn);
+        pushBreakdown(revenueBreakdownMap, filtered.categoryName, filtered.subCategoryName, contribution, 'Revenue');
 
         const sourceText = normalizeToken(txn?.source || txn?.tx_source || '');
-        const isRepair = sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_') || normalizeToken(categoryName).includes('repair');
+        const isRepair = sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_') || normalizeToken(filtered.categoryName).includes('repair');
         if (isRepair) serviceProfit += contribution;
         else productProfit += contribution;
       }
@@ -342,9 +432,16 @@ export function computeUnifiedKpiSnapshot({
     }
 
     if (isExpenseTxn(txn) && !isCashbookTransaction(txn)) {
-      const amount = safeNumber(txn?.amount, 0);
-      const mode = resolveConfiguredMode(categoryContributionModeMap, KPI_SCOPE_EXPENSE, categoryName || txn?.category || 'Other', subCategoryName);
-      if (mode === KPI_MODE_EXCLUDED) return;
+      const filtered = calculateFilteredTotal({
+        txn,
+        scope: KPI_SCOPE_EXPENSE,
+        categoryContributionModeMap,
+        productById,
+      });
+      if (!filtered.included) return;
+
+      const amount = filtered.rawAmount;
+      pushBreakdown(expenseBreakdownMap, filtered.categoryName || txn?.category || 'Other', filtered.subCategoryName, amount, 'Expenses');
 
       if (isFixedExpenseTxn(txn)) {
         fixedExpenses += amount;
@@ -371,7 +468,13 @@ export function computeUnifiedKpiSnapshot({
     if (!date || date < start || date > end) return;
 
     const categoryName = resolveCategoryLevel1(product?.category) || 'Inventory';
-    const mode = resolveConfiguredMode(categoryContributionModeMap, KPI_SCOPE_EXPENSE, categoryName, String(product?.subCategory || '').trim());
+    const mode = resolveConfiguredMode(
+      categoryContributionModeMap,
+      KPI_SCOPE_EXPENSE,
+      categoryName,
+      String(product?.subCategory || '').trim(),
+      String(product?.category_id || product?.categoryId || '').trim(),
+    );
     if (mode === KPI_MODE_EXCLUDED) return;
 
     const stock = safeNumber(product?.stock, 0);
@@ -383,13 +486,14 @@ export function computeUnifiedKpiSnapshot({
     purchases += inventoryCost;
     period.purchases += inventoryCost;
     period.expenses += inventoryCost;
+    pushBreakdown(expenseBreakdownMap, categoryName, String(product?.subCategory || '').trim(), inventoryCost, 'Inventory');
   });
 
   (Array.isArray(repairJobs) ? repairJobs : []).forEach((job) => {
     const date = parseRepairDate(job);
     if (!date || date < start || date > end) return;
 
-    const mode = resolveConfiguredMode(categoryContributionModeMap, KPI_SCOPE_SALES, 'Repair Job', '');
+    const mode = resolveConfiguredMode(categoryContributionModeMap, KPI_SCOPE_SALES, 'Repair Job', '', String(job?.category_id || job?.categoryId || '').trim());
     if (mode === KPI_MODE_EXCLUDED) return;
 
     const estimatedCost = safeNumber(job?.estimatedCost ?? job?.estimated_cost, 0);
@@ -404,6 +508,7 @@ export function computeUnifiedKpiSnapshot({
     period.revenue += contribution;
     period.profit += contribution;
     serviceProfit += contribution;
+    pushBreakdown(revenueBreakdownMap, 'Repair Job', '', contribution, 'Repair Job');
   });
 
   const expenses = fixedExpenses + smallExpenses + purchases;
@@ -415,6 +520,24 @@ export function computeUnifiedKpiSnapshot({
       ...row,
       income: row.revenue - row.expenses,
     }));
+
+  const revenueBreakdown = Array.from(revenueBreakdownMap.values())
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  const expenseBreakdown = Array.from(expenseBreakdownMap.values())
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+
+  const incomeMap = new Map();
+  revenueBreakdown.forEach((row) => {
+    incomeMap.set(row.key, { ...row });
+  });
+  expenseBreakdown.forEach((row) => {
+    const existing = incomeMap.get(row.key) || { ...row, amount: 0, count: 0 };
+    existing.amount -= row.amount;
+    existing.count += row.count;
+    incomeMap.set(row.key, existing);
+  });
+  const incomeBreakdown = Array.from(incomeMap.values())
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 
   const activeSeries = periodData.filter((row) => row.sales > 0 || row.revenue > 0 || row.expenses > 0);
   const last = activeSeries[activeSeries.length - 1];
@@ -438,6 +561,9 @@ export function computeUnifiedKpiSnapshot({
     },
     periodData,
     includedSalesTransactions,
+    revenueBreakdown,
+    expenseBreakdown,
+    incomeBreakdown,
     salesGrowth,
     productProfit,
     serviceProfit,

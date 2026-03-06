@@ -52,6 +52,10 @@ function makeScopedProfitCategoryKey(scope = KPI_SCOPE_SALES, categoryName = '',
     return `${normalizeKpiScope(scope)}::${makeProfitCategoryKey(categoryName, subCategoryName)}`;
 }
 
+function makeScopedProfitCategoryIdKey(scope = KPI_SCOPE_SALES, categoryId = '') {
+    return `${normalizeKpiScope(scope)}::id::${normalizeCategoryToken(categoryId)}`;
+}
+
 function normalizeKpiContributionMode(value = '') {
     const raw = String(value || '').trim().toLowerCase();
     if (raw === KPI_MODE_PROFIT) return KPI_MODE_PROFIT;
@@ -689,6 +693,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [hasExplicitContributionModeConfig, setHasExplicitContributionModeConfig] = useState(false);
     const [isSavingContributionModeConfig, setIsSavingContributionModeConfig] = useState(false);
     const [contributionModeConfigStatus, setContributionModeConfigStatus] = useState('');
+    const [kpiSettingsVersion, setKpiSettingsVersion] = useState(0);
     const [activeKpiBreakdownType, setActiveKpiBreakdownType] = useState('');
     const [recentlyDeletedTxn, setRecentlyDeletedTxn] = useState(null);
     const [isLocked, setIsLocked] = useState(false);
@@ -812,6 +817,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 const scope = normalizeKpiScope(row?.kpi_scope || row?.scope);
                 const categoryName = String(row?.category_name || row?.category || '').trim();
                 const subCategoryName = String(row?.sub_category_name || row?.sub_category || '').trim();
+                const categoryId = String(row?.category_id || row?.categoryId || '').trim();
                 if (!categoryName) return acc;
                 const modeFromContributionColumn = row?.contribution_mode ?? row?.contributionMode;
                 const modeFromLegacyBool = row?.profit_only ?? row?.profitOnly ?? row?.is_profit_only;
@@ -819,10 +825,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     ? (Boolean(modeFromLegacyBool) ? KPI_MODE_PROFIT : KPI_MODE_SALES)
                     : normalizeKpiContributionMode(modeFromContributionColumn);
                 acc[makeScopedProfitCategoryKey(scope, categoryName, subCategoryName)] = mode;
+                if (categoryId) {
+                    acc[makeScopedProfitCategoryIdKey(scope, categoryId)] = mode;
+                }
                 return acc;
             }, {});
             setCategoryContributionModeMap(map);
             setHasExplicitContributionModeConfig(true);
+            setKpiSettingsVersion((prev) => prev + 1);
         };
 
         loadFromDb();
@@ -1568,7 +1578,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             periodType: 'monthly',
             categoryContributionModeMap,
         });
-    }, [transactions, products, repairJobs, dashboardRange, categoryContributionModeMap]);
+    }, [transactions, products, repairJobs, dashboardRange, categoryContributionModeMap, kpiSettingsVersion]);
 
     const fallbackStats = useMemo(() => {
         const totalRevenue = unifiedKpiStats?.totals?.revenue || 0;
@@ -1583,52 +1593,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [unifiedKpiStats]);
 
     const kpiRevenueCategoryBreakdown = useMemo(() => {
-        const grouped = new Map();
-        (revenueTransactions || []).forEach((txn) => {
-            if (isExcludedCategoryTransaction(txn)) return;
-            const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
-            const key = makeProfitCategoryKey(categoryName, subCategoryName);
-            const label = subCategoryName ? `${categoryName} / ${subCategoryName}` : categoryName;
-            const amount = resolveKpiRevenueContribution(txn);
-            const current = grouped.get(key) || { key, label, amount: 0, count: 0 };
-            current.amount += amount;
-            current.count += 1;
-            grouped.set(key, current);
-        });
-        return Array.from(grouped.values()).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
-    }, [isExcludedCategoryTransaction, resolveKpiRevenueContribution, resolveTxnCategoryParts, revenueTransactions]);
+        return Array.isArray(unifiedKpiStats?.revenueBreakdown) ? unifiedKpiStats.revenueBreakdown : [];
+    }, [unifiedKpiStats]);
 
     const kpiExpenseCategoryBreakdown = useMemo(() => {
-        const grouped = new Map();
-        (kpiExpenseTransactions || []).forEach((txn) => {
-            const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
-            const key = makeProfitCategoryKey(categoryName, subCategoryName);
-            const label = subCategoryName ? `${categoryName} / ${subCategoryName}` : categoryName;
-            const amount = parseFloat(txn?.amount) || 0;
-            const current = grouped.get(key) || { key, label, amount: 0, count: 0 };
-            current.amount += amount;
-            current.count += 1;
-            grouped.set(key, current);
-        });
-        return Array.from(grouped.values()).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
-    }, [kpiExpenseTransactions, resolveTxnCategoryParts]);
+        return Array.isArray(unifiedKpiStats?.expenseBreakdown) ? unifiedKpiStats.expenseBreakdown : [];
+    }, [unifiedKpiStats]);
 
     const kpiIncomeCategoryBreakdown = useMemo(() => {
-        const grouped = new Map();
-        kpiRevenueCategoryBreakdown.forEach((row) => {
-            const current = grouped.get(row.key) || { ...row, amount: 0, count: 0 };
-            current.amount += row.amount;
-            current.count += row.count;
-            grouped.set(row.key, current);
-        });
-        kpiExpenseCategoryBreakdown.forEach((row) => {
-            const current = grouped.get(row.key) || { ...row, amount: 0, count: 0 };
-            current.amount -= row.amount;
-            current.count += row.count;
-            grouped.set(row.key, current);
-        });
-        return Array.from(grouped.values()).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
-    }, [kpiExpenseCategoryBreakdown, kpiRevenueCategoryBreakdown]);
+        return Array.isArray(unifiedKpiStats?.incomeBreakdown) ? unifiedKpiStats.incomeBreakdown : [];
+    }, [unifiedKpiStats]);
 
     const revenueBreakdown = useMemo(() => buildPaymentBreakdown(revenueTransactions), [revenueTransactions]);
     const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(kpiExpenseTransactions), [kpiExpenseTransactions]);
@@ -2076,6 +2050,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
 
             setContributionModeConfigStatus(dbMissing ? 'DB table/column missing. Could not save.' : 'Saved.');
+            setKpiSettingsVersion((prev) => prev + 1);
         } catch (error) {
             setContributionModeConfigStatus(error?.message || 'Failed to save settings.');
         } finally {
@@ -2087,6 +2062,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setCategoryContributionModeMap({});
         setHasExplicitContributionModeConfig(false);
         setContributionModeConfigStatus('Default rules restored.');
+        setKpiSettingsVersion((prev) => prev + 1);
     }, []);
 
     const updateCategoryContributionMode = useCallback((scope, row, nextMode) => {
