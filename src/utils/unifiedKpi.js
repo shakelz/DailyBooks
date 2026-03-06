@@ -8,6 +8,10 @@ function normalizeToken(value = '') {
   return String(value || '').trim().toLowerCase();
 }
 
+function normalizeAlphaToken(value = '') {
+  return normalizeToken(value).replace(/[^a-z]/g, '');
+}
+
 function normalizeKpiScope(value = '') {
   const raw = normalizeToken(value);
   if (raw === KPI_SCOPE_EXPENSE || raw === 'purchase') return KPI_SCOPE_EXPENSE;
@@ -71,10 +75,13 @@ function parseRepairDate(job = {}) {
 
 function isCashbookTransaction(txn = {}) {
   const source = normalizeToken(txn?.source || txn?.tx_source || '');
+  const sourceAlpha = normalizeAlphaToken(source);
   return source === 'admin'
     || source === 'admin-income'
     || source === 'admin-expense'
-    || source === 'cashbook';
+    || source === 'cashbook'
+    || sourceAlpha === 'adminexpenses'
+    || sourceAlpha === 'adminexpneses';
 }
 
 function getTxType(txn = {}) {
@@ -84,8 +91,36 @@ function getTxType(txn = {}) {
   return legacyType;
 }
 
+function isFixedExpenseType(txType = '') {
+  const normalized = normalizeToken(txType);
+  return normalized === 'fixed_expense'
+    || normalized === 'fixed_expenses'
+    || normalized === 'fixedexpense'
+    || normalized === 'fixedexpenses';
+}
+
+function isProductExpenseType(txType = '') {
+  const normalized = normalizeToken(txType);
+  return normalized === 'product_expense'
+    || normalized === 'product_expenses'
+    || normalized === 'productpurchase'
+    || normalized === 'product_purchase';
+}
+
+function isAdminExpenseSource(source = '') {
+  const normalized = normalizeToken(source);
+  const alpha = normalizeAlphaToken(source);
+  return normalized === 'admin-expense'
+    || normalized === 'admin-expenses'
+    || normalized === 'admin-expneses'
+    || alpha === 'adminexpense'
+    || alpha === 'adminexpenses'
+    || alpha === 'adminexpneses';
+}
+
 function isFixedExpenseTxn(txn = {}) {
-  return Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false);
+  return Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false)
+    || isFixedExpenseType(getTxType(txn));
 }
 
 function isSalesTxn(txn = {}) {
@@ -96,14 +131,33 @@ function isSalesTxn(txn = {}) {
 function isExpenseTxn(txn = {}) {
   const txType = getTxType(txn);
   const source = normalizeToken(txn?.source || txn?.tx_source || '');
-  return txType === 'fixed_expense'
+  return isFixedExpenseType(txType)
     || txType === 'shop_expense'
     || txType === 'expense'
-    || txType === 'product_expense'
+    || isProductExpenseType(txType)
     || txType === 'product_purchase'
     || txType === 'purchase'
     || txType === 'adjustment'
     || (source === 'expense' || source === 'purchase');
+}
+
+function resolveExpenseName(txn = {}) {
+  const candidates = [
+    txn?.expense_name,
+    txn?.expenseName,
+    txn?.expense_title,
+    txn?.expenseTitle,
+    txn?.desc,
+    txn?.description,
+    txn?.name,
+    txn?.item_name,
+    txn?.itemName,
+  ];
+  for (const value of candidates) {
+    const text = String(value || '').trim();
+    if (text) return text;
+  }
+  return '';
 }
 
 function isProductSaleTxn(txn = {}) {
@@ -132,16 +186,24 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
     : null;
 
   const sourceText = normalizeToken(txn?.source || txn?.tx_source || '');
+  const txType = getTxType(txn);
   const isRepairSource = sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_');
-  const categoryName = isRepairSource
-    ? 'Repair Job'
-    : (
-      resolveCategoryLevel1(txn?.category)
-      || resolveCategoryLevel1(txn?.categorySnapshot)
-      || resolveCategoryLevel1(txn?.productSnapshot?.category)
-      || resolveCategoryLevel1(linkedProduct?.category)
-      || 'General'
-    );
+  const explicitCategoryName =
+    resolveCategoryLevel1(txn?.category)
+    || resolveCategoryLevel1(txn?.categorySnapshot)
+    || resolveCategoryLevel1(txn?.productSnapshot?.category)
+    || resolveCategoryLevel1(linkedProduct?.category);
+
+  let categoryName = explicitCategoryName;
+  if (!categoryName) {
+    if (isRepairSource) {
+      categoryName = 'Repair Job';
+    } else if (isProductExpenseType(txType) && sourceText === 'expense') {
+      categoryName = resolveExpenseName(txn) || 'General';
+    } else {
+      categoryName = 'General';
+    }
+  }
 
   const subCategoryName = String(
     txn?.subCategory
@@ -466,7 +528,7 @@ export function computeUnifiedKpiSnapshot({
         productById,
       });
       if (filtered.included) strictServiceProfit += filtered.amount;
-    } else if (txType === 'fixed_expense' && sourceText === 'admin-expense') {
+    } else if (isFixedExpenseType(txType) && isAdminExpenseSource(sourceText)) {
       if (includeAdminFixedExpenses) {
         const filtered = calculateFilteredTotal({
           txn,
@@ -477,7 +539,7 @@ export function computeUnifiedKpiSnapshot({
         });
         if (filtered.included) strictFixedExpenses += filtered.amount;
       }
-    } else if (txType === 'product_expense' && sourceText === 'expense') {
+    } else if (isProductExpenseType(txType) && sourceText === 'expense') {
       const filtered = calculateFilteredTotal({
         txn,
         scope: KPI_SCOPE_EXPENSE,
@@ -486,7 +548,7 @@ export function computeUnifiedKpiSnapshot({
         applyProfitModeForExpenseScope: true,
       });
       if (filtered.included) strictNonFixedExpenses += filtered.amount;
-    } else if (txType === 'product_expense' && sourceText === 'purchase') {
+    } else if (isProductExpenseType(txType) && sourceText === 'purchase') {
       const filtered = calculateFilteredTotal({
         txn,
         scope: KPI_SCOPE_EXPENSE,
@@ -539,9 +601,9 @@ export function computeUnifiedKpiSnapshot({
 
       const amount = filtered.rawAmount;
       pushBreakdown(expenseBreakdownMap, filtered.categoryName || txn?.category || 'Other', filtered.subCategoryName, amount, 'Expenses');
-      if (isFixedExpenseTxn(txn) || txType === 'fixed_expense') {
+      if (isFixedExpenseTxn(txn) || isFixedExpenseType(txType)) {
         const sourceText = normalizeToken(txn?.source || txn?.tx_source || '');
-        if (!includeAdminFixedExpenses && sourceText === 'admin-expense') {
+        if (!includeAdminFixedExpenses && isAdminExpenseSource(sourceText)) {
           return;
         }
         fixedExpenses += amount;
