@@ -160,6 +160,22 @@ function resolveExpenseName(txn = {}) {
   return '';
 }
 
+function shouldIgnoreGeneralExpense(txn = {}, filtered = {}) {
+  const txType = getTxType(txn);
+  const source = normalizeToken(txn?.source || txn?.tx_source || '');
+  const isExpenseSource = source === 'expense' || source === 'purchase';
+  if (!isProductExpenseType(txType) || !isExpenseSource) return false;
+
+  const categoryName = normalizeToken(filtered?.categoryName || '');
+  if (categoryName !== 'general') return false;
+
+  const explicitCategory = normalizeToken(txn?.category || txn?.category_name || '');
+  const explicitCategoryId = normalizeToken(txn?.category_id || txn?.categoryId || '');
+  const explicitExpenseName = normalizeToken(resolveExpenseName(txn));
+
+  return !explicitCategory && !explicitCategoryId && !explicitExpenseName;
+}
+
 function isProductSaleTxn(txn = {}) {
   return getTxType(txn) === 'product_sale';
 }
@@ -547,7 +563,9 @@ export function computeUnifiedKpiSnapshot({
         productById,
         applyProfitModeForExpenseScope: true,
       });
-      if (filtered.included) strictNonFixedExpenses += filtered.amount;
+      if (filtered.included && !shouldIgnoreGeneralExpense(txn, filtered)) {
+        strictNonFixedExpenses += filtered.amount;
+      }
     } else if (isProductExpenseType(txType) && sourceText === 'purchase') {
       const filtered = calculateFilteredTotal({
         txn,
@@ -556,7 +574,9 @@ export function computeUnifiedKpiSnapshot({
         productById,
         applyProfitModeForExpenseScope: true,
       });
-      if (filtered.included) strictInventoryPurchases += filtered.amount;
+      if (filtered.included && !shouldIgnoreGeneralExpense(txn, filtered)) {
+        strictInventoryPurchases += filtered.amount;
+      }
     }
 
     if (isSalesTxn(txn) && !isCashbookTransaction(txn)) {
@@ -598,6 +618,7 @@ export function computeUnifiedKpiSnapshot({
         productById,
       });
       if (!filtered.included) return;
+      if (shouldIgnoreGeneralExpense(txn, filtered)) return;
 
       const amount = filtered.rawAmount;
       pushBreakdown(expenseBreakdownMap, filtered.categoryName || txn?.category || 'Other', filtered.subCategoryName, amount, 'Expenses');
