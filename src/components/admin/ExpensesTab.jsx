@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { priceTag } from '../../utils/currency';
@@ -63,6 +63,7 @@ function getTxnInvoiceNumber(txn) {
 export default function ExpensesTab() {
     const { transactions, addTransaction, updateTransaction, deleteTransaction } = useInventory();
     const { attendanceLogs, salesmen } = useAuth();
+    const salarySyncInFlightRef = useRef(false);
 
     const [dateSelection, setDateSelection] = useState([
         {
@@ -104,15 +105,7 @@ export default function ExpensesTab() {
         return d;
     }, [dateSelection]);
 
-    const rows = useMemo(() => {
-        const cashbookRows = transactions
-            .filter((txn) => isCashbookEntry(txn))
-            .filter((txn) => {
-                const d = parseTxnDate(txn);
-                return d && d >= rangeStart && d <= rangeEnd;
-            })
-            .map((txn) => ({ ...txn, isSynthetic: false }));
-
+    const salaryBuckets = useMemo(() => {
         const staffById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), staff]));
         const logsByStaff = new Map();
 
@@ -127,7 +120,7 @@ export default function ExpensesTab() {
 
         const startMs = rangeStart.getTime();
         const endMs = rangeEnd.getTime();
-        const earningRows = [];
+        const buckets = [];
 
         logsByStaff.forEach((logs, sid) => {
             const staff = staffById.get(String(sid));
@@ -167,25 +160,98 @@ export default function ExpensesTab() {
                 if (hours <= 0) return;
                 const amount = Number((hours * hourlyRate).toFixed(2));
                 const stamp = new Date(`${dayKey}T12:00:00`);
-                earningRows.push({
-                    id: `staff-earning-${sid}-${dayKey}`,
-                    desc: `Staff Earning: ${String(staff?.name || 'Staff')}`,
+                buckets.push({
+                    workerId: String(sid),
+                    staffName: String(staff?.name || 'Staff'),
+                    dayKey,
                     amount,
-                    type: 'expense',
-                    category: 'Salary',
-                    paymentMethod: 'Auto',
-                    source: 'staff-earning',
-                    date: stamp.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                    time: stamp.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
                     timestamp: stamp.toISOString(),
-                    isSynthetic: true,
                 });
             });
         });
 
-        return [...cashbookRows, ...earningRows]
+        return buckets;
+    }, [attendanceLogs, salesmen, rangeStart, rangeEnd]);
+
+    useEffect(() => {
+        if (!Array.isArray(salaryBuckets) || salaryBuckets.length === 0) return;
+        if (salarySyncInFlightRef.current) return;
+
+        let cancelled = false;
+        salarySyncInFlightRef.current = true;
+
+        const syncSalaryToTransactions = async () => {
+            try {
+                const existingKeySet = new Set(
+                    (Array.isArray(transactions) ? transactions : [])
+                        .filter((txn) => {
+                            const source = String(txn?.source || '').toLowerCase();
+                            const category = String(txn?.category || '').toLowerCase();
+                            const txType = String(txn?.tx_type || txn?.type || '').toLowerCase();
+                            const isFixed = Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false) || txType === 'fixed_expense';
+                            return source === 'admin-expense' && category === 'salary' && isFixed;
+                        })
+                        .map((txn) => {
+                            const worker = String(txn?.workerId || txn?.worker_id || '').trim();
+                            const notes = String(txn?.notes || '');
+                            const matchedDay = notes.match(/salary_day:([0-9]{4}-[0-9]{2}-[0-9]{2})/i)?.[1] || '';
+                            const fallbackDay = parseTxnDate(txn) ? localDayKey(parseTxnDate(txn).getTime()) : '';
+                            const dayKey = matchedDay || fallbackDay;
+                            return worker && dayKey ? `${worker}::${dayKey}` : '';
+                        })
+                        .filter(Boolean)
+                );
+
+                for (const bucket of salaryBuckets) {
+                    if (cancelled) break;
+                    const dedupeKey = `${bucket.workerId}::${bucket.dayKey}`;
+                    if (existingKeySet.has(dedupeKey)) continue;
+
+                    const dt = new Date(bucket.timestamp);
+                    await addTransaction({
+                        desc: `Salary: ${bucket.staffName} (${bucket.dayKey})`,
+                        amount: bucket.amount,
+                        type: 'expense',
+                        tx_type: 'fixed_expense',
+                        category: 'Salary',
+                        paymentMethod: 'Auto',
+                        source: 'admin-expense',
+                        is_fixed_expense: true,
+                        isFixedExpense: true,
+                        workerId: bucket.workerId,
+                        notes: `salary_day:${bucket.dayKey} | worker_id:${bucket.workerId}`,
+                        date: dt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                        time: dt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                        timestamp: dt.toISOString(),
+                    });
+
+                    existingKeySet.add(dedupeKey);
+                }
+            } catch (error) {
+                console.error('Salary transaction sync failed:', error);
+            } finally {
+                salarySyncInFlightRef.current = false;
+            }
+        };
+
+        syncSalaryToTransactions();
+        return () => {
+            cancelled = true;
+        };
+    }, [salaryBuckets, transactions, addTransaction]);
+
+    const rows = useMemo(() => {
+        const cashbookRows = transactions
+            .filter((txn) => isCashbookEntry(txn))
+            .filter((txn) => {
+                const d = parseTxnDate(txn);
+                return d && d >= rangeStart && d <= rangeEnd;
+            })
+            .map((txn) => ({ ...txn, isSynthetic: false }));
+
+        return [...cashbookRows]
             .sort((a, b) => (parseTxnDate(b)?.getTime() || 0) - (parseTxnDate(a)?.getTime() || 0));
-    }, [transactions, attendanceLogs, salesmen, rangeStart, rangeEnd]);
+    }, [transactions, rangeStart, rangeEnd]);
 
     const totals = useMemo(() => {
         return rows.reduce((acc, txn) => {
