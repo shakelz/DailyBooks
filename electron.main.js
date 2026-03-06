@@ -1,6 +1,6 @@
 import { app, BrowserWindow, session } from 'electron';
 
-const REMOTE_URL = 'https://www.carefone.de/';
+const REMOTE_URL = 'https://www.carefone.de/terminal-access-v1';
 
 app.commandLine.appendSwitch('disable-http-cache');
 
