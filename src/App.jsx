@@ -8,8 +8,6 @@ import LoginPage from './pages/LoginPage'
 import LandingPage from './pages/LandingPage'
 import SalesmanDashboard from './pages/SalesmanDashboard'
 import LatestDashboard from './pages/LatestDashboard'
-import InventoryManager from './pages/InventoryManager'
-import ComingSoonPage from './pages/ComingSoonPage'
 import AdminPanel from './pages/AdminPanel'
 import InventoryTab from './components/admin/InventoryTab'
 import InsightsTab from './components/admin/InsightsTab'
@@ -21,6 +19,8 @@ import { supabaseConfigError } from './supabaseClient'
 
 const SALESMAN_LOGIN_PATH = '/terminal-access-v1'
 const ADMIN_LOGIN_PATH = '/management-portal-v1'
+const SALESMAN_DASHBOARD_PATH = `${SALESMAN_LOGIN_PATH}/dashboard`
+const SALESMAN_LATEST_DASHBOARD_PATH = `${SALESMAN_LOGIN_PATH}/latest-dashboard`
 
 function normalizeRouteRole(value = '') {
   const role = String(value || '').trim().toLowerCase()
@@ -51,7 +51,7 @@ function AdminGuard({ children }) {
   }, [allowed, hasUser, logout])
 
   if (!allowed) {
-    return <Navigate to={ADMIN_LOGIN_PATH} replace />
+    return <Navigate to="/" replace />
   }
 
   return children
@@ -75,7 +75,7 @@ function AdminRouteShell() {
   }
 
   if (!allowed) {
-    return <Navigate to={ADMIN_LOGIN_PATH} replace />
+    return <Navigate to="/" replace />
   }
 
   return <AdminPanel />
@@ -87,7 +87,7 @@ function SalesmanGuard({ children }) {
   const allowed = Boolean(user) && normalizedRole === 'salesman'
 
   if (!allowed) {
-    return <Navigate to={SALESMAN_LOGIN_PATH} replace />
+    return <Navigate to="/" replace />
   }
 
   return children
@@ -136,14 +136,10 @@ function App() {
                   <Route path="settings" element={<AdminSettings />} />
                 </Route>
 
-                <Route path="/dashboard" element={<Navigate to={ADMIN_LOGIN_PATH} replace />} />
-                <Route path="/inventory-manager" element={<AdminGuard><InventoryManager /></AdminGuard>} />
+                <Route path={SALESMAN_DASHBOARD_PATH} element={<SalesmanGuard><SalesmanDashboard /></SalesmanGuard>} />
+                <Route path={SALESMAN_LATEST_DASHBOARD_PATH} element={<SalesmanGuard><LatestDashboard /></SalesmanGuard>} />
 
-                <Route path="/salesman" element={<Navigate to="/salesman/dashboard" replace />} />
-                <Route path="/salesman/dashboard" element={<SalesmanGuard><SalesmanDashboard /></SalesmanGuard>} />
-                <Route path="/salesman/latest-dashboard" element={<SalesmanGuard><LatestDashboard /></SalesmanGuard>} />
-
-                <Route path="*" element={<ComingSoonPage title="Page Not Found" icon="404" />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
               <PWAInstallButton />
             </BrowserRouter>

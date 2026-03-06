@@ -257,6 +257,10 @@ function getAdminRedirectPath(role) {
     return isSuperAdminRole(role) ? '/management-portal-v1/dashboard' : '/management-portal-v1/owner-dashboard';
 }
 
+function getSalesmanRedirectPath() {
+    return '/terminal-access-v1/dashboard';
+}
+
 function getProfileId(profile = {}) {
     return asString(profile?.user_id);
 }
@@ -2753,7 +2757,7 @@ export function AuthProvider({ children }) {
                         setIsPunchedIn(false);
                         setActiveAttendanceId('');
                     }
-                    return { success: true, role: 'salesman', redirectTo: '/salesman/dashboard' };
+                    return { success: true, role: 'salesman', redirectTo: getSalesmanRedirectPath() };
                 }
 
                 bumpRateLimit('salesman');

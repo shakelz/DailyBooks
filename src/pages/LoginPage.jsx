@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 
 const SALESMAN_LOGIN_PATH = '/terminal-access-v1'
 const ADMIN_LOGIN_PATH = '/management-portal-v1'
+const SALESMAN_DASHBOARD_PATH = `${SALESMAN_LOGIN_PATH}/dashboard`
 
 function normalizeRole(value = '') {
     const role = String(value || '').trim().toLowerCase()
@@ -36,7 +37,7 @@ export default function LoginPage({ mode = 'salesman' }) {
 
         const normalizedRole = normalizeRole(authRole)
         if (normalizedRole === 'salesman') {
-            navigate('/salesman/dashboard', { replace: true })
+            navigate(SALESMAN_DASHBOARD_PATH, { replace: true })
             return
         }
 
@@ -62,7 +63,7 @@ export default function LoginPage({ mode = 'salesman' }) {
         try {
             const result = await login({ role: 'salesman', pin: newPin })
             if (result?.success) {
-                navigate(result?.redirectTo || '/salesman/dashboard', { replace: true })
+                navigate(result?.redirectTo || SALESMAN_DASHBOARD_PATH, { replace: true })
                 return
             }
 

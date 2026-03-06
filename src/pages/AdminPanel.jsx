@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 
 const ADMIN_BASE_ROUTE = '/management-portal-v1';
+const SALESMAN_DASHBOARD_ROUTE = '/terminal-access-v1/dashboard';
 
 export default function AdminPanel() {
     const navigate = useNavigate();
@@ -60,7 +61,7 @@ export default function AdminPanel() {
     }, [location.pathname, isMobile]);
 
     if (!isAdminLike) {
-        return <Navigate to={role === 'salesman' ? '/salesman/dashboard' : ADMIN_BASE_ROUTE} replace />;
+        return <Navigate to={role === 'salesman' ? SALESMAN_DASHBOARD_ROUTE : '/'} replace />;
     }
 
     const dashboardRoute = role === 'owner' ? `${ADMIN_BASE_ROUTE}/owner-dashboard` : `${ADMIN_BASE_ROUTE}/dashboard`;

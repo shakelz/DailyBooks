@@ -5,7 +5,9 @@ export default function SalesmanProfile({ isOpen, onClose }) {
     const { user, isPunchedIn, isAttendanceActionPending, punchIn, punchOut, logout, attendanceLogs } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
-    const isOnLatestDashboard = location.pathname.includes('/salesman/latest-dashboard');
+    const salesmanDashboardPath = '/terminal-access-v1/dashboard';
+    const salesmanLatestDashboardPath = '/terminal-access-v1/latest-dashboard';
+    const isOnLatestDashboard = location.pathname.includes(salesmanLatestDashboardPath);
 
     // Get last punch time for display
     const todayStr = new Date().toLocaleDateString('en-PK');
@@ -115,7 +117,7 @@ export default function SalesmanProfile({ isOpen, onClose }) {
 
                     <button
                         onClick={() => {
-                            navigate(isOnLatestDashboard ? '/salesman' : '/salesman/latest-dashboard');
+                            navigate(isOnLatestDashboard ? salesmanDashboardPath : salesmanLatestDashboardPath);
                             onClose?.();
                         }}
                         className="h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100 hover:scale-105 shadow-sm"
