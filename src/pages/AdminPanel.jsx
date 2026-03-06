@@ -228,16 +228,17 @@ export default function AdminPanel() {
                                     <select
                                         value={activeShopId || ''}
                                         onChange={(e) => setActiveShopId(e.target.value)}
-                                        className="text-sm font-semibold text-slate-700 bg-transparent outline-none"
+                                        className="text-base font-medium text-slate-700 bg-transparent outline-none"
+                                        style={{ fontSize: 16, fontWeight: 500 }}
                                     >
                                         {role === 'super_admin' ? (
-                                            <option value="">Global View (All Shops)</option>
+                                            <option value="" style={{ fontSize: 16, fontWeight: 500 }}>Global View (All Shops)</option>
                                         ) : null}
                                         {shops.length === 0 ? (
-                                            <option value="">No Shops</option>
+                                            <option value="" style={{ fontSize: 16, fontWeight: 500 }}>No Shops</option>
                                         ) : (
                                             shops.map((shop) => (
-                                                <option key={shop.id} value={shop.id}>
+                                                <option key={shop.id} value={shop.id} style={{ fontSize: 16, fontWeight: 500 }}>
                                                     {shop.name}
                                                 </option>
                                             ))

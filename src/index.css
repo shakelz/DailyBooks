@@ -208,7 +208,5 @@
 
 select,
 select option {
-    font-size: 1rem !important;
-    font-weight: 500 !important;
-    line-height: 1.4;
+    font: 500 16px/1.4 "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif !important;
 }
