@@ -457,7 +457,12 @@ export function computeUnifiedKpiSnapshot({
       return;
     }
 
-    if (isExpenseTxn(txn) && !isCashbookTransaction(txn)) {
+    const txType = getTxType(txn);
+    const shouldSkipAsCashbookExpense = isCashbookTransaction(txn)
+      && txType !== 'fixed_expense'
+      && !isFixedExpenseTxn(txn);
+
+    if (isExpenseTxn(txn) && !shouldSkipAsCashbookExpense) {
       const filtered = calculateFilteredTotal({
         txn,
         scope: KPI_SCOPE_EXPENSE,
@@ -468,8 +473,6 @@ export function computeUnifiedKpiSnapshot({
 
       const amount = filtered.rawAmount;
       pushBreakdown(expenseBreakdownMap, filtered.categoryName || txn?.category || 'Other', filtered.subCategoryName, amount, 'Expenses');
-      const txType = getTxType(txn);
-
       if (isFixedExpenseTxn(txn) || txType === 'fixed_expense') {
         fixedExpenses += amount;
         period.fixedExpenses += amount;
