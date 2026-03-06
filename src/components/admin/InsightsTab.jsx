@@ -1,14 +1,40 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { useRepairs } from '../../context/RepairsContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
+import { computeUnifiedKpiSnapshot } from '../../utils/unifiedKpi';
+import { supabase } from '../../supabaseClient';
 import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
     ComposedChart, Area, PieChart, Pie, Cell
 } from 'recharts';
 import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, Package, RefreshCw, BarChart3, Scale, Users, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
-import DateRangeFilter from './DateRangeFilter';
+
+const KPI_MODE_SALES = 'sales';
+const KPI_MODE_PROFIT = 'profit';
+const KPI_MODE_EXCLUDED = 'excluded';
+
+function normalizeToken(value = '') {
+    return String(value || '').trim().toLowerCase();
+}
+
+function normalizeContributionMode(value = '') {
+    const raw = normalizeToken(value);
+    if (raw === KPI_MODE_PROFIT) return KPI_MODE_PROFIT;
+    if (raw === KPI_MODE_EXCLUDED || raw === 'exclude') return KPI_MODE_EXCLUDED;
+    return KPI_MODE_SALES;
+}
+
+function normalizeKpiScope(value = '') {
+    const raw = normalizeToken(value);
+    if (raw === 'expense' || raw === 'purchase') return 'expense';
+    return 'sales';
+}
+
+function scopedCategoryKey(scope = 'sales', categoryName = '', subCategoryName = '') {
+    return `${normalizeKpiScope(scope)}::${normalizeToken(categoryName)}::${normalizeToken(subCategoryName)}`;
+}
 
 function toLocalDateKey(value) {
     const d = value instanceof Date ? value : new Date(value);
@@ -62,18 +88,24 @@ function isRepairRevenueTransaction(txn) {
 
 export default function InsightsTab() {
     const { transactions, products } = useInventory();
-    const { isAdminLike, slowMovingDays, salesmen, attendanceLogs } = useAuth();
+    const { isAdminLike, slowMovingDays, salesmen, attendanceLogs, activeShopId, user } = useAuth();
     const { repairJobs } = useRepairs();
     const defaultStartDate = new Date(new Date().setDate(new Date().getDate() - 30));
     const defaultEndDate = new Date();
-    // ── Date Range State (shared calendar component) ──
-    const [dateSelection, setDateSelection] = useState([
-        {
-            startDate: defaultStartDate,
-            endDate: defaultEndDate,
-            key: 'selection'
-        }
-    ]);
+    const availableYears = useMemo(() => {
+        const years = new Set();
+        (transactions || []).forEach((txn) => {
+            const d = parseTransactionDate(txn);
+            if (!d) return;
+            years.add(d.getFullYear());
+        });
+        const list = Array.from(years).sort((a, b) => b - a);
+        if (list.length === 0) list.push(new Date().getFullYear());
+        return list;
+    }, [transactions]);
+
+    const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
+    const [timeView, setTimeView] = useState('monthly'); // monthly | weekly
     const [repairDateFilter, setRepairDateFilter] = useState({
         startDate: toInputDateString(defaultStartDate),
         endDate: toInputDateString(defaultEndDate),
@@ -81,285 +113,292 @@ export default function InsightsTab() {
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
     const [showGrossProfitBreakdown, setShowGrossProfitBreakdown] = useState(false);
+    const [categoryContributionModeMap, setCategoryContributionModeMap] = useState({});
+
+    useEffect(() => {
+        if (!availableYears.includes(selectedYear)) {
+            setSelectedYear(availableYears[0]);
+        }
+    }, [availableYears, selectedYear]);
+
+    const settingsShopId = String(activeShopId || user?.shop_id || '').trim();
+    useEffect(() => {
+        if (!settingsShopId) {
+            setCategoryContributionModeMap({});
+            return;
+        }
+
+        let cancelled = false;
+        const loadSettings = async () => {
+            const result = await supabase
+                .from('kpi_profit_category_settings')
+                .select('*')
+                .eq('shop_id', settingsShopId);
+            if (cancelled) return;
+            if (result.error || !Array.isArray(result.data)) {
+                setCategoryContributionModeMap({});
+                return;
+            }
+
+            const nextMap = result.data.reduce((acc, row) => {
+                const scope = normalizeKpiScope(row?.kpi_scope || row?.scope);
+                const categoryName = String(row?.category_name || '').trim();
+                const subCategoryName = String(row?.sub_category_name || '').trim();
+                if (!categoryName) return acc;
+                acc[scopedCategoryKey(scope, categoryName, subCategoryName)] = normalizeContributionMode(row?.contribution_mode);
+                return acc;
+            }, {});
+            setCategoryContributionModeMap(nextMap);
+        };
+
+        loadSettings();
+        return () => {
+            cancelled = true;
+        };
+    }, [settingsShopId]);
 
     // ── Helper: Calculate Business Metrics ──
     const analytics = useMemo(() => {
-        const now = new Date();
-        const lastWeekCutoff = new Date();
-        const twoWeeksAgoCutoff = new Date();
+        const periodType = timeView === 'weekly' ? 'weekly' : 'monthly';
+        const currentYear = Number(selectedYear) || new Date().getFullYear();
+        const rangeStart = new Date(currentYear, 0, 1, 0, 0, 0, 0);
+        const rangeEnd = new Date(currentYear, 11, 31, 23, 59, 59, 999);
 
-        // 1. Time Range Logic — driven by dateSelection from calendar
-        const rangeStart = safeDate(dateSelection[0].startDate) || new Date();
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = safeDate(dateSelection[0].endDate) || new Date();
-        rangeEnd.setHours(23, 59, 59, 999);
-
-        // Sales Growth Logic (Last 7 Days vs Previous 7 Days)
-        lastWeekCutoff.setDate(now.getDate() - 7);
-        twoWeeksAgoCutoff.setDate(now.getDate() - 14);
-
-        let currentWeekSales = 0;
-        let lastWeekSales = 0;
+        const unified = computeUnifiedKpiSnapshot({
+            transactions,
+            products,
+            repairJobs,
+            rangeStart,
+            rangeEnd,
+            periodType,
+            categoryContributionModeMap,
+        });
 
         const productById = products.reduce((acc, p) => {
-            if (p?.id !== undefined && p?.id !== null) {
-                acc[String(p.id)] = p;
-            }
+            if (p?.id !== undefined && p?.id !== null) acc[String(p.id)] = p;
             return acc;
         }, {});
 
         const extractCategoryLevel1 = (rawCategory) => {
             if (!rawCategory) return '';
             if (typeof rawCategory === 'string') return safeText(rawCategory);
-            if (typeof rawCategory === 'object') {
-                return safeText(rawCategory.level1 || rawCategory.name || '');
-            }
+            if (typeof rawCategory === 'object') return safeText(rawCategory.level1 || rawCategory.name || '');
             return '';
         };
 
-        const resolveCategoryName = (txn) => {
+        const extractSubCategory = (txn = {}, linkedProduct = null) => {
+            const direct = safeText(txn?.subCategory || txn?.subcategory || txn?.sub_category);
+            if (direct) return direct;
+            const snapshot = safeText(txn?.productSnapshot?.subCategory || txn?.productSnapshot?.sub_category);
+            if (snapshot) return snapshot;
+            if (Array.isArray(txn?.categoryPath) && txn.categoryPath[1]) return safeText(txn.categoryPath[1]);
+            if (Array.isArray(txn?.productSnapshot?.categoryPath) && txn.productSnapshot.categoryPath[1]) return safeText(txn.productSnapshot.categoryPath[1]);
+            return safeText(linkedProduct?.subCategory || linkedProduct?.subcategory);
+        };
+
+        const resolveCategoryName = (txn, linkedProduct = null) => {
+            const sourceText = String(txn?.source || txn?.tx_source || '').toLowerCase();
+            if (sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_')) {
+                return 'Repair Job';
+            }
+
             const directCategory =
                 extractCategoryLevel1(txn?.category)
                 || extractCategoryLevel1(txn?.categorySnapshot)
                 || extractCategoryLevel1(txn?.productSnapshot?.category);
             if (directCategory) return directCategory;
-
             if (Array.isArray(txn?.categoryPath) && txn.categoryPath[0]) return safeText(txn.categoryPath[0]);
             if (Array.isArray(txn?.productSnapshot?.categoryPath) && txn.productSnapshot.categoryPath[0]) return safeText(txn.productSnapshot.categoryPath[0]);
+            const linkedCategory = extractCategoryLevel1(linkedProduct?.category);
+            return linkedCategory || 'General Sales';
+        };
 
-            if (txn?.productId !== undefined && txn?.productId !== null) {
-                const linkedProduct = productById[String(txn.productId)];
-                const linkedCategory = extractCategoryLevel1(linkedProduct?.category);
-                if (linkedCategory) return linkedCategory;
+        const resolveContributionMode = (scope, categoryName, subCategoryName) => {
+            const exactKey = scopedCategoryKey(scope, categoryName, subCategoryName);
+            if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, exactKey)) {
+                return normalizeContributionMode(categoryContributionModeMap[exactKey]);
             }
+            const categoryOnlyKey = scopedCategoryKey(scope, categoryName, '');
+            if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, categoryOnlyKey)) {
+                return normalizeContributionMode(categoryContributionModeMap[categoryOnlyKey]);
+            }
+            return KPI_MODE_SALES;
+        };
 
-            return 'General Sales';
+        const resolveRevenueContribution = (txn = {}, linkedProduct = null, categoryName = '', subCategoryName = '') => {
+            const amount = parseFloat(txn?.amount) || 0;
+            const mode = resolveContributionMode('sales', categoryName, subCategoryName);
+            if (mode === KPI_MODE_EXCLUDED) return 0;
+            if (mode === KPI_MODE_SALES) return amount;
+
+            const quantity = Math.max(1, parseInt(txn.quantity || '1', 10) || 1);
+            const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
+            const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
+            const linkedPurchase = linkedProduct ? Number(linkedProduct?.purchasePrice) : NaN;
+            const unitCost = Number.isFinite(purchaseAtTime)
+                ? purchaseAtTime
+                : (Number.isFinite(snapshotPurchase) ? snapshotPurchase : (Number.isFinite(linkedPurchase) ? linkedPurchase : 0));
+
+            return amount - (unitCost * quantity);
         };
 
         const resolveSalesmanName = (txn) => {
             const workerId = safeText(txn?.workerId || txn?.userId || '');
             if (workerId) {
-                const matched = (salesmen || []).find(s => String(s?.id) === workerId);
+                const matched = (salesmen || []).find((staff) => String(staff?.id) === workerId);
                 const matchedName = safeText(matched?.name);
                 if (matchedName) return matchedName;
             }
-
-            const byFields =
-                safeText(txn?.salesmanName)
-                || safeText(txn?.userName)
-                || safeText(txn?.soldBy)
-                || safeText(txn?.staffName);
-            return byFields || 'Unknown';
+            return safeText(txn?.salesmanName) || safeText(txn?.userName) || safeText(txn?.soldBy) || safeText(txn?.staffName) || 'Unknown';
         };
 
-        const filteredTxns = transactions.filter(t => {
-            const tDate = safeDate(t.timestamp);
-            if (!tDate) return false;
-            const amount = parseFloat(t.amount) || 0;
-            const isSalesIncome = t.type === 'income' && !isCashbookEntry(t);
+        const supplierStats = {};
+        const categoryStats = {};
+        const productStats = {};
+        const salesmanStats = {};
 
-            // For Growth calc
-            if (isSalesIncome) {
-                if (tDate >= lastWeekCutoff) currentWeekSales += amount;
-                else if (tDate >= twoWeeksAgoCutoff && tDate < lastWeekCutoff) lastWeekSales += amount;
+        let totalSales = unified.rawSalesTotal;
+        let totalCOGS = 0;
+
+        (unified.includedSalesTransactions || []).forEach((txn) => {
+            const txnDate = parseTransactionDate(txn);
+            if (!txnDate || txnDate < rangeStart || txnDate > rangeEnd) return;
+
+            const linkedProduct = txn?.productId !== undefined && txn?.productId !== null ? productById[String(txn.productId)] : null;
+            const categoryName = resolveCategoryName(txn, linkedProduct);
+            const subCategoryName = extractSubCategory(txn, linkedProduct);
+
+            const saleAmount = parseFloat(txn.amount) || 0;
+            const quantity = Math.max(1, parseInt(txn.quantity || '1', 10) || 1);
+            const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
+            const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
+            const linkedPurchase = linkedProduct ? Number(linkedProduct?.purchasePrice) : NaN;
+            const unitCost = Number.isFinite(purchaseAtTime)
+                ? purchaseAtTime
+                : (Number.isFinite(snapshotPurchase) ? snapshotPurchase : (Number.isFinite(linkedPurchase) ? linkedPurchase : 0));
+            const buyAmount = unitCost * quantity;
+
+            let grossProfit = saleAmount - buyAmount;
+            const sourceText = String(txn?.source || '').toLowerCase();
+            const isRepair = sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_') || categoryName === 'Repair Job';
+            if (isRepair && txn?.notes && String(txn.notes).includes('Parts Cost: €')) {
+                const match = String(txn.notes).match(/Parts Cost: €([\d.]+)/);
+                const partsCost = match && match[1] ? parseFloat(match[1]) : 0;
+                grossProfit = saleAmount - (Number.isFinite(partsCost) ? partsCost : 0);
             }
 
-            // Main Filter — only income transactions (no fixed expenses in sales data)
-            return tDate >= rangeStart && tDate <= rangeEnd && isSalesIncome;
-        });
-
-        // Sales Growth %
-        const salesGrowth = lastWeekSales > 0
-            ? ((currentWeekSales - lastWeekSales) / lastWeekSales) * 100
-            : currentWeekSales > 0 ? 100 : 0;
-
-        // 2. Aggregate Totals
-        let totalSales = 0;
-        let totalProfit = 0; // Total Gross Profit (Product + Service)
-        let productProfit = 0;
-        let totalCOGS = 0; // For Inventory Turnover
-
-        // Calculate fixed expenses separately (for admin-only Final Profit card)
-        const totalFixedExpenses = transactions
-            .filter(t => {
-                if (!t.timestamp || !t.isFixedExpense) return false;
-                const tDate = safeDate(t.timestamp);
-                if (!tDate) return false;
-                return tDate >= rangeStart && tDate <= rangeEnd;
-            })
-            .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-
-        const dailyData = {};
-        const supplierStats = {};
-        const categoryStats = {}; // { name, profit, sales }
-        const productStats = {}; // { id, name, qty }
-        const salesmanStats = {}; // { name, sales, marginSum, count, totalDiscount }
-
-        // Pre-fill every date in selected range so the chart is always accurate and continuous.
-        for (let cursor = new Date(rangeStart); cursor <= rangeEnd; cursor.setDate(cursor.getDate() + 1)) {
-            const key = toLocalDateKey(cursor);
-            if (key) dailyData[key] = { date: key, sales: 0, profit: 0 };
-        }
-
-        filteredTxns.forEach(t => {
-            const txnDate = safeDate(t.timestamp);
-            if (!txnDate) return;
-            const product = t.productId !== undefined && t.productId !== null
-                ? productById[String(t.productId)]
-                : null;
-            const categoryName = resolveCategoryName(t);
-
-            const saleAmount = parseFloat(t.amount) || 0;
-            const buyAmount = (parseFloat(t.purchasePriceAtTime) || 0) * (parseInt(t.quantity) || 1);
-
-            // Gross Profit: Selling - Purchase (no tax deduction)
-            let grossProfit = 0;
-
-            // If it's a repair service, we'll calculate service profit separately later, 
-            // but keep it in total sales and total profit if we want a combined view.
-            // Let's identify if it's a product or service.
-            if (t.source === 'repair' || categoryName === 'Repair Service') {
-                // The transaction notes might contain 'Parts Cost: €X'
-                let partsCost = 0;
-                if (t.notes && t.notes.includes('Parts Cost: €')) {
-                    const match = t.notes.match(/Parts Cost: €([\d.]+)/);
-                    if (match && match[1]) partsCost = parseFloat(match[1]);
-                }
-                grossProfit = saleAmount - partsCost; // Service Profit = Final Amount - Parts Cost
-
-                // We don't add repair parts cost to COGS here because COGS is for product turnover.
-                // We'll manage service profit in a dedicated variable later, but for total metrics:
-            } else {
-                grossProfit = saleAmount - buyAmount; // Product Profit
-                productProfit += grossProfit;
+            const kpiContribution = resolveRevenueContribution(txn, linkedProduct, categoryName, subCategoryName);
+            if (!isRepair) {
                 totalCOGS += buyAmount;
             }
 
-            totalSales += saleAmount;
-            totalProfit += grossProfit;
-
-            // ── Product Aggregation (Best Sellers) ──
-            if (t.productId) {
-                const productKey = String(t.productId);
-                if (!productStats[productKey]) productStats[productKey] = { name: t.name || t.desc || product?.name || 'Unknown', qty: 0, profit: 0 };
-                productStats[productKey].qty += (parseInt(t.quantity) || 1);
-                productStats[productKey].profit += grossProfit;
+            if (txn.productId) {
+                const productKey = String(txn.productId);
+                if (!productStats[productKey]) productStats[productKey] = { name: txn.name || txn.desc || linkedProduct?.name || 'Unknown', qty: 0, profit: 0 };
+                productStats[productKey].qty += quantity;
+                productStats[productKey].profit += kpiContribution;
             }
 
-            // ── Category Aggregation ──
             if (!categoryStats[categoryName]) categoryStats[categoryName] = { name: categoryName, value: 0 };
-            categoryStats[categoryName].value += grossProfit;
+            categoryStats[categoryName].value += kpiContribution;
 
-            // ── Daily Aggregation ──
-            const dateKey = toLocalDateKey(txnDate);
-            if (!dailyData[dateKey]) dailyData[dateKey] = { date: dateKey, sales: 0, profit: 0 };
-            dailyData[dateKey].sales += saleAmount;
-            dailyData[dateKey].profit += grossProfit;
-
-            // ── Supplier Aggregation ──
-            let supplierName = safeText(t.purchaseFrom) || safeText(product?.purchaseFrom) || 'Local/Unspecified';
-            if (product && safeText(product.productUrl)) {
-                if (product.productUrl.startsWith('http')) {
+            let supplierName = safeText(txn.purchaseFrom) || safeText(linkedProduct?.purchaseFrom) || 'Local/Unspecified';
+            if (linkedProduct && safeText(linkedProduct.productUrl)) {
+                if (linkedProduct.productUrl.startsWith('http')) {
                     try {
-                        supplierName = new URL(product.productUrl).hostname.replace('www.', '');
+                        supplierName = new URL(linkedProduct.productUrl).hostname.replace('www.', '');
                     } catch {
-                        supplierName = product.productUrl;
+                        supplierName = linkedProduct.productUrl;
                     }
                 } else {
-                    supplierName = product.productUrl;
+                    supplierName = linkedProduct.productUrl;
                 }
-            } else if (!supplierName) {
-                supplierName = 'Local/Unspecified';
             }
 
             if (!supplierStats[supplierName]) supplierStats[supplierName] = { name: supplierName, volume: 0, profit: 0, marginSum: 0, count: 0 };
             supplierStats[supplierName].volume += saleAmount;
-            supplierStats[supplierName].profit += grossProfit;
-
+            supplierStats[supplierName].profit += kpiContribution;
             if (saleAmount > 0) {
-                const margin = ((saleAmount - buyAmount) / saleAmount) * 100;
-                supplierStats[supplierName].marginSum += margin;
+                supplierStats[supplierName].marginSum += ((kpiContribution / saleAmount) * 100);
                 supplierStats[supplierName].count += 1;
             }
 
-            // ── Salesman Aggregation (shop sales only) ──
-            if (String(t.source || 'shop').toLowerCase() !== 'repair') {
-                const salesman = resolveSalesmanName(t);
-                if (!salesman || salesman.toLowerCase() === 'unknown') return;
-                if (!salesmanStats[salesman]) salesmanStats[salesman] = { name: salesman, sales: 0, marginSum: 0, count: 0, totalDiscount: 0, profit: 0 };
-
-                salesmanStats[salesman].sales += saleAmount;
-                salesmanStats[salesman].profit += grossProfit;
-                if (saleAmount > 0) {
-                    const margin = ((saleAmount - buyAmount) / saleAmount) * 100;
-                    salesmanStats[salesman].marginSum += margin;
-                    salesmanStats[salesman].count += 1;
+            if (!isRepair) {
+                const salesman = resolveSalesmanName(txn);
+                if (salesman && salesman.toLowerCase() !== 'unknown') {
+                    if (!salesmanStats[salesman]) salesmanStats[salesman] = { name: salesman, sales: 0, marginSum: 0, count: 0, totalDiscount: 0, profit: 0 };
+                    salesmanStats[salesman].sales += saleAmount;
+                    salesmanStats[salesman].profit += kpiContribution;
+                    if (saleAmount > 0) {
+                        salesmanStats[salesman].marginSum += ((kpiContribution / saleAmount) * 100);
+                        salesmanStats[salesman].count += 1;
+                    }
+                    salesmanStats[salesman].totalDiscount += parseFloat(txn.discount || 0);
                 }
-                salesmanStats[salesman].totalDiscount += parseFloat(t.discount || 0);
             }
         });
 
-        // 3. Process Chart Data (actuals only, no future points mixed into selected range)
-        const chartData = Object.values(dailyData).sort((a, b) => new Date(a.date) - new Date(b.date));
-        const processedChartData = chartData.map((day, index, array) => {
-            const start = Math.max(0, index - 6);
-            const subset = array.slice(start, index + 1);
-            const sum = subset.reduce((acc, curr) => acc + curr.sales, 0);
-            return { ...day, ma7: subset.length ? (sum / subset.length) : 0 };
-        });
+        const chartData = (unified.periodData || [])
+            .map((point, idx, arr) => {
+                const windowSize = periodType === 'weekly' ? 4 : 3;
+                const from = Math.max(0, idx - (windowSize - 1));
+                const slice = arr.slice(from, idx + 1);
+                const avg = slice.reduce((sum, item) => sum + item.revenue, 0) / Math.max(1, slice.length);
+                return {
+                    ...point,
+                    trend: avg,
+                    date: point.periodLabel,
+                };
+            });
 
-        // 4. Process Supplier Data
         const supplierData = Object.values(supplierStats)
-            .map(s => ({ ...s, avgMargin: s.count ? (s.marginSum / s.count) : 0 }))
+            .map((s) => ({ ...s, avgMargin: s.count ? (s.marginSum / s.count) : 0 }))
             .sort((a, b) => b.profit - a.profit)
             .slice(0, 10);
 
-        // 5. Category Data (Top 5 profitable categories only)
         const categoryData = Object.values(categoryStats)
-            .map(c => ({ ...c, value: parseFloat((c.value || 0).toFixed(2)) }))
-            .filter(c => c.value > 0)
+            .map((c) => ({ ...c, value: parseFloat((c.value || 0).toFixed(2)) }))
+            .filter((c) => c.value > 0)
             .sort((a, b) => b.value - a.value)
             .slice(0, 5);
 
-        // 6. Best Sellers (Top 5 by Qty)
         const bestSellers = Object.values(productStats)
             .sort((a, b) => b.qty - a.qty)
             .slice(0, 5);
 
-        // 6.5 Salesman Leaderboard
         const salesmanData = Object.values(salesmanStats)
-            .map(s => ({
+            .map((s) => ({
                 ...s,
                 avgMargin: s.count > 0 ? (s.marginSum / s.count) : 0,
-                avgDiscount: s.count > 0 ? (s.totalDiscount / s.count) : 0
+                avgDiscount: s.count > 0 ? (s.totalDiscount / s.count) : 0,
             }))
             .sort((a, b) => b.sales - a.sales);
 
-        // 7. Inventory Turnover Ratio = COGS / Average Inventory Value
-        // Approx: COGS / Current Stock Value
         const currentStockValue = products.reduce((acc, p) => acc + ((parseFloat(p.purchasePrice) || 0) * (parseInt(p.stock) || 0)), 0);
         const turnoverRatio = currentStockValue > 0 ? (totalCOGS / currentStockValue) : 0;
 
-        // 8. Inventory Health (Stock Aging + Value)
         const nowMs = new Date().getTime();
         let slowMovingCount = 0;
         let fastMovingCount = 0;
         let slowMovingValue = 0;
 
-        products.forEach(p => {
-            if (p.timestamp) {
-                const diffDays = (nowMs - new Date(p.timestamp).getTime()) / (1000 * 3600 * 24);
-                if (diffDays > slowMovingDays) {
-                    slowMovingCount++;
-                    slowMovingValue += ((parseFloat(p.purchasePrice) || 0) * (parseInt(p.stock) || 0));
-                } else {
-                    fastMovingCount++;
-                }
+        products.forEach((p) => {
+            if (!p.timestamp) return;
+            const diffDays = (nowMs - new Date(p.timestamp).getTime()) / (1000 * 3600 * 24);
+            if (diffDays > slowMovingDays) {
+                slowMovingCount += 1;
+                slowMovingValue += ((parseFloat(p.purchasePrice) || 0) * (parseInt(p.stock) || 0));
+            } else {
+                fastMovingCount += 1;
             }
         });
 
+        const totalProfit = unified.totals.revenue;
+        const totalFixedExpenses = unified.totals.fixedExpenses;
+        const productProfit = unified.productProfit;
+        const serviceProfit = unified.serviceProfit;
         const avgMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
-        const serviceProfit = totalProfit - productProfit;
+        const salesGrowth = unified.salesGrowth;
 
         return {
             totalSales,
@@ -367,22 +406,34 @@ export default function InsightsTab() {
             productProfit,
             serviceProfit,
             totalFixedExpenses,
-            finalProfit: totalProfit - totalFixedExpenses,
+            finalProfit: unified.totals.income,
             avgMargin,
             salesGrowth,
             turnoverRatio,
-            chartData: processedChartData,
+            chartData,
+            profitVsExpenseData: chartData.map((row) => ({
+                periodLabel: row.periodLabel,
+                profit: row.revenue,
+                expenses: row.expenses,
+            })),
+            sourceBreakdown: {
+                productSaleRevenue: unified.totals.productSaleRevenue,
+                repairProfit: unified.totals.repairProfit,
+                smallExpenses: unified.totals.smallExpenses,
+                purchases: unified.totals.purchases,
+                fixedExpenses: unified.totals.fixedExpenses,
+            },
             supplierData,
             categoryData,
             bestSellers,
             salesmanData,
             inventoryHealth: [
                 { name: `Fast Moving (<${slowMovingDays}d)`, value: fastMovingCount },
-                { name: `Slow Moving (>${slowMovingDays}d)`, value: slowMovingCount }
+                { name: `Slow Moving (>${slowMovingDays}d)`, value: slowMovingCount },
             ],
-            slowMovingValue
+            slowMovingValue,
         };
-    }, [transactions, products, dateSelection, salesmen, slowMovingDays]);
+    }, [transactions, products, repairJobs, selectedYear, timeView, salesmen, slowMovingDays, categoryContributionModeMap]);
 
     // ── Peak Hours Analysis ──
     const peakData = useMemo(() => {
@@ -450,10 +501,9 @@ export default function InsightsTab() {
 
     // ── Salary Analytics per salesman ──
     const salaryData = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
+        const year = Number(selectedYear) || new Date().getFullYear();
+        const rangeStart = new Date(year, 0, 1, 0, 0, 0, 0);
+        const rangeEnd = new Date(year, 11, 31, 23, 59, 59, 999);
 
         const perSalesman = {};
         let totalSalary = 0;
@@ -476,14 +526,13 @@ export default function InsightsTab() {
             perSalesman: Object.values(perSalesman).sort((a, b) => b.totalPaid - a.totalPaid),
             totalSalary
         };
-    }, [transactions, dateSelection]);
+    }, [transactions, selectedYear]);
 
     // ── Expense Breakdown by category ──
     const expenseData = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
+        const year = Number(selectedYear) || new Date().getFullYear();
+        const rangeStart = new Date(year, 0, 1, 0, 0, 0, 0);
+        const rangeEnd = new Date(year, 11, 31, 23, 59, 59, 999);
 
         const byCategory = {};
         let total = 0;
@@ -493,6 +542,19 @@ export default function InsightsTab() {
             if (!t.timestamp) return;
             const tDate = new Date(t.timestamp);
             if (tDate < rangeStart || tDate > rangeEnd) return;
+
+            const mode = (() => {
+                const exact = scopedCategoryKey('expense', t.category || 'Other', t.subCategory || t.subcategory || '');
+                if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, exact)) {
+                    return normalizeContributionMode(categoryContributionModeMap[exact]);
+                }
+                const fallback = scopedCategoryKey('expense', t.category || 'Other', '');
+                if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, fallback)) {
+                    return normalizeContributionMode(categoryContributionModeMap[fallback]);
+                }
+                return KPI_MODE_SALES;
+            })();
+            if (mode === KPI_MODE_EXCLUDED) return;
 
             const cat = t.category || 'Other';
             const amount = parseFloat(t.amount) || 0;
@@ -506,7 +568,7 @@ export default function InsightsTab() {
             categories: Object.values(byCategory).sort((a, b) => b.value - a.value),
             total
         };
-    }, [transactions, dateSelection]);
+    }, [transactions, selectedYear, categoryContributionModeMap]);
 
     // ── Repairs Analytics ──
     const repairsData = useMemo(() => {
@@ -562,7 +624,36 @@ export default function InsightsTab() {
                     <p className="text-slate-500 text-sm font-medium">Financial KPIs, Market Trends, and Inventory Analytics.</p>
                 </div>
 
-                <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white shadow-sm">
+                        <Calendar size={14} className="text-slate-400" />
+                        <select
+                            value={selectedYear}
+                            onChange={(e) => setSelectedYear(Number(e.target.value))}
+                            className="text-xs font-bold text-slate-700 bg-transparent outline-none"
+                        >
+                            {availableYears.map((year) => (
+                                <option key={year} value={year}>{year}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                        <button
+                            type="button"
+                            onClick={() => setTimeView('monthly')}
+                            className={`px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg transition-all ${timeView === 'monthly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                        >
+                            Monthly
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setTimeView('weekly')}
+                            className={`px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg transition-all ${timeView === 'weekly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                        >
+                            Weekly
+                        </button>
+                    </div>
+                </div>
             </div>
 
             {/* ── 1. Financial KPIs (The Big Picture) ── */}
@@ -610,7 +701,7 @@ export default function InsightsTab() {
                         value={`${analytics.salesGrowth > 0 ? '+' : ''}${analytics.salesGrowth.toFixed(1)}%`}
                         icon={<TrendingUp size={24} />}
                         color={analytics.salesGrowth >= 0 ? 'purple' : 'red'}
-                        subtext="vs Previous 7 Days"
+                        subtext={`vs Previous ${timeView === 'weekly' ? 'Week' : 'Month'}`}
                     />
                 </div>
             </div>
@@ -768,13 +859,37 @@ export default function InsightsTab() {
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                                <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => { const d = new Date(val); return `${d.getDate()}/${d.getMonth() + 1}`; }} />
+                                <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} interval={0} />
                                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
-                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value, name) => [name === 'ma7' ? `€${(Number(value) || 0).toFixed(2)}` : priceTag(Number(value) || 0), name === 'ma7' ? '7-Day Trend' : 'Daily Sales']} labelFormatter={(label) => new Date(label).toLocaleDateString()} />
+                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value, name) => [name === 'trend' ? `€${(Number(value) || 0).toFixed(2)}` : priceTag(Number(value) || 0), name === 'trend' ? `${timeView === 'weekly' ? '4-Week' : '3-Month'} Trend` : 'Sales']} />
                                 <Legend iconType="circle" />
                                 <Area type="monotone" dataKey="sales" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSales)" name="Sales" />
-                                <Line type="monotone" dataKey="ma7" stroke="#fbbf24" strokeWidth={3} dot={false} name="7-Day Trend" />
+                                <Line type="monotone" dataKey="trend" stroke="#fbbf24" strokeWidth={3} dot={false} name={timeView === 'weekly' ? '4-Week Trend' : '3-Month Trend'} />
                             </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                {/* Profit vs Expense Over Time */}
+                <div className="lg:col-span-2 xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full overflow-hidden">
+                    <div className="flex items-center justify-between mb-6">
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800">Profit vs Expense</h3>
+                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">{timeView === 'weekly' ? 'Weekly' : 'Monthly'} Comparison</p>
+                        </div>
+                        <Scale size={20} className="text-slate-300" />
+                    </div>
+                    <div className="h-80 w-full">
+                        <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
+                            <BarChart data={analytics.profitVsExpenseData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                                <XAxis dataKey="periodLabel" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} interval={0} />
+                                <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
+                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value) => priceTag(Number(value) || 0)} />
+                                <Legend iconType="circle" />
+                                <Bar dataKey="profit" name="Profit" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                            </BarChart>
                         </ResponsiveContainer>
                     </div>
                 </div>

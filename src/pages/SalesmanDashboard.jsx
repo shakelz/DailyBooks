@@ -4,6 +4,7 @@ import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardL
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { priceTag } from '../utils/currency';
+import { computeUnifiedKpiSnapshot } from '../utils/unifiedKpi';
 import SalesmanProfile from '../components/SalesmanProfile';
 import CategoryManagerModal from '../components/CategoryManagerModal';
 import RepairModal from '../components/RepairModal';
@@ -1557,9 +1558,21 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return revenueTransactions.reduce((sum, txn) => sum + resolveKpiRevenueContribution(txn), 0);
     }, [revenueTransactions, resolveKpiRevenueContribution]);
 
+    const unifiedKpiStats = useMemo(() => {
+        return computeUnifiedKpiSnapshot({
+            transactions,
+            products,
+            repairJobs,
+            rangeStart: dashboardRange.start,
+            rangeEnd: dashboardRange.end,
+            periodType: 'monthly',
+            categoryContributionModeMap,
+        });
+    }, [transactions, products, repairJobs, dashboardRange, categoryContributionModeMap]);
+
     const fallbackStats = useMemo(() => {
-        const totalRevenue = kpiRevenueAmount;
-        const totalExpenses = kpiExpenseTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+        const totalRevenue = unifiedKpiStats?.totals?.revenue || 0;
+        const totalExpenses = unifiedKpiStats?.totals?.expenses || 0;
         return {
             totals: {
                 revenue: totalRevenue,
@@ -1567,7 +1580,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 income: totalRevenue - totalExpenses,
             },
         };
-    }, [kpiExpenseTransactions, kpiRevenueAmount]);
+    }, [unifiedKpiStats]);
 
     const kpiRevenueCategoryBreakdown = useMemo(() => {
         const grouped = new Map();
