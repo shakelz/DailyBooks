@@ -279,10 +279,22 @@ function isCashbookTransaction(txn = {}) {
         || source === 'cashbook';
 }
 
-function categoryTotals(transactions) {
+function resolveChartCategoryName(txn = {}, productsById = {}) {
+    const directCategory = extractCategoryName(txn?.category || txn?.categorySnapshot || txn?.productSnapshot?.category);
+    if (String(directCategory || '').trim()) return String(directCategory).trim();
+
+    const productId = String(txn?.productId || txn?.product_id || '').trim();
+    const linkedProduct = productId ? productsById[productId] : null;
+    const linkedCategory = extractCategoryName(linkedProduct?.category || linkedProduct?.category_name || linkedProduct?.productCategory);
+    if (String(linkedCategory || '').trim()) return String(linkedCategory).trim();
+
+    return 'General';
+}
+
+function categoryTotals(transactions, productsById = {}) {
     const map = new Map();
     transactions.forEach((txn) => {
-        const cat = extractCategoryName(txn.category) || 'General';
+        const cat = resolveChartCategoryName(txn, productsById) || 'General';
         const current = map.get(cat) || { total: 0, count: 0 };
         current.total += (parseFloat(txn.amount) || 0);
         current.count += 1;
@@ -460,69 +472,38 @@ function buildReceiptHtml({
     `;
 }
 
-function MiniDonut({ items }) {
-    const [hoveredSlice, setHoveredSlice] = useState(-1);
-    const source = (items || []).slice(0, 5);
-    const total = source.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
-    const activeIndex = hoveredSlice >= 0 ? hoveredSlice : 0;
-
-    if (!source.length || total <= 0) {
-        return <div className="h-40 w-40 rounded-full border border-white/15 bg-slate-900/60" />;
-    }
-
-    const radius = 60;
-    const stroke = 18;
-    const circumference = 2 * Math.PI * radius;
-    const colors = ['#8EE9DF', '#47C6AA', '#609AF8', '#FF7A85', '#9CA3AF'];
-
-    let offsetProgress = 0;
-    const segments = source.map((row, index) => {
-        const ratio = (Number(row.total) || 0) / total;
-        const dash = ratio * circumference;
-        const segment = {
-            index,
-            name: row.name,
-            total: row.total,
-            count: row.count,
-            color: colors[index % colors.length],
-            dash,
-            offset: -offsetProgress,
-        };
-        offsetProgress += dash;
-        return segment;
-    });
+function HorizontalCategoryBars({ items = [], tone = 'sales' }) {
+    const source = Array.isArray(items) ? items : [];
+    const maxValue = Math.max(1, ...source.map((row) => Number(row?.total) || 0));
+    const isSales = tone === 'sales';
+    const barClass = isSales ? 'bg-emerald-500/85' : 'bg-rose-500/85';
+    const trackClass = isSales ? 'bg-emerald-100/70' : 'bg-rose-100/70';
+    const axisClass = isSales ? 'text-emerald-700' : 'text-rose-700';
 
     return (
-        <div className="relative h-40 w-40">
-            <svg viewBox="0 0 160 160" className="h-40 w-40 -rotate-90">
-                <circle cx="80" cy="80" r={radius} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
-                {segments.map((seg) => (
-                    <circle
-                        key={seg.index}
-                        cx="80"
-                        cy="80"
-                        r={radius}
-                        fill="none"
-                        stroke={seg.color}
-                        strokeWidth={hoveredSlice === seg.index ? stroke + 5 : stroke}
-                        strokeDasharray={`${seg.dash} ${circumference - seg.dash}`}
-                        strokeDashoffset={seg.offset}
-                        strokeLinecap="butt"
-                        className="cursor-pointer transition-all duration-200"
-                        style={{
-                            opacity: hoveredSlice === -1 || hoveredSlice === seg.index ? 1 : 0.35,
-                            filter: hoveredSlice === seg.index ? 'drop-shadow(0 0 6px rgba(14,165,233,0.45))' : 'none',
-                        }}
-                        onMouseEnter={() => setHoveredSlice(seg.index)}
-                        onMouseLeave={() => setHoveredSlice(-1)}
-                    />
-                ))}
-            </svg>
-
-            <div className={`absolute inset-0 flex flex-col items-center justify-center rounded-full pointer-events-none transition-transform duration-200 ${hoveredSlice >= 0 ? 'scale-[1.06]' : 'scale-100'}`}>
-                <p className="text-[10px] font-semibold text-slate-500">{segments[activeIndex]?.name || 'Category'}</p>
-                <p className="text-xs font-bold text-slate-700">{priceTag(segments[activeIndex]?.total || 0)}</p>
-                <p className="text-[10px] text-slate-400">{segments[activeIndex]?.count || 0} items</p>
+        <div className="w-full space-y-2">
+            <div className={`flex items-center justify-between text-[10px] font-semibold ${axisClass}`}>
+                <span>Category</span>
+                <span>Amount (€)</span>
+            </div>
+            <div className="space-y-2">
+                {source.map((row) => {
+                    const total = Number(row?.total) || 0;
+                    const widthPercent = Math.max(4, Math.round((total / maxValue) * 100));
+                    return (
+                        <div key={`cat-bar-${tone}-${row.name}`} className="grid grid-cols-[minmax(90px,120px)_1fr_auto] items-center gap-2">
+                            <p className="truncate text-[11px] font-semibold text-slate-700" title={row.name}>{row.name}</p>
+                            <div className={`h-6 w-full rounded-md ${trackClass} border border-white/60 overflow-hidden`}>
+                                <div className={`h-full ${barClass}`} style={{ width: `${widthPercent}%` }} />
+                            </div>
+                            <p className="text-[11px] font-bold text-slate-700">{priceTag(total)}</p>
+                        </div>
+                    );
+                })}
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5">
+                <span>0</span>
+                <span>{priceTag(maxValue)}</span>
             </div>
         </div>
     );
@@ -3482,8 +3463,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             : order));
     };
 
-    const salesByCategory = useMemo(() => categoryTotals(nonMobileRevenueTransactions), [nonMobileRevenueTransactions]);
-    const expensesByCategory = useMemo(() => categoryTotals(nonMobilePurchaseTransactions), [nonMobilePurchaseTransactions]);
+    const salesByCategory = useMemo(
+        () => categoryTotals(revenueTransactions, productLookup),
+        [revenueTransactions, productLookup]
+    );
+    const expensesByCategory = useMemo(
+        () => categoryTotals(purchaseTransactions, productLookup),
+        [purchaseTransactions, productLookup]
+    );
     return (
         <div className="min-h-screen bg-slate-100 text-slate-800">
             <header className="relative z-40 border-b border-blue-300/40 bg-gradient-to-r from-slate-900 via-blue-900 to-blue-700 px-3 py-2 shadow-md">
@@ -4069,22 +4056,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm">
                         <h3 className="text-sm font-black text-emerald-700 mb-2">Sales by Category</h3>
-                        <div className="min-h-44 flex items-center justify-center">
+                        <div className="min-h-44">
                             {salesByCategory.length === 0 ? (
-                                <p className="text-xs text-slate-400">No sales yet</p>
+                                <p className="text-xs text-slate-400 text-center py-14">No sales yet</p>
                             ) : (
-                                <MiniDonut items={salesByCategory} />
+                                <HorizontalCategoryBars items={salesByCategory} tone="sales" />
                             )}
                         </div>
                     </div>
 
                     <div className="rounded-2xl border border-rose-100 bg-white p-3 shadow-sm">
                         <h3 className="text-sm font-black text-rose-700 mb-2">Purchase by Category</h3>
-                        <div className="min-h-44 flex items-center justify-center">
+                        <div className="min-h-44">
                             {expensesByCategory.length === 0 ? (
-                                <p className="text-xs text-slate-400">No purchases yet</p>
+                                <p className="text-xs text-slate-400 text-center py-14">No purchases yet</p>
                             ) : (
-                                <MiniDonut items={expensesByCategory} />
+                                <HorizontalCategoryBars items={expensesByCategory} tone="expense" />
                             )}
                         </div>
                     </div>
