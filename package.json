@@ -2,7 +2,7 @@
   "name": "carefone-erp",
   "private": true,
   "version": "0.0.1",
-  "main": "main.js",
+  "main": "electron.main.js",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -51,7 +51,7 @@
     },
     "files": [
       "dist/**/*",
-      "main.js",
+      "electron.main.js",
       "package.json"
     ],
     "win": {
