@@ -9,7 +9,7 @@ import { useInventory } from '../context/InventoryContext';
 
 export default function TransactionDetailModal({ isOpen, onClose, txn, initialEditMode = false }) {
     const { isAdminLike, activeShop, billShowTax, salesmen } = useAuth();
-    const { updateTransaction, deleteTransaction, products } = useInventory();
+    const { updateTransaction, deleteTransaction, products, getLevel1Categories } = useInventory();
 
     const [isEditing, setIsEditing] = useState(initialEditMode);
     const [editData, setEditData] = useState(null);
@@ -74,10 +74,25 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
     const displayModel = txn.model || snapshotProduct.model || currentProduct?.model || 'N/A';
     const displayBrand = txn.brand || snapshotProduct.brand || currentProduct?.brand || 'N/A';
     const displayProductId = txn.productId || snapshotProduct.id || currentProduct?.id || 'N/A';
+    const txnCategoryId = String(txn?.category_id || txn?.categoryId || '').trim();
+    const categoryRows = typeof getLevel1Categories === 'function' ? (getLevel1Categories('sales') || []) : [];
+    const categoryFromId = txnCategoryId
+        ? (Array.isArray(categoryRows)
+            ? categoryRows.find((row) => {
+                if (!row || typeof row !== 'object') return false;
+                const rowId = String(row?.category_id || row?.id || '').trim();
+                return rowId && rowId === txnCategoryId;
+            })
+            : null)
+        : null;
+    const categoryNameFromId = categoryFromId && typeof categoryFromId === 'object'
+        ? String(categoryFromId?.category_name || categoryFromId?.name || '').trim()
+        : '';
     const displayCategory = txn.categorySnapshot
         || snapshotProduct.category
         || (txn.category && typeof txn.category === 'object' ? txn.category : null)
-        || (currentProduct?.category && typeof currentProduct.category === 'object' ? currentProduct.category : null);
+        || (currentProduct?.category && typeof currentProduct.category === 'object' ? currentProduct.category : null)
+        || (categoryNameFromId || null);
     const displayCategoryPath = txn.categoryPath || snapshotProduct.categoryPath || currentProduct?.categoryPath || null;
     const displayBuyAtSale = parseFloat(txn.purchasePriceAtTime ?? snapshotProduct.purchasePrice ?? 0) || 0;
     const displayUnitAtSale = parseFloat(txn.stdPriceAtTime ?? txn.unitPrice ?? snapshotProduct.sellingPrice ?? 0) || 0;

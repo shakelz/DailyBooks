@@ -1288,6 +1288,34 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
         }
 
+        const resolvedCategoryId = String(
+            dbTxn?.category_id
+            || dbTxn?.categoryId
+            || txn?.category_id
+            || txn?.categoryId
+            || ''
+        ).trim();
+
+        let fetchedCategoryRow = null;
+        if (resolvedCategoryId) {
+            const categoryColumns = ['category_id', 'id'];
+            for (const useShopScope of scopeModes) {
+                for (const column of categoryColumns) {
+                    let query = supabase.from('categories').select('*');
+                    if (useShopScope) query = query.eq('shop_id', shopId);
+                    const result = await query.eq(column, resolvedCategoryId).limit(1).maybeSingle();
+                    if (!result.error && result.data) {
+                        fetchedCategoryRow = result.data;
+                        break;
+                    }
+                    if (result.error && !isIgnorableReadError(result.error)) {
+                        break;
+                    }
+                }
+                if (fetchedCategoryRow) break;
+            }
+        }
+
         const resolvedWorkerId = String(dbTxn?.created_by || dbTxn?.worker_id || txn?.workerId || '').trim();
         let fetchedProfileRow = null;
         if (resolvedWorkerId) {
@@ -1325,6 +1353,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             amount: parseFloat(dbTxn?.amount ?? txn?.amount ?? 0) || 0,
             quantity: Math.max(1, parseInt(dbTxn?.quantity ?? txn?.quantity ?? '1', 10) || 1),
             category: dbTxn?.category ?? txn?.category ?? mergedSnapshot?.category ?? '',
+            category_id: resolvedCategoryId || null,
+            categoryId: resolvedCategoryId || null,
             notes: String(dbTxn?.notes || txn?.notes || '').trim(),
             paymentMethod: String(dbTxn?.paymentMethod || dbTxn?.payment_method || txn?.paymentMethod || 'Cash').trim() || 'Cash',
             repair_id: String(dbTxn?.repair_id || txn?.repair_id || txn?.repairId || '').trim() || null,
@@ -1350,6 +1380,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             productSnapshot: mergedSnapshot,
             transactionItems: normalizedItems.length > 0 ? normalizedItems : (Array.isArray(txn?.transactionItems) ? txn.transactionItems : []),
         };
+
+        if (!String(hydratedTxn?.category || '').trim() && fetchedCategoryRow) {
+            hydratedTxn.category = String(
+                fetchedCategoryRow?.category_name
+                || fetchedCategoryRow?.name
+                || ''
+            ).trim();
+        }
 
         return withTransactionDisplayData(hydratedTxn);
     }, [user?.shop_id, withTransactionDisplayData]);

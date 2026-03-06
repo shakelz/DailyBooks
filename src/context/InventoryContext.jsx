@@ -201,6 +201,7 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
     const normalizedCategory = cleanText(txn?.category || txn?.category_name || '');
     const normalizedPaymentMethod = cleanText(txn?.paymentMethod || txn?.payment_method || txn?.payment || '');
     const normalizedInvoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
+    const normalizedCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID || '');
 
     const rawType = cleanText(txn?.tx_type || txn?.type || 'product_sale');
     const normalizedLegacyType = (() => {
@@ -238,6 +239,8 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         unitPrice,
         paymentMethod: normalizedPaymentMethod || txn?.paymentMethod || '',
         productId: productId || null,
+        category_id: normalizedCategoryId || null,
+        categoryId: normalizedCategoryId || null,
         workerId: workerId || null,
         invoice_number: normalizedInvoiceNumber,
         invoiceNumber: normalizedInvoiceNumber,
@@ -855,7 +858,7 @@ function mergeTransactionWithSnapshot(txn, providedSnapshots = null) {
     };
 }
 
-function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
+function buildTransactionDBPayload(txn, includeId = false, shopId = '', categoryNameToId = {}) {
     void includeId;
     const occurredAt = resolveTransactionTimestamp(txn) || new Date().toISOString();
     const workerId = cleanText(txn?.workerId || txn?.worker_id);
@@ -874,6 +877,11 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
     const invoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
     const description = cleanText(txn?.desc || txn?.description || txn?.name);
     const category = cleanText(txn?.category || txn?.category_name);
+    const directCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID);
+    const mappedCategoryId = category && categoryNameToId && typeof categoryNameToId === 'object'
+        ? cleanText(categoryNameToId[category])
+        : '';
+    const categoryId = directCategoryId || mappedCategoryId;
     const paymentMethod = cleanText(txn?.paymentMethod || txn?.payment_method || txn?.payment);
 
     const payload = withShopId({
@@ -894,6 +902,8 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '') {
         product_id: productId,
         invoice_number: invoiceNumber || null,
         category: category || null,
+        category_id: categoryId || null,
+        categoryId: categoryId || null,
         payment_method: paymentMethod || null,
         paymentMethod: paymentMethod || null,
         created_by: isUuidLike(workerId) ? workerId : null,
@@ -1940,7 +1950,7 @@ export function InventoryProvider({ children }) {
                 : `txn-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
         );
         try {
-            const formattedTxn = buildTransactionDBPayload(txnWithInvoice, false, sid);
+            const formattedTxn = buildTransactionDBPayload(txnWithInvoice, false, sid, categoryNameToId);
             const normalizedTxn = normalizeTransactionRecord(
                 {
                     ...txnWithInvoice,
@@ -2100,7 +2110,7 @@ export function InventoryProvider({ children }) {
         } finally {
             dedupeKeys.forEach((key) => pendingTransactionDedupeRef.current.delete(key));
         }
-    }, [activeShopId, workerLookup, syncTransactionItems]);
+    }, [activeShopId, workerLookup, syncTransactionItems, categoryNameToId]);
 
     addTransactionRef.current = addTransaction;
 
@@ -2128,7 +2138,7 @@ export function InventoryProvider({ children }) {
             payload: { action: 'UPDATE', data: { ...hydratedTxn, shop_id: sid } }
         }).catch(e => console.error(e));
 
-        const dbUpdate = buildTransactionDBPayload(nextTxn, false, sid);
+        const dbUpdate = buildTransactionDBPayload(nextTxn, false, sid, categoryNameToId);
         const updateResult = await executeWithPrunedColumns(
             (candidate) => executeByColumnCandidates(
                 (column) => supabase.from('transactions').update(candidate).eq(column, strId).eq('shop_id', sid),
@@ -2153,7 +2163,7 @@ export function InventoryProvider({ children }) {
         }
 
         return hydratedTxn;
-    }, [transactions, activeShopId, workerLookup, syncTransactionItems]);
+    }, [transactions, activeShopId, workerLookup, syncTransactionItems, categoryNameToId]);
 
     const deleteTransaction = useCallback(async (id) => {
         const sid = cleanText(activeShopId);

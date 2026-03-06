@@ -88,6 +88,7 @@ create table if not exists public.transactions (
     amount numeric not null default 0,
     type text,
     category text,
+    category_id text,
     notes text,
     source text,
     quantity integer not null default 1,
@@ -213,6 +214,9 @@ where salesman_number is not null;
 -- 4) transactions: occurred_at + worker FK
 -- =========================================
 alter table if exists public.transactions
+    add column if not exists category_id text;
+
+alter table if exists public.transactions
     add column if not exists occurred_at timestamptz;
 
 -- Backfill occurred_at from timestamp/date/created_at where possible.
@@ -254,6 +258,9 @@ $$;
 
 create index if not exists idx_transactions_shop_occurred_at
 on public.transactions(shop_id, occurred_at desc);
+
+create index if not exists idx_transactions_shop_category_id
+on public.transactions(shop_id, category_id);
 
 -- Add FK for worker -> profiles (without forcing immediate validation).
 do $$

@@ -144,6 +144,37 @@ BEGIN
 END
 $$;
 
+-- 0.7) Transactions compatibility: optional category_id for direct category linking from transaction details
+alter table if exists public.transactions
+  add column if not exists category_id text;
+
+create index if not exists idx_transactions_shop_category_id
+  on public.transactions(shop_id, category_id);
+
+-- Optional one-time backfill: map transactions.category text -> categories(category_id/id) within same shop.
+DO $$
+BEGIN
+  IF to_regclass('public.transactions') IS NULL OR to_regclass('public.categories') IS NULL THEN
+    RETURN;
+  END IF;
+
+  UPDATE public.transactions t
+  SET category_id = coalesce(
+    nullif(trim(to_jsonb(c) ->> 'category_id'), ''),
+    nullif(trim(to_jsonb(c) ->> 'id'), '')
+  )
+  FROM public.categories c
+  WHERE coalesce(nullif(trim(t.category_id), ''), '') = ''
+    AND coalesce(nullif(trim(t.category), ''), '') <> ''
+    AND coalesce(nullif(trim(t.shop_id), ''), '') <> ''
+    AND coalesce(nullif(trim(to_jsonb(c) ->> 'shop_id'), ''), '') = trim(t.shop_id)
+    AND lower(coalesce(
+      nullif(trim(to_jsonb(c) ->> 'category_name'), ''),
+      nullif(trim(to_jsonb(c) ->> 'name'), '')
+    )) = lower(trim(t.category));
+END
+$$;
+
 -- 0.6) One-time backfill: seed KPI category settings from categories table (dual scope)
 -- Rules:
 --  - For every category/sub-category pair, seed BOTH scopes: sales + expense
