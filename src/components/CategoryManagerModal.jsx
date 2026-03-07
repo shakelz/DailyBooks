@@ -27,6 +27,13 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const addL1Categories = getLevel1Categories(addScope);
     const updateL1Categories = getLevel1Categories(updateScope);
     const updateL2Categories = selectedUpdateL1 ? getLevel2Categories(selectedUpdateL1, updateScope) : [];
+    const clearGlobalInputLocks = () => {
+        const targets = [document.documentElement, document.body, document.getElementById('root')];
+        targets.forEach((target) => {
+            if (!target || !target.classList) return;
+            target.classList.remove('pointer-events-none');
+        });
+    };
 
     // Reset when tab changes
     useEffect(() => {
@@ -53,13 +60,17 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     }, [updateScope]);
 
     useEffect(() => {
-        if (!isOpen) return undefined;
+        if (!isOpen) {
+            clearGlobalInputLocks();
+            return undefined;
+        }
 
         previousFocusedElementRef.current = document.activeElement instanceof HTMLElement
             ? document.activeElement
             : null;
         const previousOverflow = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
+        clearGlobalInputLocks();
 
         const handleEscape = (event) => {
             if (event.key !== 'Escape') return;
@@ -71,6 +82,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         return () => {
             window.removeEventListener('keydown', handleEscape);
             document.body.style.overflow = previousOverflow;
+            clearGlobalInputLocks();
             const target = previousFocusedElementRef.current;
             if (target && typeof target.focus === 'function') {
                 window.requestAnimationFrame(() => target.focus());

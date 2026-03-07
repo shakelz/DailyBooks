@@ -248,6 +248,10 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
       categoryName = 'General';
     }
   }
+  if (normalizeToken(categoryName) === 'general') {
+    if (subCategoryName) categoryName = subCategoryName;
+    else if (descriptionFallback) categoryName = descriptionFallback;
+  }
 
   return {
     linkedProduct,

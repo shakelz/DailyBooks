@@ -417,6 +417,18 @@ function removeTransactionByIdentity(rows = [], target = {}) {
     );
 }
 
+function getPrimaryTransactionId(txn = {}) {
+    return cleanText(txn?.transaction_id || txn?.transactionId || txn?.id);
+}
+
+function hasTransactionIdInRows(rows = [], transactionId = '') {
+    const targetId = cleanText(transactionId);
+    if (!targetId) return false;
+    return (Array.isArray(rows) ? rows : []).some((row) => (
+        cleanText(row?.transaction_id || row?.transactionId || row?.id) === targetId
+    ));
+}
+
 function normalizeCategoryNameForMatch(value) {
     return cleanText(value).replace(/\s+/g, ' ').toLowerCase();
 }
@@ -1286,10 +1298,22 @@ export function InventoryProvider({ children }) {
         }
 
         let cancelled = false;
+        const knownShopIds = new Set([sid]);
+        const addKnownShopId = (value = '') => {
+            const normalized = cleanText(value);
+            if (!normalized) return;
+            knownShopIds.add(normalized);
+        };
+        const isKnownShopId = (value = '') => {
+            const normalized = cleanText(value);
+            if (!normalized) return false;
+            return knownShopIds.has(normalized);
+        };
 
         const fetchInitialData = async () => {
             const shopCandidates = await resolveShopIdCandidates(sid);
             const filterCandidates = shopCandidates.length > 0 ? shopCandidates : [sid];
+            filterCandidates.forEach((candidate) => addKnownShopId(candidate));
             const [invResult, txnResult, catResult, itemResult, profileResult] = await Promise.all([
                 selectRowsByShopCandidates('inventory', (query) => query.select('*'), filterCandidates),
                 selectRowsByShopCandidates('transactions', (query) => query.select('*'), filterCandidates),
@@ -1356,6 +1380,10 @@ export function InventoryProvider({ children }) {
             }
         };
         fetchInitialData();
+        resolveShopIdCandidates(sid).then((candidates) => {
+            if (cancelled) return;
+            (Array.isArray(candidates) ? candidates : []).forEach((candidate) => addKnownShopId(candidate));
+        }).catch(() => undefined);
 
         // Listen for custom stock deductions (e.g., from repair parts used)
         const handleStockUpdate = (e) => {
@@ -1371,140 +1399,162 @@ export function InventoryProvider({ children }) {
         };
         window.addEventListener('update-inventory-stock', handleStockUpdate);
 
-        const shopFilter = `shop_id=eq.${sid}`;
+        let syncSubscription = null;
+        const attachRealtimeSubscription = async () => {
+            const realtimeCandidates = await resolveShopIdCandidates(sid);
+            if (cancelled) return;
+            (realtimeCandidates.length > 0 ? realtimeCandidates : [sid]).forEach((candidate) => addKnownShopId(candidate));
 
-        // Listen for live updates via Supabase Realtime (Transactions, Inventory, Categories)
-        const syncSubscription = supabase.channel(`public:unified_sync:${sid}`)
-            // TRANSACTIONS
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
-                const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
-                setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
-            })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
-                const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
-                setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
-            })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
-                setTransactions((prev) => removeTransactionByIdentity(prev, payload.old || {}));
-            })
-            // INVENTORY (Products)
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
-                const incoming = normalizeInventoryRecord(payload.new, categoryLookupsRef.current);
-                setProducts(prev => {
-                    if (prev.some(p => String(p.id) === String(payload.new.id))) return prev;
-                    return [incoming, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-                });
-            })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
-                setProducts(prev => prev.map(p =>
-                    String(p.id) === String(payload.new.id)
-                        ? normalizeInventoryRecord({ ...p, ...payload.new }, categoryLookupsRef.current)
-                        : p
-                ));
-            })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
-                setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
-            })
-            // CATEGORIES
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
-                const newCat = withCategoryScope(normalizeCategoryRecord(payload.new, categoryLookupsRef.current.byId), readCategoryScopeMap(sid));
-                if (newCat.level === 1) {
-                    setL1Categories(prev => {
-                        if (prev.some(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name))) return prev;
-                        return [...prev, newCat];
+            const shopFilter = `shop_id=eq.${sid}`;
+            syncSubscription = supabase.channel(`public:unified_sync:${sid}`)
+                // TRANSACTIONS
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, (payload) => {
+                    if (!isKnownShopId(payload?.new?.shop_id)) return;
+                    const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
+                    const incomingTxnId = getPrimaryTransactionId(mergedTxn);
+                    setTransactions((prev) => {
+                        if (incomingTxnId && hasTransactionIdInRows(prev, incomingTxnId)) return prev;
+                        return upsertTransactionByIdentity(prev, mergedTxn);
                     });
-                } else if (newCat.level === 2) {
-                    setL2Map(prev => {
-                        const parentBucket = Object.keys(prev || {}).find((key) => normalizeCategoryNameForMatch(key) === normalizeCategoryNameForMatch(newCat.parent)) || newCat.parent;
-                        const currentList = prev[parentBucket] || [];
-                        if (currentList.some(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name))) return prev;
-                        return { ...prev, [parentBucket]: [...currentList, { ...newCat, parent: parentBucket }] };
-                    });
-                }
-            })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
-                const updated = withCategoryScope(normalizeCategoryRecord(payload.new, categoryLookupsRef.current.byId), readCategoryScopeMap(sid));
-                if (updated.level === 1) {
-                    setL1Categories(prev => prev.map(c => {
-                        const cName = typeof c === 'object' ? c.name : c;
-                        if ((typeof c === 'object' && c.id === updated.id) || cName === updated.name) {
-                            const currentScope = typeof c === 'object' ? c.scope : undefined;
-                            return { ...updated, scope: updated.scope || currentScope || CATEGORY_SCOPE_SALES };
-                        }
-                        return c;
-                    }));
-                } else if (updated.level === 2) {
-                    setL2Map(prev => {
-                        const next = { ...prev };
-                        if (next[updated.parent]) {
-                            next[updated.parent] = next[updated.parent].map(c =>
-                                ((typeof c === 'object' && c.id === updated.id) || (typeof c === 'object' ? c.name : c) === updated.name)
-                                    ? { ...updated, scope: updated.scope || (typeof c === 'object' ? c.scope : undefined) || CATEGORY_SCOPE_SALES }
-                                    : c
-                            );
-                        }
-                        return next;
-                    });
-                }
-            })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
-                const deleted = normalizeCategoryRecord(payload.old, categoryLookupsRef.current.byId);
-                const deletedId = deleted.id;
-                if (deleted?.level === 1) {
-                    removeCategoryScopeBranch(sid, deleted?.name || '');
-                } else if (deleted?.level === 2) {
-                    removeCategoryScopeEntry(sid, 2, deleted?.name || '', deleted?.parent || '');
-                }
-                setL1Categories(prev => prev.filter(c => typeof c !== 'object' || c.id !== deletedId));
-                setL2Map(prev => {
-                    const next = { ...prev };
-                    Object.keys(next).forEach(key => {
-                        next[key] = next[key].filter(c => typeof c !== 'object' || c.id !== deletedId);
-                    });
-                    return next;
-                });
-            })
-            // Fallback Broadcasts
-            .on('broadcast', { event: 'inventory_sync' }, (payload) => {
-                const { action, data } = payload.payload || {};
-                if (!data || cleanText(data.shop_id) !== sid) return;
-
-                if (action === 'UPDATE') {
-                    setProducts(prev => prev.map(p =>
-                        String(p.id) === String(data.id)
-                            ? normalizeInventoryRecord({ ...p, ...data }, categoryLookupsRef.current)
-                            : p
-                    ));
-                } else if (action === 'INSERT') {
-                    const incoming = normalizeInventoryRecord(data, categoryLookupsRef.current);
+                })
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions' }, (payload) => {
+                    if (!isKnownShopId(payload?.new?.shop_id || payload?.old?.shop_id)) return;
+                    const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
+                    setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
+                })
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions' }, (payload) => {
+                    if (!isKnownShopId(payload?.old?.shop_id)) return;
+                    setTransactions((prev) => removeTransactionByIdentity(prev, payload.old || {}));
+                })
+                // INVENTORY (Products)
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
+                    const incoming = normalizeInventoryRecord(payload.new, categoryLookupsRef.current);
                     setProducts(prev => {
-                        if (prev.some(p => String(p.id) === String(data.id))) return prev;
+                        if (prev.some(p => String(p.id) === String(payload.new.id))) return prev;
                         return [incoming, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                     });
-                } else if (action === 'DELETE') {
-                    setProducts(prev => prev.filter(p => String(p.id) !== String(data.id)));
-                }
-            })
-            .on('broadcast', { event: 'transaction_sync' }, (payload) => {
-                const { action, data } = payload.payload || {};
-                if (!data || cleanText(data.shop_id) !== sid) return;
+                })
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
+                    setProducts(prev => prev.map(p =>
+                        String(p.id) === String(payload.new.id)
+                            ? normalizeInventoryRecord({ ...p, ...payload.new }, categoryLookupsRef.current)
+                            : p
+                    ));
+                })
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
+                    setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
+                })
+                // CATEGORIES
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
+                    const newCat = withCategoryScope(normalizeCategoryRecord(payload.new, categoryLookupsRef.current.byId), readCategoryScopeMap(sid));
+                    if (newCat.level === 1) {
+                        setL1Categories(prev => {
+                            if (prev.some(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name))) return prev;
+                            return [...prev, newCat];
+                        });
+                    } else if (newCat.level === 2) {
+                        setL2Map(prev => {
+                            const parentBucket = Object.keys(prev || {}).find((key) => normalizeCategoryNameForMatch(key) === normalizeCategoryNameForMatch(newCat.parent)) || newCat.parent;
+                            const currentList = prev[parentBucket] || [];
+                            if (currentList.some(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name))) return prev;
+                            return { ...prev, [parentBucket]: [...currentList, { ...newCat, parent: parentBucket }] };
+                        });
+                    }
+                })
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
+                    const updated = withCategoryScope(normalizeCategoryRecord(payload.new, categoryLookupsRef.current.byId), readCategoryScopeMap(sid));
+                    if (updated.level === 1) {
+                        setL1Categories(prev => prev.map(c => {
+                            const cName = typeof c === 'object' ? c.name : c;
+                            if ((typeof c === 'object' && c.id === updated.id) || cName === updated.name) {
+                                const currentScope = typeof c === 'object' ? c.scope : undefined;
+                                return { ...updated, scope: updated.scope || currentScope || CATEGORY_SCOPE_SALES };
+                            }
+                            return c;
+                        }));
+                    } else if (updated.level === 2) {
+                        setL2Map(prev => {
+                            const next = { ...prev };
+                            if (next[updated.parent]) {
+                                next[updated.parent] = next[updated.parent].map(c =>
+                                    ((typeof c === 'object' && c.id === updated.id) || (typeof c === 'object' ? c.name : c) === updated.name)
+                                        ? { ...updated, scope: updated.scope || (typeof c === 'object' ? c.scope : undefined) || CATEGORY_SCOPE_SALES }
+                                        : c
+                                );
+                            }
+                            return next;
+                        });
+                    }
+                })
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
+                    const deleted = normalizeCategoryRecord(payload.old, categoryLookupsRef.current.byId);
+                    const deletedId = deleted.id;
+                    if (deleted?.level === 1) {
+                        removeCategoryScopeBranch(sid, deleted?.name || '');
+                    } else if (deleted?.level === 2) {
+                        removeCategoryScopeEntry(sid, 2, deleted?.name || '', deleted?.parent || '');
+                    }
+                    setL1Categories(prev => prev.filter(c => typeof c !== 'object' || c.id !== deletedId));
+                    setL2Map(prev => {
+                        const next = { ...prev };
+                        Object.keys(next).forEach(key => {
+                            next[key] = next[key].filter(c => typeof c !== 'object' || c.id !== deletedId);
+                        });
+                        return next;
+                    });
+                })
+                // Fallback Broadcasts
+                .on('broadcast', { event: 'inventory_sync' }, (payload) => {
+                    const { action, data } = payload.payload || {};
+                    if (!data || !isKnownShopId(data.shop_id)) return;
 
-                if (action === 'INSERT') {
-                    const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(data, { workersById: workerLookupRef.current }));
-                    setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
-                } else if (action === 'UPDATE') {
-                    const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(data, { workersById: workerLookupRef.current }));
-                    setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
-                } else if (action === 'DELETE') {
-                    setTransactions((prev) => removeTransactionByIdentity(prev, data || {}));
-                }
-            })
-            .subscribe();
+                    if (action === 'UPDATE') {
+                        setProducts(prev => prev.map(p =>
+                            String(p.id) === String(data.id)
+                                ? normalizeInventoryRecord({ ...p, ...data }, categoryLookupsRef.current)
+                                : p
+                        ));
+                    } else if (action === 'INSERT') {
+                        const incoming = normalizeInventoryRecord(data, categoryLookupsRef.current);
+                        setProducts(prev => {
+                            if (prev.some(p => String(p.id) === String(data.id))) return prev;
+                            return [incoming, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                        });
+                    } else if (action === 'DELETE') {
+                        setProducts(prev => prev.filter(p => String(p.id) !== String(data.id)));
+                    }
+                })
+                .on('broadcast', { event: 'transaction_sync' }, (payload) => {
+                    const { action, data } = payload.payload || {};
+                    if (!data || !isKnownShopId(data.shop_id)) return;
+
+                    if (action === 'INSERT') {
+                        const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(data, { workersById: workerLookupRef.current }));
+                        const incomingTxnId = getPrimaryTransactionId(mergedTxn);
+                        setTransactions((prev) => {
+                            if (incomingTxnId && hasTransactionIdInRows(prev, incomingTxnId)) return prev;
+                            return upsertTransactionByIdentity(prev, mergedTxn);
+                        });
+                    } else if (action === 'UPDATE') {
+                        const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(data, { workersById: workerLookupRef.current }));
+                        setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
+                    } else if (action === 'DELETE') {
+                        setTransactions((prev) => removeTransactionByIdentity(prev, data || {}));
+                    }
+                })
+                .subscribe();
+        };
+
+        attachRealtimeSubscription().catch((error) => {
+            console.error('Failed to attach realtime subscription:', error);
+        });
 
         return () => {
             cancelled = true;
             window.removeEventListener('update-inventory-stock', handleStockUpdate);
-            supabase.removeChannel(syncSubscription);
+            if (syncSubscription) {
+                supabase.removeChannel(syncSubscription);
+            }
         };
     }, [activeShopId]);
 

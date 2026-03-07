@@ -2111,38 +2111,50 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 ...((salesKpiContributionCategoryRows || []).map((row) => ({ row, scope: KPI_SCOPE_SALES }))),
                 ...((expenseKpiContributionCategoryRows || []).map((row) => ({ row, scope: KPI_SCOPE_EXPENSE }))),
             ];
-            const payloadRows = allScopedRows.map(({ row, scope }) => ({
-                shop_id: settingsShopId,
-                kpi_scope: scope,
-                category_name: row.categoryName,
-                sub_category_name: row.subCategoryName,
-                contribution_mode: resolveCategoryRowMode(row, scope),
-                updated_at: new Date().toISOString(),
-            }));
-
-            const deleteResult = await supabase
-                .from('kpi_profit_category_settings')
-                .delete()
-                .eq('shop_id', settingsShopId);
-
-            if (deleteResult.error) {
-                if (isMissingDbObjectError(deleteResult.error)) {
-                    dbMissing = true;
-                } else {
-                    throw new Error(deleteResult.error.message || 'Failed to clear previous KPI category config.');
-                }
-            }
+            const payloadRows = Array.from(
+                allScopedRows.reduce((acc, { row, scope }) => {
+                    const normalizedScope = normalizeKpiScope(scope);
+                    const categoryName = String(row?.categoryName || '').trim();
+                    const subCategoryName = String(row?.subCategoryName || '').trim();
+                    if (!categoryName) return acc;
+                    const dedupeKey = `${settingsShopId}::${normalizedScope}::${categoryName}::${subCategoryName}`;
+                    acc.set(dedupeKey, {
+                        shop_id: settingsShopId,
+                        kpi_scope: normalizedScope,
+                        category_name: categoryName,
+                        sub_category_name: subCategoryName,
+                        contribution_mode: resolveCategoryRowMode(row, normalizedScope),
+                        updated_at: new Date().toISOString(),
+                    });
+                    return acc;
+                }, new Map()).values()
+            );
 
             if (!dbMissing && payloadRows.length > 0) {
-                const insertResult = await supabase
+                const upsertResult = await supabase
                     .from('kpi_profit_category_settings')
-                    .insert(payloadRows);
-                if (insertResult.error) {
-                    if (isMissingDbObjectError(insertResult.error)) {
+                    .upsert(payloadRows, {
+                        onConflict: 'shop_id,kpi_scope,category_name,sub_category_name',
+                    });
+                if (upsertResult.error) {
+                    if (isMissingDbObjectError(upsertResult.error)) {
                         dbMissing = true;
                     } else {
-                        throw new Error(insertResult.error.message || 'Failed to save KPI category config.');
+                        throw new Error(upsertResult.error.message || 'Failed to save KPI category config.');
                     }
+                } else {
+                    const keepKeys = new Set(payloadRows.map((row) => makeScopedProfitCategoryKey(row.kpi_scope, row.category_name, row.sub_category_name)));
+                    setCategoryContributionModeMap((prev) => {
+                        const next = {};
+                        Object.keys(prev || {}).forEach((key) => {
+                            if (!key.includes('::id::') && !keepKeys.has(key)) return;
+                            next[key] = prev[key];
+                        });
+                        payloadRows.forEach((row) => {
+                            next[makeScopedProfitCategoryKey(row.kpi_scope, row.category_name, row.sub_category_name)] = normalizeKpiContributionMode(row.contribution_mode);
+                        });
+                        return next;
+                    });
                 }
             }
 

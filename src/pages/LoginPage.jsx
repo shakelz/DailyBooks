@@ -302,11 +302,11 @@ export default function LoginPage({ mode = 'salesman' }) {
                 <div className="mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/70 p-3">
                     <button
                         type="button"
-                        id="admin-login-cta"
+                        id="admin-portal-cta"
                         onClick={() => navigate(ADMIN_LOGIN_PATH)}
                         className="w-full rounded-xl border border-blue-400/40 bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 transition-all hover:from-blue-500 hover:to-cyan-400"
                     >
-                        Admin Login
+                        Admin Portal
                     </button>
                     <p className="mt-2 text-center text-[11px] text-slate-400">For authorized management access only.</p>
                 </div>
