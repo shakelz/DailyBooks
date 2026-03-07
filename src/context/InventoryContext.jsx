@@ -348,7 +348,7 @@ function getShopScopedRowIdentityKey(tableName = '', row = {}, index = 0) {
     };
 
     if (table === 'transactions') {
-        return tryCandidates([row?.id, row?.transaction_id, row?.transactionId]) || fallback;
+        return tryCandidates([row?.transaction_id, row?.transactionId, row?.id]) || fallback;
     }
     if (table === 'transaction_items') {
         return tryCandidates([
@@ -376,7 +376,7 @@ function getShopScopedRowIdentityKey(tableName = '', row = {}, index = 0) {
 }
 
 function getPrimaryTransactionIdentity(txn = {}) {
-    const candidates = [txn?.id, txn?.transaction_id, txn?.transactionId];
+    const candidates = [txn?.transaction_id, txn?.transactionId, txn?.id];
     for (const candidate of candidates) {
         const normalized = cleanText(candidate);
         if (normalized) return normalized;

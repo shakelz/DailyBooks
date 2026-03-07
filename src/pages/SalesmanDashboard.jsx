@@ -215,9 +215,9 @@ function getTransactionInvoiceNumber(txn = {}) {
 
 function getTransactionIdentityKey(txn = {}) {
     const candidates = [
-        txn?.id,
         txn?.transaction_id,
         txn?.transactionId,
+        txn?.id,
     ];
     for (const candidate of candidates) {
         const normalized = String(candidate || '').trim();
@@ -1141,14 +1141,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         () => rangeTransactions.filter((txn) => {
             const txType = String(txn.tx_type || txn.type || '').trim().toLowerCase();
             const source = String(txn.source || txn.tx_source || '').trim().toLowerCase();
-            const isRepairSource = source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_');
-            const isRevenueType = txType === 'product_sale'
-                || txType === 'repair_amount'
-                || txType === 'adjustment_amount'
-                || txType === 'income'
-                || txType === 'sale'
-                || isRepairSource;
-            if (!isRevenueType) return false;
+            const isStrictProductSale = txType === 'product_sale' && source === 'shop';
+            if (!isStrictProductSale) return false;
             if (isCashbookTransaction(txn)) return false;
             return true;
         }),
