@@ -334,27 +334,66 @@ function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
-function getTransactionIdentityCandidates(txn = {}) {
-    const seen = new Set();
-    const identities = [];
-    const push = (value) => {
-        const normalized = value === null || value === undefined ? '' : String(value).trim();
-        if (!normalized || seen.has(normalized)) return;
-        seen.add(normalized);
-        identities.push(normalized);
+function getShopScopedRowIdentityKey(tableName = '', row = {}, index = 0) {
+    const table = cleanText(tableName).toLowerCase();
+    const fallback = `${table || 'row'}:idx:${index}`;
+    if (!row || typeof row !== 'object') return fallback;
+
+    const tryCandidates = (values = []) => {
+        for (const value of values) {
+            const normalized = cleanText(value);
+            if (normalized) return `${table}:${normalized}`;
+        }
+        return '';
     };
 
-    push(txn?.id);
-    push(txn?.transaction_id);
-    push(txn?.transactionId);
-    return identities;
+    if (table === 'transactions') {
+        return tryCandidates([row?.id, row?.transaction_id, row?.transactionId]) || fallback;
+    }
+    if (table === 'transaction_items') {
+        return tryCandidates([
+            row?.id,
+            row?.item_id,
+            row?.transaction_item_id,
+            `${cleanText(row?.transaction_id || row?.transactionId)}::${cleanText(row?.product_id || row?.productId)}::${cleanText(row?.created_at)}`,
+        ]) || fallback;
+    }
+    if (table === 'inventory') {
+        return tryCandidates([row?.id, row?.product_id, row?.productId, row?.barcode]) || fallback;
+    }
+    if (table === 'categories') {
+        return tryCandidates([
+            row?.id,
+            row?.category_id,
+            row?.categoryId,
+            `${cleanText(row?.parent_category_id || row?.parent_id)}::${cleanText(row?.category_name || row?.name)}`,
+        ]) || fallback;
+    }
+    if (table === 'profiles') {
+        return tryCandidates([row?.id, row?.user_id, row?.profile_id, row?.email]) || fallback;
+    }
+    return tryCandidates([row?.id, row?.uuid, row?.user_id, row?.created_at]) || fallback;
+}
+
+function getPrimaryTransactionIdentity(txn = {}) {
+    const candidates = [txn?.id, txn?.transaction_id, txn?.transactionId];
+    for (const candidate of candidates) {
+        const normalized = cleanText(candidate);
+        if (normalized) return normalized;
+    }
+    return '';
+}
+
+function getTransactionIdentityCandidates(txn = {}) {
+    const primary = getPrimaryTransactionIdentity(txn);
+    return primary ? [primary] : [];
 }
 
 function hasSharedTransactionIdentity(left = {}, right = {}) {
-    const leftIds = getTransactionIdentityCandidates(left);
-    const rightIds = getTransactionIdentityCandidates(right);
-    if (!leftIds.length || !rightIds.length) return false;
-    return leftIds.some((id) => rightIds.includes(id));
+    const leftPrimary = getPrimaryTransactionIdentity(left);
+    const rightPrimary = getPrimaryTransactionIdentity(right);
+    if (!leftPrimary || !rightPrimary) return false;
+    return leftPrimary === rightPrimary;
 }
 
 function sortTransactionsByNewest(rows = []) {
@@ -418,14 +457,14 @@ function removeTransactionByIdentity(rows = [], target = {}) {
 }
 
 function getPrimaryTransactionId(txn = {}) {
-    return cleanText(txn?.transaction_id || txn?.transactionId || txn?.id);
+    return getPrimaryTransactionIdentity(txn);
 }
 
 function hasTransactionIdInRows(rows = [], transactionId = '') {
     const targetId = cleanText(transactionId);
     if (!targetId) return false;
     return (Array.isArray(rows) ? rows : []).some((row) => (
-        cleanText(row?.transaction_id || row?.transactionId || row?.id) === targetId
+        getPrimaryTransactionIdentity(row) === targetId
     ));
 }
 
@@ -1216,8 +1255,10 @@ export function InventoryProvider({ children }) {
             return { data: [], error: { message: 'No shop filter candidate found.' } };
         }
 
-        let firstEmptySuccess = null;
+        let hadSuccess = false;
         let lastError = null;
+        const aggregatedRows = [];
+        const seenRowKeys = new Set();
 
         for (const candidate of candidates) {
             let query = supabase.from(tableName);
@@ -1225,8 +1266,15 @@ export function InventoryProvider({ children }) {
             const result = await query.eq('shop_id', candidate);
 
             if (!result.error) {
-                if (Array.isArray(result.data) && result.data.length > 0) return result;
-                if (!firstEmptySuccess) firstEmptySuccess = result;
+                hadSuccess = true;
+                if (Array.isArray(result.data) && result.data.length > 0) {
+                    result.data.forEach((row, index) => {
+                        const identityKey = getShopScopedRowIdentityKey(tableName, row, index);
+                        if (seenRowKeys.has(identityKey)) return;
+                        seenRowKeys.add(identityKey);
+                        aggregatedRows.push(row);
+                    });
+                }
                 continue;
             }
 
@@ -1237,7 +1285,12 @@ export function InventoryProvider({ children }) {
             return result;
         }
 
-        if (firstEmptySuccess) return firstEmptySuccess;
+        if (aggregatedRows.length > 0) {
+            return { data: aggregatedRows, error: null };
+        }
+        if (hadSuccess) {
+            return { data: [], error: null };
+        }
         if (lastError) return { data: null, error: lastError };
         return { data: [], error: null };
     }, []);
