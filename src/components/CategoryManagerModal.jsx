@@ -3,6 +3,7 @@ import { useInventory } from '../context/InventoryContext';
 
 export default function CategoryManagerModal({ isOpen, onClose }) {
     const { getLevel1Categories, getLevel2Categories, addLevel1Category, addLevel2Category, deleteCategory } = useInventory();
+    const previousFocusedElementRef = useRef(null);
 
     // Tabs: 'add' | 'update'
     const [activeTab, setActiveTab] = useState('add');
@@ -24,7 +25,6 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const updateFileInputRef = useRef(null);
 
     const addL1Categories = getLevel1Categories(addScope);
-    const l2Categories = mainCatSelect && mainCatSelect !== 'NEW_ADD' ? getLevel2Categories(mainCatSelect, addScope) : [];
     const updateL1Categories = getLevel1Categories(updateScope);
     const updateL2Categories = selectedUpdateL1 ? getLevel2Categories(selectedUpdateL1, updateScope) : [];
 
@@ -51,6 +51,32 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setSelectedUpdateL2('');
         setEditingCategory(null);
     }, [updateScope]);
+
+    useEffect(() => {
+        if (!isOpen) return undefined;
+
+        previousFocusedElementRef.current = document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+
+        const handleEscape = (event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            onClose?.();
+        };
+        window.addEventListener('keydown', handleEscape);
+
+        return () => {
+            window.removeEventListener('keydown', handleEscape);
+            document.body.style.overflow = previousOverflow;
+            const target = previousFocusedElementRef.current;
+            if (target && typeof target.focus === 'function') {
+                window.requestAnimationFrame(() => target.focus());
+            }
+        };
+    }, [isOpen, onClose]);
 
     if (!isOpen) return null;
 
@@ -96,11 +122,11 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             return alert("Select ➕ Add New... to create a new category. To update existing categories, use the Update tab.");
         }
 
-        setMainCatSelect('');
-        setNewMainCatStr('');
-        setSubCatSelect('');
-        setNewSubCatStr('');
-        alert("Category Added Successfully!");
+            setMainCatSelect('');
+            setNewMainCatStr('');
+            setSubCatSelect('');
+            setNewSubCatStr('');
+            onClose?.();
         } catch (error) {
             alert(error?.message || 'Failed to save category in database.');
         }

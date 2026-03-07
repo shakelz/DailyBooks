@@ -279,6 +279,7 @@ export default function LoginPage({ mode = 'salesman' }) {
 
                 <div className="grid grid-cols-3 gap-3">
                     <button
+                        type="button"
                         onClick={handleBackspace}
                         id="pin-btn-backspace"
                         className="h-16 rounded-2xl bg-slate-800/80 border border-slate-700/50 text-slate-400 hover:bg-slate-700/80 hover:text-white active:scale-95 transition-all duration-150 flex items-center justify-center cursor-pointer"
@@ -288,6 +289,7 @@ export default function LoginPage({ mode = 'salesman' }) {
                         </svg>
                     </button>
                     <button
+                        type="button"
                         onClick={() => handlePinInput('0')}
                         id="pin-btn-0"
                         className="h-16 rounded-2xl bg-slate-800/80 border border-slate-700/50 text-white text-2xl font-semibold hover:bg-slate-700/80 hover:border-slate-600 active:scale-95 transition-all duration-150 backdrop-blur-sm cursor-pointer"
@@ -295,6 +297,18 @@ export default function LoginPage({ mode = 'salesman' }) {
                         0
                     </button>
                     <div className="h-16" />
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/70 p-3">
+                    <button
+                        type="button"
+                        id="admin-login-cta"
+                        onClick={() => navigate(ADMIN_LOGIN_PATH)}
+                        className="w-full rounded-xl border border-blue-400/40 bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 transition-all hover:from-blue-500 hover:to-cyan-400"
+                    >
+                        Admin Login
+                    </button>
+                    <p className="mt-2 text-center text-[11px] text-slate-400">For authorized management access only.</p>
                 </div>
             </div>
         </div>

@@ -334,6 +334,89 @@ function cleanText(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function getTransactionIdentityCandidates(txn = {}) {
+    const seen = new Set();
+    const identities = [];
+    const push = (value) => {
+        const normalized = value === null || value === undefined ? '' : String(value).trim();
+        if (!normalized || seen.has(normalized)) return;
+        seen.add(normalized);
+        identities.push(normalized);
+    };
+
+    push(txn?.id);
+    push(txn?.transaction_id);
+    push(txn?.transactionId);
+    return identities;
+}
+
+function hasSharedTransactionIdentity(left = {}, right = {}) {
+    const leftIds = getTransactionIdentityCandidates(left);
+    const rightIds = getTransactionIdentityCandidates(right);
+    if (!leftIds.length || !rightIds.length) return false;
+    return leftIds.some((id) => rightIds.includes(id));
+}
+
+function sortTransactionsByNewest(rows = []) {
+    return [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
+        const aMs = Date.parse(cleanText(a?.timestamp) || cleanText(a?.created_at) || cleanText(a?.occurred_at) || '');
+        const bMs = Date.parse(cleanText(b?.timestamp) || cleanText(b?.created_at) || cleanText(b?.occurred_at) || '');
+        const safeA = Number.isFinite(aMs) ? aMs : 0;
+        const safeB = Number.isFinite(bMs) ? bMs : 0;
+        return safeB - safeA;
+    });
+}
+
+function dedupeTransactionsByIdentity(rows = []) {
+    const sorted = sortTransactionsByNewest(rows);
+    return sorted.reduce((acc, row) => {
+        if (!row || typeof row !== 'object') return acc;
+        const existingIndex = acc.findIndex((entry) => hasSharedTransactionIdentity(entry, row));
+        if (existingIndex === -1) {
+            acc.push(row);
+            return acc;
+        }
+        acc[existingIndex] = { ...row, ...acc[existingIndex] };
+        return acc;
+    }, []);
+}
+
+function upsertTransactionByIdentity(rows = [], incoming = {}) {
+    const safeRows = Array.isArray(rows) ? rows : [];
+    if (!incoming || typeof incoming !== 'object') {
+        return dedupeTransactionsByIdentity(safeRows);
+    }
+
+    const incomingIds = getTransactionIdentityCandidates(incoming);
+    if (!incomingIds.length) {
+        return dedupeTransactionsByIdentity([incoming, ...safeRows]);
+    }
+
+    let matched = false;
+    const mergedRows = safeRows.map((row) => {
+        if (!hasSharedTransactionIdentity(row, incoming)) return row;
+        matched = true;
+        return { ...row, ...incoming };
+    });
+
+    if (!matched) {
+        mergedRows.unshift(incoming);
+    }
+
+    return dedupeTransactionsByIdentity(mergedRows);
+}
+
+function removeTransactionByIdentity(rows = [], target = {}) {
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const targetIds = getTransactionIdentityCandidates(target);
+    if (!targetIds.length) {
+        return dedupeTransactionsByIdentity(safeRows);
+    }
+    return dedupeTransactionsByIdentity(
+        safeRows.filter((row) => !hasSharedTransactionIdentity(row, target))
+    );
+}
+
 function normalizeCategoryNameForMatch(value) {
     return cleanText(value).replace(/\s+/g, ' ').toLowerCase();
 }
@@ -1243,8 +1326,7 @@ export function InventoryProvider({ children }) {
                     itemsByTransactionId
                 }));
                 const hydratedTransactions = normalizedTransactions.map((row) => mergeTransactionWithSnapshot(row, snapshotMap));
-                hydratedTransactions.sort((a, b) => new Date(cleanText(b?.timestamp) || cleanText(b?.created_at) || 0) - new Date(cleanText(a?.timestamp) || cleanText(a?.created_at) || 0));
-                setTransactions(hydratedTransactions);
+                setTransactions(dedupeTransactionsByIdentity(hydratedTransactions));
             } else if (itemResult.error && !isMissingRelationError(itemResult.error, 'transaction_items')) {
                 setTransactions([]);
             } else {
@@ -1296,17 +1378,14 @@ export function InventoryProvider({ children }) {
             // TRANSACTIONS
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
                 const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
-                setTransactions(prev => {
-                    if (prev.some(t => String(t.id) === String(payload.new.id))) return prev;
-                    return [mergedTxn, ...prev].sort((a, b) => new Date(cleanText(b?.timestamp) || cleanText(b?.created_at) || 0) - new Date(cleanText(a?.timestamp) || cleanText(a?.created_at) || 0));
-                });
+                setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
                 const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
-                setTransactions(prev => prev.map(t => String(t.id) === String(payload.new.id) ? { ...t, ...mergedTxn } : t));
+                setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions', filter: shopFilter }, (payload) => {
-                setTransactions(prev => prev.filter(t => String(t.id) !== String(payload.old.id)));
+                setTransactions((prev) => removeTransactionByIdentity(prev, payload.old || {}));
             })
             // INVENTORY (Products)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
@@ -1412,15 +1491,12 @@ export function InventoryProvider({ children }) {
 
                 if (action === 'INSERT') {
                     const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(data, { workersById: workerLookupRef.current }));
-                    setTransactions(prev => {
-                        if (prev.some(t => String(t.id) === String(data.id))) return prev;
-                        return [mergedTxn, ...prev].sort((a, b) => new Date(cleanText(b?.timestamp) || cleanText(b?.created_at) || 0) - new Date(cleanText(a?.timestamp) || cleanText(a?.created_at) || 0));
-                    });
+                    setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
                 } else if (action === 'UPDATE') {
                     const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(data, { workersById: workerLookupRef.current }));
-                    setTransactions(prev => prev.map(t => String(t.id) === String(data.id) ? { ...t, ...mergedTxn } : t));
+                    setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
                 } else if (action === 'DELETE') {
-                    setTransactions(prev => prev.filter(t => String(t.id) !== String(data.id)));
+                    setTransactions((prev) => removeTransactionByIdentity(prev, data || {}));
                 }
             })
             .subscribe();
@@ -1965,10 +2041,7 @@ export function InventoryProvider({ children }) {
             saveTransactionSnapshot(optimisticTxnId, snapshot);
             const hydratedTxn = mergeTransactionWithSnapshot(normalizedTxn, { [optimisticTxnId]: snapshot });
 
-            setTransactions(prev => {
-                if (prev.some(t => String(t.id) === String(hydratedTxn.id))) return prev;
-                return [hydratedTxn, ...prev];
-            });
+            setTransactions((prev) => upsertTransactionByIdentity(prev, hydratedTxn));
 
             const insertResult = await executeWithPrunedColumns(
                 (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
@@ -2041,7 +2114,11 @@ export function InventoryProvider({ children }) {
                 }
 
                 if (finalRetryResult.error) {
-                    setTransactions(prev => prev.filter(t => String(t.id) !== String(optimisticTxnId)));
+                    setTransactions((prev) => removeTransactionByIdentity(prev, {
+                        id: optimisticTxnId,
+                        transaction_id: optimisticTxnId,
+                        transactionId: optimisticTxnId,
+                    }));
                     removeTransactionSnapshot(optimisticTxnId);
                     throw new Error(finalRetryResult.error?.message || insertResult.error.message || 'Failed to save transaction.');
                 }
@@ -2078,13 +2155,14 @@ export function InventoryProvider({ children }) {
             }
 
             const hydratedPersistedTxn = mergeTransactionWithSnapshot(persistedTxn, { [persistedTxnId]: persistedSnapshot });
-            setTransactions(prev => [
-                hydratedPersistedTxn,
-                ...prev.filter((t) => {
-                    const rowId = String(t.id || '');
-                    return rowId !== String(optimisticTxnId) && rowId !== String(persistedTxnId);
-                }),
-            ]);
+            setTransactions((prev) => {
+                const withoutOptimistic = removeTransactionByIdentity(prev, {
+                    id: optimisticTxnId,
+                    transaction_id: optimisticTxnId,
+                    transactionId: optimisticTxnId,
+                });
+                return upsertTransactionByIdentity(withoutOptimistic, hydratedPersistedTxn);
+            });
 
             supabase.channel(`public:unified_sync:${sid}`).send({
                 type: 'broadcast',
@@ -2119,7 +2197,11 @@ export function InventoryProvider({ children }) {
         if (!sid) throw new Error('No active shop selected.');
 
         const strId = String(id);
-        const existingTxn = transactions.find(t => String(t.id) === strId);
+        const existingTxn = transactions.find((t) => hasSharedTransactionIdentity(t, {
+            id: strId,
+            transaction_id: strId,
+            transactionId: strId,
+        }));
         if (!existingTxn) return null;
 
         const nextTxn = { ...existingTxn, ...updates, id: strId, shop_id: sid };
@@ -2130,7 +2212,7 @@ export function InventoryProvider({ children }) {
         saveTransactionSnapshot(strId, nextSnapshot);
 
         const hydratedTxn = mergeTransactionWithSnapshot(normalizedNextTxn, { [strId]: nextSnapshot });
-        setTransactions(prev => prev.map(t => String(t.id) === strId ? hydratedTxn : t));
+        setTransactions((prev) => upsertTransactionByIdentity(prev, hydratedTxn));
 
         supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',
@@ -2152,7 +2234,7 @@ export function InventoryProvider({ children }) {
             } else {
                 removeTransactionSnapshot(strId);
             }
-            setTransactions(prev => prev.map(t => String(t.id) === strId ? existingTxn : t));
+            setTransactions((prev) => upsertTransactionByIdentity(prev, existingTxn));
             throw new Error(updateResult.error.message || 'Failed to update transaction.');
         }
 
@@ -2170,7 +2252,12 @@ export function InventoryProvider({ children }) {
         if (!sid) return;
 
         const strId = String(id);
-        const txnToDelete = transactions.find(t => String(t.id) === strId);
+        const identityProbe = {
+            id: strId,
+            transaction_id: strId,
+            transactionId: strId,
+        };
+        const txnToDelete = transactions.find((t) => hasSharedTransactionIdentity(t, identityProbe));
 
         if (txnToDelete && txnToDelete.productId) {
             const delta = txnToDelete.type === 'income'
@@ -2179,7 +2266,7 @@ export function InventoryProvider({ children }) {
             adjustStock(txnToDelete.productId, delta);
         }
 
-        setTransactions(prev => prev.filter(t => String(t.id) !== strId));
+        setTransactions((prev) => removeTransactionByIdentity(prev, identityProbe));
         removeTransactionSnapshot(strId);
         const itemDeleteResult = await executeByColumnCandidates(
             (column) => supabase

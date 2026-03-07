@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "deploy": "vercel --prod",
     "electron:start": "electron .",
-    "dist:desktop": "npm run build:desktop-renderer && electron-builder"
+    "electron:start:v2": "electron electron.main.v2.js",
+    "dist:desktop": "npm run build:desktop-renderer && electron-builder",
+    "dist:desktop:v2": "npm run build:desktop-renderer && electron-builder --config electron-builder.v2.json"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.97.0",

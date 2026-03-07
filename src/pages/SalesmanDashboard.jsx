@@ -212,6 +212,30 @@ function getTransactionInvoiceNumber(txn = {}) {
     return String(txn?.invoiceNumber || txn?.invoice_number || '').trim();
 }
 
+function getTransactionIdentityKey(txn = {}) {
+    const candidates = [
+        txn?.transactionId,
+        txn?.transaction_id,
+        txn?.id,
+    ];
+    for (const candidate of candidates) {
+        const normalized = String(candidate || '').trim();
+        if (normalized) return normalized;
+    }
+    return '';
+}
+
+function dedupeTransactionHistoryRows(rows = []) {
+    const seen = new Set();
+    return (Array.isArray(rows) ? rows : []).filter((txn) => {
+        const key = getTransactionIdentityKey(txn);
+        if (!key) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
 function extractRepairReferenceFromTransaction(txn = {}) {
     const notes = String(txn?.notes || '');
     const desc = String(txn?.desc || txn?.description || '');
@@ -786,13 +810,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!settingsShopId) {
             setCategoryContributionModeMap({});
             setHasExplicitContributionModeConfig(false);
-            return;
+            return undefined;
         }
 
         setCategoryContributionModeMap({});
         setHasExplicitContributionModeConfig(false);
 
         let cancelled = false;
+        let reloadTimer = null;
         const loadFromDb = async () => {
             const result = await supabase
                 .from('kpi_profit_category_settings')
@@ -835,9 +860,27 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             setKpiSettingsVersion((prev) => prev + 1);
         };
 
+        const scheduleReload = () => {
+            if (cancelled) return;
+            if (reloadTimer) clearTimeout(reloadTimer);
+            reloadTimer = setTimeout(() => {
+                loadFromDb();
+            }, 120);
+        };
+
         loadFromDb();
+
+        const shopFilter = `shop_id=eq.${settingsShopId}`;
+        const settingsSubscription = supabase.channel(`public:kpi_settings:${settingsShopId}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'kpi_profit_category_settings', filter: shopFilter }, () => {
+                scheduleReload();
+            })
+            .subscribe();
+
         return () => {
             cancelled = true;
+            if (reloadTimer) clearTimeout(reloadTimer);
+            supabase.removeChannel(settingsSubscription);
         };
     }, [settingsShopId]);
 
@@ -1106,12 +1149,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const revenueTransactions = useMemo(
         () => rangeTransactions.filter((txn) => {
-            const txType = String(txn.tx_type || txn.type || '').toLowerCase();
+            const txType = String(txn.tx_type || txn.type || '').trim().toLowerCase();
+            const source = String(txn.source || txn.tx_source || '').trim().toLowerCase();
+            const isRepairSource = source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_');
             const isRevenueType = txType === 'product_sale'
                 || txType === 'repair_amount'
                 || txType === 'adjustment_amount'
                 || txType === 'income'
-                || txType === 'sale';
+                || txType === 'sale'
+                || isRepairSource;
             if (!isRevenueType) return false;
             if (isCashbookTransaction(txn)) return false;
             return true;
@@ -1120,8 +1166,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     );
     const purchaseTransactions = useMemo(
         () => rangeTransactions.filter((txn) => {
-            const txType = String(txn.tx_type || txn.type || '').toLowerCase();
-            const source = String(txn.source || '').toLowerCase();
+            const txType = String(txn.tx_type || txn.type || '').trim().toLowerCase();
+            const source = String(txn.source || txn.tx_source || '').trim().toLowerCase();
             const isPurchaseType = txType === 'product_purchase'
                 || txType === 'product_expense'
                 || txType === 'shop_expense'
@@ -1470,7 +1516,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [repairJobs]);
 
     const revenueHistoryTransactions = useMemo(() => {
-        return historyRevenueSource
+        return dedupeTransactionHistoryRows(historyRevenueSource)
             .sort((a, b) => {
                 const aMs = resolveTransactionDate(a)?.getTime() || 0;
                 const bMs = resolveTransactionDate(b)?.getTime() || 0;
@@ -1479,7 +1525,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [historyRevenueSource]);
 
     const purchaseHistoryTransactions = useMemo(() => {
-        return historyPurchaseSource
+        return dedupeTransactionHistoryRows(historyPurchaseSource)
             .sort((a, b) => {
                 const aMs = resolveTransactionDate(a)?.getTime() || 0;
                 const bMs = resolveTransactionDate(b)?.getTime() || 0;
@@ -1521,17 +1567,29 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             ? 'Repair Job'
             : extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category);
 
-        const categoryName = String(
-            resolvedCategoryName
-            || linkedSnapshot?.category
-            || 'General'
-        ).trim() || 'General';
         const subCategoryName = String(
             txn?.subCategory
+            || txn?.subcategory
+            || txn?.sub_category
             || txn?.productSnapshot?.subCategory
+            || txn?.productSnapshot?.sub_category
             || linkedSnapshot?.subCategory
             || ''
         ).trim();
+        const fallbackDescription = stripTransactionPrefix(String(
+            txn?.desc
+            || txn?.description
+            || txn?.name
+            || txn?.productSnapshot?.name
+            || ''
+        ).trim());
+        const categoryName = String(
+            resolvedCategoryName
+            || linkedSnapshot?.category
+            || subCategoryName
+            || fallbackDescription
+            || 'General'
+        ).trim() || 'General';
         const nameText = String(txn?.name || txn?.desc || txn?.productSnapshot?.name || linkedSnapshot?.name || '').trim();
         const linkedCategoryText = linkedSnapshot
             ? `${linkedSnapshot.category || ''} ${linkedSnapshot.subCategory || ''} ${linkedSnapshot.name || ''}`
@@ -1636,11 +1694,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [unifiedKpiStats]);
 
     const kpiExpenseCategoryBreakdown = useMemo(() => {
-        const rows = Array.isArray(unifiedKpiStats?.expenseBreakdown) ? unifiedKpiStats.expenseBreakdown : [];
-        return rows.filter((row) => {
-            const label = String(row?.label || '').trim().toLowerCase();
-            return label !== 'general' && !label.startsWith('general /');
-        });
+        return Array.isArray(unifiedKpiStats?.expenseBreakdown) ? unifiedKpiStats.expenseBreakdown : [];
     }, [unifiedKpiStats]);
 
     const kpiIncomeCategoryBreakdown = useMemo(() => {
@@ -2131,6 +2185,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return next;
         });
         setContributionModeConfigStatus('');
+        setKpiSettingsVersion((prev) => prev + 1);
     }, []);
 
     const categoryContributionModeCounts = useMemo(() => {
@@ -4020,7 +4075,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {revenueHistoryTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries for selected period</p> : revenueHistoryTransactions.map((txn) => (
                                 <div
-                                    key={txn.id}
+                                    key={getTransactionIdentityKey(txn) || `revenue-${txn.time || ''}-${txn.amount || ''}-${txn.desc || ''}`}
                                     onClick={() => openTransactionDetailModal(txn)}
                                     className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 hover:bg-emerald-50/60 transition-colors cursor-pointer"
                                 >
@@ -4055,7 +4110,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {purchaseHistoryTransactions.length === 0 ? <p className="text-xs text-slate-400">No purchase transactions for selected period</p> : purchaseHistoryTransactions.map((txn) => (
                                 <div
-                                    key={txn.id}
+                                    key={getTransactionIdentityKey(txn) || `purchase-${txn.time || ''}-${txn.amount || ''}-${txn.desc || ''}`}
                                     onClick={() => openTransactionDetailModal(txn)}
                                     className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 hover:bg-rose-50/60 transition-colors cursor-pointer"
                                 >

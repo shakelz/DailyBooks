@@ -1,0 +1,21 @@
+{
+  "appId": "com.carefone.erp",
+  "productName": "CareFone ERP",
+  "directories": {
+    "output": "dist-electron-v2"
+  },
+  "files": [
+    "dist/**/*",
+    "electron.main.v2.js",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "main": "electron.main.v2.js"
+  },
+  "artifactName": "CareFone-ERP-v2-${version}-setup.${ext}",
+  "win": {
+    "target": [
+      "nsis"
+    ]
+  }
+}

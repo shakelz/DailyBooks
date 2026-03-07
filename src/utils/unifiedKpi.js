@@ -210,17 +210,6 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
     || resolveCategoryLevel1(txn?.productSnapshot?.category)
     || resolveCategoryLevel1(linkedProduct?.category);
 
-  let categoryName = explicitCategoryName;
-  if (!categoryName) {
-    if (isRepairSource) {
-      categoryName = 'Repair Job';
-    } else if (isProductExpenseType(txType) && sourceText === 'expense') {
-      categoryName = resolveExpenseName(txn) || 'General';
-    } else {
-      categoryName = 'General';
-    }
-  }
-
   const subCategoryName = String(
     txn?.subCategory
       || txn?.subcategory
@@ -243,6 +232,22 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
       || (Array.isArray(linkedProduct?.categoryPath) ? linkedProduct.categoryPath[1] : '')
       || ''
   ).trim();
+  const descriptionFallback = resolveExpenseName(txn);
+
+  let categoryName = explicitCategoryName;
+  if (!categoryName) {
+    if (isRepairSource) {
+      categoryName = 'Repair Job';
+    } else if (subCategoryName) {
+      categoryName = subCategoryName;
+    } else if (descriptionFallback) {
+      categoryName = descriptionFallback;
+    } else if (isProductExpenseType(txType) && sourceText === 'expense') {
+      categoryName = resolveExpenseName(txn) || 'General';
+    } else {
+      categoryName = 'General';
+    }
+  }
 
   return {
     linkedProduct,
