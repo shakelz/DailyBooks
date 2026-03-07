@@ -8,6 +8,7 @@ export default function MainDashboard() {
     const navigate = useNavigate();
     const { role, logout: authLogout } = useAuth();
     const isAdmin = role === 'admin';
+    const salesmanLoginPath = '/terminal-access-v1';
 
     const today = new Date().toLocaleDateString('en-PK', {
         weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
@@ -76,8 +77,8 @@ export default function MainDashboard() {
     };
 
     const handleLogout = () => {
-        authLogout();
-        navigate('/');
+        const result = authLogout();
+        navigate(result?.redirectTo || salesmanLoginPath);
     };
 
     return (

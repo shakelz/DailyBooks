@@ -18,6 +18,7 @@ import CompleteRepairModal from '../components/admin/CompleteRepairModal';
 import { useRepairs } from '../context/RepairsContext';
 
 const SALESMAN_LOCK_NAMESPACE = 'dailybooks_salesman_lock_v1';
+const SALESMAN_LOGIN_PATH = '/terminal-access-v1';
 const volatileLockState = new Map();
 
 // ══════════════════════════════════════════════════════════
@@ -38,7 +39,7 @@ export default function LatestDashboard() {
     // ── Auth Check ──
     useEffect(() => {
         if (!user || role !== 'salesman') {
-            navigate('/');
+            navigate(SALESMAN_LOGIN_PATH);
         }
     }, [user, role, navigate]);
 

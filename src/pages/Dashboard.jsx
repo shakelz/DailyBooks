@@ -8,6 +8,7 @@ export default function Dashboard() {
     const navigate = useNavigate();
     const { role, logout: authLogout, lowStockAlerts, clearAlert, clearAllAlerts } = useAuth();
     const isAdmin = role === 'admin';
+    const salesmanLoginPath = '/terminal-access-v1';
 
     const today = new Date().toLocaleDateString('en-PK', {
         weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
@@ -89,8 +90,8 @@ export default function Dashboard() {
     };
 
     const handleLogout = () => {
-        authLogout();
-        navigate('/');
+        const result = authLogout();
+        navigate(result?.redirectTo || salesmanLoginPath);
     };
 
     // Sidebar menu items (Admin only)

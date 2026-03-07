@@ -21,6 +21,7 @@ const KPI_MODE_PROFIT = 'profit';
 const KPI_MODE_EXCLUDED = 'excluded';
 const KPI_SCOPE_SALES = 'sales';
 const KPI_SCOPE_EXPENSE = 'expense';
+const SALESMAN_LOGIN_PATH = '/terminal-access-v1';
 const volatileLockState = new Map();
 
 function normalizeCategoryToken(value = '') {
@@ -214,26 +215,15 @@ function getTransactionInvoiceNumber(txn = {}) {
 
 function getTransactionIdentityKey(txn = {}) {
     const candidates = [
-        txn?.transactionId,
-        txn?.transaction_id,
         txn?.id,
+        txn?.transaction_id,
+        txn?.transactionId,
     ];
     for (const candidate of candidates) {
         const normalized = String(candidate || '').trim();
         if (normalized) return normalized;
     }
     return '';
-}
-
-function dedupeTransactionHistoryRows(rows = []) {
-    const seen = new Set();
-    return (Array.isArray(rows) ? rows : []).filter((txn) => {
-        const key = getTransactionIdentityKey(txn);
-        if (!key) return true;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
 }
 
 function extractRepairReferenceFromTransaction(txn = {}) {
@@ -886,17 +876,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     useEffect(() => {
         if (!user) {
-            navigate('/');
+            navigate(SALESMAN_LOGIN_PATH);
             return;
         }
         const normalizedRole = String(role || '').toLowerCase();
         const isAdminRole = normalizedRole === 'owner' || normalizedRole === 'super_admin' || normalizedRole === 'admin' || normalizedRole === 'superadmin' || normalizedRole === 'superuser';
         if (!adminView && normalizedRole !== 'salesman') {
-            navigate('/');
+            navigate(SALESMAN_LOGIN_PATH);
             return;
         }
         if (adminView && !isAdminRole) {
-            navigate('/');
+            navigate(SALESMAN_LOGIN_PATH);
         }
     }, [adminView, navigate, role, user]);
 
@@ -1516,7 +1506,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [repairJobs]);
 
     const revenueHistoryTransactions = useMemo(() => {
-        return dedupeTransactionHistoryRows(historyRevenueSource)
+        return [...historyRevenueSource]
             .sort((a, b) => {
                 const aMs = resolveTransactionDate(a)?.getTime() || 0;
                 const bMs = resolveTransactionDate(b)?.getTime() || 0;
@@ -1525,7 +1515,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [historyRevenueSource]);
 
     const purchaseHistoryTransactions = useMemo(() => {
-        return dedupeTransactionHistoryRows(historyPurchaseSource)
+        return [...historyPurchaseSource]
             .sort((a, b) => {
                 const aMs = resolveTransactionDate(a)?.getTime() || 0;
                 const bMs = resolveTransactionDate(b)?.getTime() || 0;

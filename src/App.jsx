@@ -51,7 +51,7 @@ function AdminGuard({ children }) {
   }, [allowed, hasUser, logout])
 
   if (!allowed) {
-    return <Navigate to="/" replace />
+    return <Navigate to={SALESMAN_LOGIN_PATH} replace />
   }
 
   return children
@@ -75,7 +75,7 @@ function AdminRouteShell() {
   }
 
   if (!allowed) {
-    return <Navigate to="/" replace />
+    return <Navigate to={SALESMAN_LOGIN_PATH} replace />
   }
 
   return <AdminPanel />
@@ -87,7 +87,7 @@ function SalesmanGuard({ children }) {
   const allowed = Boolean(user) && normalizedRole === 'salesman'
 
   if (!allowed) {
-    return <Navigate to="/" replace />
+    return <Navigate to={SALESMAN_LOGIN_PATH} replace />
   }
 
   return children

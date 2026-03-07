@@ -7,6 +7,7 @@ export default function SalesmanProfile({ isOpen, onClose }) {
     const location = useLocation();
     const salesmanDashboardPath = '/terminal-access-v1/dashboard';
     const salesmanLatestDashboardPath = '/terminal-access-v1/latest-dashboard';
+    const salesmanLoginPath = '/terminal-access-v1';
     const isOnLatestDashboard = location.pathname.includes(salesmanLatestDashboardPath);
 
     // Get last punch time for display
@@ -33,7 +34,7 @@ export default function SalesmanProfile({ isOpen, onClose }) {
             alert(result.message || 'Please Punch OUT before logout.');
             return;
         }
-        navigate('/');
+        navigate(result?.redirectTo || salesmanLoginPath);
     };
 
     return (
@@ -107,7 +108,7 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                                 alert(result.message || 'Please Punch OUT before switching user.');
                                 return;
                             }
-                            navigate('/');
+                            navigate(result?.redirectTo || salesmanLoginPath);
                         }}
                         className="h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 bg-slate-50 border-slate-200 text-slate-600 hover:bg-white hover:border-blue-200 hover:text-blue-600 hover:shadow-md"
                     >

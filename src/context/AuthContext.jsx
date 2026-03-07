@@ -2782,7 +2782,7 @@ export function AuthProvider({ children }) {
         setIsAttendanceActionPending(false);
         setLowStockAlerts([]);
         setAttendanceLogs([]);
-        return { success: true };
+        return { success: true, redirectTo: '/terminal-access-v1' };
     };
 
     const verifySalesmanUnlockPin = useCallback(async (pinValue) => {
