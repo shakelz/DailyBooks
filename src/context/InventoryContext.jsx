@@ -2206,7 +2206,7 @@ export function InventoryProvider({ children }) {
                 if (finalRetryResult.error && (isEnumError(finalRetryResult.error, 'tx_type') || isEnumError(finalRetryResult.error, 'type'))) {
                     const typeCandidates = shouldBeExpense
                         ? ['product_expense', 'product_purchase', 'shop_expense', 'expense']
-                        : (isRepairSource ? ['repair_job', 'product_sale', 'income'] : ['product_sale', 'income', 'repair_job']);
+                        : (isRepairSource ? ['repair_job', 'repair_amount', 'product_sale', 'income'] : ['product_sale', 'income', 'repair_job', 'repair_amount']);
 
                     for (const candidateType of typeCandidates) {
                         if (candidateType === fallbackPayload.tx_type) continue;
