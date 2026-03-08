@@ -172,7 +172,7 @@ function shouldIgnoreGeneralExpense(txn = {}, filtered = {}) {
   if (!isProductExpenseType(txType) || !isExpenseSource) return false;
 
   const categoryName = normalizeToken(filtered?.categoryName || '');
-  if (categoryName !== 'general') return false;
+  if (categoryName !== 'general' && categoryName !== 'uncategorized') return false;
 
   const explicitCategory = normalizeToken(txn?.category || txn?.category_name || '');
   const explicitCategoryId = normalizeToken(txn?.category_id || txn?.categoryId || '');
@@ -202,6 +202,13 @@ function resolveCategoryLevel2(rawCategory) {
   return '';
 }
 
+function resolveSubCategoryFromNotes(notes = '') {
+  const text = String(notes || '').trim();
+  if (!text) return '';
+  const match = text.match(/subcategory\s*:\s*([^|,\n]+)/i);
+  return match && match[1] ? String(match[1]).trim() : '';
+}
+
 function resolveTxnCategoryParts(txn = {}, productById = {}) {
   const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
     ? productById[String(txn.productId)]
@@ -218,8 +225,10 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
 
   const subCategoryName = String(
     txn?.subCategory
+      || txn?.sub_category_name
       || txn?.subcategory
       || txn?.sub_category
+      || resolveSubCategoryFromNotes(txn?.notes)
       || txn?.categorySnapshot?.level2
       || txn?.categorySnapshot?.subCategory
       || txn?.productSnapshot?.subCategory
@@ -239,6 +248,7 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
       || ''
   ).trim();
   const descriptionFallback = resolveExpenseName(txn);
+  const rawDescription = String(txn?.desc || txn?.description || txn?.name || '').trim();
 
   let categoryName = explicitCategoryName;
   if (!categoryName) {
@@ -248,15 +258,18 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
       categoryName = subCategoryName;
     } else if (descriptionFallback) {
       categoryName = descriptionFallback;
+    } else if (rawDescription) {
+      categoryName = rawDescription;
     } else if (isProductExpenseType(txType) && sourceText === 'expense') {
-      categoryName = resolveExpenseName(txn) || 'General';
+      categoryName = resolveExpenseName(txn) || 'Uncategorized';
     } else {
-      categoryName = 'General';
+      categoryName = 'Uncategorized';
     }
   }
-  if (normalizeToken(categoryName) === 'general') {
+  if (normalizeToken(categoryName) === 'general' || normalizeToken(categoryName) === 'uncategorized') {
     if (subCategoryName) categoryName = subCategoryName;
     else if (descriptionFallback) categoryName = descriptionFallback;
+    else if (rawDescription) categoryName = rawDescription;
   }
 
   return {
@@ -395,13 +408,13 @@ function calculateRepairProfit(job = {}) {
   return estimated - partsCost;
 }
 
-function makeBreakdownKey(categoryName = '', subCategoryName = '', fallback = 'General') {
+function makeBreakdownKey(categoryName = '', subCategoryName = '', fallback = 'Uncategorized') {
   const main = String(categoryName || '').trim() || fallback;
   const sub = String(subCategoryName || '').trim();
   return `${normalizeToken(main)}::${normalizeToken(sub)}`;
 }
 
-function makeBreakdownLabel(categoryName = '', subCategoryName = '', fallback = 'General') {
+function makeBreakdownLabel(categoryName = '', subCategoryName = '', fallback = 'Uncategorized') {
   const main = String(categoryName || '').trim() || fallback;
   const sub = String(subCategoryName || '').trim();
   return sub ? `${main} / ${sub}` : main;
@@ -521,7 +534,7 @@ export function computeUnifiedKpiSnapshot({
   const revenueBreakdownMap = new Map();
   const expenseBreakdownMap = new Map();
 
-  const pushBreakdown = (map, categoryName, subCategoryName, amount, fallbackLabel = 'General') => {
+  const pushBreakdown = (map, categoryName, subCategoryName, amount, fallbackLabel = 'Uncategorized') => {
     const key = makeBreakdownKey(categoryName, subCategoryName, fallbackLabel);
     const current = map.get(key) || {
       key,

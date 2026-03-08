@@ -27,12 +27,59 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const addL1Categories = getLevel1Categories(addScope);
     const updateL1Categories = getLevel1Categories(updateScope);
     const updateL2Categories = selectedUpdateL1 ? getLevel2Categories(selectedUpdateL1, updateScope) : [];
+    const resetModalState = () => {
+        setMainCatSelect('');
+        setNewMainCatStr('');
+        setSubCatSelect('');
+        setNewSubCatStr('');
+        setAddScope('sales');
+        setUpdateScope('sales');
+        setSelectedUpdateL1('');
+        setSelectedUpdateL2('');
+        setEditingCategory(null);
+        setUpdateName('');
+        setUpdateImagePreview(null);
+        setActiveTab('add');
+        if (updateFileInputRef.current) {
+            updateFileInputRef.current.value = '';
+        }
+    };
+
     const clearGlobalInputLocks = () => {
         const targets = [document.documentElement, document.body, document.getElementById('root')];
         targets.forEach((target) => {
-            if (!target || !target.classList) return;
-            target.classList.remove('pointer-events-none');
+            if (!target) return;
+            if (target.classList) {
+                target.classList.remove('pointer-events-none');
+            }
+            if ('style' in target && target.style?.pointerEvents === 'none') {
+                target.style.pointerEvents = '';
+            }
+            if (typeof target.removeAttribute === 'function') {
+                target.removeAttribute('inert');
+            }
         });
+    };
+
+    const releaseModalUiLocks = () => {
+        const body = document.body;
+        if (body) {
+            body.classList.remove('overflow-hidden');
+            if (body.style?.overflow === 'hidden') {
+                body.style.overflow = '';
+            }
+        }
+        const html = document.documentElement;
+        if (html && html.classList) {
+            html.classList.remove('overflow-hidden');
+        }
+        clearGlobalInputLocks();
+    };
+
+    const handleClose = () => {
+        resetModalState();
+        releaseModalUiLocks();
+        onClose?.();
     };
 
     // Reset when tab changes
@@ -41,12 +88,21 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setNewMainCatStr('');
         setSubCatSelect('');
         setNewSubCatStr('');
-        setAddScope('sales');
         setSelectedUpdateL1('');
         setSelectedUpdateL2('');
         setEditingCategory(null);
-        setUpdateScope('sales');
-    }, [activeTab, isOpen]);
+        setUpdateName('');
+        setUpdateImagePreview(null);
+        if (updateFileInputRef.current) {
+            updateFileInputRef.current.value = '';
+        }
+    }, [activeTab]);
+
+    useEffect(() => {
+        if (isOpen) return;
+        resetModalState();
+        releaseModalUiLocks();
+    }, [isOpen]);
 
     useEffect(() => {
         setMainCatSelect('');
@@ -69,26 +125,30 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             ? document.activeElement
             : null;
         const previousOverflow = document.body.style.overflow;
+        document.body.classList.add('overflow-hidden');
         document.body.style.overflow = 'hidden';
         clearGlobalInputLocks();
 
         const handleEscape = (event) => {
             if (event.key !== 'Escape') return;
             event.preventDefault();
-            onClose?.();
+            handleClose();
         };
         window.addEventListener('keydown', handleEscape);
 
         return () => {
             window.removeEventListener('keydown', handleEscape);
             document.body.style.overflow = previousOverflow;
+            if (!previousOverflow) {
+                document.body.classList.remove('overflow-hidden');
+            }
             clearGlobalInputLocks();
             const target = previousFocusedElementRef.current;
             if (target && typeof target.focus === 'function') {
                 window.requestAnimationFrame(() => target.focus());
             }
         };
-    }, [isOpen, onClose]);
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -138,7 +198,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             setNewMainCatStr('');
             setSubCatSelect('');
             setNewSubCatStr('');
-            onClose?.();
+            handleClose();
         } catch (error) {
             alert(error?.message || 'Failed to save category in database.');
         }
@@ -185,7 +245,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
 
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} />
 
             <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 {/* Header */}
@@ -199,7 +259,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                             <p className="text-[11px] text-emerald-600">Add & Update Product Categories</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 rounded-xl hover:bg-emerald-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                    <button onClick={handleClose} className="p-2 rounded-xl hover:bg-emerald-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
                         ✕
                     </button>
                 </div>

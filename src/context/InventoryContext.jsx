@@ -468,6 +468,14 @@ function hasTransactionIdInRows(rows = [], transactionId = '') {
     ));
 }
 
+function hasAnyTransactionIdInRows(rows = [], transactionIds = []) {
+    const ids = Array.isArray(transactionIds)
+        ? transactionIds.map((value) => cleanText(value)).filter(Boolean)
+        : [];
+    if (!ids.length) return false;
+    return ids.some((transactionId) => hasTransactionIdInRows(rows, transactionId));
+}
+
 function normalizeCategoryNameForMatch(value) {
     return cleanText(value).replace(/\s+/g, ' ').toLowerCase();
 }
@@ -1466,24 +1474,35 @@ export function InventoryProvider({ children }) {
             if (cancelled) return;
             (realtimeCandidates.length > 0 ? realtimeCandidates : [sid]).forEach((candidate) => addKnownShopId(candidate));
 
+            const realtimeShopIds = Array.from(
+                new Set(
+                    (realtimeCandidates.length > 0 ? realtimeCandidates : [sid])
+                        .map((candidate) => cleanText(candidate))
+                        .filter(Boolean)
+                )
+            );
+            const transactionShopFilter = realtimeShopIds.length > 1
+                ? `shop_id=in.(${realtimeShopIds.join(',')})`
+                : `shop_id=eq.${realtimeShopIds[0] || sid}`;
             const shopFilter = `shop_id=eq.${sid}`;
             syncSubscription = supabase.channel(`public:unified_sync:${sid}`)
                 // TRANSACTIONS
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, (payload) => {
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions', filter: transactionShopFilter }, (payload) => {
                     if (!isKnownShopId(payload?.new?.shop_id)) return;
+                    const payloadTxnId = cleanText(payload?.new?.transaction_id || payload?.new?.transactionId || payload?.new?.id);
                     const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
                     const incomingTxnId = getPrimaryTransactionId(mergedTxn);
                     setTransactions((prev) => {
-                        if (incomingTxnId && hasTransactionIdInRows(prev, incomingTxnId)) return prev;
+                        if (hasAnyTransactionIdInRows(prev, [payloadTxnId, incomingTxnId])) return prev;
                         return upsertTransactionByIdentity(prev, mergedTxn);
                     });
                 })
-                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions' }, (payload) => {
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'transactions', filter: transactionShopFilter }, (payload) => {
                     if (!isKnownShopId(payload?.new?.shop_id || payload?.old?.shop_id)) return;
                     const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(payload.new, { workersById: workerLookupRef.current }));
                     setTransactions((prev) => upsertTransactionByIdentity(prev, mergedTxn));
                 })
-                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions' }, (payload) => {
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'transactions', filter: transactionShopFilter }, (payload) => {
                     if (!isKnownShopId(payload?.old?.shop_id)) return;
                     setTransactions((prev) => removeTransactionByIdentity(prev, payload.old || {}));
                 })
@@ -1590,10 +1609,11 @@ export function InventoryProvider({ children }) {
                     if (!data || !isKnownShopId(data.shop_id)) return;
 
                     if (action === 'INSERT') {
+                        const payloadTxnId = cleanText(data?.transaction_id || data?.transactionId || data?.id);
                         const mergedTxn = mergeTransactionWithSnapshot(normalizeTransactionRecord(data, { workersById: workerLookupRef.current }));
                         const incomingTxnId = getPrimaryTransactionId(mergedTxn);
                         setTransactions((prev) => {
-                            if (incomingTxnId && hasTransactionIdInRows(prev, incomingTxnId)) return prev;
+                            if (hasAnyTransactionIdInRows(prev, [payloadTxnId, incomingTxnId])) return prev;
                             return upsertTransactionByIdentity(prev, mergedTxn);
                         });
                     } else if (action === 'UPDATE') {

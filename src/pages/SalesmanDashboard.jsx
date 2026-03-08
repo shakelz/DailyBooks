@@ -126,6 +126,19 @@ function todayIsoDate() {
     return new Date().toISOString().slice(0, 10);
 }
 
+function useDebouncedValue(value, delayMs = 120) {
+    const [debouncedValue, setDebouncedValue] = useState(value);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            setDebouncedValue(value);
+        }, Math.max(0, Number(delayMs) || 0));
+        return () => window.clearTimeout(timer);
+    }, [value, delayMs]);
+
+    return debouncedValue;
+}
+
 function newSimpleEntryForm() {
     return {
         date: todayIsoDate(),
@@ -654,6 +667,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     } = useInventory();
     const { repairJobs, repairsLoaded, updateRepairStatus } = useRepairs();
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
+    const debouncedTransactions = useDebouncedValue(transactions, 140);
+    const debouncedProducts = useDebouncedValue(products, 140);
+    const debouncedRepairJobs = useDebouncedValue(repairJobs, 140);
 
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -1167,6 +1183,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }),
         [rangeTransactions]
     );
+    const debouncedRevenueTransactions = useDebouncedValue(revenueTransactions, 140);
+    const debouncedPurchaseTransactions = useDebouncedValue(purchaseTransactions, 140);
 
     const productLookup = useMemo(() => {
         return (products || []).reduce((acc, product) => {
@@ -1546,6 +1564,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             ? productLookup[String(txn.productId)]
             : null;
         const linkedSnapshot = linkedProduct ? resolveProductSnapshot(linkedProduct) : null;
+        const notesText = String(txn?.notes || '').trim();
+        const notesSubCategoryMatch = notesText.match(/subcategory\s*:\s*([^|,\n]+)/i);
 
         const sourceText = String(txn?.source || txn?.tx_source || '').toLowerCase();
         const isRepairSource = sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_');
@@ -1555,27 +1575,32 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         const subCategoryName = String(
             txn?.subCategory
+            || txn?.sub_category_name
             || txn?.subcategory
             || txn?.sub_category
+            || notesSubCategoryMatch?.[1]
             || txn?.productSnapshot?.subCategory
             || txn?.productSnapshot?.sub_category
             || linkedSnapshot?.subCategory
             || ''
         ).trim();
-        const fallbackDescription = stripTransactionPrefix(String(
+        const rawDescription = String(
             txn?.desc
             || txn?.description
             || txn?.name
             || txn?.productSnapshot?.name
             || ''
-        ).trim());
+        ).trim();
+        const fallbackDescription = stripTransactionPrefix(rawDescription);
         const categoryName = String(
             resolvedCategoryName
             || linkedSnapshot?.category
             || subCategoryName
             || fallbackDescription
-            || 'General'
-        ).trim() || 'General';
+            || rawDescription
+            || getTransactionInvoiceNumber(txn)
+            || 'Uncategorized'
+        ).trim() || 'Uncategorized';
         const nameText = String(txn?.name || txn?.desc || txn?.productSnapshot?.name || linkedSnapshot?.name || '').trim();
         const linkedCategoryText = linkedSnapshot
             ? `${linkedSnapshot.category || ''} ${linkedSnapshot.subCategory || ''} ${linkedSnapshot.name || ''}`
@@ -1625,6 +1650,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         () => purchaseTransactions.filter((txn) => !isExcludedCategoryTransaction(txn, KPI_SCOPE_EXPENSE)),
         [isExcludedCategoryTransaction, purchaseTransactions]
     );
+    const debouncedKpiExpenseTransactions = useDebouncedValue(kpiExpenseTransactions, 140);
 
     const resolveKpiRevenueContribution = useCallback((txn = {}) => {
         const mode = resolveTxnContributionMode(txn, KPI_SCOPE_SALES);
@@ -1647,21 +1673,21 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [productLookup, resolveTxnContributionMode]);
 
     const kpiRevenueAmount = useMemo(() => {
-        return revenueTransactions.reduce((sum, txn) => sum + resolveKpiRevenueContribution(txn), 0);
-    }, [revenueTransactions, resolveKpiRevenueContribution]);
+        return debouncedRevenueTransactions.reduce((sum, txn) => sum + resolveKpiRevenueContribution(txn), 0);
+    }, [debouncedRevenueTransactions, resolveKpiRevenueContribution]);
 
     const unifiedKpiStats = useMemo(() => {
         return computeUnifiedKpiSnapshot({
-            transactions,
-            products,
-            repairJobs,
+            transactions: debouncedTransactions,
+            products: debouncedProducts,
+            repairJobs: debouncedRepairJobs,
             rangeStart: dashboardRange.start,
             rangeEnd: dashboardRange.end,
             periodType: 'monthly',
             categoryContributionModeMap,
             includeAdminFixedExpenses: false,
         });
-    }, [transactions, products, repairJobs, dashboardRange, categoryContributionModeMap, kpiSettingsVersion]);
+    }, [debouncedTransactions, debouncedProducts, debouncedRepairJobs, dashboardRange, categoryContributionModeMap, kpiSettingsVersion]);
 
     const fallbackStats = useMemo(() => {
         const totalRevenue = unifiedKpiStats?.totals?.revenue || 0;
@@ -1687,8 +1713,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return Array.isArray(unifiedKpiStats?.incomeBreakdown) ? unifiedKpiStats.incomeBreakdown : [];
     }, [unifiedKpiStats]);
 
-    const revenueBreakdown = useMemo(() => buildPaymentBreakdown(revenueTransactions), [revenueTransactions]);
-    const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(kpiExpenseTransactions), [kpiExpenseTransactions]);
+    const revenueBreakdown = useMemo(() => buildPaymentBreakdown(debouncedRevenueTransactions), [debouncedRevenueTransactions]);
+    const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(debouncedKpiExpenseTransactions), [debouncedKpiExpenseTransactions]);
     const incomeBreakdown = useMemo(() => {
         const keys = new Set([...Object.keys(revenueBreakdown), ...Object.keys(purchaseBreakdown)]);
         const combined = {};
@@ -1746,7 +1772,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             logsByStaff.set(uid, existing);
         });
 
-        const salaryByStaff = (transactions || []).reduce((acc, txn) => {
+        const salaryByStaff = (debouncedTransactions || []).reduce((acc, txn) => {
             if (!(txn?.type === 'expense' && txn?.category === 'Salary')) return acc;
             const sid = String(txn?.workerId || txn?.salesmanId || '');
             if (!sid) return acc;
@@ -1823,7 +1849,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 chartLabels: daySlots.map((slot) => slot.label),
             };
         }).sort((a, b) => b.earned - a.earned);
-    }, [adminView, attendanceLogs, dashboardRange, isCustomRangeActive, salesmen, transactions]);
+    }, [adminView, attendanceLogs, dashboardRange, isCustomRangeActive, salesmen, debouncedTransactions]);
 
     const activityLogsToday = useMemo(() => {
         if (!adminView) return [];
@@ -3549,12 +3575,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     const salesByCategory = useMemo(
-        () => categoryTotals(revenueTransactions, productLookup),
-        [revenueTransactions, productLookup]
+        () => categoryTotals(debouncedRevenueTransactions, productLookup),
+        [debouncedRevenueTransactions, productLookup]
     );
     const expensesByCategory = useMemo(
-        () => categoryTotals(purchaseTransactions, productLookup),
-        [purchaseTransactions, productLookup]
+        () => categoryTotals(debouncedPurchaseTransactions, productLookup),
+        [debouncedPurchaseTransactions, productLookup]
     );
     return (
         <div className="min-h-screen bg-slate-100 text-slate-800">

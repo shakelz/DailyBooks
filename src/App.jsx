@@ -15,6 +15,7 @@ import ExpensesTab from './components/admin/ExpensesTab'
 import AdminSettings from './components/admin/AdminSettings'
 import RepairsTab from './components/admin/RepairsTab'
 import PWAInstallButton from './components/PWAInstallButton'
+import SalesmanDashboardErrorBoundary from './components/SalesmanDashboardErrorBoundary'
 import { supabaseConfigError } from './supabaseClient'
 
 const SALESMAN_LOGIN_PATH = '/terminal-access-v1'
@@ -127,8 +128,8 @@ function App() {
 
                 <Route path={`${ADMIN_LOGIN_PATH}/*`} element={<AdminRouteShell />}>
                   <Route index element={<Navigate to="dashboard" replace />} />
-                  <Route path="dashboard" element={<SalesmanDashboard adminView />} />
-                  <Route path="owner-dashboard" element={<SalesmanDashboard adminView />} />
+                  <Route path="dashboard" element={<SalesmanDashboardErrorBoundary><SalesmanDashboard adminView /></SalesmanDashboardErrorBoundary>} />
+                  <Route path="owner-dashboard" element={<SalesmanDashboardErrorBoundary><SalesmanDashboard adminView /></SalesmanDashboardErrorBoundary>} />
                   <Route path="inventory" element={<InventoryTab />} />
                   <Route path="insights" element={<InsightsTab />} />
                   <Route path="expenses" element={<ExpensesTab />} />
@@ -136,7 +137,7 @@ function App() {
                   <Route path="settings" element={<AdminSettings />} />
                 </Route>
 
-                <Route path={SALESMAN_DASHBOARD_PATH} element={<SalesmanGuard><SalesmanDashboard /></SalesmanGuard>} />
+                <Route path={SALESMAN_DASHBOARD_PATH} element={<SalesmanGuard><SalesmanDashboardErrorBoundary><SalesmanDashboard /></SalesmanDashboardErrorBoundary></SalesmanGuard>} />
                 <Route path={SALESMAN_LATEST_DASHBOARD_PATH} element={<SalesmanGuard><LatestDashboard /></SalesmanGuard>} />
 
                 <Route path="*" element={<Navigate to="/" replace />} />
