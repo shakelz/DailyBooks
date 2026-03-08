@@ -371,7 +371,7 @@ BEGIN
 END
 $$;
 
--- 5.6) Transactions data compatibility: normalize legacy repair tx type to product_sale
+-- 5.6) Transactions data compatibility: normalize legacy repair tx type to repair_job
 DO $$
 BEGIN
   IF to_regclass('public.transactions') IS NULL THEN
@@ -380,14 +380,22 @@ BEGIN
 
   UPDATE public.transactions
   SET
-    tx_type = 'product_sale',
+    tx_type = 'repair_job',
     type = CASE
-      WHEN coalesce(type, '') = '' THEN 'product_sale'
-      WHEN lower(type) = 'repair_amount' THEN 'product_sale'
+      WHEN coalesce(type, '') = '' THEN 'repair_job'
+      WHEN lower(type) IN ('repair_amount', 'repair', 'reparing_job', 'product_sale', 'sale', 'income') THEN 'repair_job'
       ELSE type
     END,
     updated_at = now()
-  WHERE lower(coalesce(tx_type, '')) = 'repair_amount';
+  WHERE (
+    lower(coalesce(source, tx_source, '')) = 'repair'
+    OR lower(coalesce(source, tx_source, '')) LIKE 'repair-%'
+    OR lower(coalesce(source, tx_source, '')) LIKE 'repair_%'
+  )
+  AND (
+    lower(coalesce(tx_type, '')) IN ('repair_amount', 'repair', 'reparing_job', 'product_sale', 'sale', 'income')
+    OR lower(coalesce(type, '')) IN ('repair_amount', 'repair', 'reparing_job', 'product_sale', 'sale', 'income')
+  );
 END
 $$;
 

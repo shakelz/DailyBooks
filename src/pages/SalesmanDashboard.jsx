@@ -186,7 +186,7 @@ function extractCategoryName(category) {
 function normalizeTxnType(value = '') {
     const raw = String(value || '').trim().toLowerCase();
     if (!raw) return 'income';
-    if (raw === 'income' || raw === 'product_sale' || raw === 'sale' || raw === 'repair_amount') return 'income';
+    if (raw === 'income' || raw === 'product_sale' || raw === 'sale' || raw === 'repair_amount' || raw === 'repair_job' || raw === 'reparing_job') return 'income';
     if (raw === 'expense' || raw === 'shop_expense' || raw === 'product_purchase' || raw === 'product_expense' || raw === 'purchase' || raw === 'adjustment_amount' || raw === 'adjustment') return 'expense';
     return raw.includes('expense') || raw.includes('purchase') ? 'expense' : 'income';
 }
@@ -1142,7 +1142,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const txType = String(txn.tx_type || txn.type || '').trim().toLowerCase();
             const source = String(txn.source || txn.tx_source || '').trim().toLowerCase();
             const isStrictProductSale = txType === 'product_sale' && source === 'shop';
-            if (!isStrictProductSale) return false;
+            const isRepairJobRevenue = (txType === 'repair_job' || txType === 'reparing_job' || txType === 'repair_amount')
+                && (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_'));
+            if (!isStrictProductSale && !isRepairJobRevenue) return false;
             if (isCashbookTransaction(txn)) return false;
             return true;
         }),

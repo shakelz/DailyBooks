@@ -207,7 +207,7 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
     const normalizedLegacyType = (() => {
         const lower = rawType.toLowerCase();
         if (!lower) return 'income';
-        if (lower === 'income' || lower === 'product_sale' || lower === 'sale' || lower === 'repair_amount') return 'income';
+        if (lower === 'income' || lower === 'product_sale' || lower === 'sale' || lower === 'repair_amount' || lower === 'repair_job' || lower === 'reparing_job') return 'income';
         if (lower === 'expense' || lower === 'shop_expense' || lower === 'product_purchase' || lower === 'product_expense' || lower === 'purchase' || lower === 'adjustment_amount' || lower === 'adjustment') return 'expense';
         return lower.includes('expense') || lower.includes('purchase') ? 'expense' : 'income';
     })();
@@ -784,20 +784,28 @@ function normalizeCategoryRecord(row = {}, categoryById = {}) {
 function mapTxType(value, source = '') {
     const raw = cleanText(value).toLowerCase();
     const sourceRaw = cleanText(source).toLowerCase();
+    const isRepairSource = sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_');
     if (!raw) {
         if (sourceRaw === 'purchase') return 'product_expense';
-        if (sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_')) return 'product_sale';
+        if (isRepairSource) return 'repair_job';
         if (sourceRaw === 'expense') return 'product_expense';
         return 'product_sale';
     }
+    if (isRepairSource && (
+        raw === 'income'
+        || raw === 'repair'
+        || raw === 'sale'
+        || raw === 'product_sale'
+        || raw === 'repair_amount'
+        || raw === 'repair_job'
+        || raw === 'reparing_job'
+    )) return 'repair_job';
     if (sourceRaw === 'purchase' && (raw === 'expense' || raw === 'purchase')) return 'product_expense';
-    if ((sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_'))
-        && (raw === 'income' || raw === 'repair' || raw === 'sale' || raw === 'repair_amount')) return 'product_sale';
     if (raw === 'fixed_expense') return 'fixed_expense';
     if (raw === 'income' || raw === 'product_sale' || raw === 'sale') return 'product_sale';
     if (raw === 'shop_expense' || raw === 'expense') return 'product_expense';
     if (raw === 'product_expense' || raw === 'product_purchase' || raw === 'purchase') return 'product_expense';
-    if (raw === 'repair_amount' || raw === 'repair') return 'product_sale';
+    if (raw === 'repair_amount' || raw === 'repair' || raw === 'repair_job' || raw === 'reparing_job') return 'repair_job';
     if (raw === 'adjustment_amount' || raw === 'adjustment') return 'adjustment_amount';
     return 'product_sale';
 }
@@ -2155,12 +2163,15 @@ export function InventoryProvider({ children }) {
             let finalWriteResult = insertResult;
 
             if (insertResult.error) {
-                const normalizedSource = ['cash', 'sum_up'].includes(cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase())
-                    ? cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase()
+                const rawFallbackSource = cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase();
+                const normalizedSource = ['cash', 'sum_up', 'shop', 'purchase', 'expense', 'repair'].includes(rawFallbackSource)
+                    ? rawFallbackSource
                     : 'cash';
                 const fallbackLegacyType = String(txnWithInvoice?.type || '').toLowerCase();
                 const shouldBeExpense = fallbackLegacyType === 'expense'
-                    || String(txnWithInvoice?.source || '').toLowerCase() === 'purchase';
+                    || String(txnWithInvoice?.source || '').toLowerCase() === 'purchase'
+                    || String(txnWithInvoice?.source || '').toLowerCase() === 'expense';
+                const isRepairSource = normalizedSource === 'repair';
                 const fallbackType = mapTxType(
                     formattedTxn?.tx_type || formattedTxn?.type || txnWithInvoice?.tx_type || txnWithInvoice?.type,
                     txnWithInvoice?.source || txnWithInvoice?.tx_source || formattedTxn?.source || formattedTxn?.tx_source
@@ -2177,8 +2188,9 @@ export function InventoryProvider({ children }) {
                 if (isUuidSyntaxError(insertResult.error, 'repair_id')) fallbackPayload.repair_id = null;
                 if (isUuidSyntaxError(insertResult.error, 'created_by')) fallbackPayload.created_by = null;
                 if (isEnumError(insertResult.error, 'tx_type') || isEnumError(insertResult.error, 'type')) {
-                    fallbackPayload.tx_type = shouldBeExpense ? 'product_expense' : 'product_sale';
-                    fallbackPayload.type = shouldBeExpense ? 'product_expense' : 'product_sale';
+                    const safeType = shouldBeExpense ? 'product_expense' : (isRepairSource ? 'repair_job' : 'product_sale');
+                    fallbackPayload.tx_type = safeType;
+                    fallbackPayload.type = safeType;
                 }
                 if (isEnumError(insertResult.error, 'source') || isEnumError(insertResult.error, 'tx_source')) {
                     fallbackPayload.source = 'cash';
@@ -2194,7 +2206,7 @@ export function InventoryProvider({ children }) {
                 if (finalRetryResult.error && (isEnumError(finalRetryResult.error, 'tx_type') || isEnumError(finalRetryResult.error, 'type'))) {
                     const typeCandidates = shouldBeExpense
                         ? ['product_expense', 'product_purchase', 'shop_expense', 'expense']
-                        : ['product_sale', 'income'];
+                        : (isRepairSource ? ['repair_job', 'product_sale', 'income'] : ['product_sale', 'income', 'repair_job']);
 
                     for (const candidateType of typeCandidates) {
                         if (candidateType === fallbackPayload.tx_type) continue;

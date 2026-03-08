@@ -125,7 +125,12 @@ function isFixedExpenseTxn(txn = {}) {
 
 function isSalesTxn(txn = {}) {
   const txType = getTxType(txn);
-  return txType === 'product_sale' || txType === 'sale' || txType === 'income';
+  return txType === 'product_sale'
+    || txType === 'sale'
+    || txType === 'income'
+    || txType === 'repair_job'
+    || txType === 'reparing_job'
+    || txType === 'repair_amount';
 }
 
 function isExpenseTxn(txn = {}) {
@@ -177,7 +182,8 @@ function shouldIgnoreGeneralExpense(txn = {}, filtered = {}) {
 }
 
 function isProductSaleTxn(txn = {}) {
-  return getTxType(txn) === 'product_sale';
+  const source = normalizeToken(txn?.source || txn?.tx_source || '');
+  return getTxType(txn) === 'product_sale' && source === 'shop';
 }
 
 function resolveCategoryLevel1(rawCategory) {
@@ -545,7 +551,10 @@ export function computeUnifiedKpiSnapshot({
         productById,
       });
       if (filtered.included) strictProductProfit += filtered.amount;
-    } else if (sourceText === 'repair' && (txType === 'repair_amount' || txType === 'product_sale' || txType === 'sale' || txType === 'income')) {
+    } else if (
+      (sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_'))
+      && (txType === 'repair_amount' || txType === 'repair_job' || txType === 'reparing_job' || txType === 'product_sale' || txType === 'sale' || txType === 'income')
+    ) {
       const filtered = calculateFilteredTotal({
         txn,
         scope: KPI_SCOPE_SALES,
