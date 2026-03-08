@@ -123,7 +123,23 @@ function toBreakdownRows(map = {}) {
 }
 
 function todayIsoDate() {
-    return new Date().toISOString().slice(0, 10);
+    return formatLocalDateInput(new Date());
+}
+
+function parseLocalDateInput(value = '') {
+    const [year, month, day] = String(value || '').split('-').map(Number);
+    if (!year || !month || !day) return null;
+    const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatLocalDateInput(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }
 
 function useDebouncedValue(value, delayMs = 120) {
@@ -1057,16 +1073,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
 
     const todayStart = useMemo(() => {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        return d;
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        return start;
     }, []);
 
     const todayEnd = useMemo(() => {
-        const d = new Date(todayStart);
-        d.setHours(23, 59, 59, 999);
-        return d;
-    }, [todayStart]);
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
+        return end;
+    }, []);
 
     const formatRangeLabel = (start, end) => {
         const fmt = (d) => d.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -1079,8 +1095,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         const selected = Array.isArray(adminDashboardDateSelection) ? adminDashboardDateSelection[0] : null;
-        const selectedStart = selected?.startDate ? new Date(selected.startDate) : null;
-        const selectedEnd = selected?.endDate ? new Date(selected.endDate) : null;
+        const selectedStart = selected?.startDate ? parseLocalDateInput(selected.startDate) : null;
+        const selectedEnd = selected?.endDate ? parseLocalDateInput(selected.endDate) : null;
 
         if (selectedStart && selectedEnd && !Number.isNaN(selectedStart.getTime()) && !Number.isNaN(selectedEnd.getTime())) {
             const start = new Date(selectedStart);
@@ -1102,8 +1118,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const isCustomRangeActive = useMemo(() => {
         if (!adminView) return false;
         const selected = Array.isArray(adminDashboardDateSelection) ? adminDashboardDateSelection[0] : null;
-        const selectedStart = selected?.startDate ? new Date(selected.startDate) : null;
-        const selectedEnd = selected?.endDate ? new Date(selected.endDate) : null;
+        const selectedStart = selected?.startDate ? parseLocalDateInput(selected.startDate) : null;
+        const selectedEnd = selected?.endDate ? parseLocalDateInput(selected.endDate) : null;
         if (!selectedStart || !selectedEnd || Number.isNaN(selectedStart.getTime()) || Number.isNaN(selectedEnd.getTime())) {
             return false;
         }
@@ -2397,10 +2413,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, []);
 
     const buildSelectedDate = (dateValue) => {
-        const selected = new Date(`${dateValue}T00:00:00`);
-        if (Number.isNaN(selected.getTime())) return new Date();
         const now = new Date();
-        selected.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+        const todayStr = formatLocalDateInput(now);
+        if (!dateValue || dateValue === todayStr) return now;
+
+        const selected = parseLocalDateInput(dateValue);
+        if (!selected) return now;
+        selected.setHours(12, 0, 0, 0);
         return selected;
     };
 
