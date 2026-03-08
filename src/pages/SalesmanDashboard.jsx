@@ -1123,6 +1123,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         const directCandidates = [
             txn.timestamp,
+            txn.occurred_at,
+            txn.occurredAt,
             txn.created_at,
             txn.createdAt,
             txn.updated_at,
