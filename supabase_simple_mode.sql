@@ -371,6 +371,26 @@ BEGIN
 END
 $$;
 
+-- 5.6) Transactions data compatibility: normalize legacy repair tx type to product_sale
+DO $$
+BEGIN
+  IF to_regclass('public.transactions') IS NULL THEN
+    RETURN;
+  END IF;
+
+  UPDATE public.transactions
+  SET
+    tx_type = 'product_sale',
+    type = CASE
+      WHEN coalesce(type, '') = '' THEN 'product_sale'
+      WHEN lower(type) = 'repair_amount' THEN 'product_sale'
+      ELSE type
+    END,
+    updated_at = now()
+  WHERE lower(coalesce(tx_type, '')) = 'repair_amount';
+END
+$$;
+
 -- 6) Repairs compatibility: allow short date invoice numbers (YYMMDD) without unique-key collisions
 DO $$
 DECLARE

@@ -545,7 +545,7 @@ export function computeUnifiedKpiSnapshot({
         productById,
       });
       if (filtered.included) strictProductProfit += filtered.amount;
-    } else if (txType === 'repair_amount' && sourceText === 'repair') {
+    } else if (sourceText === 'repair' && (txType === 'repair_amount' || txType === 'product_sale' || txType === 'sale' || txType === 'income')) {
       const filtered = calculateFilteredTotal({
         txn,
         scope: KPI_SCOPE_SALES,

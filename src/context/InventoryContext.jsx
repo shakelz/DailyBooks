@@ -786,18 +786,18 @@ function mapTxType(value, source = '') {
     const sourceRaw = cleanText(source).toLowerCase();
     if (!raw) {
         if (sourceRaw === 'purchase') return 'product_expense';
-        if (sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_')) return 'repair_amount';
+        if (sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_')) return 'product_sale';
         if (sourceRaw === 'expense') return 'product_expense';
         return 'product_sale';
     }
     if (sourceRaw === 'purchase' && (raw === 'expense' || raw === 'purchase')) return 'product_expense';
     if ((sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_'))
-        && (raw === 'income' || raw === 'repair' || raw === 'sale')) return 'repair_amount';
+        && (raw === 'income' || raw === 'repair' || raw === 'sale' || raw === 'repair_amount')) return 'product_sale';
     if (raw === 'fixed_expense') return 'fixed_expense';
     if (raw === 'income' || raw === 'product_sale' || raw === 'sale') return 'product_sale';
     if (raw === 'shop_expense' || raw === 'expense') return 'product_expense';
     if (raw === 'product_expense' || raw === 'product_purchase' || raw === 'purchase') return 'product_expense';
-    if (raw === 'repair_amount' || raw === 'repair') return 'repair_amount';
+    if (raw === 'repair_amount' || raw === 'repair') return 'product_sale';
     if (raw === 'adjustment_amount' || raw === 'adjustment') return 'adjustment_amount';
     return 'product_sale';
 }
