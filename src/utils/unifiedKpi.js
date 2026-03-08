@@ -325,9 +325,11 @@ function computeTxnGrossProfit(txn = {}, linkedProduct = null) {
   const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
   const linkedPurchase = linkedProduct ? Number(linkedProduct?.purchasePrice) : NaN;
 
-  const unitCost = Number.isFinite(purchaseAtTime)
+  const unitCost = Number.isFinite(purchaseAtTime) && purchaseAtTime > 0
     ? purchaseAtTime
-    : (Number.isFinite(snapshotPurchase) ? snapshotPurchase : (Number.isFinite(linkedPurchase) ? linkedPurchase : 0));
+    : (Number.isFinite(snapshotPurchase) && snapshotPurchase > 0
+      ? snapshotPurchase
+      : (Number.isFinite(linkedPurchase) && linkedPurchase > 0 ? linkedPurchase : 0));
 
   const sourceText = normalizeToken(txn?.source || txn?.tx_source || '');
   const isRepair = sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_');

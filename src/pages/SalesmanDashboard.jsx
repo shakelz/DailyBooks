@@ -1665,9 +1665,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             ? Number(productLookup[String(txn.productId)]?.purchasePrice)
             : NaN;
 
-        const unitCost = Number.isFinite(purchaseAtTime)
+        const unitCost = Number.isFinite(purchaseAtTime) && purchaseAtTime > 0
             ? purchaseAtTime
-            : (Number.isFinite(snapshotPurchase) ? snapshotPurchase : (Number.isFinite(linkedPurchase) ? linkedPurchase : 0));
+            : (Number.isFinite(snapshotPurchase) && snapshotPurchase > 0
+                ? snapshotPurchase
+                : (Number.isFinite(linkedPurchase) && linkedPurchase > 0 ? linkedPurchase : 0));
 
         return amount - (unitCost * quantity);
     }, [productLookup, resolveTxnContributionMode]);
