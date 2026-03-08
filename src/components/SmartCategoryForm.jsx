@@ -76,6 +76,7 @@ export default function SmartCategoryForm({
     const [errors, setErrors] = useState({});
     const [submitted, setSubmitted] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const isSubmittingRef = useRef(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -166,6 +167,8 @@ export default function SmartCategoryForm({
                 setErrors({}); setSubmitted(false);
                 setCustomChips([]);
             }
+            isSubmittingRef.current = false;
+            setIsSubmitting(false);
         }
     }, [isOpen, initialData]);
 
@@ -326,9 +329,13 @@ export default function SmartCategoryForm({
 
     const handleSubmit = async (e) => {
         if (e) e.preventDefault();
-        if (isSubmitting) return;
+        if (isSubmittingRef.current) return;
+        isSubmittingRef.current = true;
         setSubmitted(true);
-        if (!validate()) return;
+        if (!validate()) {
+            isSubmittingRef.current = false;
+            return;
+        }
 
         setIsSubmitting(true);
         if (typeof onProcessingChange === 'function') {
@@ -408,6 +415,7 @@ export default function SmartCategoryForm({
                 onProcessingChange(false);
             }
             setIsSubmitting(false);
+            isSubmittingRef.current = false;
         }
     };
 
