@@ -6,6 +6,18 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    if (!String(serviceRoleKey).trim()) {
+      console.error('create-owner error: service role key is not set')
+      return jsonResponse({ error: 'SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE_KEY is not set.' }, 500)
+    }
+
+    const projectUrl = Deno.env.get('PROJECT_URL') ?? Deno.env.get('SUPABASE_URL') ?? ''
+    if (!String(projectUrl).trim()) {
+      console.error('create-owner error: project url is not set')
+      return jsonResponse({ error: 'PROJECT_URL/SUPABASE_URL is not set.' }, 500)
+    }
+
     const { user: caller, role: callerRole, error: callerError } = await getCallerContext(req)
     if (callerError || !caller) {
       return jsonResponse({ error: callerError || 'Unauthorized.' }, 401)
@@ -15,26 +27,74 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'Only super_admin can create owner accounts.' }, 403)
     }
 
-    const body = await req.json()
+    let body: Record<string, unknown> | null = null
+    try {
+      body = await req.json()
+    } catch (err) {
+      console.error('create-owner error: invalid JSON body', err)
+      return jsonResponse(
+        {
+          error: 'Invalid JSON body.',
+          details: err instanceof Error ? err.message : String(err),
+        },
+        400,
+      )
+    }
+
     const ownerName = String(body?.ownerName ?? '').trim()
     const ownerEmail = String(body?.ownerEmail ?? '').trim().toLowerCase()
     const ownerPassword = String(body?.ownerPassword ?? '').trim()
-    const newShopId = String(body?.newShopId ?? '').trim()
+    const newShopId = String(body?.shopId ?? body?.newShopId ?? '').trim()
 
-    if (!ownerName) {
-      return jsonResponse({ error: 'ownerName is required.' }, 400)
-    }
-    if (!ownerEmail) {
-      return jsonResponse({ error: 'ownerEmail is required.' }, 400)
-    }
-    if (!ownerPassword) {
-      return jsonResponse({ error: 'ownerPassword is required.' }, 400)
-    }
-    if (!newShopId) {
-      return jsonResponse({ error: 'newShopId is required.' }, 400)
+    if (!ownerEmail || !ownerPassword || !ownerName || !newShopId) {
+      console.error('create-owner error: missing required fields', {
+        ownerEmail,
+        ownerName,
+        newShopId,
+      })
+      return jsonResponse(
+        {
+          error: 'Missing required fields.',
+          received: {
+            ownerEmail: ownerEmail || null,
+            ownerName: ownerName || null,
+            shopId: newShopId || null,
+          },
+        },
+        400,
+      )
     }
 
     const supabaseAdmin = createAdminClient()
+    const { data: shopRow, error: shopLookupError } = await supabaseAdmin
+      .from('shops')
+      .select('shop_id')
+      .eq('shop_id', newShopId)
+      .maybeSingle()
+
+    if (shopLookupError) {
+      console.error('create-owner error: failed to validate shop', shopLookupError)
+      return jsonResponse(
+        {
+          error: 'Failed to validate shop before owner creation.',
+          details: shopLookupError.message || 'Unknown shop lookup error.',
+          shopId: newShopId,
+        },
+        500,
+      )
+    }
+
+    if (!shopRow) {
+      console.error('create-owner error: shop does not exist', { shopId: newShopId })
+      return jsonResponse(
+        {
+          error: 'shopId does not exist in shops table.',
+          shopId: newShopId,
+        },
+        400,
+      )
+    }
+
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email: ownerEmail,
       password: ownerPassword,
@@ -47,7 +107,14 @@ Deno.serve(async (req) => {
     })
 
     if (error || !data.user) {
-      return jsonResponse({ error: error?.message || 'Failed to create owner account.' }, 400)
+      console.error('create-owner error: auth.admin.createUser failed', error)
+      return jsonResponse(
+        {
+          error: error?.message || 'Failed to create owner account.',
+          details: String(error?.message || error || 'Unknown createUser failure.'),
+        },
+        400,
+      )
     }
 
     return jsonResponse({
@@ -55,7 +122,14 @@ Deno.serve(async (req) => {
       email: data.user.email,
       shopId: newShopId,
     })
-  } catch (error) {
-    return jsonResponse({ error: error instanceof Error ? error.message : 'Unexpected error.' }, 500)
+  } catch (err) {
+    console.error('create-owner error:', err)
+    return jsonResponse(
+      {
+        error: err instanceof Error ? err.message : 'Unknown error',
+        details: String(err),
+      },
+      500,
+    )
   }
 })

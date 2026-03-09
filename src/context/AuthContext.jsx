@@ -180,6 +180,19 @@ async function safeSupabaseQuery(operation, fallbackError = 'Supabase request fa
 async function extractSupabaseFunctionErrorMessage(error, fallbackError = 'Request failed.') {
     const directMessage = asString(error?.message);
     const context = error?.context;
+    const responseText = asString(context?.responseText || context?._bodyText || context?.body);
+
+    if (responseText) {
+        try {
+            const parsed = JSON.parse(responseText);
+            const serverMessage = asString(parsed?.error || parsed?.message || parsed?.msg);
+            if (serverMessage) {
+                return serverMessage;
+            }
+        } catch {
+            return responseText;
+        }
+    }
 
     if (context) {
         try {
@@ -2007,6 +2020,7 @@ export function AuthProvider({ children }) {
                     ownerName,
                     ownerEmail: email,
                     ownerPassword: password,
+                    shopId,
                     newShopId: shopId,
                 },
             }),
