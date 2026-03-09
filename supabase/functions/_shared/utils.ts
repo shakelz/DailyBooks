@@ -2,7 +2,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-admin-secret',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Max-Age': '86400',
 }
@@ -67,7 +67,10 @@ export function getAdminFunctionSecret() {
 
 export function requireAdminFunctionSecret(req: Request) {
   const expectedSecret = getAdminFunctionSecret()
-  const providedSecret = req.headers.get('x-admin-secret') ?? ''
+  const authorizationHeader = req.headers.get('authorization') ?? req.headers.get('Authorization') ?? ''
+  const providedSecret = authorizationHeader.toLowerCase().startsWith('bearer ')
+    ? authorizationHeader.slice(7).trim()
+    : authorizationHeader.trim()
 
   if (!expectedSecret) {
     return {
