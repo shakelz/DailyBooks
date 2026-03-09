@@ -2,6 +2,7 @@ import {
   buildSalesmanShadowEmail,
   corsHeaders,
   createAdminClient,
+  executeWithPrunedColumns,
   jsonResponse,
   reconcileProfileRow,
   requireAdminFunctionSecret,
@@ -55,21 +56,34 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: error?.message || 'Failed to create salesman account.' }, 400)
     }
 
-    const profileResult = await reconcileProfileRow(supabaseAdmin, {
-      userId: data.user.id,
-      shopId,
-      updates: {
-        full_name: name,
-        name,
-        email: shadowEmail,
-        role: 'salesman',
-        shop_id: shopId,
-        pin,
-        pin_digest: pinDigest,
-        active: true,
-        is_online: false,
-      },
-    })
+    const desiredProfile = {
+      user_id: data.user.id,
+      shop_id: shopId,
+      full_name: name,
+      name,
+      email: shadowEmail,
+      role: 'salesman',
+      pin,
+      pin_digest: pinDigest,
+      active: true,
+      is_online: false,
+    }
+    let profileResult = await executeWithPrunedColumns(
+      (candidate) => supabaseAdmin
+        .from('profiles')
+        .upsert(candidate, { onConflict: 'user_id' })
+        .select('*')
+        .maybeSingle(),
+      desiredProfile,
+    )
+
+    if (profileResult.error || !profileResult.data) {
+      profileResult = await reconcileProfileRow(supabaseAdmin, {
+        userId: data.user.id,
+        shopId,
+        updates: desiredProfile,
+      })
+    }
 
     if (profileResult.error || !profileResult.data) {
       await supabaseAdmin.auth.admin.deleteUser(data.user.id)

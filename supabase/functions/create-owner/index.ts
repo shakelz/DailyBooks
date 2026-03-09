@@ -1,6 +1,7 @@
 import {
   corsHeaders,
   createAdminClient,
+  executeWithPrunedColumns,
   jsonResponse,
   reconcileProfileRow,
   requireAdminFunctionSecret,
@@ -121,19 +122,32 @@ Deno.serve(async (req) => {
       )
     }
 
-    const profileResult = await reconcileProfileRow(supabaseAdmin, {
-      userId: data.user.id,
-      shopId,
-      updates: {
-        full_name: ownerName,
-        name: ownerName,
-        email: ownerEmail,
-        role: 'owner',
-        shop_id: shopId,
-        active: true,
-        is_online: false,
-      },
-    })
+    const desiredProfile = {
+      user_id: data.user.id,
+      shop_id: shopId,
+      full_name: ownerName,
+      name: ownerName,
+      email: ownerEmail,
+      role: 'owner',
+      active: true,
+      is_online: false,
+    }
+    let profileResult = await executeWithPrunedColumns(
+      (candidate) => supabaseAdmin
+        .from('profiles')
+        .upsert(candidate, { onConflict: 'user_id' })
+        .select('*')
+        .maybeSingle(),
+      desiredProfile,
+    )
+
+    if (profileResult.error || !profileResult.data) {
+      profileResult = await reconcileProfileRow(supabaseAdmin, {
+        userId: data.user.id,
+        shopId,
+        updates: desiredProfile,
+      })
+    }
 
     if (profileResult.error || !profileResult.data) {
       console.error('create-owner error: failed to reconcile owner profile', profileResult.error)
