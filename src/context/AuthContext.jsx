@@ -597,6 +597,35 @@ async function waitForProfileByUserId(userId = '', attempts = 6, delayMs = 250) 
     return null;
 }
 
+async function updateProfileByUserId(userId = '', updates = {}, shopId = '') {
+    const uid = asString(userId);
+    const sid = asString(shopId);
+    if (!uid || !updates || typeof updates !== 'object') {
+        return { data: null, error: { message: 'Invalid profile update.' } };
+    }
+
+    const candidates = buildProfileUpdatePayloads(updates);
+    let lastError = null;
+
+    for (const payload of candidates) {
+        let query = supabase.from('profiles').update(payload).eq('user_id', uid);
+        if (sid) {
+            query = query.eq('shop_id', sid);
+        }
+
+        const result = await safeSupabaseQuery(
+            () => query,
+            'Failed to update user profile.'
+        );
+        if (!result?.error) {
+            return { ...result, payload };
+        }
+        lastError = result.error;
+    }
+
+    return { data: null, error: lastError || { message: 'Failed to update user profile.' } };
+}
+
 async function updateShopById(shopId = '', payload = {}, withSelect = false) {
     return runShopMutationById(shopId, (column, sid) => {
         let query = supabase.from('shops').update(payload).eq(column, sid);
@@ -1526,7 +1555,9 @@ function buildSalesmanInsertPayloads({
 }
 
 function buildProfileUpdatePayloads(updates = {}) {
-    const payload = cleanPayload({
+    const safeName = updates.name === undefined ? undefined : asString(updates.name);
+    const safePin = updates.pin === undefined ? undefined : asString(updates.pin);
+    const basePayload = cleanPayload({
         ...(updates.name === undefined ? {} : { full_name: asString(updates.name) }),
         ...(updates.email === undefined ? {} : { email: asString(updates.email).toLowerCase() }),
         ...(updates.passwordHash === undefined ? {} : { password_hash: asString(updates.passwordHash) }),
@@ -1545,8 +1576,33 @@ function buildProfileUpdatePayloads(updates = {}) {
             ? {}
             : { is_online: asBoolean(updates.is_online ?? updates.isOnline ?? updates.online) }),
     });
+    delete basePayload.full_name;
 
-    return Object.keys(payload).length ? [payload] : [];
+    const nameVariants = safeName === undefined
+        ? [{}]
+        : [
+            { full_name: safeName, name: safeName },
+            { name: safeName },
+            { full_name: safeName },
+        ];
+    const pinVariants = safePin === undefined
+        ? [{}]
+        : [
+            { pin: safePin },
+        ];
+
+    const payloads = [];
+    for (const nameVariant of nameVariants) {
+        for (const pinVariant of pinVariants) {
+            payloads.push(cleanPayload({
+                ...basePayload,
+                ...nameVariant,
+                ...pinVariant,
+            }));
+        }
+    }
+
+    return dedupePayloads(payloads).filter((payload) => Object.keys(payload).length > 0);
 }
 
 async function trySelectProfileByField(field, value, roles) {
@@ -3222,10 +3278,29 @@ export function AuthProvider({ children }) {
             throw new Error('Salesman auth user created, but the profiles trigger row is not visible yet.');
         }
 
-        const createdProfile = normalizeSalesman(createdProfileRow);
+        const pinDigest = await computePinDigest(sid, trimmedPin);
+        const profileCorrection = await updateProfileByUserId(createdSalesman?.userId, {
+            name: trimmedName,
+            pin: trimmedPin,
+            ...(pinDigest ? { pin_digest: pinDigest } : {}),
+            role: 'salesman',
+            shop_id: sid,
+        }, sid);
+        if (profileCorrection?.error) {
+            console.error('Failed to reconcile newly created salesman profile:', profileCorrection.error);
+        }
+
+        const correctedProfileRow = profileCorrection?.error
+            ? createdProfileRow
+            : ((await selectProfileByUserId(createdSalesman?.userId)).data || createdProfileRow);
+        const createdProfile = normalizeSalesman(correctedProfileRow);
         const createdUserId = asString(getProfileId(createdProfile));
         const withMeta = {
             ...createdProfile,
+            name: trimmedName,
+            pin: trimmedPin,
+            role: 'salesman',
+            shop_id: sid,
             salesmanNumber: assignedNumber,
             ...permissionPatch
         };
@@ -3233,7 +3308,16 @@ export function AuthProvider({ children }) {
             salesmanNumber: assignedNumber,
             ...permissionPatch
         });
-        setSalesmen(prev => [...prev, withMeta]);
+        setSalesmen((prev) => {
+            const next = Array.isArray(prev) ? [...prev] : [];
+            const existingIndex = next.findIndex((row) => asString(row?.id) === createdUserId);
+            if (existingIndex >= 0) {
+                next[existingIndex] = { ...next[existingIndex], ...withMeta };
+            } else {
+                next.push(withMeta);
+            }
+            return next;
+        });
         return withMeta;
     };
 
