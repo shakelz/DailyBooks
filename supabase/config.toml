@@ -1,0 +1,8 @@
+[functions.create-owner]
+verify_jwt = false
+
+[functions.create-salesman]
+verify_jwt = false
+
+[functions.update-owner-credentials]
+verify_jwt = false

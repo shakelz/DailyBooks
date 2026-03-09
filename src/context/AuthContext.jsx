@@ -20,6 +20,7 @@ const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MS = 5 * 60 * 1000;
 const AUTH_RATE_LIMIT_ENABLED = false; // temporary: disable failed-attempt lockout
 const SALESMAN_LOGIN_ROUTE = '/terminal-access-v1';
+const ADMIN_FUNCTION_SECRET = String(import.meta.env.VITE_ADMIN_FUNCTION_SECRET || '').trim();
 
 const volatileAuthStore = {
     role: '',
@@ -175,6 +176,19 @@ async function safeSupabaseQuery(operation, fallbackError = 'Supabase request fa
         }
         return { data: null, error: { message: asString(error?.message) || fallbackError } };
     }
+}
+
+function buildAdminFunctionInvokeOptions(body = {}) {
+    if (!ADMIN_FUNCTION_SECRET) {
+        throw new Error('Missing VITE_ADMIN_FUNCTION_SECRET for admin edge functions.');
+    }
+
+    return {
+        body,
+        headers: {
+            'x-admin-secret': ADMIN_FUNCTION_SECRET,
+        },
+    };
 }
 
 async function extractSupabaseFunctionErrorMessage(error, fallbackError = 'Request failed.') {
@@ -2028,13 +2042,13 @@ export function AuthProvider({ children }) {
 
         const { data: ownerResult, error: ownerError } = await safeSupabaseQuery(
             () => supabase.functions.invoke('create-owner', {
-                body: {
+                ...buildAdminFunctionInvokeOptions({
                     ownerName,
                     ownerEmail: email,
                     ownerPassword: password,
                     shopId,
                     newShopId: shopId,
-                },
+                }),
             }),
             'Failed to create owner account.'
         );
@@ -2237,11 +2251,11 @@ export function AuthProvider({ children }) {
 
             const { error: ownerAuthError } = await safeSupabaseQuery(
                 () => supabase.functions.invoke('update-owner-credentials', {
-                    body: {
+                    ...buildAdminFunctionInvokeOptions({
                         shopId: sid,
                         ...(hasOwner ? { ownerEmail: nextOwnerEmail } : {}),
                         ...(shouldUpdateOwnerPassword ? { ownerPassword: nextOwnerPassword } : {}),
-                    },
+                    }),
                 }),
                 'Failed to update shop owner credentials.'
             );
@@ -3153,11 +3167,11 @@ export function AuthProvider({ children }) {
 
         const { data: createdSalesman, error: createError } = await safeSupabaseQuery(
             () => supabase.functions.invoke('create-salesman', {
-                body: {
+                ...buildAdminFunctionInvokeOptions({
                     name: trimmedName,
                     pin: trimmedPin,
                     shop_id: sid,
-                },
+                }),
             }),
             'Failed to create salesman account.'
         );

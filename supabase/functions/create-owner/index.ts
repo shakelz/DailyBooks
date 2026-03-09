@@ -1,4 +1,4 @@
-import { corsHeaders, createAdminClient, getCallerContext, jsonResponse } from '../_shared/utils.ts'
+import { corsHeaders, createAdminClient, jsonResponse, requireAdminFunctionSecret } from '../_shared/utils.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -6,6 +6,11 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const secretCheck = requireAdminFunctionSecret(req)
+    if (!secretCheck.ok) {
+      return secretCheck.response
+    }
+
     const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     if (!String(serviceRoleKey).trim()) {
       console.error('create-owner error: service role key is not set')
@@ -16,15 +21,6 @@ Deno.serve(async (req) => {
     if (!String(projectUrl).trim()) {
       console.error('create-owner error: project url is not set')
       return jsonResponse({ error: 'PROJECT_URL/SUPABASE_URL is not set.' }, 500)
-    }
-
-    const { user: caller, role: callerRole, error: callerError } = await getCallerContext(req)
-    if (callerError || !caller) {
-      return jsonResponse({ error: callerError || 'Unauthorized.' }, 401)
-    }
-
-    if (callerRole !== 'super_admin') {
-      return jsonResponse({ error: 'Only super_admin can create owner accounts.' }, 403)
     }
 
     let body: Record<string, unknown> | null = null

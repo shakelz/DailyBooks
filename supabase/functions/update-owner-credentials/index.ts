@@ -1,4 +1,4 @@
-import { corsHeaders, createAdminClient, getCallerContext, jsonResponse } from '../_shared/utils.ts'
+import { corsHeaders, createAdminClient, jsonResponse, requireAdminFunctionSecret } from '../_shared/utils.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -6,13 +6,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { user: caller, role: callerRole, error: callerError } = await getCallerContext(req)
-    if (callerError || !caller) {
-      return jsonResponse({ error: callerError || 'Unauthorized.' }, 401)
-    }
-
-    if (callerRole !== 'super_admin') {
-      return jsonResponse({ error: 'Only super_admin can update owner credentials.' }, 403)
+    const secretCheck = requireAdminFunctionSecret(req)
+    if (!secretCheck.ok) {
+      return secretCheck.response
     }
 
     const body = await req.json()

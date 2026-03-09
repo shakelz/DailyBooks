@@ -2,8 +2,8 @@ import {
   buildSalesmanShadowEmail,
   corsHeaders,
   createAdminClient,
-  getCallerContext,
   jsonResponse,
+  requireAdminFunctionSecret,
 } from '../_shared/utils.ts'
 
 Deno.serve(async (req) => {
@@ -12,13 +12,9 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { user: caller, role: callerRole, shopId: callerShopId, error: callerError } = await getCallerContext(req)
-    if (callerError || !caller) {
-      return jsonResponse({ error: callerError || 'Unauthorized.' }, 401)
-    }
-
-    if (!['super_admin', 'owner', 'admin'].includes(callerRole)) {
-      return jsonResponse({ error: 'Only admin users can create salesman accounts.' }, 403)
+    const secretCheck = requireAdminFunctionSecret(req)
+    if (!secretCheck.ok) {
+      return secretCheck.response
     }
 
     const body = await req.json()
@@ -34,10 +30,6 @@ Deno.serve(async (req) => {
     }
     if (!shopId) {
       return jsonResponse({ error: 'shop_id is required.' }, 400)
-    }
-
-    if (callerRole !== 'super_admin' && callerShopId !== shopId) {
-      return jsonResponse({ error: 'You can only create salesman accounts for your own shop.' }, 403)
     }
 
     const shadowEmail = buildSalesmanShadowEmail(name, pin)

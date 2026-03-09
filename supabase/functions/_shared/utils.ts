@@ -61,6 +61,31 @@ function getAnonKey() {
   return readFirstEnv(['ANON_KEY', 'SUPABASE_ANON_KEY', 'PUBLIC_ANON_KEY'])
 }
 
+export function getAdminFunctionSecret() {
+  return readFirstEnv(['ADMIN_FUNCTION_SECRET'])
+}
+
+export function requireAdminFunctionSecret(req: Request) {
+  const expectedSecret = getAdminFunctionSecret()
+  const providedSecret = req.headers.get('x-admin-secret') ?? ''
+
+  if (!expectedSecret) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: 'ADMIN_FUNCTION_SECRET is not configured.' }, 500),
+    }
+  }
+
+  if (providedSecret !== expectedSecret) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: 'Unauthorized' }, 401),
+    }
+  }
+
+  return { ok: true, response: null }
+}
+
 export function createAdminClient() {
   const supabaseUrl = getProjectUrl()
   const serviceRoleKey = getServiceRoleKey()
