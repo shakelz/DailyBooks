@@ -1,4 +1,10 @@
-import { corsHeaders, createAdminClient, jsonResponse, requireAdminFunctionSecret } from '../_shared/utils.ts'
+import {
+  corsHeaders,
+  createAdminClient,
+  jsonResponse,
+  reconcileProfileRow,
+  requireAdminFunctionSecret,
+} from '../_shared/utils.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -100,6 +106,7 @@ Deno.serve(async (req) => {
         role: 'owner',
         shop_id: shopId,
         name: ownerName,
+        full_name: ownerName,
       },
     })
 
@@ -114,11 +121,37 @@ Deno.serve(async (req) => {
       )
     }
 
+    const profileResult = await reconcileProfileRow(supabaseAdmin, {
+      userId: data.user.id,
+      shopId,
+      updates: {
+        full_name: ownerName,
+        name: ownerName,
+        email: ownerEmail,
+        role: 'owner',
+        shop_id: shopId,
+        active: true,
+        is_online: false,
+      },
+    })
+
+    if (profileResult.error || !profileResult.data) {
+      console.error('create-owner error: failed to reconcile owner profile', profileResult.error)
+      await supabaseAdmin.auth.admin.deleteUser(data.user.id)
+      return jsonResponse(
+        {
+          error: profileResult.error?.message || 'Failed to reconcile owner profile after auth creation.',
+        },
+        500,
+      )
+    }
+
     return jsonResponse({
       success: true,
       userId: data.user.id,
       email: data.user.email,
       shopId,
+      profile: profileResult.data,
     })
   } catch (err) {
     console.error('create-owner error:', err)

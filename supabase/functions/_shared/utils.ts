@@ -17,6 +17,47 @@ export function jsonResponse(payload: unknown, status = 200) {
   })
 }
 
+function extractMissingColumnName(error: unknown) {
+  const message = String((error as { message?: unknown } | null)?.message ?? '')
+  if (!message) return ''
+  const patterns = [
+    /column ["']?([a-zA-Z0-9_]+)["']? of relation/i,
+    /column ["']?([a-zA-Z0-9_]+)["']? does not exist/i,
+    /Could not find the ['"]([a-zA-Z0-9_]+)['"] column/i,
+  ]
+  for (const pattern of patterns) {
+    const match = message.match(pattern)
+    if (match?.[1]) return String(match[1])
+  }
+  return ''
+}
+
+export async function executeWithPrunedColumns(
+  operation: (payload: Record<string, unknown>) => Promise<{ data?: unknown; error?: { message?: unknown } | null }>,
+  payload: Record<string, unknown>,
+  maxAttempts = 24,
+) {
+  let candidate = payload && typeof payload === 'object' ? { ...payload } : {}
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const result = await operation(candidate)
+    if (!result?.error) {
+      return { ...result, payload: candidate }
+    }
+
+    const missingColumn = extractMissingColumnName(result.error)
+    if (!missingColumn || !Object.prototype.hasOwnProperty.call(candidate, missingColumn)) {
+      return { ...result, payload: candidate }
+    }
+    delete candidate[missingColumn]
+  }
+
+  return {
+    data: null,
+    error: { message: 'Too many missing-column retries.' },
+    payload: candidate,
+  }
+}
+
 export function normalizeRole(value: unknown) {
   const role = String(value ?? '').trim().toLowerCase()
   if (role === 'superadmin' || role === 'superuser') return 'super_admin'
@@ -104,6 +145,88 @@ export function createAdminClient() {
       persistSession: false,
     },
   })
+}
+
+export async function sha256Hex(value: unknown) {
+  const normalized = String(value ?? '')
+  const encoded = new TextEncoder().encode(normalized)
+  const digestBuffer = await crypto.subtle.digest('SHA-256', encoded)
+  return Array.from(new Uint8Array(digestBuffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+export function sleep(ms = 250) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export async function waitForProfileByUserId(
+  supabaseAdmin: ReturnType<typeof createAdminClient>,
+  userId: unknown,
+  shopId: unknown = '',
+  attempts = 8,
+  delayMs = 250,
+) {
+  const uid = String(userId ?? '').trim()
+  const sid = String(shopId ?? '').trim()
+  if (!uid) return null
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let query = supabaseAdmin.from('profiles').select('*').eq('user_id', uid)
+    if (sid) {
+      query = query.eq('shop_id', sid)
+    }
+
+    const { data, error } = await query.maybeSingle()
+    if (!error && data) {
+      return data
+    }
+
+    if (attempt < attempts - 1) {
+      await sleep(delayMs)
+    }
+  }
+
+  return null
+}
+
+export async function reconcileProfileRow(
+  supabaseAdmin: ReturnType<typeof createAdminClient>,
+  {
+    userId,
+    shopId = '',
+    updates = {},
+    attempts = 8,
+    delayMs = 250,
+  }: {
+    userId: unknown
+    shopId?: unknown
+    updates?: Record<string, unknown>
+    attempts?: number
+    delayMs?: number
+  },
+) {
+  const uid = String(userId ?? '').trim()
+  const sid = String(shopId ?? '').trim()
+  if (!uid) {
+    return { data: null, error: { message: 'Missing user id for profile reconciliation.' } }
+  }
+
+  const existingProfile = await waitForProfileByUserId(supabaseAdmin, uid, sid, attempts, delayMs)
+  if (!existingProfile) {
+    return { data: null, error: { message: 'Profile trigger row is not visible yet.' } }
+  }
+
+  return executeWithPrunedColumns(
+    (candidate) => {
+      let query = supabaseAdmin.from('profiles').update(candidate).eq('user_id', uid)
+      if (sid) {
+        query = query.eq('shop_id', sid)
+      }
+      return query.select('*').maybeSingle()
+    },
+    updates,
+  )
 }
 
 export async function getCallerUser(req: Request) {

@@ -3,7 +3,9 @@ import {
   corsHeaders,
   createAdminClient,
   jsonResponse,
+  reconcileProfileRow,
   requireAdminFunctionSecret,
+  sha256Hex,
 } from '../_shared/utils.ts'
 
 Deno.serve(async (req) => {
@@ -33,6 +35,7 @@ Deno.serve(async (req) => {
     }
 
     const shadowEmail = buildSalesmanShadowEmail(name, pin)
+    const pinDigest = await sha256Hex(pin)
     const supabaseAdmin = createAdminClient()
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email: shadowEmail,
@@ -42,7 +45,9 @@ Deno.serve(async (req) => {
         role: 'salesman',
         shop_id: shopId,
         name,
+        full_name: name,
         pin,
+        pin_digest: pinDigest,
       },
     })
 
@@ -50,10 +55,37 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: error?.message || 'Failed to create salesman account.' }, 400)
     }
 
+    const profileResult = await reconcileProfileRow(supabaseAdmin, {
+      userId: data.user.id,
+      shopId,
+      updates: {
+        full_name: name,
+        name,
+        email: shadowEmail,
+        role: 'salesman',
+        shop_id: shopId,
+        pin,
+        pin_digest: pinDigest,
+        active: true,
+        is_online: false,
+      },
+    })
+
+    if (profileResult.error || !profileResult.data) {
+      await supabaseAdmin.auth.admin.deleteUser(data.user.id)
+      return jsonResponse(
+        {
+          error: profileResult.error?.message || 'Failed to reconcile salesman profile after auth creation.',
+        },
+        500,
+      )
+    }
+
     return jsonResponse({
       userId: data.user.id,
       email: data.user.email,
       shopId,
+      profile: profileResult.data,
     })
   } catch (error) {
     return jsonResponse({ error: error instanceof Error ? error.message : 'Unexpected error.' }, 500)
