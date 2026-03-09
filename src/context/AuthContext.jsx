@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase, isSupabaseLockTimeoutError, withSupabaseLockRetry } from '../supabaseClient';
 
 const AuthContext = createContext(null);
@@ -1643,6 +1643,8 @@ export function AuthProvider({ children }) {
     const [activeShopId, setActiveShopIdState] = useState(() => initialAuthState.activeShopId);
     const [shops, setShops] = useState([]);
     const [authLoading, setAuthLoading] = useState(true);
+    const activeShopIdRef = useRef(initialAuthState.activeShopId);
+    const refreshShopsRequestIdRef = useRef(0);
 
     const [lowStockAlerts, setLowStockAlerts] = useState([]);
     const [salesmanMetaMap, setSalesmanMetaMap] = useState(() => readLocalJSON(SALESMAN_META_STORAGE_KEY, {}));
@@ -1725,6 +1727,10 @@ export function AuthProvider({ children }) {
     }, [activeShopId]);
 
     useEffect(() => {
+        activeShopIdRef.current = activeShopId;
+    }, [activeShopId]);
+
+    useEffect(() => {
         writeStorage(SLOW_MOVING_DAYS_KEY, String(slowMovingDays));
     }, [slowMovingDays]);
 
@@ -1793,8 +1799,14 @@ export function AuthProvider({ children }) {
     }, []);
 
     const refreshShops = useCallback(async (preferredShopId = '') => {
+        const requestId = refreshShopsRequestIdRef.current + 1;
+        refreshShopsRequestIdRef.current = requestId;
+        const isStaleRequest = () => refreshShopsRequestIdRef.current !== requestId;
+
         if (!role || !user) {
-            setShops([]);
+            if (!isStaleRequest()) {
+                setShops([]);
+            }
             return [];
         }
 
@@ -1835,19 +1847,30 @@ export function AuthProvider({ children }) {
             }
 
             if (error || !Array.isArray(data)) {
-                setShops([]);
+                if (!isStaleRequest()) {
+                    setShops([]);
+                }
                 return [];
             }
 
             await syncShopTelephoneColumn(data);
+            if (isStaleRequest()) {
+                return [];
+            }
 
             const normalized = data.map(normalizeShop).filter(Boolean);
             const enriched = await attachShopOwnerCredentials(normalized);
+            if (isStaleRequest()) {
+                return [];
+            }
             const merged = enriched.map((shop) => mergeShopMeta(shop, shopMetaMap));
+            if (isStaleRequest()) {
+                return merged;
+            }
             setShops(merged);
 
             // Prefer an explicitly provided preferredShopId, then current activeShopId, then user's mapped shop
-            const preferred = asString(preferredShopId || activeShopId || user.shop_id);
+            const preferred = asString(preferredShopId || activeShopIdRef.current || user.shop_id);
             const preferredExists = preferred && merged.some(s => s.id === preferred);
 
             // Keep active shop valid: if preferred is missing/stale, fall back to first available shop.
@@ -1861,29 +1884,41 @@ export function AuthProvider({ children }) {
             return merged;
         }
 
-        const sid = asString(preferredShopId || user.shop_id || activeShopId);
+        const sid = asString(preferredShopId || user.shop_id || activeShopIdRef.current);
         if (!sid) {
-            setShops([]);
+            if (!isStaleRequest()) {
+                setShops([]);
+            }
             return [];
         }
 
         const { data, error } = await selectSingleShopById(sid);
         if (error || !data) {
             const fallback = [mergeShopMeta({ id: sid, name: user.shopName || 'My Shop', address: '' }, shopMetaMap)];
-            setShops(fallback);
-            setActiveShopIdState(sid);
+            if (!isStaleRequest()) {
+                setShops(fallback);
+                setActiveShopIdState(sid);
+            }
             return fallback;
         }
 
         await syncShopTelephoneColumn([data]);
+        if (isStaleRequest()) {
+            return [];
+        }
 
         const normalized = normalizeShop(data);
         const enriched = normalized ? await attachShopOwnerCredentials([normalized]) : [];
+        if (isStaleRequest()) {
+            return [];
+        }
         const merged = enriched.map((shop) => mergeShopMeta(shop, shopMetaMap));
-        setShops(merged);
-        setActiveShopIdState(sid);
+        if (!isStaleRequest()) {
+            setShops(merged);
+            setActiveShopIdState(sid);
+        }
         return merged;
-    }, [role, user, activeShopId, shopMetaMap, syncShopTelephoneColumn]);
+    }, [role, user, shopMetaMap, syncShopTelephoneColumn]);
 
     const loadSalesmenForShop = useCallback(async (shopIdParam = '') => {
         const sid = asString(shopIdParam || activeShopId);
