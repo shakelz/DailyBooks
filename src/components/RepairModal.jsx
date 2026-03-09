@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useRepairs } from '../context/RepairsContext';
 import { useAuth } from '../context/AuthContext';
-import { X, Printer, Save, Wrench, Phone, User, Smartphone, Hash, FileText, Calendar, DollarSign } from 'lucide-react';
+import { X, Printer, Wrench, Phone, User, Smartphone, Hash, FileText, Calendar, DollarSign } from 'lucide-react';
 
 export default function RepairModal({ isOpen, onClose }) {
     const { addRepair } = useRepairs();
@@ -306,16 +306,10 @@ export default function RepairModal({ isOpen, onClose }) {
                 </div>
 
                 {/* Footer Actions */}
-                <div className="p-5 pt-0 flex gap-3">
-                    <button
-                        onClick={() => handleSave(false)}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 active:scale-[0.98] transition-all shadow-lg shadow-blue-600/20"
-                    >
-                        <Save size={16} /> Save
-                    </button>
+                <div className="p-5 pt-0">
                     <button
                         onClick={() => handleSave(true)}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-700 hover:to-teal-700 active:scale-[0.98] transition-all shadow-lg shadow-emerald-600/20"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-700 hover:to-teal-700 active:scale-[0.98] transition-all shadow-lg shadow-emerald-600/20"
                     >
                         <Printer size={16} /> Save & Print
                     </button>
