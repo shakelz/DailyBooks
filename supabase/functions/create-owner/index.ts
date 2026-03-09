@@ -9,7 +9,7 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     if (!String(serviceRoleKey).trim()) {
       console.error('create-owner error: service role key is not set')
-      return jsonResponse({ error: 'SERVICE_ROLE_KEY/SUPABASE_SERVICE_ROLE_KEY is not set.' }, 500)
+      return jsonResponse({ error: 'SUPABASE_SERVICE_ROLE_KEY secret is not configured.' }, 500)
     }
 
     const projectUrl = Deno.env.get('PROJECT_URL') ?? Deno.env.get('SUPABASE_URL') ?? ''
@@ -44,21 +44,22 @@ Deno.serve(async (req) => {
     const ownerName = String(body?.ownerName ?? '').trim()
     const ownerEmail = String(body?.ownerEmail ?? '').trim().toLowerCase()
     const ownerPassword = String(body?.ownerPassword ?? '').trim()
-    const newShopId = String(body?.shopId ?? body?.newShopId ?? '').trim()
+    const shopId = String(body?.shopId ?? body?.newShopId ?? '').trim()
 
-    if (!ownerEmail || !ownerPassword || !ownerName || !newShopId) {
+    if (!ownerEmail || !ownerPassword || !ownerName || !shopId) {
       console.error('create-owner error: missing required fields', {
         ownerEmail,
         ownerName,
-        newShopId,
+        shopId,
       })
       return jsonResponse(
         {
           error: 'Missing required fields.',
-          received: {
-            ownerEmail: ownerEmail || null,
-            ownerName: ownerName || null,
-            shopId: newShopId || null,
+          missing: {
+            ownerEmail: !ownerEmail,
+            ownerPassword: !ownerPassword,
+            ownerName: !ownerName,
+            shopId: !shopId,
           },
         },
         400,
@@ -69,7 +70,7 @@ Deno.serve(async (req) => {
     const { data: shopRow, error: shopLookupError } = await supabaseAdmin
       .from('shops')
       .select('shop_id')
-      .eq('shop_id', newShopId)
+      .eq('shop_id', shopId)
       .maybeSingle()
 
     if (shopLookupError) {
@@ -78,18 +79,18 @@ Deno.serve(async (req) => {
         {
           error: 'Failed to validate shop before owner creation.',
           details: shopLookupError.message || 'Unknown shop lookup error.',
-          shopId: newShopId,
+          shopId,
         },
         500,
       )
     }
 
     if (!shopRow) {
-      console.error('create-owner error: shop does not exist', { shopId: newShopId })
+      console.error('create-owner error: shop does not exist', { shopId })
       return jsonResponse(
         {
           error: 'shopId does not exist in shops table.',
-          shopId: newShopId,
+          shopId,
         },
         400,
       )
@@ -101,7 +102,7 @@ Deno.serve(async (req) => {
       email_confirm: true,
       user_metadata: {
         role: 'owner',
-        shop_id: newShopId,
+        shop_id: shopId,
         name: ownerName,
       },
     })
@@ -118,9 +119,10 @@ Deno.serve(async (req) => {
     }
 
     return jsonResponse({
+      success: true,
       userId: data.user.id,
       email: data.user.email,
-      shopId: newShopId,
+      shopId,
     })
   } catch (err) {
     console.error('create-owner error:', err)

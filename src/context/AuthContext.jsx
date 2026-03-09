@@ -180,46 +180,58 @@ async function safeSupabaseQuery(operation, fallbackError = 'Supabase request fa
 async function extractSupabaseFunctionErrorMessage(error, fallbackError = 'Request failed.') {
     const directMessage = asString(error?.message);
     const context = error?.context;
-    const responseText = asString(context?.responseText || context?._bodyText || context?.body);
-
-    if (responseText) {
-        try {
-            const parsed = JSON.parse(responseText);
-            const serverMessage = asString(parsed?.error || parsed?.message || parsed?.msg);
-            if (serverMessage) {
-                return serverMessage;
-            }
-        } catch {
-            return responseText;
-        }
-    }
 
     if (context) {
-        try {
-            const payload = await context.json();
-            const serverMessage = asString(payload?.error || payload?.message || payload?.msg);
-            if (serverMessage) {
-                return serverMessage;
+        const jsonReader = typeof context?.clone === 'function'
+            ? context.clone()
+            : context;
+        if (typeof jsonReader?.json === 'function') {
+            try {
+                const payload = await jsonReader.json();
+                const serverMessage = asString(payload?.error || payload?.message || payload?.msg);
+                if (serverMessage) {
+                    return serverMessage;
+                }
+            } catch {
+                // ignore and try text fallback
             }
-        } catch {
-            // ignore and try text fallback
         }
 
-        try {
-            const text = asString(await context.text());
-            if (text) {
+        const textReader = typeof context?.clone === 'function'
+            ? context.clone()
+            : context;
+        if (typeof textReader?.text === 'function') {
+            try {
+                const text = asString(await textReader.text());
+                if (text) {
+                    try {
+                        const parsed = JSON.parse(text);
+                        const serverMessage = asString(parsed?.error || parsed?.message || parsed?.msg);
+                        if (serverMessage) {
+                            return serverMessage;
+                        }
+                    } catch {
+                        return text;
+                    }
+                }
+            } catch {
+                // ignore and fall back to direct error message
+            }
+        }
+
+        if (typeof context?.responseText === 'string') {
+            const responseText = asString(context.responseText);
+            if (responseText) {
                 try {
-                    const parsed = JSON.parse(text);
+                    const parsed = JSON.parse(responseText);
                     const serverMessage = asString(parsed?.error || parsed?.message || parsed?.msg);
                     if (serverMessage) {
                         return serverMessage;
                     }
                 } catch {
-                    return text;
+                    return responseText;
                 }
             }
-        } catch {
-            // ignore and fall back to direct error message
         }
     }
 
