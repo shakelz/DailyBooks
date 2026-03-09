@@ -6,11 +6,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const secretCheck = requireAdminFunctionSecret(req)
-    if (!secretCheck.ok) {
-      return secretCheck.response
-    }
-
     const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     if (!String(serviceRoleKey).trim()) {
       console.error('create-owner error: service role key is not set')
@@ -35,6 +30,11 @@ Deno.serve(async (req) => {
         },
         400,
       )
+    }
+
+    const secretCheck = requireAdminFunctionSecret(req, body?._adminSecret)
+    if (!secretCheck.ok) {
+      return secretCheck.response
     }
 
     const ownerName = String(body?.ownerName ?? '').trim()

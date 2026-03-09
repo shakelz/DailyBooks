@@ -184,9 +184,9 @@ function buildAdminFunctionInvokeOptions(body = {}) {
     }
 
     return {
-        body,
-        headers: {
-            Authorization: `Bearer ${ADMIN_FUNCTION_SECRET}`,
+        body: {
+            ...body,
+            _adminSecret: ADMIN_FUNCTION_SECRET,
         },
     };
 }

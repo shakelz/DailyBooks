@@ -65,12 +65,13 @@ export function getAdminFunctionSecret() {
   return readFirstEnv(['ADMIN_FUNCTION_SECRET'])
 }
 
-export function requireAdminFunctionSecret(req: Request) {
+export function requireAdminFunctionSecret(req: Request, bodySecret: unknown = '') {
   const expectedSecret = getAdminFunctionSecret()
   const authorizationHeader = req.headers.get('authorization') ?? req.headers.get('Authorization') ?? ''
-  const providedSecret = authorizationHeader.toLowerCase().startsWith('bearer ')
+  const headerSecret = authorizationHeader.toLowerCase().startsWith('bearer ')
     ? authorizationHeader.slice(7).trim()
     : authorizationHeader.trim()
+  const providedSecret = String(bodySecret ?? '').trim() || headerSecret
 
   if (!expectedSecret) {
     return {

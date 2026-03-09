@@ -12,12 +12,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const secretCheck = requireAdminFunctionSecret(req)
+    const body = await req.json()
+    const secretCheck = requireAdminFunctionSecret(req, body?._adminSecret)
     if (!secretCheck.ok) {
       return secretCheck.response
     }
 
-    const body = await req.json()
     const name = String(body?.name ?? '').trim()
     const pin = String(body?.pin ?? '').trim()
     const shopId = String(body?.shop_id ?? '').trim()

@@ -6,12 +6,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const secretCheck = requireAdminFunctionSecret(req)
+    const body = await req.json()
+    const secretCheck = requireAdminFunctionSecret(req, body?._adminSecret)
     if (!secretCheck.ok) {
       return secretCheck.response
     }
 
-    const body = await req.json()
     const shopId = String(body?.shopId ?? '').trim()
     const ownerEmail = String(body?.ownerEmail ?? '').trim().toLowerCase()
     const ownerPassword = String(body?.ownerPassword ?? '').trim()
