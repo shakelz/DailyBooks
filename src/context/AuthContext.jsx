@@ -597,35 +597,6 @@ async function waitForProfileByUserId(userId = '', attempts = 6, delayMs = 250) 
     return null;
 }
 
-async function updateProfileByUserId(userId = '', updates = {}, shopId = '') {
-    const uid = asString(userId);
-    const sid = asString(shopId);
-    if (!uid || !updates || typeof updates !== 'object') {
-        return { data: null, error: { message: 'Invalid profile update.' } };
-    }
-
-    const candidates = buildProfileUpdatePayloads(updates);
-    let lastError = null;
-
-    for (const payload of candidates) {
-        let query = supabase.from('profiles').update(payload).eq('user_id', uid);
-        if (sid) {
-            query = query.eq('shop_id', sid);
-        }
-
-        const result = await safeSupabaseQuery(
-            () => query,
-            'Failed to update user profile.'
-        );
-        if (!result?.error) {
-            return { ...result, payload };
-        }
-        lastError = result.error;
-    }
-
-    return { data: null, error: lastError || { message: 'Failed to update user profile.' } };
-}
-
 async function updateShopById(shopId = '', payload = {}, withSelect = false) {
     return runShopMutationById(shopId, (column, sid) => {
         let query = supabase.from('shops').update(payload).eq(column, sid);
@@ -1589,6 +1560,7 @@ function buildProfileUpdatePayloads(updates = {}) {
         ? [{}]
         : [
             { pin: safePin },
+            {},
         ];
 
     const payloads = [];
@@ -3273,32 +3245,23 @@ export function AuthProvider({ children }) {
             );
         }
 
-        const createdProfileRow = await waitForProfileByUserId(createdSalesman?.userId, 8, 250);
+        const createdProfileRow = createdSalesman?.profile && typeof createdSalesman.profile === 'object'
+            ? createdSalesman.profile
+            : await waitForProfileByUserId(createdSalesman?.userId, 8, 250);
         if (!createdProfileRow) {
             throw new Error('Salesman auth user created, but the profiles trigger row is not visible yet.');
         }
 
-        const pinDigest = await computePinDigest(sid, trimmedPin);
-        const profileCorrection = await updateProfileByUserId(createdSalesman?.userId, {
-            name: trimmedName,
-            pin: trimmedPin,
-            ...(pinDigest ? { pin_digest: pinDigest } : {}),
-            role: 'salesman',
-            shop_id: sid,
-        }, sid);
-        if (profileCorrection?.error) {
-            console.error('Failed to reconcile newly created salesman profile:', profileCorrection.error);
-        }
-
-        const correctedProfileRow = profileCorrection?.error
-            ? createdProfileRow
-            : ((await selectProfileByUserId(createdSalesman?.userId)).data || createdProfileRow);
-        const createdProfile = normalizeSalesman(correctedProfileRow);
-        const createdUserId = asString(getProfileId(createdProfile));
+        const normalizedCreatedProfile = normalizeSalesman(createdProfileRow);
+        const createdUserId = asString(
+            getProfileId(normalizedCreatedProfile || createdProfileRow || { user_id: createdSalesman?.userId })
+        );
         const withMeta = {
-            ...createdProfile,
+            ...(normalizedCreatedProfile || {}),
+            id: createdUserId || asString(createdSalesman?.userId),
             name: trimmedName,
             pin: trimmedPin,
+            email: asString(normalizedCreatedProfile?.email || createdSalesman?.email),
             role: 'salesman',
             shop_id: sid,
             salesmanNumber: assignedNumber,
