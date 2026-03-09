@@ -177,6 +177,42 @@ async function safeSupabaseQuery(operation, fallbackError = 'Supabase request fa
     }
 }
 
+async function extractSupabaseFunctionErrorMessage(error, fallbackError = 'Request failed.') {
+    const directMessage = asString(error?.message);
+    const context = error?.context;
+
+    if (context) {
+        try {
+            const payload = await context.json();
+            const serverMessage = asString(payload?.error || payload?.message || payload?.msg);
+            if (serverMessage) {
+                return serverMessage;
+            }
+        } catch {
+            // ignore and try text fallback
+        }
+
+        try {
+            const text = asString(await context.text());
+            if (text) {
+                try {
+                    const parsed = JSON.parse(text);
+                    const serverMessage = asString(parsed?.error || parsed?.message || parsed?.msg);
+                    if (serverMessage) {
+                        return serverMessage;
+                    }
+                } catch {
+                    return text;
+                }
+            }
+        } catch {
+            // ignore and fall back to direct error message
+        }
+    }
+
+    return directMessage || fallbackError;
+}
+
 function isStackDepthError(error) {
     const message = asString(error?.message).toLowerCase();
     return message.includes('stack depth limit exceeded');
@@ -1978,13 +2014,14 @@ export function AuthProvider({ children }) {
         );
 
         if (ownerError) {
+            const ownerErrorMessage = await extractSupabaseFunctionErrorMessage(ownerError, 'Failed to create owner account.');
             const rollback = await deleteShopById(shopId);
             if (rollback?.error) {
                 throw new Error(
-                    `${ownerError.message || 'Failed to create owner account.'} Newly created shop rollback also failed: ${rollback.error.message || 'unknown error'}.`
+                    `${ownerErrorMessage} Newly created shop rollback also failed: ${rollback.error.message || 'unknown error'}.`
                 );
             }
-            throw new Error(ownerError.message || 'Failed to create owner account.');
+            throw new Error(ownerErrorMessage);
         }
 
         const createdOwnerProfile = await waitForProfileByUserId(ownerResult?.userId, 8, 250);
@@ -2183,7 +2220,9 @@ export function AuthProvider({ children }) {
                 'Failed to update shop owner credentials.'
             );
             if (ownerAuthError) {
-                throw new Error(ownerAuthError.message || 'Failed to update shop owner credentials.');
+                throw new Error(
+                    await extractSupabaseFunctionErrorMessage(ownerAuthError, 'Failed to update shop owner credentials.')
+                );
             }
 
             const ownerPayloads = buildShopOwnerProfileUpdatePayloads({
@@ -3098,7 +3137,9 @@ export function AuthProvider({ children }) {
         );
 
         if (createError) {
-            throw new Error(createError.message || 'Failed to create salesman account.');
+            throw new Error(
+                await extractSupabaseFunctionErrorMessage(createError, 'Failed to create salesman account.')
+            );
         }
 
         const createdProfileRow = await waitForProfileByUserId(createdSalesman?.userId, 8, 250);

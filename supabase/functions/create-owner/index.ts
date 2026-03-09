@@ -1,4 +1,4 @@
-import { corsHeaders, createAdminClient, getCallerUser, jsonResponse, normalizeRole } from '../_shared/utils.ts'
+import { corsHeaders, createAdminClient, getCallerContext, jsonResponse } from '../_shared/utils.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -6,12 +6,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { user: caller, error: callerError } = await getCallerUser(req)
+    const { user: caller, role: callerRole, error: callerError } = await getCallerContext(req)
     if (callerError || !caller) {
       return jsonResponse({ error: callerError || 'Unauthorized.' }, 401)
     }
 
-    const callerRole = normalizeRole(caller.user_metadata?.role)
     if (callerRole !== 'super_admin') {
       return jsonResponse({ error: 'Only super_admin can create owner accounts.' }, 403)
     }
