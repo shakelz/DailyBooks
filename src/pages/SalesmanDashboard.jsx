@@ -23,7 +23,6 @@ const KPI_SCOPE_SALES = 'sales';
 const KPI_SCOPE_EXPENSE = 'expense';
 const SALESMAN_LOGIN_PATH = '/terminal-access-v1';
 const volatileLockState = new Map();
-let transactionItemsTableAvailable = true;
 
 function normalizeCategoryToken(value = '') {
     return String(value || '').trim().toLowerCase();
@@ -1349,39 +1348,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!dbTxn) return null;
 
         const resolvedTxnId = String(dbTxn?.transaction_id || dbTxn?.transactionId || dbTxn?.id || txId).trim() || txId;
-        const itemIdCandidates = Array.from(new Set([resolvedTxnId, ...idCandidates]));
-        const itemColumns = ['transaction_id', 'transactionId'];
-        let itemRows = [];
-        if (transactionItemsTableAvailable) {
-            for (const useShopScope of scopeModes) {
-                for (const idValue of itemIdCandidates) {
-                    for (const column of itemColumns) {
-                        let query = supabase.from('transaction_items').select('*');
-                        if (useShopScope) query = query.eq('shop_id', shopId);
-                        const result = await query.eq(column, idValue);
-                        if (!result.error && Array.isArray(result.data) && result.data.length > 0) {
-                            itemRows = result.data;
-                            break;
-                        }
-                        if (result.error) {
-                            const message = String(result.error?.message || '').toLowerCase();
-                            const missingRelation = message.includes('does not exist')
-                                || message.includes('could not find the table')
-                                || message.includes('in the schema cache');
-                            if (missingRelation) {
-                                transactionItemsTableAvailable = false;
-                                break;
-                            }
-                            if (!isIgnorableReadError(result.error)) {
-                                break;
-                            }
-                        }
-                    }
-                    if (!transactionItemsTableAvailable || itemRows.length > 0) break;
-                }
-                if (!transactionItemsTableAvailable || itemRows.length > 0) break;
-            }
-        }
+        const itemRows = Array.isArray(dbTxn?.transactionItems)
+            ? dbTxn.transactionItems
+            : ((dbTxn?.product_id || dbTxn?.productId || txn?.productId)
+                ? [{
+                    product_id: dbTxn?.product_id || dbTxn?.productId || txn?.productId || '',
+                    qty: dbTxn?.quantity ?? txn?.quantity ?? 1,
+                    line_total: dbTxn?.amount ?? txn?.amount ?? 0,
+                    unit_price: dbTxn?.unitPrice ?? dbTxn?.unit_price ?? txn?.unitPrice ?? 0,
+                    name: dbTxn?.desc || dbTxn?.description || txn?.desc || txn?.name || '',
+                }]
+                : []);
 
         const normalizedItems = (Array.isArray(itemRows) ? itemRows : []).map((row) => ({
             ...row,

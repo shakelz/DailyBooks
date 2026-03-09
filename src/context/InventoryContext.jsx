@@ -156,7 +156,8 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         : {};
     const txnId = cleanText(txn?.id || txn?.transaction_id || txn?.transactionId)
         || String(txn?.id ?? txn?.transaction_id ?? txn?.transactionId ?? '');
-    const linkedItems = txnId ? (itemsByTransactionId[txnId] || []) : [];
+    const inlineItems = Array.isArray(txn?.transactionItems) ? txn.transactionItems : [];
+    const linkedItems = txnId ? (itemsByTransactionId[txnId] || inlineItems) : inlineItems;
     const primaryItem = linkedItems[0] || null;
     const resolvedTimestamp = resolveTransactionTimestamp(txn);
     const workerId = cleanText(txn?.created_by || txn?.workerId || txn?.worker_id || txn?.user_id);
@@ -202,6 +203,25 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
     const normalizedPaymentMethod = cleanText(txn?.paymentMethod || txn?.payment_method || txn?.payment || '');
     const normalizedInvoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
     const normalizedCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID || '');
+    const fallbackInlineItems = (linkedItems.length > 0
+        ? linkedItems
+        : ((productId || txn?.product_id || txn?.productId)
+            ? [{
+                product_id: cleanText(txn?.product_id || txn?.productId) || null,
+                qty: quantity,
+                unit_price: unitPrice,
+                line_total: amount,
+                name: normalizedDesc,
+            }]
+            : []))
+        .map((item) => ({
+            ...item,
+            product_id: cleanText(item?.product_id || item?.productId) || null,
+            qty: parseInt(item?.qty ?? item?.quantity ?? 1, 10) || 1,
+            unit_price: parseFloat(item?.unit_price ?? item?.unitPrice ?? 0) || 0,
+            line_total: parseFloat(item?.line_total ?? item?.lineTotal ?? item?.amount ?? 0) || 0,
+            name: cleanText(item?.name || item?.product_name || normalizedDesc),
+        }));
 
     const rawType = cleanText(txn?.tx_type || txn?.type || 'product_sale');
     const normalizedLegacyType = (() => {
@@ -246,24 +266,8 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         invoiceNumber: normalizedInvoiceNumber,
         salesmanName: cleanText(txn?.salesmanName || txn?.salesman_name || txn?.userName || worker?.name || ''),
         salesmanNumber: Number(txn?.salesmanNumber ?? txn?.salesman_number ?? worker?.salesmanNumber ?? 0) || 0,
-        transactionItems: linkedItems,
+        transactionItems: fallbackInlineItems,
     };
-}
-
-function buildTransactionItemsMap(rows = []) {
-    return (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
-        const txId = cleanText(row?.transaction_id || row?.transactionId);
-        if (!txId) return acc;
-        if (!acc[txId]) acc[txId] = [];
-        acc[txId].push({
-            ...row,
-            qty: parseInt(row?.qty ?? row?.quantity ?? 1, 10) || 1,
-            unit_price: parseFloat(row?.unit_price ?? row?.unitPrice ?? 0) || 0,
-            line_total: parseFloat(row?.line_total ?? row?.lineTotal ?? 0) || 0,
-            product_id: cleanText(row?.product_id || row?.productId) || null
-        });
-        return acc;
-    }, {});
 }
 
 function extractLevel1CategoryName(category) {
@@ -349,14 +353,6 @@ function getShopScopedRowIdentityKey(tableName = '', row = {}, index = 0) {
 
     if (table === 'transactions') {
         return tryCandidates([row?.transaction_id, row?.transactionId, row?.id]) || fallback;
-    }
-    if (table === 'transaction_items') {
-        return tryCandidates([
-            row?.id,
-            row?.item_id,
-            row?.transaction_item_id,
-            `${cleanText(row?.transaction_id || row?.transactionId)}::${cleanText(row?.product_id || row?.productId)}::${cleanText(row?.created_at)}`,
-        ]) || fallback;
     }
     if (table === 'inventory') {
         return tryCandidates([row?.id, row?.product_id, row?.productId, row?.barcode]) || fallback;
@@ -1057,6 +1053,7 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
         payment_method: paymentMethod || null,
         paymentMethod: paymentMethod || null,
         created_by: isUuidLike(workerId) ? workerId : null,
+        transactionItems: Array.isArray(txn?.transactionItems) ? txn.transactionItems : undefined,
     }, shopId);
 
     return payload;
@@ -1186,21 +1183,12 @@ export function InventoryProvider({ children }) {
     const transactionsRef = useRef(transactions);
     const pendingTransactionDedupeRef = useRef(new Set());
     const addTransactionRef = useRef(null);
-    const optionalRelationsRef = useRef({ transaction_items: true });
     useEffect(() => {
         workerLookupRef.current = workerLookup;
     }, [workerLookup]);
     useEffect(() => {
         transactionsRef.current = Array.isArray(transactions) ? transactions : [];
     }, [transactions]);
-    const isOptionalRelationAvailable = useCallback((relationName = '') => (
-        optionalRelationsRef.current[cleanText(relationName)] !== false
-    ), []);
-    const markOptionalRelationUnavailable = useCallback((relationName = '') => {
-        const key = cleanText(relationName);
-        if (!key) return;
-        optionalRelationsRef.current[key] = false;
-    }, []);
     const categoryNameToId = useMemo(() => {
         return (Array.isArray(l1Categories) ? l1Categories : []).reduce((acc, category) => {
             const catObject = category && typeof category === 'object' ? category : null;
@@ -1273,10 +1261,6 @@ export function InventoryProvider({ children }) {
 
     const selectRowsByShopCandidates = useCallback(async (tableName, buildQuery, shopCandidates = []) => {
         const normalizedTableName = cleanText(tableName).toLowerCase();
-        if (normalizedTableName === 'transaction_items' && !isOptionalRelationAvailable(normalizedTableName)) {
-            return { data: [], error: null };
-        }
-
         const candidates = Array.isArray(shopCandidates)
             ? Array.from(new Set(shopCandidates.map((value) => cleanText(value)).filter(Boolean)))
             : [];
@@ -1309,10 +1293,6 @@ export function InventoryProvider({ children }) {
             }
 
             lastError = result.error;
-            if (isMissingRelationError(result.error, normalizedTableName)) {
-                markOptionalRelationUnavailable(normalizedTableName);
-                return { data: [], error: result.error };
-            }
             if (isUuidSyntaxError(result.error, 'shop_id')) continue;
             const message = cleanText(result.error?.message).toLowerCase();
             if (message.includes('invalid input syntax for type uuid')) continue;
@@ -1327,7 +1307,7 @@ export function InventoryProvider({ children }) {
         }
         if (lastError) return { data: null, error: lastError };
         return { data: [], error: null };
-    }, [isOptionalRelationAvailable, markOptionalRelationUnavailable]);
+    }, []);
 
     const ensureActiveShopExists = useCallback(async (sid) => {
         const safeShopId = cleanText(sid);
@@ -1400,11 +1380,10 @@ export function InventoryProvider({ children }) {
             const shopCandidates = await resolveShopIdCandidates(sid);
             const filterCandidates = shopCandidates.length > 0 ? shopCandidates : [sid];
             filterCandidates.forEach((candidate) => addKnownShopId(candidate));
-            const [invResult, txnResult, catResult, itemResult, profileResult] = await Promise.all([
+            const [invResult, txnResult, catResult, profileResult] = await Promise.all([
                 selectRowsByShopCandidates('inventory', (query) => query.select('*'), filterCandidates),
                 selectRowsByShopCandidates('transactions', (query) => query.select('*'), filterCandidates),
                 selectRowsByShopCandidates('categories', (query) => query.select('*'), filterCandidates),
-                selectRowsByShopCandidates('transaction_items', (query) => query.select('*'), filterCandidates),
                 selectRowsByShopCandidates('profiles', (query) => query.select('user_id,full_name'), filterCandidates),
             ]);
 
@@ -1427,18 +1406,12 @@ export function InventoryProvider({ children }) {
             }
 
             if (!txnResult.error && Array.isArray(txnResult.data)) {
-                const itemsByTransactionId = (!itemResult.error && Array.isArray(itemResult.data))
-                    ? buildTransactionItemsMap(itemResult.data)
-                    : {};
                 const snapshotMap = readTransactionSnapshots();
                 const normalizedTransactions = txnResult.data.map((row) => normalizeTransactionRecord(row, {
                     workersById,
-                    itemsByTransactionId
                 }));
                 const hydratedTransactions = normalizedTransactions.map((row) => mergeTransactionWithSnapshot(row, snapshotMap));
                 setTransactions(dedupeTransactionsByIdentity(hydratedTransactions));
-            } else if (itemResult.error && !isMissingRelationError(itemResult.error, 'transaction_items')) {
-                setTransactions([]);
             } else {
                 setTransactions([]);
             }
@@ -2082,48 +2055,9 @@ export function InventoryProvider({ children }) {
     // ── Transactions ──
 
     const syncTransactionItems = useCallback(async (txn, shopIdOverride = '') => {
-        const sid = cleanText(shopIdOverride || activeShopId);
-        if (!sid) return;
-
-        const txId = cleanText(txn?.id || txn?.transactionId || txn?.transaction_id);
-        if (!txId) return;
-        if (!isOptionalRelationAvailable('transaction_items')) return;
-
-        const payloads = buildTransactionItemPayloads(txn, sid);
-
-        const deleteResult = await executeByColumnCandidates(
-            (column) => supabase
-                .from('transaction_items')
-                .delete()
-                .eq('shop_id', sid)
-                .eq(column, txId),
-            ['transaction_id', 'transactionId']
-        );
-
-        if (deleteResult.error && isMissingRelationError(deleteResult.error, 'transaction_items')) {
-            markOptionalRelationUnavailable('transaction_items');
-            return;
-        }
-        if (deleteResult.error) {
-            throw new Error(deleteResult.error.message || 'Failed to clear transaction item rows.');
-        }
-
-        if (!payloads.length) return;
-
-        for (const payload of payloads) {
-            const insertResult = await executeWithPrunedColumns(
-                (candidate) => supabase.from('transaction_items').insert([candidate]),
-                payload
-            );
-            if (insertResult.error && isMissingRelationError(insertResult.error, 'transaction_items')) {
-                markOptionalRelationUnavailable('transaction_items');
-                return;
-            }
-            if (insertResult.error) {
-                throw new Error(insertResult.error.message || 'Failed to save transaction items.');
-            }
-        }
-    }, [activeShopId, isOptionalRelationAvailable, markOptionalRelationUnavailable, salesmen]);
+        void txn;
+        void shopIdOverride;
+    }, []);
 
     const addTransaction = useCallback(async (txn) => {
         const sid = cleanText(activeShopId);
@@ -2429,29 +2363,6 @@ export function InventoryProvider({ children }) {
 
         setTransactions((prev) => removeTransactionByIdentity(prev, identityProbe));
         removeTransactionSnapshot(strId);
-        if (!isOptionalRelationAvailable('transaction_items')) {
-            const deleteResult = await executeByColumnCandidates(
-                (column) => supabase.from('transactions').delete().eq(column, strId).eq('shop_id', sid),
-                ['id', 'transaction_id', 'transactionId']
-            );
-            if (deleteResult.error) {
-                throw new Error(deleteResult.error.message || 'Failed to delete transaction.');
-            }
-            return;
-        }
-        const itemDeleteResult = await executeByColumnCandidates(
-            (column) => supabase
-                .from('transaction_items')
-                .delete()
-                .eq('shop_id', sid)
-                .eq(column, strId),
-            ['transaction_id', 'transactionId']
-        );
-        if (itemDeleteResult.error && isMissingRelationError(itemDeleteResult.error, 'transaction_items')) {
-            markOptionalRelationUnavailable('transaction_items');
-        } else if (itemDeleteResult.error) {
-            throw new Error(itemDeleteResult.error.message || 'Failed to remove linked transaction items.');
-        }
 
         const deleteResult = await executeByColumnCandidates(
             (column) => supabase.from('transactions').delete().eq(column, strId).eq('shop_id', sid),
@@ -2460,7 +2371,7 @@ export function InventoryProvider({ children }) {
         if (deleteResult.error) {
             throw new Error(deleteResult.error.message || 'Failed to delete transaction.');
         }
-    }, [transactions, adjustStock, activeShopId, isOptionalRelationAvailable, markOptionalRelationUnavailable]);
+    }, [transactions, adjustStock, activeShopId]);
 
     const clearTransactions = useCallback(async () => {
         setTransactions([]);

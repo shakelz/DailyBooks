@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 
@@ -26,16 +26,6 @@ function extractMissingColumnName(error) {
 function isMissingColumnError(error, columnName) {
     const message = String(error?.message || '').toLowerCase();
     return message.includes('column') && message.includes(String(columnName || '').toLowerCase());
-}
-
-function isMissingRelationError(error, relationName = '') {
-    const message = String(error?.message || '').toLowerCase();
-    const isMissing = message.includes('does not exist')
-        || message.includes('could not find the table')
-        || message.includes('in the schema cache');
-    if (!isMissing) return false;
-    if (!relationName) return message.includes('relation') || message.includes('table');
-    return message.includes(String(relationName || '').toLowerCase());
 }
 
 function isInvoiceNumberUniqueConstraintError(error) {
@@ -111,16 +101,6 @@ function normalizeRepairPart(part = {}) {
         costPrice,
         price: costPrice,
     };
-}
-
-function buildRepairPartsMap(rows = []) {
-    return (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
-        const repairId = cleanText(row?.repair_id || row?.repairId);
-        if (!repairId) return acc;
-        if (!acc[repairId]) acc[repairId] = [];
-        acc[repairId].push(normalizeRepairPart(row));
-        return acc;
-    }, {});
 }
 
 function normalizeRepairRecord(record = {}, partsByRepair = {}) {
@@ -225,6 +205,7 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
         estimated_cost: parseFloat(repair?.estimatedCost ?? 0) || 0,
         delivery_date: deliveryAt || null,
         used_part_order_ids: Array.isArray(repair?.used_part_order_ids) ? repair.used_part_order_ids : [],
+        partsUsed: Array.isArray(repair?.partsUsed) ? repair.partsUsed.map(normalizeRepairPart) : [],
         status: cleanText(repair?.status) || 'pending',
         created_by: cleanText(repair?.created_by || repair?.createdBy || repair?.workerId || repair?.user_id) || null,
         created_at: createdAt,
@@ -284,43 +265,10 @@ function buildRepairUpdatePayload(status, extras = {}) {
 
     return next;
 }
-
-function buildRepairPartPayloads(partsUsed = [], repairId = '', shopId = '') {
-    const rid = cleanText(repairId);
-    const sid = cleanText(shopId);
-    if (!rid || !sid) return [];
-
-    return (Array.isArray(partsUsed) ? partsUsed : [])
-        .map((part, index) => {
-            const normalized = normalizeRepairPart(part);
-            const partId = cleanText(normalized?.id) || `rp-${rid}-${index + 1}`;
-            if (!normalized.product_id && !cleanText(normalized.name)) return null;
-            return {
-                id: partId,
-                shop_id: sid,
-                repair_id: rid,
-                product_id: normalized.product_id || null,
-                name: cleanText(normalized.name) || null,
-                qty: parseFloat(normalized.qty ?? normalized.quantity ?? 1) || 1,
-                price: parseFloat(normalized.price ?? normalized.costPrice ?? 0) || 0,
-            };
-        })
-        .filter(Boolean);
-}
-
 export function RepairsProvider({ children }) {
     const { activeShopId, user } = useAuth();
     const [repairJobs, setRepairJobs] = useState([]);
     const [repairsLoaded, setRepairsLoaded] = useState(false);
-    const optionalRelationsRef = useRef({ repair_parts: true });
-    const isOptionalRelationAvailable = useCallback((relationName = '') => (
-        optionalRelationsRef.current[cleanText(relationName)] !== false
-    ), []);
-    const markOptionalRelationUnavailable = useCallback((relationName = '') => {
-        const key = cleanText(relationName);
-        if (!key) return;
-        optionalRelationsRef.current[key] = false;
-    }, []);
 
     useEffect(() => {
         const sid = cleanText(activeShopId);
@@ -334,24 +282,12 @@ export function RepairsProvider({ children }) {
         setRepairsLoaded(false);
 
         const fetchRepairs = async () => {
-            const [repairsResult, partsResult] = await Promise.all([
-                supabase.from('repairs').select('*').eq('shop_id', sid),
-                isOptionalRelationAvailable('repair_parts')
-                    ? supabase.from('repair_parts').select('*').eq('shop_id', sid)
-                    : Promise.resolve({ data: [], error: null }),
-            ]);
+            const repairsResult = await supabase.from('repairs').select('*').eq('shop_id', sid);
 
             if (cancelled) return;
 
-            if (partsResult?.error && isMissingRelationError(partsResult.error, 'repair_parts')) {
-                markOptionalRelationUnavailable('repair_parts');
-            }
-            const partsByRepair = (!partsResult.error && Array.isArray(partsResult.data))
-                ? buildRepairPartsMap(partsResult.data)
-                : {};
-
             if (!repairsResult.error && Array.isArray(repairsResult.data)) {
-                const normalized = repairsResult.data.map((row) => normalizeRepairRecord(row, partsByRepair));
+                const normalized = repairsResult.data.map((row) => normalizeRepairRecord(row));
                 setRepairJobs(sortRepairsByCreatedAt(normalized));
             } else {
                 setRepairJobs([]);
@@ -405,47 +341,15 @@ export function RepairsProvider({ children }) {
             cancelled = true;
             supabase.removeChannel(repairsSub);
         };
-    }, [activeShopId, isOptionalRelationAvailable, markOptionalRelationUnavailable]);
+    }, [activeShopId]);
 
     const generateRefId = useCallback(() => formatShortInvoiceNumber(new Date()), []);
 
     const syncRepairParts = useCallback(async (repairId, partsUsed = [], shopIdOverride = '') => {
-        const sid = cleanText(shopIdOverride || activeShopId);
-        const rid = cleanText(repairId);
-        if (!sid || !rid) return;
-        if (!isOptionalRelationAvailable('repair_parts')) return;
-
-        const deleteResult = await supabase
-            .from('repair_parts')
-            .delete()
-            .eq('shop_id', sid)
-            .eq('repair_id', rid);
-
-        if (deleteResult.error && isMissingRelationError(deleteResult.error, 'repair_parts')) {
-            markOptionalRelationUnavailable('repair_parts');
-            return;
-        }
-        if (deleteResult.error) {
-            throw new Error(deleteResult.error.message || 'Failed to clear repair parts.');
-        }
-
-        const payloads = buildRepairPartPayloads(partsUsed, rid, sid);
-        if (!payloads.length) return;
-
-        for (const payload of payloads) {
-            const insertResult = await executeWithPrunedColumns(
-                (candidate) => supabase.from('repair_parts').insert([candidate]),
-                payload
-            );
-            if (insertResult.error && isMissingRelationError(insertResult.error, 'repair_parts')) {
-                markOptionalRelationUnavailable('repair_parts');
-                return;
-            }
-            if (insertResult.error) {
-                throw new Error(insertResult.error.message || 'Failed to save repair parts.');
-            }
-        }
-    }, [activeShopId, isOptionalRelationAvailable, markOptionalRelationUnavailable]);
+        void repairId;
+        void partsUsed;
+        void shopIdOverride;
+    }, []);
 
     const addRepair = useCallback(async (repairData) => {
         const sid = cleanText(activeShopId);
@@ -618,19 +522,6 @@ export function RepairsProvider({ children }) {
 
         setRepairJobs((prev) => prev.filter((job) => String(job.id) !== strId));
 
-        if (isOptionalRelationAvailable('repair_parts')) {
-            const partsDelete = await supabase
-                .from('repair_parts')
-                .delete()
-                .eq('shop_id', sid)
-                .eq('repair_id', strId);
-            if (partsDelete.error && isMissingRelationError(partsDelete.error, 'repair_parts')) {
-                markOptionalRelationUnavailable('repair_parts');
-            } else if (partsDelete.error) {
-                throw new Error(partsDelete.error.message || 'Failed to remove linked repair parts.');
-            }
-        }
-
         await supabase.from('repairs').delete().eq('repair_id', strId).eq('shop_id', sid);
 
         supabase.channel(`public:repairs:${sid}`).send({
@@ -638,7 +529,7 @@ export function RepairsProvider({ children }) {
             event: 'repair_sync',
             payload: { action: 'DELETE', data: { id: strId, shop_id: sid } }
         }).catch((error) => console.error(error));
-    }, [activeShopId, isOptionalRelationAvailable, markOptionalRelationUnavailable]);
+    }, [activeShopId]);
 
     const value = {
         repairJobs,
