@@ -217,6 +217,24 @@ function normalizeRoleName(value) {
     return role;
 }
 
+function getAuthMetadata(authUser = null) {
+    return authUser?.user_metadata && typeof authUser.user_metadata === 'object'
+        ? authUser.user_metadata
+        : {};
+}
+
+function getAuthAppMetadata(authUser = null) {
+    return authUser?.app_metadata && typeof authUser.app_metadata === 'object'
+        ? authUser.app_metadata
+        : {};
+}
+
+function resolveAuthUserRole(authUser = null, profile = null) {
+    const metadata = getAuthMetadata(authUser);
+    const appMetadata = getAuthAppMetadata(authUser);
+    return normalizeRoleName(metadata.role || appMetadata.role || profile?.role);
+}
+
 function normalizeDbRoleFilter(roles = []) {
     const input = Array.isArray(roles) ? roles : [roles];
     const canonical = input
@@ -2355,21 +2373,28 @@ export function AuthProvider({ children }) {
 
     const hydrateAuthStateFromSession = useCallback(async (session) => {
         const authUser = session?.user || null;
-        const metadata = authUser?.user_metadata && typeof authUser.user_metadata === 'object'
-            ? authUser.user_metadata
-            : {};
-        const sessionRole = normalizeRoleName(metadata.role);
+        const metadata = getAuthMetadata(authUser);
+        const appMetadata = getAuthAppMetadata(authUser);
 
-        if (!authUser?.id || !sessionRole) {
+        if (!authUser?.id) {
             resetAuthState({ redirect: true });
             return null;
         }
 
         setAuthTokenFromSupabaseSession(session);
 
-        const { data: profile, error: profileError } = await selectProfileByUserId(authUser.id);
+        let { data: profile, error: profileError } = await selectProfileByUserId(authUser.id);
         if (profileError) {
             console.error('Failed to hydrate auth profile from session:', profileError);
+        }
+        if (!profile && authUser.email) {
+            profile = await trySelectProfileByField('email', asString(authUser.email).toLowerCase(), []);
+        }
+
+        const sessionRole = resolveAuthUserRole(authUser, profile);
+        if (!sessionRole) {
+            resetAuthState({ redirect: true });
+            return null;
         }
 
         let sessionUser = normalizeUserFromProfile({
@@ -2378,8 +2403,8 @@ export function AuthProvider({ children }) {
             user_id: authUser.id,
             email: asString(profile?.email || authUser.email).toLowerCase(),
             role: sessionRole,
-            name: asString(profile?.name || profile?.full_name || metadata.name),
-            shop_id: asString(profile?.shop_id || metadata.shop_id),
+            name: asString(profile?.name || profile?.full_name || metadata.name || appMetadata.name),
+            shop_id: asString(profile?.shop_id || metadata.shop_id || appMetadata.shop_id),
             active: profile?.active !== false,
         });
 
@@ -2398,8 +2423,8 @@ export function AuthProvider({ children }) {
             user_id: asString(sessionUser.user_id || sessionUser.id || authUser.id),
             email: asString(sessionUser.email || authUser.email).toLowerCase(),
             role: sessionRole,
-            name: asString(sessionUser.name || metadata.name || authUser.email?.split('@')[0] || 'User'),
-            shop_id: asString(sessionUser.shop_id || metadata.shop_id),
+            name: asString(sessionUser.name || metadata.name || appMetadata.name || authUser.email?.split('@')[0] || 'User'),
+            shop_id: asString(sessionUser.shop_id || metadata.shop_id || appMetadata.shop_id),
             active: sessionUser.active !== false,
         };
 
@@ -2873,7 +2898,15 @@ export function AuthProvider({ children }) {
                     'Invalid credentials.'
                 );
                 const session = data?.session || null;
-                const sessionRole = normalizeRoleName(session?.user?.user_metadata?.role);
+                let profile = null;
+                if (session?.user?.id) {
+                    const profileResponse = await selectProfileByUserId(session.user.id);
+                    profile = profileResponse?.data || null;
+                    if (!profile && session.user.email) {
+                        profile = await trySelectProfileByField('email', asString(session.user.email).toLowerCase(), []);
+                    }
+                }
+                const sessionRole = resolveAuthUserRole(session?.user || null, profile);
                 if (error || !session) {
                     const safeError = asString(error?.message) || 'Invalid credentials.';
                     if (shouldSkipAdminRateLimit(safeError)) {

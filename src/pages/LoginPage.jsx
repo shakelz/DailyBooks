@@ -126,11 +126,12 @@ export default function LoginPage({ mode = 'salesman' }) {
             })
             if (error) throw error
 
+            const authUser = data?.session?.user || data?.user || null
             const userRole = normalizeRole(
-                data?.session?.user?.user_metadata?.role
-                || data?.user?.user_metadata?.role
+                authUser?.user_metadata?.role
+                || authUser?.app_metadata?.role
             )
-            if (userRole !== 'super_admin' && userRole !== 'owner') {
+            if (userRole && userRole !== 'super_admin' && userRole !== 'owner') {
                 await supabase.auth.signOut()
                 setAdminError('Not allowed.')
             }
