@@ -328,13 +328,11 @@ function isCashbookTransaction(txn = {}) {
 }
 
 function resolveChartCategoryName(txn = {}, productsById = {}) {
-    // 1. Try direct category field
     const directCategory = extractCategoryName(txn?.category || txn?.categorySnapshot || txn?.productSnapshot?.category);
     if (String(directCategory || '').trim() && String(directCategory).trim().toLowerCase() !== 'general') {
         return String(directCategory).trim();
     }
 
-    // 2. Try linked product's category
     const productId = String(txn?.productId || txn?.product_id || '').trim();
     const linkedProduct = productId ? productsById[productId] : null;
     const linkedCategory = extractCategoryName(linkedProduct?.category || linkedProduct?.category_name || linkedProduct?.productCategory);
@@ -342,15 +340,8 @@ function resolveChartCategoryName(txn = {}, productsById = {}) {
         return String(linkedCategory).trim();
     }
 
-    // 3. Try to extract a meaningful name from the description
-    const rawDesc = String(txn?.desc || txn?.description || txn?.name || '').trim();
-    if (rawDesc) {
-        const stripped = rawDesc.replace(/^(sale|purchase|expense|revenue|income|repair complete|repair advance)\s*[-:]\s*/i, '').trim();
-        if (stripped && stripped.toLowerCase() !== 'general') return stripped;
-    }
-
-    // 4. Use "General" only as last resort if category was explicitly set to it
     if (String(directCategory || '').trim().toLowerCase() === 'general') return 'General';
+    if (String(linkedCategory || '').trim().toLowerCase() === 'general') return 'General';
 
     return 'Uncategorized';
 }
