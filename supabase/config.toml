@@ -4,5 +4,11 @@ verify_jwt = false
 [functions.create-salesman]
 verify_jwt = false
 
+[functions.create-owner-v2]
+verify_jwt = false
+
+[functions.create-salesman-v2]
+verify_jwt = false
+
 [functions.update-owner-credentials]
 verify_jwt = false

@@ -2104,7 +2104,7 @@ export function AuthProvider({ children }) {
         let ownerSetupWarning = '';
 
         const { data: ownerResult, error: ownerError } = await safeSupabaseQuery(
-            () => supabase.functions.invoke('create-owner', {
+            () => supabase.functions.invoke('create-owner-v2', {
                 ...buildAdminFunctionInvokeOptions({
                     ownerName,
                     ownerEmail: email,
@@ -3229,7 +3229,7 @@ export function AuthProvider({ children }) {
         };
 
         const { data: createdSalesman, error: createError } = await safeSupabaseQuery(
-            () => supabase.functions.invoke('create-salesman', {
+            () => supabase.functions.invoke('create-salesman-v2', {
                 ...buildAdminFunctionInvokeOptions({
                     name: trimmedName,
                     pin: trimmedPin,
