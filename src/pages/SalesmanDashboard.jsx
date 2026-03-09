@@ -749,9 +749,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [editingActivityTime, setEditingActivityTime] = useState('');
     const [savingActivity, setSavingActivity] = useState(false);
     const deletingZeroMobileIdsRef = useRef(new Set());
+    const zeroStockCleanupDoneRef = useRef(false);
     const deleteUndoTimeoutRef = useRef(null);
     const lockTimerRef = useRef(null);
     const lockDebounceRef = useRef(null);
+    const isLockedRef = useRef(isLocked);
+    const modalInteractionOpenRef = useRef(false);
+    const pendingKpiSettingsReloadRef = useRef(false);
+    const loadKpiSettingsRef = useRef(async () => {});
     const repairTxnRetryGuardRef = useRef(new Map());
     const syncedRepairAdvanceRefsRef = useRef(new Set());
     const repairAdvanceSyncBootstrappedRef = useRef(false);
@@ -798,11 +803,19 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
     };
 
-    const writeLockState = (nextLastActivityAt = Date.now(), nextIsLocked = isLocked) => {
+    const writeLockState = (nextLastActivityAt = Date.now(), nextIsLocked = isLockedRef.current) => {
         const payload = {
             lastActivityAt: Number(nextLastActivityAt) || Date.now(),
             isLocked: Boolean(nextIsLocked),
         };
+        const previousPayload = volatileLockState.get(lockStateKey);
+        if (
+            previousPayload
+            && Number(previousPayload?.lastActivityAt) === payload.lastActivityAt
+            && Boolean(previousPayload?.isLocked) === payload.isLocked
+        ) {
+            return;
+        }
         volatileLockState.set(lockStateKey, payload);
         try {
             localStorage.setItem(lockStateKey, JSON.stringify(payload));
@@ -822,10 +835,25 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const settingsShopId = String(user?.shop_id || activeShop?.id || '').trim();
 
     useEffect(() => {
+        isLockedRef.current = isLocked;
+    }, [isLocked]);
+
+    useEffect(() => {
+        modalInteractionOpenRef.current = Boolean(
+            showTransactionModal
+            || showRepairModal
+            || showInventoryForm
+            || showQuickSaleModal
+        );
+    }, [showInventoryForm, showQuickSaleModal, showRepairModal, showTransactionModal]);
+
+    useEffect(() => {
         syncedRepairAdvanceRefsRef.current.clear();
         pendingRepairStageTxnRef.current.clear();
         repairTxnRetryGuardRef.current.clear();
         repairAdvanceSyncBootstrappedRef.current = false;
+        pendingKpiSettingsReloadRef.current = false;
+        zeroStockCleanupDoneRef.current = false;
     }, [settingsShopId]);
 
     useEffect(() => {
@@ -881,11 +909,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             setHasExplicitContributionModeConfig(true);
             setKpiSettingsVersion((prev) => prev + 1);
         };
+        loadKpiSettingsRef.current = loadFromDb;
 
         const scheduleReload = () => {
             if (cancelled) return;
+            if (modalInteractionOpenRef.current) {
+                pendingKpiSettingsReloadRef.current = true;
+                return;
+            }
             if (reloadTimer) clearTimeout(reloadTimer);
             reloadTimer = setTimeout(() => {
+                pendingKpiSettingsReloadRef.current = false;
                 loadFromDb();
             }, 120);
         };
@@ -902,9 +936,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return () => {
             cancelled = true;
             if (reloadTimer) clearTimeout(reloadTimer);
+            loadKpiSettingsRef.current = async () => {};
             supabase.removeChannel(settingsSubscription);
         };
     }, [settingsShopId]);
+
+    useEffect(() => {
+        if (!settingsShopId || modalInteractionOpenRef.current || !pendingKpiSettingsReloadRef.current) return;
+        pendingKpiSettingsReloadRef.current = false;
+        loadKpiSettingsRef.current?.();
+    }, [settingsShopId, showInventoryForm, showQuickSaleModal, showRepairModal, showTransactionModal]);
 
     useEffect(() => {
         if (!user) {
@@ -955,7 +996,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         const scheduleFromLastActivity = () => {
             clearTimeout(lockTimerRef.current);
-            if (isLocked) return;
+            if (isLockedRef.current) return;
             const now = Date.now();
             const lastActivityAt = readLastActivityAt();
             const remainingMs = timeoutMs - (now - lastActivityAt);
@@ -967,12 +1008,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         };
 
         const handleActivity = () => {
-            if (isLocked) return;
+            if (isLockedRef.current) return;
             clearTimeout(lockDebounceRef.current);
             lockDebounceRef.current = setTimeout(() => {
                 writeLockState(Date.now(), false);
                 scheduleFromLastActivity();
-            }, 150);
+            }, 2000);
         };
 
         const handleVisibilityOrFocus = () => {
@@ -993,7 +1034,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             clearTimeout(lockTimerRef.current);
             clearTimeout(lockDebounceRef.current);
         };
-    }, [adminView, autoLockEnabled, autoLockTimeout, isLocked, user?.id]);
+    }, [adminView, autoLockEnabled, autoLockTimeout, user?.id]);
 
     const attemptUnlockWithPin = useCallback(async (pinValue = '') => {
         const enteredPin = String(pinValue || '').trim();
@@ -2347,6 +2388,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [mobileInventorySearch, products]);
 
     useEffect(() => {
+        if (zeroStockCleanupDoneRef.current) return;
+        if (!Array.isArray(products) || products.length === 0) return;
+        zeroStockCleanupDoneRef.current = true;
+
         const zeroStockMobiles = (products || [])
             .map((product) => {
                 const snapshot = resolveProductSnapshot(product);
