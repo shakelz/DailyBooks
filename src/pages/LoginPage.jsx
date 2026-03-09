@@ -130,17 +130,10 @@ export default function LoginPage({ mode = 'salesman' }) {
                 data?.session?.user?.user_metadata?.role
                 || data?.user?.user_metadata?.role
             )
-            if (userRole === 'super_admin') {
-                navigate(`${ADMIN_LOGIN_PATH}/dashboard`, { replace: true })
-                return
+            if (userRole !== 'super_admin' && userRole !== 'owner') {
+                await supabase.auth.signOut()
+                setAdminError('Not allowed.')
             }
-            if (userRole === 'owner') {
-                navigate(`${ADMIN_LOGIN_PATH}/owner-dashboard`, { replace: true })
-                return
-            }
-
-            await supabase.auth.signOut()
-            setAdminError('Not allowed.')
         } catch (error) {
             setAdminError(`Baigan! Login fail: ${error?.message || 'Invalid credentials.'}`)
         } finally {
