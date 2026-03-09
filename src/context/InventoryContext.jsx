@@ -1186,12 +1186,21 @@ export function InventoryProvider({ children }) {
     const transactionsRef = useRef(transactions);
     const pendingTransactionDedupeRef = useRef(new Set());
     const addTransactionRef = useRef(null);
+    const optionalRelationsRef = useRef({ transaction_items: true });
     useEffect(() => {
         workerLookupRef.current = workerLookup;
     }, [workerLookup]);
     useEffect(() => {
         transactionsRef.current = Array.isArray(transactions) ? transactions : [];
     }, [transactions]);
+    const isOptionalRelationAvailable = useCallback((relationName = '') => (
+        optionalRelationsRef.current[cleanText(relationName)] !== false
+    ), []);
+    const markOptionalRelationUnavailable = useCallback((relationName = '') => {
+        const key = cleanText(relationName);
+        if (!key) return;
+        optionalRelationsRef.current[key] = false;
+    }, []);
     const categoryNameToId = useMemo(() => {
         return (Array.isArray(l1Categories) ? l1Categories : []).reduce((acc, category) => {
             const catObject = category && typeof category === 'object' ? category : null;
@@ -1234,7 +1243,6 @@ export function InventoryProvider({ children }) {
 
         const attempts = [
             { column: 'shop_id', value: base },
-            { column: 'id', value: base },
         ];
 
         for (const attempt of attempts) {
@@ -1257,12 +1265,18 @@ export function InventoryProvider({ children }) {
             if (!row) continue;
             push(row?.shop_id);
             push(row?.id);
+            break;
         }
 
         return candidates;
     }, []);
 
     const selectRowsByShopCandidates = useCallback(async (tableName, buildQuery, shopCandidates = []) => {
+        const normalizedTableName = cleanText(tableName).toLowerCase();
+        if (normalizedTableName === 'transaction_items' && !isOptionalRelationAvailable(normalizedTableName)) {
+            return { data: [], error: null };
+        }
+
         const candidates = Array.isArray(shopCandidates)
             ? Array.from(new Set(shopCandidates.map((value) => cleanText(value)).filter(Boolean)))
             : [];
@@ -1295,6 +1309,10 @@ export function InventoryProvider({ children }) {
             }
 
             lastError = result.error;
+            if (isMissingRelationError(result.error, normalizedTableName)) {
+                markOptionalRelationUnavailable(normalizedTableName);
+                return { data: [], error: result.error };
+            }
             if (isUuidSyntaxError(result.error, 'shop_id')) continue;
             const message = cleanText(result.error?.message).toLowerCase();
             if (message.includes('invalid input syntax for type uuid')) continue;
@@ -1309,7 +1327,7 @@ export function InventoryProvider({ children }) {
         }
         if (lastError) return { data: null, error: lastError };
         return { data: [], error: null };
-    }, []);
+    }, [isOptionalRelationAvailable, markOptionalRelationUnavailable]);
 
     const ensureActiveShopExists = useCallback(async (sid) => {
         const safeShopId = cleanText(sid);
@@ -1323,7 +1341,6 @@ export function InventoryProvider({ children }) {
         for (const candidate of candidates) {
             const checks = [
                 { column: 'shop_id', value: candidate },
-                { column: 'id', value: candidate },
             ];
 
             for (const check of checks) {
@@ -2070,6 +2087,7 @@ export function InventoryProvider({ children }) {
 
         const txId = cleanText(txn?.id || txn?.transactionId || txn?.transaction_id);
         if (!txId) return;
+        if (!isOptionalRelationAvailable('transaction_items')) return;
 
         const payloads = buildTransactionItemPayloads(txn, sid);
 
@@ -2082,7 +2100,11 @@ export function InventoryProvider({ children }) {
             ['transaction_id', 'transactionId']
         );
 
-        if (deleteResult.error && !isMissingRelationError(deleteResult.error, 'transaction_items')) {
+        if (deleteResult.error && isMissingRelationError(deleteResult.error, 'transaction_items')) {
+            markOptionalRelationUnavailable('transaction_items');
+            return;
+        }
+        if (deleteResult.error) {
             throw new Error(deleteResult.error.message || 'Failed to clear transaction item rows.');
         }
 
@@ -2093,11 +2115,15 @@ export function InventoryProvider({ children }) {
                 (candidate) => supabase.from('transaction_items').insert([candidate]),
                 payload
             );
-            if (insertResult.error && !isMissingRelationError(insertResult.error, 'transaction_items')) {
+            if (insertResult.error && isMissingRelationError(insertResult.error, 'transaction_items')) {
+                markOptionalRelationUnavailable('transaction_items');
+                return;
+            }
+            if (insertResult.error) {
                 throw new Error(insertResult.error.message || 'Failed to save transaction items.');
             }
         }
-    }, [activeShopId, salesmen]);
+    }, [activeShopId, isOptionalRelationAvailable, markOptionalRelationUnavailable, salesmen]);
 
     const addTransaction = useCallback(async (txn) => {
         const sid = cleanText(activeShopId);
@@ -2403,6 +2429,16 @@ export function InventoryProvider({ children }) {
 
         setTransactions((prev) => removeTransactionByIdentity(prev, identityProbe));
         removeTransactionSnapshot(strId);
+        if (!isOptionalRelationAvailable('transaction_items')) {
+            const deleteResult = await executeByColumnCandidates(
+                (column) => supabase.from('transactions').delete().eq(column, strId).eq('shop_id', sid),
+                ['id', 'transaction_id', 'transactionId']
+            );
+            if (deleteResult.error) {
+                throw new Error(deleteResult.error.message || 'Failed to delete transaction.');
+            }
+            return;
+        }
         const itemDeleteResult = await executeByColumnCandidates(
             (column) => supabase
                 .from('transaction_items')
@@ -2411,7 +2447,9 @@ export function InventoryProvider({ children }) {
                 .eq(column, strId),
             ['transaction_id', 'transactionId']
         );
-        if (itemDeleteResult.error && !isMissingRelationError(itemDeleteResult.error, 'transaction_items')) {
+        if (itemDeleteResult.error && isMissingRelationError(itemDeleteResult.error, 'transaction_items')) {
+            markOptionalRelationUnavailable('transaction_items');
+        } else if (itemDeleteResult.error) {
             throw new Error(itemDeleteResult.error.message || 'Failed to remove linked transaction items.');
         }
 
@@ -2422,7 +2460,7 @@ export function InventoryProvider({ children }) {
         if (deleteResult.error) {
             throw new Error(deleteResult.error.message || 'Failed to delete transaction.');
         }
-    }, [transactions, adjustStock, activeShopId]);
+    }, [transactions, adjustStock, activeShopId, isOptionalRelationAvailable, markOptionalRelationUnavailable]);
 
     const clearTransactions = useCallback(async () => {
         setTransactions([]);
