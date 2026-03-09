@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../supabaseClient'
 
 const SALESMAN_LOGIN_PATH = '/terminal-access-v1'
 const ADMIN_LOGIN_PATH = '/management-portal-v1'
@@ -19,7 +20,7 @@ function adminTargetByRole(role = '') {
 
 export default function LoginPage({ mode = 'salesman' }) {
     const navigate = useNavigate()
-    const { login, role: authRole, user: authUser } = useAuth()
+    const { login, role: authRole, user: authUser, authLoading } = useAuth()
     const isAdminMode = mode === 'admin'
 
     const [pin, setPin] = useState('')
@@ -33,6 +34,7 @@ export default function LoginPage({ mode = 'salesman' }) {
     const [isLoading, setIsLoading] = useState(false)
 
     useEffect(() => {
+        if (authLoading) return
         if (!authUser || !authRole) return
 
         const normalizedRole = normalizeRole(authRole)
@@ -47,10 +49,10 @@ export default function LoginPage({ mode = 'salesman' }) {
         }
 
         navigate(isAdminMode ? ADMIN_LOGIN_PATH : SALESMAN_LOGIN_PATH, { replace: true })
-    }, [authRole, authUser, isAdminMode, navigate])
+    }, [authLoading, authRole, authUser, isAdminMode, navigate])
 
     const handlePinInput = useCallback(async (digit) => {
-        if (pinLoading || isAdminMode) return
+        if (authLoading || pinLoading || isAdminMode) return
         if (pin.length >= 4) return
 
         const newPin = pin + digit
@@ -75,7 +77,7 @@ export default function LoginPage({ mode = 'salesman' }) {
         } finally {
             setPinLoading(false)
         }
-    }, [isAdminMode, login, navigate, pin, pinLoading])
+    }, [authLoading, isAdminMode, login, navigate, pin, pinLoading])
 
     const handleBackspace = useCallback(() => {
         if (pinLoading || isAdminMode) return
@@ -102,6 +104,7 @@ export default function LoginPage({ mode = 'salesman' }) {
 
     const handleAdminLogin = async (event) => {
         event.preventDefault()
+        if (authLoading) return
         setAdminError('')
 
         const identifier = adminUser.trim()
@@ -117,18 +120,29 @@ export default function LoginPage({ mode = 'salesman' }) {
 
         setIsLoading(true)
         try {
-            const result = await login({
-                role: 'admin',
-                identifier,
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email: identifier.toLowerCase(),
                 password,
             })
+            if (error) throw error
 
-            if (result?.success) {
-                navigate(result?.redirectTo || `${ADMIN_LOGIN_PATH}/dashboard`, { replace: true })
+            const userRole = normalizeRole(
+                data?.session?.user?.user_metadata?.role
+                || data?.user?.user_metadata?.role
+            )
+            if (userRole === 'super_admin') {
+                navigate(`${ADMIN_LOGIN_PATH}/dashboard`, { replace: true })
+                return
+            }
+            if (userRole === 'owner') {
+                navigate(`${ADMIN_LOGIN_PATH}/owner-dashboard`, { replace: true })
                 return
             }
 
-            setAdminError(result?.message || 'Invalid credentials.')
+            await supabase.auth.signOut()
+            setAdminError('Not allowed.')
+        } catch (error) {
+            setAdminError(`Baigan! Login fail: ${error?.message || 'Invalid credentials.'}`)
         } finally {
             setIsLoading(false)
         }

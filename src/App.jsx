@@ -40,8 +40,15 @@ function getAdminHomeByRole(value = '') {
   return role === 'super_admin' ? `${ADMIN_LOGIN_PATH}/dashboard` : `${ADMIN_LOGIN_PATH}/owner-dashboard`
 }
 
+function AuthLoadingScreen() {
+  return <div className="min-h-screen bg-slate-950" />
+}
+
 function AdminGuard({ children }) {
-  const { user, role, logout } = useAuth()
+  const { user, role, logout, authLoading } = useAuth()
+  if (authLoading) {
+    return <AuthLoadingScreen />
+  }
   const hasUser = Boolean(user)
   const allowed = hasUser && isAdminRole(role)
 
@@ -59,9 +66,12 @@ function AdminGuard({ children }) {
 }
 
 function AdminRouteShell() {
-  const { user, role, logout } = useAuth()
+  const { user, role, logout, authLoading } = useAuth()
   const location = useLocation()
   const isAdminLoginPath = location.pathname === ADMIN_LOGIN_PATH || location.pathname === `${ADMIN_LOGIN_PATH}/`
+  if (authLoading) {
+    return <AuthLoadingScreen />
+  }
   const hasUser = Boolean(user)
   const allowed = hasUser && isAdminRole(role)
 
@@ -83,7 +93,10 @@ function AdminRouteShell() {
 }
 
 function SalesmanGuard({ children }) {
-  const { user, role } = useAuth()
+  const { user, role, authLoading } = useAuth()
+  if (authLoading) {
+    return <AuthLoadingScreen />
+  }
   const normalizedRole = normalizeRouteRole(role)
   const allowed = Boolean(user) && normalizedRole === 'salesman'
 
