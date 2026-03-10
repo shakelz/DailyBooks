@@ -824,8 +824,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
             const map = result.data.reduce((acc, row) => {
                 const scope = normalizeKpiScope(row?.kpi_scope || row?.scope);
-                const categoryName = String(row?.category_name || row?.category || '').trim();
-                const subCategoryName = String(row?.sub_category_name || row?.sub_category || '').trim();
+                const categoryName = String(row?.category_name || row?.category || '').trim().toLowerCase();
+                const subCategoryName = String(row?.sub_category_name || row?.sub_category || '').trim().toLowerCase();
                 const categoryId = String(row?.category_id || row?.categoryId || '').trim();
                 if (!categoryName) return acc;
                 const modeFromContributionColumn = row?.contribution_mode ?? row?.contributionMode;
@@ -1564,7 +1564,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || txn?.productSnapshot?.sub_category
             || linkedSnapshot?.subCategory
             || ''
-        ).trim();
+        ).trim().toLowerCase();
         const rawDescription = String(
             txn?.desc
             || txn?.description
@@ -1573,7 +1573,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || ''
         ).trim();
         const fallbackDescription = stripTransactionPrefix(rawDescription);
-        const categoryName = String(
+        const categoryName = (String(
             resolvedCategoryName
             || linkedSnapshot?.category
             || subCategoryName
@@ -1581,7 +1581,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || rawDescription
             || getTransactionInvoiceNumber(txn)
             || 'Uncategorized'
-        ).trim() || 'Uncategorized';
+        ).trim() || 'Uncategorized').toLowerCase();
         const nameText = String(txn?.name || txn?.desc || txn?.productSnapshot?.name || linkedSnapshot?.name || '').trim();
         const linkedCategoryText = linkedSnapshot
             ? `${linkedSnapshot.category || ''} ${linkedSnapshot.subCategory || ''} ${linkedSnapshot.name || ''}`
@@ -2109,8 +2109,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const payloadRows = Array.from(
                 allScopedRows.reduce((acc, { row, scope }) => {
                     const normalizedScope = normalizeKpiScope(scope);
-                    const categoryName = String(row?.categoryName || '').trim();
-                    const subCategoryName = String(row?.subCategoryName || '').trim();
+                    const categoryName = String(row?.categoryName || '').trim().toLowerCase();
+                    const subCategoryName = String(row?.subCategoryName || '').trim().toLowerCase();
                     if (!categoryName) return acc;
                     const dedupeKey = `${settingsShopId}::${normalizedScope}::${categoryName}::${subCategoryName}`;
                     acc.set(dedupeKey, {
@@ -2169,7 +2169,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             next[scopedKey] = normalizedMode;
 
             if (Number(row?.depth) === 0) {
-                const parentCategoryName = String(row?.categoryName || '').trim();
+                const parentCategoryName = String(row?.categoryName || '').trim().toLowerCase();
                 const scopedPrefix = `${normalizedScope}::${parentCategoryName}::`;
                 Object.keys(next).forEach((key) => {
                     if (!key.startsWith(scopedPrefix)) return;
