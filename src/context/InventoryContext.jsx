@@ -1897,11 +1897,6 @@ export function InventoryProvider({ children }) {
             console.error('Failed to auto-create expense category for inventory add:', categoryError);
         }
 
-        // Optimistic UI Update
-        setProducts(prev => {
-            if (prev.find(p => String(p.id) === entry.id)) return prev;
-            return [entry, ...prev];
-        });
 
         const payloadCategoryMap = {
             ...(categoryNameToId || {}),
@@ -1916,8 +1911,6 @@ export function InventoryProvider({ children }) {
         );
 
         if (insertResult.error) {
-            // Rollback optimistic insert when cloud save fails
-            setProducts(prev => prev.filter(p => String(p.id) !== entry.id));
             throw new Error(insertResult.error.message || 'Failed to save product.');
         }
 
@@ -1926,7 +1919,10 @@ export function InventoryProvider({ children }) {
                 ? { ...entry, ...insertResult.data, id: String(insertResult.data.product_id || insertResult.data.id || entry.id) }
                 : entry
         );
-        setProducts(prev => prev.map(p => String(p.id) === entry.id ? savedEntry : p));
+        setProducts(prev => {
+            if (prev.some(p => String(p.id) === String(savedEntry.id))) return prev;
+            return [savedEntry, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        });
 
         supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',

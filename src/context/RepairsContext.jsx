@@ -384,7 +384,6 @@ export function RepairsProvider({ children }) {
             shop_id: sid,
         });
 
-        setRepairJobs((prev) => sortRepairsByCreatedAt([newJob, ...prev]));
 
         const insertPayload = buildRepairInsertPayload(newJob, sid);
         let insertResult = await executeWithPrunedColumns(
@@ -409,7 +408,6 @@ export function RepairsProvider({ children }) {
                 fallbackPayload
             );
             if (retryResult.error) {
-                setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(newJob.id)));
                 throw new Error(retryResult.error.message || 'Failed to save repair job.');
             }
             const persisted = normalizeRepairRecord(retryResult.data || {}, {
@@ -419,9 +417,10 @@ export function RepairsProvider({ children }) {
             const savedJob = normalizeRepairRecord({ ...newJob, ...persisted, id: persistedId, shop_id: sid }, {
                 [persistedId]: newJob.partsUsed || []
             });
-            setRepairJobs((prev) => sortRepairsByCreatedAt(
-                prev.map((job) => String(job.id) === String(newJob.id) ? savedJob : job)
-            ));
+            setRepairJobs((prev) => {
+                if (prev.some((job) => String(job.id) === String(savedJob.id))) return prev;
+                return sortRepairsByCreatedAt([savedJob, ...prev]);
+            });
 
             try {
                 await syncRepairParts(persistedId, newJob.partsUsed, sid);
@@ -437,7 +436,6 @@ export function RepairsProvider({ children }) {
 
             return savedJob;
         } else if (insertResult.error) {
-            setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(newJob.id)));
             throw new Error(insertResult.error.message || 'Failed to save repair job.');
         }
 
@@ -448,9 +446,10 @@ export function RepairsProvider({ children }) {
         const savedJob = normalizeRepairRecord({ ...newJob, ...persisted, id: persistedId, shop_id: sid }, {
             [persistedId]: newJob.partsUsed || []
         });
-        setRepairJobs((prev) => sortRepairsByCreatedAt(
-            prev.map((job) => String(job.id) === String(newJob.id) ? savedJob : job)
-        ));
+        setRepairJobs((prev) => {
+            if (prev.some((job) => String(job.id) === String(savedJob.id))) return prev;
+            return sortRepairsByCreatedAt([savedJob, ...prev]);
+        });
 
         try {
             await syncRepairParts(persistedId, newJob.partsUsed, sid);
