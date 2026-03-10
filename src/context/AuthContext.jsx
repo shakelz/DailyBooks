@@ -497,8 +497,6 @@ async function verifySalesmanPin(pin, shopId = '') {
     const safePin = asString(pin);
     if (!safePin) return { profile: null, error: 'PIN required' };
 
-    const sid = asString(shopId);
-
     const digest = await computePinDigest(shopId, safePin);
     if (!digest) {
         return { profile: null, error: 'Unable to verify PIN.' };
@@ -509,11 +507,8 @@ async function verifySalesmanPin(pin, shopId = '') {
         .select('*')
         .eq('role', 'salesman')
         .eq('pin_digest', digest)
+        .eq('active', true)
         .limit(2);
-
-    if (sid) {
-        query = query.eq('shop_id', sid);
-    }
 
     const { data, error } = await query;
 
@@ -3096,16 +3091,15 @@ export function AuthProvider({ children }) {
                 const pin = asString(userData.pin);
                 if (!pin) return { success: false, message: 'PIN required' };
 
-                const scopedShopId = asString(activeShopId || readAuthState(AUTH_SHOP_STATE_KEY, ''));
-                if (!scopedShopId) {
-                    return { success: false, message: 'No active shop selected for this terminal.' };
+                const pinDigest = await sha256Hex(pin);
+                if (!pinDigest) {
+                    bumpRateLimit('salesman');
+                    return { success: false, message: 'Invalid PIN. Try again.' };
                 }
-
                 const { data: salesmanProfile, error: profileError } = await safeSupabaseQuery(
                     () => supabase.functions.invoke('resolve-salesman-login-v1', {
                         body: {
-                            pin,
-                            shopId: scopedShopId,
+                            pinDigest,
                         },
                     }),
                     'Invalid PIN. Try again.'
@@ -3151,7 +3145,7 @@ export function AuthProvider({ children }) {
         } finally {
             setAuthLoading(false);
         }
-    }, [activeShopId, hydrateAuthStateFromSession]);
+    }, [hydrateAuthStateFromSession]);
 
     const logout = () => {
         void supabase.auth.signOut();

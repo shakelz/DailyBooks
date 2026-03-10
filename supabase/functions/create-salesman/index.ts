@@ -3,6 +3,7 @@ import {
   corsHeaders,
   createAdminClient,
   executeWithPrunedColumns,
+  isSalesmanPinConflictError,
   jsonResponse,
   reconcileProfileRow,
   requireAdminFunctionSecret,
@@ -38,6 +39,23 @@ Deno.serve(async (req) => {
     const shadowEmail = buildSalesmanShadowEmail(name, pin)
     const pinDigest = await sha256Hex(pin)
     const supabaseAdmin = createAdminClient()
+    const { data: existingPin } = await supabaseAdmin
+      .from('profiles')
+      .select('user_id, shop_id, full_name')
+      .eq('pin_digest', pinDigest)
+      .eq('role', 'salesman')
+      .eq('active', true)
+      .maybeSingle()
+
+    if (existingPin) {
+      return jsonResponse(
+        {
+          error: `PIN ${pin} is already in use by another salesman. Please choose a different PIN.`,
+        },
+        409,
+      )
+    }
+
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email: shadowEmail,
       password: pin,
@@ -87,6 +105,14 @@ Deno.serve(async (req) => {
 
     if (profileResult.error || !profileResult.data) {
       await supabaseAdmin.auth.admin.deleteUser(data.user.id)
+      if (isSalesmanPinConflictError(profileResult.error)) {
+        return jsonResponse(
+          {
+            error: `PIN ${pin} is already in use by another salesman. Please choose a different PIN.`,
+          },
+          409,
+        )
+      }
       return jsonResponse(
         {
           error: profileResult.error?.message || 'Failed to reconcile salesman profile after auth creation.',

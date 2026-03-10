@@ -58,6 +58,17 @@ export async function executeWithPrunedColumns(
   }
 }
 
+export function isSalesmanPinConflictError(error: unknown) {
+  const code = String((error as { code?: unknown } | null)?.code ?? '').toLowerCase()
+  const message = String((error as { message?: unknown } | null)?.message ?? '').toLowerCase()
+  const details = String((error as { details?: unknown } | null)?.details ?? '').toLowerCase()
+  return code === '23505'
+    || message.includes('profiles_salesman_pin_digest_unique')
+    || details.includes('profiles_salesman_pin_digest_unique')
+    || (message.includes('duplicate key value') && message.includes('pin_digest'))
+    || (details.includes('duplicate key value') && details.includes('pin_digest'))
+}
+
 export function normalizeRole(value: unknown) {
   const role = String(value ?? '').trim().toLowerCase()
   if (role === 'superadmin' || role === 'superuser') return 'super_admin'

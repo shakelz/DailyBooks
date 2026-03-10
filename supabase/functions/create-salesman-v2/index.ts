@@ -145,6 +145,17 @@ function isDuplicateAuthUserError(error: unknown) {
     || message.includes('duplicate')
 }
 
+function isSalesmanPinConflictError(error: unknown) {
+  const code = String((error as { code?: unknown } | null)?.code ?? '').toLowerCase()
+  const message = String((error as { message?: unknown } | null)?.message ?? '').toLowerCase()
+  const details = String((error as { details?: unknown } | null)?.details ?? '').toLowerCase()
+  return code === '23505'
+    || message.includes('profiles_salesman_pin_digest_unique')
+    || details.includes('profiles_salesman_pin_digest_unique')
+    || (message.includes('duplicate key value') && message.includes('pin_digest'))
+    || (details.includes('duplicate key value') && details.includes('pin_digest'))
+}
+
 async function syncSalesmanProfile(
   supabaseAdmin: ReturnType<typeof createAdminClient>,
   payload: {
@@ -340,6 +351,15 @@ Deno.serve(async (req) => {
     )
 
     if (profileSyncError) {
+      if (isSalesmanPinConflictError(profileSyncError)) {
+        await supabaseAdmin.auth.admin.deleteUser(data.user.id)
+        return jsonResponse(
+          {
+            error: `PIN ${pin} is already in use by another salesman. Please choose a different PIN.`,
+          },
+          409,
+        )
+      }
       return jsonResponse(
         {
           error: 'Failed to reconcile salesman profile.',

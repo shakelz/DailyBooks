@@ -61,18 +61,13 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json()
-    const pin = String(body?.pin ?? '').trim()
-    const shopId = String(body?.shopId ?? body?.shop_id ?? '').trim()
+    const rawPin = String(body?.pin ?? '').trim()
+    const providedPinDigest = String(body?.pinDigest ?? body?.pin_digest ?? '').trim().toLowerCase()
+    const pinDigest = /^[a-f0-9]{64}$/.test(providedPinDigest)
+      ? providedPinDigest
+      : await sha256Hex(rawPin)
 
-    if (!/^\d{4}$/.test(pin)) {
-      return jsonResponse({ error: 'PIN must be exactly 4 digits.' }, 400)
-    }
-    if (!shopId) {
-      return jsonResponse({ error: 'Please select your shop first.' }, 400)
-    }
-
-    const pinDigest = await sha256Hex(pin)
-    if (!pinDigest) {
+    if (!/^[a-f0-9]{64}$/.test(pinDigest)) {
       return jsonResponse({ error: 'Invalid PIN. Try again.' }, 400)
     }
 
@@ -82,7 +77,6 @@ Deno.serve(async (req) => {
       .select('user_id, full_name, email, shop_id, role, active')
       .eq('pin_digest', pinDigest)
       .eq('role', 'salesman')
-      .eq('shop_id', shopId)
       .eq('active', true)
       .maybeSingle()
 

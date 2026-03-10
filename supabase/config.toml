@@ -10,9 +10,6 @@ verify_jwt = false
 [functions.create-salesman-v2]
 verify_jwt = false
 
-[functions.list-terminal-shops-v1]
-verify_jwt = false
-
 [functions.resolve-salesman-login-v1]
 verify_jwt = false
 
