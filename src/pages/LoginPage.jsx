@@ -18,14 +18,39 @@ function adminTargetByRole(role = '') {
     return normalizeRole(role) === 'super_admin' ? `${ADMIN_LOGIN_PATH}/dashboard` : `${ADMIN_LOGIN_PATH}/owner-dashboard`
 }
 
+function normalizeLoginShop(shop = {}) {
+    const id = String(shop?.shop_id || shop?.id || '').trim()
+    if (!id) return null
+
+    const name = String(shop?.shop_name || shop?.name || 'Shop').trim() || 'Shop'
+    const address = String(shop?.address || shop?.location || '').trim()
+
+    return {
+        id,
+        name,
+        address,
+        label: address ? `${name} - ${address}` : name,
+    }
+}
+
 export default function LoginPage({ mode = 'salesman' }) {
     const navigate = useNavigate()
-    const { login, role: authRole, user: authUser, authLoading } = useAuth()
+    const {
+        login,
+        role: authRole,
+        user: authUser,
+        authLoading,
+        activeShopId,
+        setActiveShopId,
+    } = useAuth()
     const isAdminMode = mode === 'admin'
 
     const [pin, setPin] = useState('')
     const [error, setError] = useState('')
     const [pinLoading, setPinLoading] = useState(false)
+    const [salesmanShops, setSalesmanShops] = useState([])
+    const [shopsLoading, setShopsLoading] = useState(false)
+    const [shopError, setShopError] = useState('')
 
     const [adminUser, setAdminUser] = useState('')
     const [adminPass, setAdminPass] = useState('')
@@ -51,8 +76,60 @@ export default function LoginPage({ mode = 'salesman' }) {
         navigate(isAdminMode ? ADMIN_LOGIN_PATH : SALESMAN_LOGIN_PATH, { replace: true })
     }, [authLoading, authRole, authUser, isAdminMode, navigate])
 
+    useEffect(() => {
+        if (isAdminMode) return undefined
+
+        let cancelled = false
+
+        const loadShops = async () => {
+            setShopsLoading(true)
+            setShopError('')
+
+            const { data, error } = await supabase.functions.invoke('list-terminal-shops-v1', {
+                body: {},
+            })
+
+            if (cancelled) return
+
+            if (error) {
+                setSalesmanShops([])
+                setShopError('Failed to load shops. Please refresh and try again.')
+                setShopsLoading(false)
+                return
+            }
+
+            const normalized = (Array.isArray(data?.shops) ? data.shops : [])
+                .map(normalizeLoginShop)
+                .filter(Boolean)
+                .sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || '')))
+
+            setSalesmanShops(normalized)
+
+            const currentShopId = String(activeShopId || '').trim()
+            const hasCurrentShop = normalized.some((shop) => shop.id === currentShopId)
+
+            if (normalized.length === 1) {
+                setActiveShopId(normalized[0].id)
+            } else if (!hasCurrentShop) {
+                setActiveShopId('')
+            }
+
+            setShopsLoading(false)
+        }
+
+        void loadShops()
+
+        return () => {
+            cancelled = true
+        }
+    }, [activeShopId, isAdminMode, setActiveShopId])
+
     const handlePinInput = useCallback(async (digit) => {
         if (authLoading || pinLoading || isAdminMode) return
+        if (!String(activeShopId || '').trim()) {
+            setError('Please select your shop first')
+            return
+        }
         if (pin.length >= 4) return
 
         const newPin = pin + digit
@@ -77,7 +154,7 @@ export default function LoginPage({ mode = 'salesman' }) {
         } finally {
             setPinLoading(false)
         }
-    }, [authLoading, isAdminMode, login, navigate, pin, pinLoading])
+    }, [activeShopId, authLoading, isAdminMode, login, navigate, pin, pinLoading])
 
     const handleBackspace = useCallback(() => {
         if (pinLoading || isAdminMode) return
@@ -263,6 +340,50 @@ export default function LoginPage({ mode = 'salesman' }) {
                     </div>
                     <h2 className="text-2xl font-bold text-white">Salesman Login</h2>
                     <p className="text-slate-400 text-sm mt-1">Enter your 4-digit PIN</p>
+                </div>
+
+                <div className="mb-5 space-y-2">
+                    {shopsLoading ? (
+                        <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">
+                            Loading shops...
+                        </div>
+                    ) : salesmanShops.length > 1 ? (
+                        <div>
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                                Select Shop
+                            </label>
+                            <select
+                                value={String(activeShopId || '')}
+                                onChange={(event) => {
+                                    setActiveShopId(event.target.value)
+                                    setPin('')
+                                    setError('')
+                                }}
+                                className="w-full rounded-2xl border border-slate-700/60 bg-slate-900/80 px-4 py-3 text-sm text-white outline-none transition-all focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-500/30"
+                            >
+                                <option value="">Choose your shop</option>
+                                {salesmanShops.map((shop) => (
+                                    <option key={shop.id} value={shop.id}>
+                                        {shop.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    ) : salesmanShops.length === 1 ? (
+                        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">Shop</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{salesmanShops[0].name}</p>
+                            {salesmanShops[0].address ? (
+                                <p className="text-xs text-emerald-100/80">{salesmanShops[0].address}</p>
+                            ) : null}
+                        </div>
+                    ) : null}
+
+                    {shopError ? (
+                        <p className="text-center text-sm font-medium text-red-400">{shopError}</p>
+                    ) : !shopsLoading && salesmanShops.length === 0 ? (
+                        <p className="text-center text-sm font-medium text-amber-300">No shops available for terminal login.</p>
+                    ) : null}
                 </div>
 
                 <div className="flex justify-center gap-4 mb-8">

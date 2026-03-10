@@ -422,18 +422,22 @@ function getLockoutMessage(scope = '') {
     return `Too many failed attempts. Try again in ${remaining} minute(s).`;
 }
 
-async function computePinDigest(shopId, pin) {
-    const rawPin = asString(pin);
-    if (!rawPin) return '';
+async function sha256Hex(value) {
+    const rawValue = asString(value);
+    if (!rawValue) return '';
 
     if (typeof crypto === 'undefined' || !crypto.subtle || !crypto.subtle.digest) {
         return '';
     }
 
-    const encoded = new TextEncoder().encode(rawPin);
+    const encoded = new TextEncoder().encode(rawValue);
     const digestBuffer = await crypto.subtle.digest('SHA-256', encoded);
     const digestArray = Array.from(new Uint8Array(digestBuffer));
     return digestArray.map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function computePinDigest(shopId, pin) {
+    return sha256Hex(pin);
 }
 
 async function computeOwnerPasswordHash(password) {
@@ -2046,6 +2050,10 @@ export function AuthProvider({ children }) {
 
     const setActiveShopId = useCallback((shopId) => {
         const sid = asString(shopId);
+        if (!role || !user) {
+            setActiveShopIdState(sid);
+            return;
+        }
         const isIndependentAdmin = isAdminRoleName(role) && !isSuperAdminRole(role) && !asString(user?.shop_id);
         if (isSuperAdmin || isIndependentAdmin) {
             setActiveShopIdState(sid);
@@ -3093,65 +3101,45 @@ export function AuthProvider({ children }) {
                     return { success: false, message: 'No active shop selected for this terminal.' };
                 }
 
-                const pinDigest = await computePinDigest(scopedShopId, pin);
-                if (!pinDigest) {
-                    bumpRateLimit('salesman');
-                    return { success: false, message: 'Invalid PIN' };
-                }
-
                 const { data: salesmanProfile, error: profileError } = await safeSupabaseQuery(
-                    () => supabase
-                        .from('profiles')
-                        .select('user_id,full_name,email,shop_id,active')
-                        .eq('pin_digest', pinDigest)
-                        .eq('role', 'salesman')
-                        .eq('shop_id', scopedShopId)
-                        .limit(1)
-                        .maybeSingle(),
-                    'Invalid PIN'
+                    () => supabase.functions.invoke('resolve-salesman-login-v1', {
+                        body: {
+                            pin,
+                            shopId: scopedShopId,
+                        },
+                    }),
+                    'Invalid PIN. Try again.'
                 );
 
                 if (profileError || !salesmanProfile) {
                     bumpRateLimit('salesman');
-                    return { success: false, message: 'Invalid PIN' };
+                    return {
+                        success: false,
+                        message: await extractSupabaseFunctionErrorMessage(profileError, 'Invalid PIN. Try again.'),
+                    };
                 }
 
                 if (salesmanProfile.active === false) {
                     return { success: false, message: 'User disabled' };
                 }
 
-                const emailCandidates = Array.from(new Set([
-                    asString(salesmanProfile?.email).toLowerCase(),
-                    buildSalesmanShadowEmail(
-                        salesmanProfile?.full_name || 'salesman',
-                        pin
-                    ),
-                ].filter(Boolean)));
-
-                let matchedSession = null;
-                for (const candidateEmail of emailCandidates) {
-                    const { data, error } = await safeSupabaseQuery(
-                        () => supabase.auth.signInWithPassword({
-                            email: candidateEmail,
-                            password: pin,
-                        }),
-                        'Invalid PIN'
-                    );
-                    const session = data?.session || null;
-                    const sessionRole = resolveAuthUserRole(session?.user || null, {
-                        ...salesmanProfile,
-                        role: 'salesman',
-                    });
-
-                    if (!error && session && sessionRole === 'salesman') {
-                        matchedSession = session;
-                        break;
-                    }
+                const shadowEmail = asString(salesmanProfile?.email).toLowerCase();
+                if (!shadowEmail) {
+                    bumpRateLimit('salesman');
+                    return { success: false, message: 'Authentication failed. Please contact admin.' };
                 }
 
-                if (!matchedSession) {
+                const { data, error } = await safeSupabaseQuery(
+                    () => supabase.auth.signInWithPassword({
+                        email: shadowEmail,
+                        password: pin,
+                    }),
+                    'Authentication failed. Please contact admin.'
+                );
+                const matchedSession = data?.session || null;
+                if (error || !matchedSession) {
                     bumpRateLimit('salesman');
-                    return { success: false, message: 'Invalid PIN' };
+                    return { success: false, message: 'Authentication failed. Please contact admin.' };
                 }
 
                 clearRateLimit('salesman');
