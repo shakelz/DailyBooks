@@ -1350,7 +1350,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             for (const useShopScope of scopeModes) {
                 let query = supabase.from('profiles').select('*');
                 if (useShopScope) query = query.eq('shop_id', shopId);
-                const result = await query.eq('id', resolvedWorkerId).limit(1).maybeSingle();
+                const result = await query.eq('user_id', resolvedWorkerId).limit(1).maybeSingle();
                 if (!result.error && result.data) {
                     fetchedProfileRow = result.data;
                     break;
