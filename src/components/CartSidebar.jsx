@@ -186,8 +186,8 @@ export default function CartSidebar({ onEditItem, onFinalized }) {
                         </button>
                     </div>
 
-                    {/* Hidden Receipt Component */}
-                    <div className="hidden">
+                    {/* Hidden Receipt — uses zero-size container instead of display:none so react-to-print can access contentWindow */}
+                    <div style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}>
                         <ReceiptTemplate
                             ref={receiptRef}
                             items={cart}
