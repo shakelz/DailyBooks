@@ -80,47 +80,6 @@ function createAdminClient() {
   })
 }
 
-function extractMissingColumnName(error: unknown) {
-  const message = String((error as { message?: unknown } | null)?.message ?? '')
-  if (!message) return ''
-  const patterns = [
-    /column ["']?([a-zA-Z0-9_]+)["']? of relation/i,
-    /column ["']?([a-zA-Z0-9_]+)["']? does not exist/i,
-    /Could not find the ['"]([a-zA-Z0-9_]+)['"] column/i,
-  ]
-  for (const pattern of patterns) {
-    const match = message.match(pattern)
-    if (match?.[1]) return String(match[1])
-  }
-  return ''
-}
-
-async function executeWithPrunedColumns(
-  operation: (payload: Record<string, unknown>) => Promise<{ data?: unknown; error?: { message?: unknown } | null }>,
-  payload: Record<string, unknown>,
-  maxAttempts = 24,
-) {
-  let candidate = payload && typeof payload === 'object' ? { ...payload } : {}
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const result = await operation(candidate)
-    if (!result?.error) {
-      return { ...result, payload: candidate }
-    }
-
-    const missingColumn = extractMissingColumnName(result.error)
-    if (!missingColumn || !Object.prototype.hasOwnProperty.call(candidate, missingColumn)) {
-      return { ...result, payload: candidate }
-    }
-    delete candidate[missingColumn]
-  }
-
-  return {
-    data: null,
-    error: { message: 'Too many missing-column retries.' },
-    payload: candidate,
-  }
-}
-
 function sleep(ms = 250) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -239,57 +198,14 @@ Deno.serve(async (req) => {
       )
     }
 
-    const desiredProfile = {
-      user_id: data.user.id,
-      shop_id: shopId,
-      full_name: ownerName,
-      email: ownerEmail,
-      role: 'owner',
-      active: true,
-      is_online: false,
-    }
-
-    let profileResult = await executeWithPrunedColumns(
-      (candidate) => supabaseAdmin
-        .from('profiles')
-        .upsert(candidate, { onConflict: 'user_id' })
-        .select('*')
-        .maybeSingle(),
-      desiredProfile,
-    )
-
-    if (profileResult.error || !profileResult.data) {
-      const existingProfile = await waitForProfileByUserId(supabaseAdmin, data.user.id, shopId, 10, 300)
-      if (existingProfile) {
-        profileResult = await executeWithPrunedColumns(
-          (candidate) => supabaseAdmin
-            .from('profiles')
-            .update(candidate)
-            .eq('user_id', data.user.id)
-            .eq('shop_id', shopId)
-            .select('*')
-            .maybeSingle(),
-          desiredProfile,
-        )
-      }
-    }
-
-    if (profileResult.error || !profileResult.data) {
-      await supabaseAdmin.auth.admin.deleteUser(data.user.id)
-      return jsonResponse(
-        {
-          error: profileResult.error?.message || 'Failed to reconcile owner profile after auth creation.',
-        },
-        500,
-      )
-    }
+    const profile = await waitForProfileByUserId(supabaseAdmin, data.user.id, shopId, 10, 300)
 
     return jsonResponse({
       success: true,
       userId: data.user.id,
       email: data.user.email,
       shopId,
-      profile: profileResult.data,
+      profile,
     })
   } catch (err) {
     return jsonResponse(

@@ -3082,11 +3082,17 @@ export function AuthProvider({ children }) {
                     return { success: false, message: 'No active shop selected for this terminal.' };
                 }
 
+                const pinDigest = await computePinDigest(scopedShopId, pin);
+                if (!pinDigest) {
+                    bumpRateLimit('salesman');
+                    return { success: false, message: 'Invalid PIN' };
+                }
+
                 const { data: salesmanProfile, error: profileError } = await safeSupabaseQuery(
                     () => supabase
                         .from('profiles')
-                        .select('name,shop_id,active')
-                        .eq('pin', pin)
+                        .select('full_name,shop_id,active')
+                        .eq('pin_digest', pinDigest)
                         .eq('role', 'salesman')
                         .eq('shop_id', scopedShopId)
                         .limit(1)
@@ -3104,7 +3110,7 @@ export function AuthProvider({ children }) {
                 }
 
                 const shadowEmail = buildSalesmanShadowEmail(
-                    salesmanProfile?.name || 'salesman',
+                    salesmanProfile?.full_name || 'salesman',
                     pin
                 );
                 const { data, error } = await safeSupabaseQuery(
