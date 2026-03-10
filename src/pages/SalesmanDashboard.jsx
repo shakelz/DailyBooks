@@ -12,6 +12,7 @@ import SmartCategoryForm from '../components/SmartCategoryForm';
 import TransactionModal from '../components/TransactionModal';
 import { useRepairs } from '../context/RepairsContext';
 import { supabase } from '../supabaseClient';
+import { useTranslatedTextTree } from '../hooks/useTranslatedTextTree';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
@@ -696,7 +697,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const transactionDetailRequestRef = useRef(0);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
+    const translatedTreeRef = useRef(null);
     const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
+
+    useTranslatedTextTree(translatedTreeRef);
 
     const readLastActivityAt = () => {
         let raw = volatileLockState.get(lockStateKey);
@@ -3424,7 +3428,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     return (
-        <div className="min-h-screen bg-slate-100 text-slate-800">
+        <div ref={translatedTreeRef} className="min-h-screen bg-slate-100 text-slate-800">
             <header className="relative z-40 border-b border-blue-300/40 bg-gradient-to-r from-slate-900 via-blue-900 to-blue-700 px-3 py-2 shadow-md">
                 <div className="max-w-7xl mx-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">

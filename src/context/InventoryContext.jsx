@@ -200,7 +200,7 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
     const transactionId = cleanText(txn?.transactionId || txn?.transaction_id || txn?.id || txn?.order_id) || txnId;
     const normalizedDesc = cleanText(txn?.desc || txn?.description || txn?.name || '');
     const normalizedCategory = cleanText(txn?.category || txn?.category_name || '');
-    const normalizedPaymentMethod = cleanText(txn?.paymentMethod || txn?.payment_method || txn?.payment || '');
+    const normalizedPaymentMethod = resolveTransactionPaymentMethod(txn);
     const normalizedInvoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
     const normalizedCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID || '');
     const fallbackInlineItems = (linkedItems.length > 0
@@ -785,32 +785,82 @@ function normalizeCategoryRecord(row = {}, categoryById = {}) {
     };
 }
 
+function escapeRegex(value = '') {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractStructuredNoteValue(notes = '', label = '') {
+    const normalizedLabel = cleanText(label);
+    if (!normalizedLabel) return '';
+    const pattern = new RegExp(`${escapeRegex(normalizedLabel)}\\s*:\\s*([^|\\n]+)`, 'i');
+    const match = String(notes || '').match(pattern);
+    return cleanText(match?.[1] || '');
+}
+
+function stripStructuredNoteValue(notes = '', label = '') {
+    const normalizedLabel = cleanText(label);
+    if (!normalizedLabel) return cleanText(notes);
+    return String(notes || '')
+        .replace(new RegExp(`(?:^|\\|)\\s*${escapeRegex(normalizedLabel)}\\s*:\\s*[^|\\n]+`, 'ig'), '')
+        .replace(/\s*\|\s*\|/g, ' | ')
+        .replace(/^\s*\|\s*|\s*\|\s*$/g, '')
+        .trim();
+}
+
+function appendStructuredNoteValue(notes = '', label = '', value = '') {
+    const normalizedValue = cleanText(value);
+    const base = stripStructuredNoteValue(notes, label);
+    if (!normalizedValue) return base;
+    return base ? `${label}: ${normalizedValue} | ${base}` : `${label}: ${normalizedValue}`;
+}
+
+function normalizePaymentMethodLabel(value = '') {
+    const raw = cleanText(value);
+    if (!raw) return '';
+    const lower = raw.toLowerCase();
+    if (lower === 'cash') return 'Cash';
+    if (lower === 'sum_up' || lower === 'sumup') return 'SumUp';
+    if (lower === 'bank transfer' || lower === 'bank_transfer') return 'Bank Transfer';
+    if (lower === 'visa') return 'Visa';
+    if (lower === 'online') return 'Online';
+    return raw;
+}
+
+function resolveTransactionPaymentMethod(txn = {}) {
+    const direct = cleanText(txn?.paymentMethod || txn?.payment_method || txn?.payment);
+    if (direct) return normalizePaymentMethodLabel(direct);
+
+    const fromNotes = extractStructuredNoteValue(txn?.notes, 'PaymentMethod');
+    if (fromNotes) return normalizePaymentMethodLabel(fromNotes);
+
+    const source = cleanText(txn?.source || txn?.tx_source).toLowerCase();
+    if (source === 'cash') return 'Cash';
+    if (source === 'sum_up' || source === 'sumup') return 'SumUp';
+    return '';
+}
+
 function mapTxType(value, source = '') {
     const raw = cleanText(value).toLowerCase();
     const sourceRaw = cleanText(source).toLowerCase();
+    const isPurchaseSource = sourceRaw === 'purchase' || sourceRaw === 'product_purchase';
+    const isExpenseSource = sourceRaw === 'expense' || sourceRaw === 'shop_expense' || sourceRaw === 'admin-expense';
     const isRepairSource = sourceRaw === 'repair' || sourceRaw.startsWith('repair-') || sourceRaw.startsWith('repair_');
     if (!raw) {
-        if (sourceRaw === 'purchase') return 'product_expense';
-        if (isRepairSource) return 'repair_job';
-        if (sourceRaw === 'expense') return 'product_expense';
+        if (isRepairSource) return 'repair_amount';
+        if (isPurchaseSource) return 'product_purchase';
+        if (isExpenseSource) return 'shop_expense';
         return 'product_sale';
     }
-    if (isRepairSource && (
-        raw === 'income'
-        || raw === 'repair'
-        || raw === 'sale'
-        || raw === 'product_sale'
-        || raw === 'repair_amount'
-        || raw === 'repair_job'
-        || raw === 'reparing_job'
-    )) return 'repair_job';
-    if (sourceRaw === 'purchase' && (raw === 'expense' || raw === 'purchase')) return 'product_expense';
-    if (raw === 'fixed_expense') return 'fixed_expense';
-    if (raw === 'income' || raw === 'product_sale' || raw === 'sale') return 'product_sale';
-    if (raw === 'shop_expense' || raw === 'expense') return 'product_expense';
-    if (raw === 'product_expense' || raw === 'product_purchase' || raw === 'purchase') return 'product_expense';
-    if (raw === 'repair_amount' || raw === 'repair' || raw === 'repair_job' || raw === 'reparing_job') return 'repair_job';
     if (raw === 'adjustment_amount' || raw === 'adjustment') return 'adjustment_amount';
+    if (raw === 'repair_amount' || raw === 'repair' || raw === 'repair_job' || raw === 'reparing_job') return 'repair_amount';
+    if (raw === 'fixed_expense') return 'shop_expense';
+    if (raw === 'product_purchase' || raw === 'product_expense' || raw === 'purchase') return 'product_purchase';
+    if (raw === 'shop_expense' || raw === 'expense') return isPurchaseSource ? 'product_purchase' : 'shop_expense';
+    if (isRepairSource && (raw === 'income' || raw === 'sale' || raw === 'product_sale')) return 'repair_amount';
+    if (raw === 'income' || raw === 'product_sale' || raw === 'sale') return 'product_sale';
+    if (isRepairSource) return 'repair_amount';
+    if (isPurchaseSource) return 'product_purchase';
+    if (isExpenseSource) return 'shop_expense';
     return 'product_sale';
 }
 
@@ -1017,9 +1067,10 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
     const repairId = isUuidLike(repairIdRaw) ? repairIdRaw : null;
     const productId = isUuidLike(productIdRaw) ? productIdRaw : null;
     const mappedSource = mapTxSource(txn?.source || txn?.tx_source);
-    const mappedType = isFixedExpense
-        ? 'fixed_expense'
-        : mapTxType(txn?.tx_type || txn?.type, mappedSource);
+    const mappedType = mapTxType(
+        isFixedExpense ? 'shop_expense' : (txn?.tx_type || txn?.type),
+        mappedSource
+    );
     const invoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
     const description = cleanText(txn?.desc || txn?.description || txn?.name);
     const category = cleanText(txn?.category || txn?.category_name);
@@ -1028,17 +1079,15 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
         ? cleanText(categoryNameToId[category])
         : '';
     const categoryId = directCategoryId || mappedCategoryId;
-    const paymentMethod = cleanText(txn?.paymentMethod || txn?.payment_method || txn?.payment);
+    const paymentMethod = resolveTransactionPaymentMethod(txn);
+    const notes = appendStructuredNoteValue(txn?.notes || '', 'PaymentMethod', paymentMethod);
 
     const payload = withShopId({
         tx_type: mappedType,
-        type: mappedType,
-        description,
-        desc: description,
+        description: description || null,
         amount,
-        notes: txn?.notes || '',
+        notes: notes || null,
         source: mappedSource,
-        tx_source: mappedSource,
         quantity,
         created_at: occurredAt,
         updated_at: occurredAt,
@@ -1047,13 +1096,8 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
         repair_id: repairId,
         product_id: productId,
         invoice_number: invoiceNumber || null,
-        category: category || null,
         category_id: categoryId || null,
-        categoryId: categoryId || null,
-        payment_method: paymentMethod || null,
-        paymentMethod: paymentMethod || null,
         created_by: isUuidLike(workerId) ? workerId : null,
-        transactionItems: Array.isArray(txn?.transactionItems) ? txn.transactionItems : undefined,
     }, shopId);
 
     return payload;
@@ -1653,7 +1697,7 @@ export function InventoryProvider({ children }) {
 
         const parentSelect = await supabase
             .from('categories')
-            .select('category_id,id,category_name')
+            .select('category_id,category_name')
             .eq('shop_id', sid)
             .eq('category_purpose', normalizedScope)
             .is('parent_category_id', null)
@@ -1681,7 +1725,7 @@ export function InventoryProvider({ children }) {
             if (insertParentResult.error) {
                 const fallbackParent = await supabase
                     .from('categories')
-                    .select('category_id,id,category_name')
+                    .select('category_id,category_name')
                     .eq('shop_id', sid)
                     .eq('category_purpose', normalizedScope)
                     .is('parent_category_id', null)
@@ -1699,7 +1743,7 @@ export function InventoryProvider({ children }) {
             } else {
                 const refreshedParent = await supabase
                     .from('categories')
-                    .select('category_id,id,category_name')
+                    .select('category_id,category_name')
                     .eq('shop_id', sid)
                     .eq('category_purpose', normalizedScope)
                     .is('parent_category_id', null)
@@ -1737,7 +1781,7 @@ export function InventoryProvider({ children }) {
         if (level1Id && level2Name) {
             const childSelect = await supabase
                 .from('categories')
-                .select('category_id,id,category_name')
+                .select('category_id,category_name')
                 .eq('shop_id', sid)
                 .eq('category_purpose', normalizedScope)
                 .eq('parent_category_id', level1Id)
@@ -1761,7 +1805,7 @@ export function InventoryProvider({ children }) {
                 if (insertChildResult.error) {
                     const fallbackChild = await supabase
                         .from('categories')
-                        .select('category_id,id,category_name')
+                        .select('category_id,category_name')
                         .eq('shop_id', sid)
                         .eq('category_purpose', normalizedScope)
                         .eq('parent_category_id', level1Id)
@@ -2143,38 +2187,32 @@ export function InventoryProvider({ children }) {
             let finalWriteResult = insertResult;
 
             if (insertResult.error) {
-                const rawFallbackSource = cleanText(formattedTxn?.source || formattedTxn?.tx_source || '').toLowerCase();
-                const normalizedSource = ['cash', 'sum_up', 'shop', 'purchase', 'expense', 'repair'].includes(rawFallbackSource)
-                    ? rawFallbackSource
-                    : 'cash';
+                const rawFallbackSource = cleanText(formattedTxn?.source || '').toLowerCase();
+                const normalizedSource = rawFallbackSource || 'cash';
                 const fallbackLegacyType = String(txnWithInvoice?.type || '').toLowerCase();
                 const shouldBeExpense = fallbackLegacyType === 'expense'
                     || String(txnWithInvoice?.source || '').toLowerCase() === 'purchase'
                     || String(txnWithInvoice?.source || '').toLowerCase() === 'expense';
                 const isRepairSource = normalizedSource === 'repair';
                 const fallbackType = mapTxType(
-                    formattedTxn?.tx_type || formattedTxn?.type || txnWithInvoice?.tx_type || txnWithInvoice?.type,
-                    txnWithInvoice?.source || txnWithInvoice?.tx_source || formattedTxn?.source || formattedTxn?.tx_source
+                    formattedTxn?.tx_type || txnWithInvoice?.tx_type || txnWithInvoice?.type,
+                    txnWithInvoice?.source || txnWithInvoice?.tx_source || formattedTxn?.source
                 );
                 const fallbackPayload = {
                     ...formattedTxn,
                     tx_type: fallbackType || 'product_sale',
-                    type: fallbackType || 'product_sale',
                     source: normalizedSource,
-                    tx_source: normalizedSource,
                 };
 
                 if (isUuidSyntaxError(insertResult.error, 'product_id')) fallbackPayload.product_id = null;
                 if (isUuidSyntaxError(insertResult.error, 'repair_id')) fallbackPayload.repair_id = null;
                 if (isUuidSyntaxError(insertResult.error, 'created_by')) fallbackPayload.created_by = null;
-                if (isEnumError(insertResult.error, 'tx_type') || isEnumError(insertResult.error, 'type')) {
-                    const safeType = shouldBeExpense ? 'product_expense' : (isRepairSource ? 'repair_job' : 'product_sale');
+                if (isEnumError(insertResult.error, 'tx_type')) {
+                    const safeType = shouldBeExpense ? 'product_purchase' : (isRepairSource ? 'repair_amount' : 'product_sale');
                     fallbackPayload.tx_type = safeType;
-                    fallbackPayload.type = safeType;
                 }
-                if (isEnumError(insertResult.error, 'source') || isEnumError(insertResult.error, 'tx_source')) {
+                if (isEnumError(insertResult.error, 'source')) {
                     fallbackPayload.source = 'cash';
-                    fallbackPayload.tx_source = 'cash';
                 }
 
                 const retryResult = await executeWithPrunedColumns(
@@ -2183,17 +2221,16 @@ export function InventoryProvider({ children }) {
                 );
 
                 let finalRetryResult = retryResult;
-                if (finalRetryResult.error && (isEnumError(finalRetryResult.error, 'tx_type') || isEnumError(finalRetryResult.error, 'type'))) {
+                if (finalRetryResult.error && isEnumError(finalRetryResult.error, 'tx_type')) {
                     const typeCandidates = shouldBeExpense
-                        ? ['product_expense', 'product_purchase', 'shop_expense', 'expense']
-                        : (isRepairSource ? ['repair_job', 'repair_amount', 'product_sale', 'income'] : ['product_sale', 'income', 'repair_job', 'repair_amount']);
+                        ? ['product_purchase', 'shop_expense']
+                        : (isRepairSource ? ['repair_amount', 'product_sale'] : ['product_sale', 'repair_amount']);
 
                     for (const candidateType of typeCandidates) {
                         if (candidateType === fallbackPayload.tx_type) continue;
                         const candidatePayload = {
                             ...fallbackPayload,
                             tx_type: candidateType,
-                            type: candidateType,
                         };
                         const candidateResult = await executeWithPrunedColumns(
                             (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
@@ -2201,7 +2238,6 @@ export function InventoryProvider({ children }) {
                         );
                         if (!candidateResult.error) {
                             fallbackPayload.tx_type = candidateType;
-                            fallbackPayload.type = candidateType;
                             finalRetryResult = candidateResult;
                             break;
                         }
