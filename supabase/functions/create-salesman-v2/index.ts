@@ -177,26 +177,23 @@ async function syncSalesmanAuthUser(
   payload: {
     userId: string
     email: string
-    password: string
     shopId: string
     name: string
     pinDigest: string
   },
 ) {
-  const { userId, email, password, shopId, name, pinDigest } = payload
+  const { userId, email, shopId, name, pinDigest } = payload
   if (!userId) {
     return { data: null, error: { message: 'Missing userId for auth sync.' } }
   }
 
   const { data, error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     email,
-    password,
     user_metadata: {
       role: 'salesman',
       shop_id: shopId,
       name,
       full_name: name,
-      pin: password,
       pin_digest: pinDigest,
     },
     app_metadata: {
@@ -278,7 +275,6 @@ Deno.serve(async (req) => {
           const { error: authSyncError } = await syncSalesmanAuthUser(supabaseAdmin, {
             userId: existingUserId,
             email: shadowEmail,
-            password: pin,
             shopId,
             name,
             pinDigest,
@@ -314,7 +310,6 @@ Deno.serve(async (req) => {
     const { error: authSyncError } = await syncSalesmanAuthUser(supabaseAdmin, {
       userId: data.user.id,
       email: shadowEmail,
-      password: pin,
       shopId,
       name,
       pinDigest,
