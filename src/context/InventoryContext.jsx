@@ -1544,19 +1544,21 @@ export function InventoryProvider({ children }) {
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
                     const incoming = normalizeInventoryRecord(payload.new, categoryLookupsRef.current);
                     setProducts(prev => {
-                        if (prev.some(p => String(p.id) === String(payload.new.id))) return prev;
+                        if (prev.some(p => String(p.id) === String(incoming.id))) return prev;
                         return [incoming, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                     });
                 })
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
+                    const incoming = normalizeInventoryRecord(payload.new, categoryLookupsRef.current);
                     setProducts(prev => prev.map(p =>
-                        String(p.id) === String(payload.new.id)
+                        String(p.id) === String(incoming.id)
                             ? normalizeInventoryRecord({ ...p, ...payload.new }, categoryLookupsRef.current)
                             : p
                     ));
                 })
                 .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
-                    setProducts(prev => prev.filter(p => String(p.id) !== String(payload.old.id)));
+                    const deleted = normalizeInventoryRecord(payload.old, categoryLookupsRef.current);
+                    setProducts(prev => prev.filter(p => String(p.id) !== String(deleted.id)));
                 })
                 // CATEGORIES
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
@@ -1919,10 +1921,7 @@ export function InventoryProvider({ children }) {
                 ? { ...entry, ...insertResult.data, id: String(insertResult.data.product_id || insertResult.data.id || entry.id) }
                 : entry
         );
-        setProducts(prev => {
-            if (prev.some(p => String(p.id) === String(savedEntry.id))) return prev;
-            return [savedEntry, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        });
+        // Do NOT update local state here — the realtime subscription will handle it
 
         supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',
