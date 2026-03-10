@@ -1673,6 +1673,7 @@ export function AuthProvider({ children }) {
     const [authLoading, setAuthLoading] = useState(true);
     const activeShopIdRef = useRef(initialAuthState.activeShopId);
     const refreshShopsRequestIdRef = useRef(0);
+    const salesmenLoadRequestIdRef = useRef(0);
 
     const [lowStockAlerts, setLowStockAlerts] = useState([]);
     const [salesmanMetaMap, setSalesmanMetaMap] = useState(() => readLocalJSON(SALESMAN_META_STORAGE_KEY, {}));
@@ -1949,9 +1950,14 @@ export function AuthProvider({ children }) {
     }, [role, user, shopMetaMap, syncShopTelephoneColumn]);
 
     const loadSalesmenForShop = useCallback(async (shopIdParam = '') => {
-        const sid = asString(shopIdParam || activeShopId);
+        const requestId = salesmenLoadRequestIdRef.current + 1;
+        salesmenLoadRequestIdRef.current = requestId;
+        const isStaleRequest = () => salesmenLoadRequestIdRef.current !== requestId;
+        const sid = asString(shopIdParam || activeShopIdRef.current || activeShopId);
         if (!sid) {
-            setSalesmen([]);
+            if (!isStaleRequest()) {
+                setSalesmen([]);
+            }
             return [];
         }
 
@@ -1991,7 +1997,9 @@ export function AuthProvider({ children }) {
         }
 
         if (error || !Array.isArray(data)) {
-            setSalesmen([]);
+            if (!isStaleRequest()) {
+                setSalesmen([]);
+            }
             return [];
         }
 
@@ -1999,7 +2007,9 @@ export function AuthProvider({ children }) {
             .map(normalizeSalesman)
             .filter(Boolean)
             .map((salesman) => mergeSalesmanMeta(salesman, salesmanMetaMap));
-        setSalesmen(mapped);
+        if (!isStaleRequest()) {
+            setSalesmen(mapped);
+        }
         return mapped;
     }, [activeShopId, salesmanMetaMap]);
 
@@ -2012,12 +2022,12 @@ export function AuthProvider({ children }) {
     }, [role, user, refreshShops]);
 
     useEffect(() => {
-        if (!activeShopId) {
+        if (!role || !user || !activeShopId) {
             setSalesmen([]);
             return;
         }
         loadSalesmenForShop(activeShopId);
-    }, [activeShopId, loadSalesmenForShop]);
+    }, [role, user, activeShopId, loadSalesmenForShop]);
 
     useEffect(() => {
         if (role !== 'salesman' || !user) return;

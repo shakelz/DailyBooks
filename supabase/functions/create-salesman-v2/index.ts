@@ -145,6 +145,33 @@ function isDuplicateAuthUserError(error: unknown) {
     || message.includes('duplicate')
 }
 
+async function syncSalesmanProfile(
+  supabaseAdmin: ReturnType<typeof createAdminClient>,
+  payload: {
+    user_id: string
+    shop_id: string
+    full_name: string
+    email: string
+    role: 'salesman'
+    pin_digest: string
+    active: boolean
+    is_online: boolean
+    hourly_rate: number
+  },
+) {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .upsert(payload, { onConflict: 'user_id' })
+    .select('*')
+    .maybeSingle()
+
+  if (error) {
+    return { data: null, error }
+  }
+
+  return { data, error: null }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -188,6 +215,18 @@ Deno.serve(async (req) => {
       },
     })
 
+    const profilePayload = {
+      user_id: String(data?.user?.id ?? '').trim(),
+      shop_id: shopId,
+      full_name: name,
+      email: shadowEmail,
+      role: 'salesman' as const,
+      pin_digest: pinDigest,
+      active: true,
+      is_online: false,
+      hourly_rate: 12.5,
+    }
+
     if (error || !data.user) {
       if (isDuplicateAuthUserError(error)) {
         const { data: existingProfile, error: profileError } = await supabaseAdmin
@@ -199,11 +238,16 @@ Deno.serve(async (req) => {
           .maybeSingle()
 
         if (!profileError && existingProfile) {
+          const existingUserId = String(existingProfile.user_id ?? '').trim()
+          const { data: syncedExistingProfile } = await syncSalesmanProfile(supabaseAdmin, {
+            ...profilePayload,
+            user_id: existingUserId || profilePayload.user_id,
+          })
           return jsonResponse({
-            userId: String(existingProfile.user_id ?? '').trim(),
+            userId: existingUserId,
             email: shadowEmail,
             shopId,
-            profile: existingProfile,
+            profile: syncedExistingProfile ?? existingProfile,
             existing: true,
           })
         }
@@ -211,7 +255,31 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: error?.message || 'Failed to create salesman account.' }, 400)
     }
 
-    const profile = await waitForProfileByUserId(supabaseAdmin, data.user.id, shopId, 10, 300)
+    const syncedPayload = {
+      ...profilePayload,
+      user_id: data.user.id,
+      shop_id: shopId,
+    }
+
+    const { data: syncedProfile, error: profileSyncError } = await syncSalesmanProfile(
+      supabaseAdmin,
+      syncedPayload,
+    )
+
+    if (profileSyncError) {
+      return jsonResponse(
+        {
+          error: 'Failed to reconcile salesman profile.',
+          details: profileSyncError.message || 'Unknown profile sync error.',
+          userId: data.user.id,
+          email: shadowEmail,
+          shopId,
+        },
+        500,
+      )
+    }
+
+    const profile = syncedProfile ?? await waitForProfileByUserId(supabaseAdmin, data.user.id, shopId, 10, 300)
 
     return jsonResponse({
       userId: data.user.id,
