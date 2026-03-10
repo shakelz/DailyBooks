@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -11,6 +11,8 @@ import RepairModal from '../components/RepairModal';
 import SmartCategoryForm from '../components/SmartCategoryForm';
 import TransactionModal from '../components/TransactionModal';
 import { useRepairs } from '../context/RepairsContext';
+import { useCart } from '../context/CartContext';
+import CartSidebar from '../components/CartSidebar';
 import { supabase } from '../supabaseClient';
 import { useTranslatedTextTree } from '../hooks/useTranslatedTextTree';
 
@@ -618,6 +620,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         getLevel2Categories,
     } = useInventory();
     const { repairJobs, repairsLoaded, updateRepairStatus } = useRepairs();
+    const { addToCart, cart, editingCartItem, setEditingCartItem } = useCart();
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
     const debouncedTransactions = useDebouncedValue(transactions, 140);
     const debouncedProducts = useDebouncedValue(products, 140);
@@ -2948,20 +2951,40 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setSelectedMobileInventoryItem(null);
     };
 
-    const handleAddToBill = async (productWithQty) => {
-        try {
-            await addTransaction(productWithQty);
-            const stockProductId = productWithQty.productId || productWithQty.id || '';
-            if (stockProductId) {
-                await adjustStock(stockProductId, -(parseInt(productWithQty.quantity || 1, 10) || 1));
-            }
-            setShowSuccess(true);
-            setTimeout(() => setShowSuccess(false), 1800);
-            setShowTransactionModal(false);
-            setSelectedProduct(null);
-        } catch (error) {
-            alert(error?.message || 'Failed to complete sale');
-        }
+    const handleAddToBill = (productWithQty) => {
+        addToCart({
+            productId: productWithQty.productId || productWithQty.id || '',
+            name: productWithQty.desc || productWithQty.name || '',
+            category: productWithQty.category || 'General',
+            quantity: parseInt(productWithQty.quantity || 1, 10) || 1,
+            amount: parseFloat(productWithQty.amount) || 0,
+            unitPrice: parseFloat(productWithQty.unitPrice || productWithQty.amount) || 0,
+            paymentMethod: productWithQty.paymentMethod || productWithQty.paymentMode || 'Cash',
+            barcode: productWithQty.barcode || '',
+            notes: productWithQty.notes || '',
+            includeTax: productWithQty.includeTax ?? true,
+            image: productWithQty.image || '',
+            profit: parseFloat(productWithQty.profit) || 0,
+            discount: parseFloat(productWithQty.discount) || 0,
+            customerInfo: productWithQty.customerInfo || { name: 'Walk-in', phone: '', type: 'New' },
+        });
+
+        setShowTransactionModal(false);
+        setSelectedProduct(null);
+        setShowMobileInventoryModal(false);
+    };
+
+    const handleEditCartItem = (cartItem) => {
+        setEditingCartItem(cartItem.cartItemId);
+        setSelectedProduct({
+            id: cartItem.productId,
+            name: cartItem.name,
+            category: cartItem.category,
+            sellingPrice: cartItem.unitPrice,
+            barcode: cartItem.barcode,
+            image: cartItem.image,
+        });
+        setShowTransactionModal(true);
     };
 
     const openSalesFormWithProduct = (product) => {
@@ -5339,6 +5362,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     </div>
                 </div>
             )}
+
+            <CartSidebar
+                onEditItem={handleEditCartItem}
+                onFinalized={() => {
+                    setShowSuccess(true);
+                    setTimeout(() => setShowSuccess(false), 1800);
+                }}
+            />
         </div>
     );
 }
