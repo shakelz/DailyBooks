@@ -327,41 +327,6 @@ function isCashbookTransaction(txn = {}) {
         || source === 'cashbook';
 }
 
-function resolveChartCategoryName(txn = {}, productsById = {}) {
-    const directCategory = extractCategoryName(txn?.category || txn?.categorySnapshot || txn?.productSnapshot?.category);
-    if (String(directCategory || '').trim() && String(directCategory).trim().toLowerCase() !== 'general') {
-        return String(directCategory).trim();
-    }
-
-    const productId = String(txn?.productId || txn?.product_id || '').trim();
-    const linkedProduct = productId ? productsById[productId] : null;
-    const linkedCategory = extractCategoryName(linkedProduct?.category || linkedProduct?.category_name || linkedProduct?.productCategory);
-    if (String(linkedCategory || '').trim() && String(linkedCategory).trim().toLowerCase() !== 'general') {
-        return String(linkedCategory).trim();
-    }
-
-    if (String(directCategory || '').trim().toLowerCase() === 'general') return 'General';
-    if (String(linkedCategory || '').trim().toLowerCase() === 'general') return 'General';
-
-    return 'Uncategorized';
-}
-
-function categoryTotals(transactions, productsById = {}) {
-    const map = new Map();
-    transactions.forEach((txn) => {
-        const cat = resolveChartCategoryName(txn, productsById) || 'Uncategorized';
-        const current = map.get(cat) || { total: 0, count: 0 };
-        current.total += (parseFloat(txn.amount) || 0);
-        current.count += 1;
-        map.set(cat, current);
-    });
-
-    return Array.from(map.entries())
-        .map(([name, value]) => ({ name, total: Number(value.total.toFixed(2)), count: value.count }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 8);
-}
-
 function escapeHtml(value) {
     return String(value || '')
         .replaceAll('&', '&amp;')
@@ -525,43 +490,6 @@ function buildReceiptHtml({
             </body>
         </html>
     `;
-}
-
-function HorizontalCategoryBars({ items = [], tone = 'sales' }) {
-    const source = Array.isArray(items) ? items : [];
-    const maxValue = Math.max(1, ...source.map((row) => Number(row?.total) || 0));
-    const isSales = tone === 'sales';
-    const barClass = isSales ? 'bg-emerald-500/85' : 'bg-rose-500/85';
-    const trackClass = isSales ? 'bg-emerald-100/70' : 'bg-rose-100/70';
-    const axisClass = isSales ? 'text-emerald-700' : 'text-rose-700';
-
-    return (
-        <div className="w-full space-y-2">
-            <div className={`flex items-center justify-between text-[10px] font-semibold ${axisClass}`}>
-                <span>Category</span>
-                <span>Amount (€)</span>
-            </div>
-            <div className="space-y-2">
-                {source.map((row) => {
-                    const total = Number(row?.total) || 0;
-                    const widthPercent = Math.max(4, Math.round((total / maxValue) * 100));
-                    return (
-                        <div key={`cat-bar-${tone}-${row.name}`} className="grid grid-cols-[minmax(90px,120px)_1fr_auto] items-center gap-2">
-                            <p className="truncate text-[11px] font-semibold text-slate-700" title={row.name}>{row.name}</p>
-                            <div className={`h-6 w-full rounded-md ${trackClass} border border-white/60 overflow-hidden`}>
-                                <div className={`h-full ${barClass}`} style={{ width: `${widthPercent}%` }} />
-                            </div>
-                            <p className="text-[11px] font-bold text-slate-700">{priceTag(total)}</p>
-                        </div>
-                    );
-                })}
-            </div>
-            <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5">
-                <span>0</span>
-                <span>{priceTag(maxValue)}</span>
-            </div>
-        </div>
-    );
 }
 
 function CompactTrendCard({ label, value, colorClass, onClick = null, hint = '' }) {
@@ -3495,14 +3423,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             : order));
     };
 
-    const salesByCategory = useMemo(
-        () => categoryTotals(debouncedRevenueTransactions, productLookup),
-        [debouncedRevenueTransactions, productLookup]
-    );
-    const expensesByCategory = useMemo(
-        () => categoryTotals(debouncedPurchaseTransactions, productLookup),
-        [debouncedPurchaseTransactions, productLookup]
-    );
     return (
         <div className="min-h-screen bg-slate-100 text-slate-800">
             <header className="relative z-40 border-b border-blue-300/40 bg-gradient-to-r from-slate-900 via-blue-900 to-blue-700 px-3 py-2 shadow-md">
@@ -4085,29 +4005,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     </div>
                 </section>
 
-                <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm">
-                        <h3 className="text-sm font-black text-emerald-700 mb-2">Sales by Category</h3>
-                        <div className="min-h-44">
-                            {salesByCategory.length === 0 ? (
-                                <p className="text-xs text-slate-400 text-center py-14">No sales yet</p>
-                            ) : (
-                                <HorizontalCategoryBars items={salesByCategory} tone="sales" />
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-rose-100 bg-white p-3 shadow-sm">
-                        <h3 className="text-sm font-black text-rose-700 mb-2">Purchase by Category</h3>
-                        <div className="min-h-44">
-                            {expensesByCategory.length === 0 ? (
-                                <p className="text-xs text-slate-400 text-center py-14">No purchases yet</p>
-                            ) : (
-                                <HorizontalCategoryBars items={expensesByCategory} tone="expense" />
-                            )}
-                        </div>
-                    </div>
-                </section>
             </main>
 
             {activeKpiBreakdown && (
