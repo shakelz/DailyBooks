@@ -2602,7 +2602,9 @@ export function AuthProvider({ children }) {
             });
 
             if (userStatusError) {
-                console.error('Failed to resolve salesman punch state from session:', userStatusError);
+                if (!isSupabaseLockTimeoutError(userStatusError)) {
+                    console.error('Failed to resolve salesman punch state from session:', userStatusError);
+                }
                 setIsPunchedIn(false);
                 setActiveAttendanceId('');
             } else {
@@ -2698,11 +2700,13 @@ export function AuthProvider({ children }) {
             const scopedUserId = asString(userIdArg);
             const { data: dbUserStatus, error: statusError } = await requestUserStatus({ shopId: sid, userId: scopedUserId });
             if (statusError) {
-                console.error('Failed to fetch salesman attendance status:', {
-                    shop_id: sid,
-                    user_id: scopedUserId,
-                    error: statusError,
-                });
+                if (!isSupabaseLockTimeoutError(statusError)) {
+                    console.error('Failed to fetch salesman attendance status:', {
+                        shop_id: sid,
+                        user_id: scopedUserId,
+                        error: statusError,
+                    });
+                }
                 return;
             }
             if (dbUserStatus) {
