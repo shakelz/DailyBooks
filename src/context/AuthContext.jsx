@@ -2444,17 +2444,18 @@ export function AuthProvider({ children }) {
             throw new Error('At least one shop must remain.');
         }
 
-        const dependentTables = ['attendance', 'transactions', 'repairs', 'categories', 'inventory', 'profiles'];
-        for (const tableName of dependentTables) {
-            const { error } = await supabase.from(tableName).delete().eq('shop_id', sid);
-            if (error) {
-                console.warn(`Failed to cleanup ${tableName} for shop ${sid}:`, error);
-            }
-        }
-
-        const { error: deleteError } = await deleteShopById(sid);
+        const { error: deleteError } = await safeSupabaseQuery(
+            () => supabase.functions.invoke('delete-shop-v2', {
+                ...buildAdminFunctionInvokeOptions({
+                    shopId: sid,
+                }),
+            }),
+            'Failed to delete shop.'
+        );
         if (deleteError) {
-            throw new Error(deleteError.message || 'Failed to delete shop.');
+            throw new Error(
+                await extractSupabaseFunctionErrorMessage(deleteError, 'Failed to delete shop.')
+            );
         }
 
         const nextShops = currentShops.filter((shop) => shop.id !== sid);
@@ -3342,19 +3343,34 @@ export function AuthProvider({ children }) {
 
     const deleteSalesman = async (id) => {
         const sid = asString(activeShopId);
-        if (sid) {
-            await supabase.from('profiles').delete().eq('user_id', id).eq('shop_id', sid);
+        const normalizedId = asString(id);
+        if (!normalizedId) {
+            throw new Error('Invalid salesman id.');
+        }
+        const { error } = await safeSupabaseQuery(
+            () => supabase.functions.invoke('delete-salesman-v2', {
+                ...buildAdminFunctionInvokeOptions({
+                    userId: normalizedId,
+                    shopId: sid,
+                }),
+            }),
+            'Failed to delete salesman.'
+        );
+        if (error) {
+            throw new Error(
+                await extractSupabaseFunctionErrorMessage(error, 'Failed to delete salesman.')
+            );
         }
         setSalesmanMetaMap((prev) => {
             const byShop = prev?.[sid] && typeof prev[sid] === 'object' ? { ...prev[sid] } : {};
-            delete byShop[asString(id)];
+            delete byShop[normalizedId];
             return {
                 ...prev,
                 [sid]: byShop
             };
         });
         setSalesmen(prev => {
-            const next = prev.filter(s => String(s.id) !== String(id));
+            const next = prev.filter(s => String(s.id) !== normalizedId);
             broadcastSetting('salesmen', next);
             return next;
         });

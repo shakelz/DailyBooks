@@ -10,5 +10,11 @@ verify_jwt = false
 [functions.create-salesman-v2]
 verify_jwt = false
 
+[functions.delete-salesman-v2]
+verify_jwt = false
+
+[functions.delete-shop-v2]
+verify_jwt = false
+
 [functions.update-owner-credentials]
 verify_jwt = false

@@ -137,6 +137,14 @@ async function waitForProfileByUserId(
   return null
 }
 
+function isDuplicateAuthUserError(error: unknown) {
+  const message = String((error as { message?: unknown } | null)?.message ?? '').toLowerCase()
+  return message.includes('already been registered')
+    || message.includes('already registered')
+    || message.includes('user already exists')
+    || message.includes('duplicate')
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -181,6 +189,25 @@ Deno.serve(async (req) => {
     })
 
     if (error || !data.user) {
+      if (isDuplicateAuthUserError(error)) {
+        const { data: existingProfile, error: profileError } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('shop_id', shopId)
+          .eq('email', shadowEmail)
+          .eq('role', 'salesman')
+          .maybeSingle()
+
+        if (!profileError && existingProfile) {
+          return jsonResponse({
+            userId: String(existingProfile.user_id ?? '').trim(),
+            email: shadowEmail,
+            shopId,
+            profile: existingProfile,
+            existing: true,
+          })
+        }
+      }
       return jsonResponse({ error: error?.message || 'Failed to create salesman account.' }, 400)
     }
 
