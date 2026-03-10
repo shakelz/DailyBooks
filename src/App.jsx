@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { InventoryProvider } from './context/InventoryContext'
 import { RepairsProvider } from './context/RepairsContext'
 import { CartProvider } from './context/CartContext'
+import { LanguageProvider } from './context/LanguageContext'
 import LoginPage from './pages/LoginPage'
 import LandingPage from './pages/LandingPage'
 import SalesmanDashboard from './pages/SalesmanDashboard'
@@ -129,38 +130,40 @@ function App() {
   }
 
   return (
-    <AuthProvider>
-      <InventoryProvider>
-        <RepairsProvider>
-          <CartProvider>
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<LandingPage />} />
-                <Route path={SALESMAN_LOGIN_PATH} element={<LoginPage mode="salesman" />} />
-                <Route path={ADMIN_LOGIN_PATH} element={<LoginPage mode="admin" />} />
+    <LanguageProvider>
+      <AuthProvider>
+        <InventoryProvider>
+          <RepairsProvider>
+            <CartProvider>
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/" element={<LandingPage />} />
+                  <Route path={SALESMAN_LOGIN_PATH} element={<LoginPage mode="salesman" />} />
+                  <Route path={ADMIN_LOGIN_PATH} element={<LoginPage mode="admin" />} />
 
-                <Route path={`${ADMIN_LOGIN_PATH}/*`} element={<AdminRouteShell />}>
-                  <Route index element={<Navigate to="dashboard" replace />} />
-                  <Route path="dashboard" element={<SalesmanDashboardErrorBoundary><SalesmanDashboard adminView /></SalesmanDashboardErrorBoundary>} />
-                  <Route path="owner-dashboard" element={<SalesmanDashboardErrorBoundary><SalesmanDashboard adminView /></SalesmanDashboardErrorBoundary>} />
-                  <Route path="inventory" element={<InventoryTab />} />
-                  <Route path="insights" element={<InsightsTab />} />
-                  <Route path="expenses" element={<ExpensesTab />} />
-                  <Route path="repairs" element={<RepairsTab />} />
-                  <Route path="settings" element={<AdminSettings />} />
-                </Route>
+                  <Route path={`${ADMIN_LOGIN_PATH}/*`} element={<AdminRouteShell />}>
+                    <Route index element={<Navigate to="dashboard" replace />} />
+                    <Route path="dashboard" element={<SalesmanDashboardErrorBoundary><SalesmanDashboard adminView /></SalesmanDashboardErrorBoundary>} />
+                    <Route path="owner-dashboard" element={<SalesmanDashboardErrorBoundary><SalesmanDashboard adminView /></SalesmanDashboardErrorBoundary>} />
+                    <Route path="inventory" element={<InventoryTab />} />
+                    <Route path="insights" element={<InsightsTab />} />
+                    <Route path="expenses" element={<ExpensesTab />} />
+                    <Route path="repairs" element={<RepairsTab />} />
+                    <Route path="settings" element={<AdminSettings />} />
+                  </Route>
 
-                <Route path={SALESMAN_DASHBOARD_PATH} element={<SalesmanGuard><SalesmanDashboardErrorBoundary><SalesmanDashboard /></SalesmanDashboardErrorBoundary></SalesmanGuard>} />
-                <Route path={SALESMAN_LATEST_DASHBOARD_PATH} element={<SalesmanGuard><LatestDashboard /></SalesmanGuard>} />
+                  <Route path={SALESMAN_DASHBOARD_PATH} element={<SalesmanGuard><SalesmanDashboardErrorBoundary><SalesmanDashboard /></SalesmanDashboardErrorBoundary></SalesmanGuard>} />
+                  <Route path={SALESMAN_LATEST_DASHBOARD_PATH} element={<SalesmanGuard><LatestDashboard /></SalesmanGuard>} />
 
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-              <PWAInstallButton />
-            </BrowserRouter>
-          </CartProvider>
-        </RepairsProvider>
-      </InventoryProvider>
-    </AuthProvider>
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+                <PWAInstallButton />
+              </BrowserRouter>
+            </CartProvider>
+          </RepairsProvider>
+        </InventoryProvider>
+      </AuthProvider>
+    </LanguageProvider>
   )
 }
 

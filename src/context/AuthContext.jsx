@@ -3534,6 +3534,86 @@ export function AuthProvider({ children }) {
         )));
     }, [activeShopId, patchShopMeta]);
 
+    const updateCurrentUserProfile = useCallback(async (updates = {}) => {
+        const uid = asString(getProfileId(user));
+        if (!uid) {
+            throw new Error('Unable to resolve the current user profile.');
+        }
+
+        const candidatePayloads = buildProfileUpdatePayloads(updates);
+        if (candidatePayloads.length === 0) {
+            return user;
+        }
+
+        const preferredShopId = asString(user?.shop_id || activeShopId);
+        let updatedProfile = null;
+        let lastError = null;
+
+        const runUpdateAttempt = async (withShopFilter) => {
+            for (const payload of candidatePayloads) {
+                let query = supabase
+                    .from('profiles')
+                    .update(payload)
+                    .eq('user_id', uid);
+
+                if (withShopFilter && preferredShopId) {
+                    query = query.eq('shop_id', preferredShopId);
+                }
+
+                const { data, error } = await query.select('*').limit(1).maybeSingle();
+                if (!error) {
+                    if (data) {
+                        updatedProfile = data;
+                        return true;
+                    }
+                    continue;
+                }
+
+                lastError = error;
+            }
+
+            return false;
+        };
+
+        const matchedScopedProfile = await runUpdateAttempt(true);
+        if (!matchedScopedProfile) {
+            await runUpdateAttempt(false);
+        }
+
+        if (!updatedProfile) {
+            const refreshedProfile = await waitForProfileByUserId(uid, 2, 100);
+            if (refreshedProfile) {
+                updatedProfile = refreshedProfile;
+            }
+        }
+
+        if (lastError && !updatedProfile) {
+            throw new Error(lastError.message || 'Failed to update current profile.');
+        }
+
+        const normalizedUser = normalizeUserFromProfile(updatedProfile || {
+            ...(user || {}),
+            user_id: uid,
+            ...updates,
+            profile_image: asString(updates.profileImage ?? updates.photo ?? user?.profileImage ?? user?.photo),
+        });
+
+        if (!normalizedUser) {
+            throw new Error('Failed to normalize updated profile.');
+        }
+
+        setUser(normalizedUser);
+        setSalesmen((prev) => prev.map((salesman) => {
+            if (String(salesman?.id) !== uid) return salesman;
+            return {
+                ...salesman,
+                ...normalizeSalesman(updatedProfile || normalizedUser),
+            };
+        }));
+
+        return normalizedUser;
+    }, [activeShopId, user]);
+
     // ── Alert Logic ──
     const addLowStockAlert = (product) => {
         setLowStockAlerts((prev) => {
@@ -3598,7 +3678,8 @@ export function AuthProvider({ children }) {
         isAttendanceActionPending,
         addAttendanceLog,
         updateAttendanceLog,
-        deleteAttendanceLog
+        deleteAttendanceLog,
+        updateCurrentUserProfile
     };
 
     return (
