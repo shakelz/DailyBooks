@@ -82,6 +82,13 @@ function isUuidLike(value) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(raw);
 }
 
+function normalizeUuidArray(values = []) {
+    if (!Array.isArray(values)) return [];
+    return values
+        .map((value) => cleanText(value))
+        .filter((value) => isUuidLike(value));
+}
+
 function normalizeRepairPart(part = {}) {
     const quantityRaw = parseFloat(part?.quantity ?? part?.qty ?? 1);
     const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
@@ -204,8 +211,7 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
         advance_amount: parseFloat(repair?.advanceAmount ?? 0) || 0,
         estimated_cost: parseFloat(repair?.estimatedCost ?? 0) || 0,
         delivery_date: deliveryAt || null,
-        used_part_order_ids: Array.isArray(repair?.used_part_order_ids) ? repair.used_part_order_ids : [],
-        partsUsed: Array.isArray(repair?.partsUsed) ? repair.partsUsed.map(normalizeRepairPart) : [],
+        used_part_order_ids: normalizeUuidArray(repair?.used_part_order_ids),
         status: cleanText(repair?.status) || 'pending',
         created_by: cleanText(repair?.created_by || repair?.createdBy || repair?.workerId || repair?.user_id) || null,
         created_at: createdAt,
@@ -214,7 +220,6 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
     };
 
     const referenceValue = formatShortInvoiceNumber(createdAt);
-    payload.ref_id = referenceValue;
     payload.invoice_number = referenceValue;
 
     if (isUuidLike(providedRepairId)) {
@@ -471,6 +476,10 @@ export function RepairsProvider({ children }) {
 
         const currentJob = repairJobs.find((job) => String(job.id) === strId) || null;
         const patch = buildRepairUpdatePayload(status, extras);
+        const dbPatch = { ...patch };
+        delete dbPatch.partsUsed;
+        delete dbPatch.ref_id;
+        delete dbPatch.refId;
         const mergedLocal = normalizeRepairRecord({ ...(currentJob || {}), ...patch, id: strId, shop_id: sid }, {
             [strId]: Array.isArray(patch.partsUsed) ? patch.partsUsed : (currentJob?.partsUsed || [])
         });
@@ -481,11 +490,11 @@ export function RepairsProvider({ children }) {
 
         const updateResult = await executeWithPrunedColumns(
             (candidate) => supabase.from('repairs').update(candidate).eq('repair_id', strId).eq('shop_id', sid),
-            patch
+            dbPatch
         );
 
         if (updateResult.error && isMissingColumnError(updateResult.error, 'advanceAmount')) {
-            const fallbackPatch = { ...patch };
+            const fallbackPatch = { ...dbPatch };
             delete fallbackPatch.advanceAmount;
             const retryResult = await executeWithPrunedColumns(
                 (candidate) => supabase.from('repairs').update(candidate).eq('repair_id', strId).eq('shop_id', sid),
