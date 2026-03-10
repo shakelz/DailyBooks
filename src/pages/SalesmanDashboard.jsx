@@ -764,10 +764,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const modalInteractionOpenRef = useRef(false);
     const pendingKpiSettingsReloadRef = useRef(false);
     const loadKpiSettingsRef = useRef(async () => {});
-    const repairTxnRetryGuardRef = useRef(new Map());
-    const syncedRepairAdvanceRefsRef = useRef(new Set());
-    const repairAdvanceSyncBootstrappedRef = useRef(false);
-    const pendingRepairStageTxnRef = useRef(new Set());
     const unlockPendingRef = useRef(false);
     const transactionDetailRequestRef = useRef(0);
     const salesDateInputRef = useRef(null);
@@ -855,10 +851,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [showInventoryForm, showQuickSaleModal, showRepairModal, showTransactionModal]);
 
     useEffect(() => {
-        syncedRepairAdvanceRefsRef.current.clear();
-        pendingRepairStageTxnRef.current.clear();
-        repairTxnRetryGuardRef.current.clear();
-        repairAdvanceSyncBootstrappedRef.current = false;
         pendingKpiSettingsReloadRef.current = false;
         zeroStockCleanupDoneRef.current = false;
     }, [settingsShopId]);
@@ -1107,10 +1099,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             // Ignore browser storage clear issues.
         }
 
-        repairTxnRetryGuardRef.current.clear();
-        syncedRepairAdvanceRefsRef.current.clear();
-        pendingRepairStageTxnRef.current.clear();
-        repairAdvanceSyncBootstrappedRef.current = false;
         if (typeof clearLocalInventoryCache === 'function') {
             clearLocalInventoryCache();
         }
@@ -2877,8 +2865,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     const getRepairInvoiceNumber = useCallback((job = {}) => String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim(), []);
-    const getRepairSyncReference = useCallback((job = {}) => String(job?.id || job?.invoiceNumber || job?.invoice_number || job?.refId || '').trim(), []);
-
     const filteredPendingOrders = useMemo(() => {
         const query = String(repairSearchQuery || '').trim().toLowerCase();
         if (!query) return pendingOrders;
@@ -3010,155 +2996,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         popup.print();
     };
 
-    const getRepairStageSyncKey = useCallback((job, stage = 'ADVANCE') => {
-        const repairRef = getRepairSyncReference(job);
-        if (!repairRef) return '';
-        return `repair:${String(repairRef).toLowerCase()}|stage:${String(stage || '').toUpperCase()}`;
-    }, [getRepairSyncReference]);
-
-    const hasRepairStageTransaction = useCallback((job, stage = 'ADVANCE') => {
-        const repairRef = String(getRepairSyncReference(job) || '').trim();
-        if (!repairRef) return false;
-        const marker = `RepairRef:${repairRef}`;
-        const stageMarker = `${marker} | Stage:${stage}`;
-        const stageText = `stage:${String(stage || '').toLowerCase()}`;
-        const markerLower = marker.toLowerCase();
-        const jobId = String(job?.id || '').trim();
-        const syncKey = getRepairStageSyncKey(job, stage);
-        if (syncKey && pendingRepairStageTxnRef.current.has(syncKey)) return true;
-        return (transactions || []).some((txn) => {
-            const notes = String(txn?.notes || '');
-            const notesLower = notes.toLowerCase();
-            const txRepairId = String(txn?.repair_id || txn?.repairId || '').trim();
-            const stageMatched = stage === 'COMPLETE'
-                ? notesLower.includes('stage:complete')
-                : stage === 'ADVANCE'
-                    ? notesLower.includes('stage:advance')
-                    : notesLower.includes('stage:remaining');
-            if (jobId && txRepairId && txRepairId === jobId && stageMatched) return true;
-            return notes.includes(stageMarker)
-                || (notesLower.includes(markerLower) && notesLower.includes(stageText));
-        });
-    }, [getRepairStageSyncKey, getRepairSyncReference, transactions]);
-
-    const canAttemptRepairStageTransaction = useCallback((job, stage = 'ADVANCE') => {
-        const repairRef = getRepairSyncReference(job);
-        if (!repairRef) return true;
-        const marker = `RepairRef:${repairRef}|${stage}`;
-        const lastFailedAt = Number(repairTxnRetryGuardRef.current.get(marker) || 0);
-        const RETRY_AFTER_MS = 60 * 1000;
-        return Date.now() - lastFailedAt > RETRY_AFTER_MS;
-    }, [getRepairSyncReference]);
-
-    const markRepairStageTransactionFailure = useCallback((job, stage = 'ADVANCE') => {
-        const repairRef = getRepairSyncReference(job);
-        if (!repairRef) return;
-        const marker = `RepairRef:${repairRef}|${stage}`;
-        repairTxnRetryGuardRef.current.set(marker, Date.now());
-    }, [getRepairSyncReference]);
-
-    const clearRepairStageTransactionFailure = useCallback((job, stage = 'ADVANCE') => {
-        const repairRef = getRepairSyncReference(job);
-        if (!repairRef) return;
-        const marker = `RepairRef:${repairRef}|${stage}`;
-        repairTxnRetryGuardRef.current.delete(marker);
-    }, [getRepairSyncReference]);
-
-    const ensureRepairAdvanceTransaction = useCallback(async (job) => {
-        if (!job?.id) return;
-        const repairReference = getRepairSyncReference(job);
-        const displayRepairReference = getRepairInvoiceNumber(job);
-        if (!repairReference) return;
-        const advanceAmount = Number(job.advanceAmount || 0) || 0;
-        if (advanceAmount <= 0) return;
-        if (hasRepairStageTransaction(job, 'ADVANCE')) return;
-        if (!canAttemptRepairStageTransaction(job, 'ADVANCE')) return;
-
-        const syncKey = getRepairStageSyncKey(job, 'ADVANCE');
-        if (syncKey && pendingRepairStageTxnRef.current.has(syncKey)) return;
-        if (syncKey) pendingRepairStageTxnRef.current.add(syncKey);
-
-        const marker = `RepairRef:${repairReference}`;
-        const bookedAt = job?.createdAt ? new Date(job.createdAt) : new Date();
-        const when = Number.isNaN(bookedAt.getTime()) ? new Date() : bookedAt;
-
-        try {
-            await addTransaction({
-                desc: `Repair Advance: ${job.deviceModel || 'Device'} (${displayRepairReference || repairReference || '-'})`,
-                amount: advanceAmount,
-                quantity: 1,
-                type: 'income',
-                category: 'Repair Service',
-                paymentMethod: 'Cash',
-                notes: `${marker} | Stage:ADVANCE | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
-                source: 'repair',
-                salesmanName: user?.name,
-                salesmanNumber: user?.salesmanNumber || 0,
-                workerId: String(user?.id || ''),
-                repair_id: String(job?.id || ''),
-                repairId: String(job?.id || ''),
-                invoice_number: `${String(job?.id || '')}-ADVANCE`,
-                tx_type: 'repair_job',
-                timestamp: when.toISOString(),
-                date: when.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                time: when.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            });
-            clearRepairStageTransactionFailure(job, 'ADVANCE');
-        } finally {
-            if (syncKey) pendingRepairStageTxnRef.current.delete(syncKey);
-        }
-    }, [addTransaction, canAttemptRepairStageTransaction, clearRepairStageTransactionFailure, getRepairInvoiceNumber, getRepairStageSyncKey, getRepairSyncReference, hasRepairStageTransaction, user?.id, user?.name, user?.salesmanNumber]);
-
     const completePendingRepair = async (job) => {
         if (!job?.id) return;
         try {
-            const totalAmount = Number(job.estimatedCost || 0) || 0;
             await updateRepairStatus(job.id, 'completed', {
                 completedAt: new Date().toISOString()
             });
-
-            if (totalAmount > 0 && !hasRepairStageTransaction(job, 'COMPLETE')) {
-                if (!canAttemptRepairStageTransaction(job, 'COMPLETE')) {
-                    return;
-                }
-                const completeSyncKey = getRepairStageSyncKey(job, 'COMPLETE');
-                if (completeSyncKey && pendingRepairStageTxnRef.current.has(completeSyncKey)) {
-                    return;
-                }
-                if (completeSyncKey) pendingRepairStageTxnRef.current.add(completeSyncKey);
-                const repairReference = getRepairSyncReference(job);
-                const displayRepairReference = getRepairInvoiceNumber(job);
-                const marker = `RepairRef:${repairReference}`;
-                const now = new Date();
-                try {
-                    await addTransaction({
-                        desc: `Repair Complete: ${job.deviceModel || 'Device'} (${displayRepairReference || repairReference || '-'})`,
-                        amount: totalAmount,
-                        quantity: 1,
-                        type: 'income',
-                        category: 'Repair Service',
-                        paymentMethod: 'Cash',
-                        notes: `${marker} | Stage:COMPLETE | Customer: ${job.customerName || '-'} | Problem: ${job.problem || '-'}`,
-                        source: 'repair',
-                        tx_type: 'repair_job',
-                        salesmanName: user?.name,
-                        salesmanNumber: user?.salesmanNumber || 0,
-                        workerId: String(user?.id || ''),
-                        repair_id: String(job?.id || ''),
-                        repairId: String(job?.id || ''),
-                        invoice_number: `${String(job?.id || '')}-COMPLETE`,
-                        timestamp: now.toISOString(),
-                        date: now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                        time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-                    });
-                    clearRepairStageTransactionFailure(job, 'COMPLETE');
-                } catch (transactionError) {
-                    markRepairStageTransactionFailure(job, 'COMPLETE');
-                    throw transactionError;
-                } finally {
-                    if (completeSyncKey) pendingRepairStageTxnRef.current.delete(completeSyncKey);
-                }
-            }
             setToast(`Repair ${getRepairInvoiceNumber(job) || ''} marked completed`);
             setTimeout(() => setToast(''), 1800);
         } catch (error) {

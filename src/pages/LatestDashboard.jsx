@@ -74,7 +74,7 @@ export default function LatestDashboard() {
     };
 
     const handleConfirmComplete = (completionData) => {
-        const { finalAmount, partsUsed, totalPartsCost } = completionData;
+        const { partsUsed } = completionData;
         const job = completingJob;
 
         // 1. Dispatch custom event for cross-context stock deduction
@@ -84,21 +84,10 @@ export default function LatestDashboard() {
         updateRepairStatus(job.id, 'completed', {
             partsUsed
         });
+        /*
 
-        // 3. Add Transaction
-        addTransaction({
-            id: Date.now(),
-            desc: `Repair Service: ${job.deviceModel} (${getRepairInvoiceNumber(job) || '-'})`,
-            amount: finalAmount,
-            type: 'income',
-            category: 'Repair Service',
             notes: `RepairRef:${getRepairInvoiceNumber(job)} | Customer: ${job.customerName} | ${job.problem} | Parts Cost: €${totalPartsCost.toFixed(2)}`,
-            source: 'repair',
-            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            timestamp: new Date().toISOString(),
-        });
-
+        */
         setCompletingJob(null);
     };
 

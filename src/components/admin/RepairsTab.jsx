@@ -11,7 +11,7 @@ import DateRangeFilter from './DateRangeFilter';
 
 export default function RepairsTab() {
     const { repairJobs, updateRepairStatus, deleteRepair } = useRepairs();
-    const { addTransaction, products, transactions } = useInventory();
+    const { products, transactions } = useInventory();
 
     const [statusFilter, setStatusFilter] = useState('all'); // all | pending | completed
     const [searchTerm, setSearchTerm] = useState('');
@@ -114,7 +114,7 @@ export default function RepairsTab() {
     };
 
     const handleConfirmComplete = (completionData) => {
-        const { finalAmount, partsUsed, totalPartsCost } = completionData;
+        const { partsUsed } = completionData;
         const job = completingJob;
 
         // 1. Deduct Stock for Used Parts
@@ -140,20 +140,6 @@ export default function RepairsTab() {
         // 2. Update Repair Job
         updateRepairStatus(job.id, 'completed', {
             partsUsed
-        });
-
-        // 3. Add Transaction
-        addTransaction({
-            id: Date.now(),
-            desc: `Repair Service: ${job.deviceModel} (${getRepairInvoiceNumber(job) || '-'})`,
-            amount: finalAmount,
-            type: 'income',
-            category: 'Repair Service',
-            notes: `RepairRef:${getRepairInvoiceNumber(job)} | Customer: ${job.customerName} | ${job.problem} | Parts Cost: EUR ${totalPartsCost.toFixed(2)}`,
-            source: 'repair',
-            date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            timestamp: new Date().toISOString(),
         });
 
         setCompletingJob(null);
