@@ -2141,8 +2141,26 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     const keepKeys = new Set(payloadRows.map((row) => makeScopedProfitCategoryKey(row.kpi_scope, row.category_name, row.sub_category_name)));
                     setCategoryContributionModeMap((prev) => {
                         const next = {};
+                        // Preserve entries from scopes NOT in keepKeys (other tab's settings)
                         Object.keys(prev || {}).forEach((key) => {
-                            if (!key.includes('::id::') && !keepKeys.has(key)) return;
+                            if (key.includes('::id::')) {
+                                next[key] = prev[key];
+                                return;
+                            }
+                            // Keep entries that belong to scopes not being overwritten
+                            if (!keepKeys.has(key)) {
+                                // Check if this key belongs to a scope that IS in the payload
+                                const belongsToSavedScope = payloadRows.some((row) => {
+                                    const scopePrefix = `${normalizeKpiScope(row.kpi_scope)}::`;
+                                    return key.startsWith(scopePrefix);
+                                });
+                                // If it belongs to a scope we're saving but isn't in keepKeys, drop it
+                                // If it belongs to a scope we're NOT saving, preserve it
+                                if (!belongsToSavedScope) {
+                                    next[key] = prev[key];
+                                }
+                                return;
+                            }
                             next[key] = prev[key];
                         });
                         payloadRows.forEach((row) => {
@@ -2192,7 +2210,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return next;
         });
         setContributionModeConfigStatus('');
-        setKpiSettingsVersion((prev) => prev + 1);
     }, []);
 
     const categoryContributionModeCounts = useMemo(() => {
