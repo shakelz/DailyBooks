@@ -172,6 +172,42 @@ async function syncSalesmanProfile(
   return { data, error: null }
 }
 
+async function syncSalesmanAuthUser(
+  supabaseAdmin: ReturnType<typeof createAdminClient>,
+  payload: {
+    userId: string
+    email: string
+    password: string
+    shopId: string
+    name: string
+    pinDigest: string
+  },
+) {
+  const { userId, email, password, shopId, name, pinDigest } = payload
+  if (!userId) {
+    return { data: null, error: { message: 'Missing userId for auth sync.' } }
+  }
+
+  const { data, error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    email,
+    password,
+    user_metadata: {
+      role: 'salesman',
+      shop_id: shopId,
+      name,
+      full_name: name,
+      pin: password,
+      pin_digest: pinDigest,
+    },
+    app_metadata: {
+      role: 'salesman',
+      shop_id: shopId,
+    },
+  })
+
+  return { data, error: error ?? null }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -239,6 +275,26 @@ Deno.serve(async (req) => {
 
         if (!profileError && existingProfile) {
           const existingUserId = String(existingProfile.user_id ?? '').trim()
+          const { error: authSyncError } = await syncSalesmanAuthUser(supabaseAdmin, {
+            userId: existingUserId,
+            email: shadowEmail,
+            password: pin,
+            shopId,
+            name,
+            pinDigest,
+          })
+          if (authSyncError) {
+            return jsonResponse(
+              {
+                error: 'Failed to synchronize salesman auth credentials.',
+                details: authSyncError.message || 'Unknown auth sync error.',
+                userId: existingUserId,
+                email: shadowEmail,
+                shopId,
+              },
+              500,
+            )
+          }
           const { data: syncedExistingProfile } = await syncSalesmanProfile(supabaseAdmin, {
             ...profilePayload,
             user_id: existingUserId || profilePayload.user_id,
@@ -253,6 +309,28 @@ Deno.serve(async (req) => {
         }
       }
       return jsonResponse({ error: error?.message || 'Failed to create salesman account.' }, 400)
+    }
+
+    const { error: authSyncError } = await syncSalesmanAuthUser(supabaseAdmin, {
+      userId: data.user.id,
+      email: shadowEmail,
+      password: pin,
+      shopId,
+      name,
+      pinDigest,
+    })
+
+    if (authSyncError) {
+      return jsonResponse(
+        {
+          error: 'Failed to synchronize salesman auth credentials.',
+          details: authSyncError.message || 'Unknown auth sync error.',
+          userId: data.user.id,
+          email: shadowEmail,
+          shopId,
+        },
+        500,
+      )
     }
 
     const syncedPayload = {

@@ -3102,7 +3102,7 @@ export function AuthProvider({ children }) {
                 const { data: salesmanProfile, error: profileError } = await safeSupabaseQuery(
                     () => supabase
                         .from('profiles')
-                        .select('full_name,shop_id,active')
+                        .select('user_id,full_name,email,shop_id,active')
                         .eq('pin_digest', pinDigest)
                         .eq('role', 'salesman')
                         .eq('shop_id', scopedShopId)
@@ -3120,26 +3120,42 @@ export function AuthProvider({ children }) {
                     return { success: false, message: 'User disabled' };
                 }
 
-                const shadowEmail = buildSalesmanShadowEmail(
-                    salesmanProfile?.full_name || 'salesman',
-                    pin
-                );
-                const { data, error } = await safeSupabaseQuery(
-                    () => supabase.auth.signInWithPassword({
-                        email: shadowEmail,
-                        password: pin,
-                    }),
-                    'Invalid PIN'
-                );
-                const session = data?.session || null;
-                const sessionRole = normalizeRoleName(session?.user?.user_metadata?.role);
-                if (error || !session || sessionRole !== 'salesman') {
+                const emailCandidates = Array.from(new Set([
+                    asString(salesmanProfile?.email).toLowerCase(),
+                    buildSalesmanShadowEmail(
+                        salesmanProfile?.full_name || 'salesman',
+                        pin
+                    ),
+                ].filter(Boolean)));
+
+                let matchedSession = null;
+                for (const candidateEmail of emailCandidates) {
+                    const { data, error } = await safeSupabaseQuery(
+                        () => supabase.auth.signInWithPassword({
+                            email: candidateEmail,
+                            password: pin,
+                        }),
+                        'Invalid PIN'
+                    );
+                    const session = data?.session || null;
+                    const sessionRole = resolveAuthUserRole(session?.user || null, {
+                        ...salesmanProfile,
+                        role: 'salesman',
+                    });
+
+                    if (!error && session && sessionRole === 'salesman') {
+                        matchedSession = session;
+                        break;
+                    }
+                }
+
+                if (!matchedSession) {
                     bumpRateLimit('salesman');
                     return { success: false, message: 'Invalid PIN' };
                 }
 
                 clearRateLimit('salesman');
-                await hydrateAuthStateFromSession(session);
+                await hydrateAuthStateFromSession(matchedSession);
                 return { success: true, role: 'salesman', redirectTo: getSalesmanRedirectPath() };
             }
 
