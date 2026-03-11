@@ -1960,31 +1960,34 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category, 'expense') || []) : [];
     const purchaseSubCategoryOptions = purchaseSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
 
-    // Build contribution rows from kpi_profit_category_settings table (already loaded in categoryContributionModeMap)
-    const salesKpiContributionCategoryRows = useMemo(() => {
+    // Build contribution category rows from actual products — NOT from map keys.
+    // Both Sales and Expense tabs show the SAME category tree; scope only affects
+    // how contribution_mode is read/saved.
+    const kpiContributionCategoryRows = useMemo(() => {
         const rows = [];
         const mainCategoriesMap = new Map();
 
-        // Parse the categoryContributionModeMap (already loaded from DB)
-        Object.keys(categoryContributionModeMap || {}).forEach((scopedKey) => {
-            // Key format: "sales::CategoryName::SubCategoryName" or "sales::CategoryName::"
-            if (!scopedKey.startsWith('sales::')) return;
-            const parts = scopedKey.slice(7).split('::'); // Remove "sales::" prefix
-            const categoryName = String(parts[0] || '').trim();
-            const subCategoryName = String(parts[1] || '').trim();
-            if (!categoryName) return;
+        // Build category tree from actual products
+        (Array.isArray(products) ? products : []).forEach((product) => {
+            const catRaw = String(product?.category || '').trim().toLowerCase();
+            if (!catRaw) return;
+            const catKey = catRaw.replace(/\s+/g, ' ');
 
-            const catKey = categoryName.toLowerCase().replace(/\s+/g, ' ').trim();
             if (!mainCategoriesMap.has(catKey)) {
-                mainCategoriesMap.set(catKey, { name: categoryName, subs: new Map() });
+                mainCategoriesMap.set(catKey, { name: catKey, subs: new Map() });
             }
-            if (subCategoryName) {
-                const subKey = subCategoryName.toLowerCase().replace(/\s+/g, ' ').trim();
-                mainCategoriesMap.get(catKey).subs.set(subKey, subCategoryName);
+
+            const subRaw = String(product?.subCategory || product?.sub_category || '').trim().toLowerCase();
+            if (subRaw) {
+                const subKey = subRaw.replace(/\s+/g, ' ');
+                mainCategoriesMap.get(catKey).subs.set(subKey, subKey);
             }
         });
 
-        const sortedCategories = Array.from(mainCategoriesMap.values()).sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+        const sortedCategories = Array.from(mainCategoriesMap.values()).sort((a, b) =>
+            String(a?.name || '').localeCompare(String(b?.name || ''))
+        );
+
         sortedCategories.forEach((catData) => {
             const categoryName = catData.name;
             rows.push({
@@ -1994,7 +1997,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 label: categoryName,
                 depth: 0,
             });
-            const sortedSubs = Array.from(catData.subs.values()).sort((a, b) => String(a || '').localeCompare(String(b || '')));
+            const sortedSubs = Array.from(catData.subs.values()).sort((a, b) =>
+                String(a || '').localeCompare(String(b || ''))
+            );
             sortedSubs.forEach((subCategoryName) => {
                 rows.push({
                     key: makeProfitCategoryKey(categoryName, subCategoryName),
@@ -2007,46 +2012,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         });
 
         return rows;
-    }, [categoryContributionModeMap]);
+    }, [products]);
 
-    // Build contribution rows from kpi_profit_category_settings table (expense scope)
-    const expenseKpiContributionCategoryRows = useMemo(() => {
-        const rows = [];
-        const mainCategoriesMap = new Map();
-
-        // Parse the categoryContributionModeMap (already loaded from DB)
-        Object.keys(categoryContributionModeMap || {}).forEach((scopedKey) => {
-            // Key format: "expense::CategoryName::SubCategoryName" or "expense::CategoryName::"
-            if (!scopedKey.startsWith('expense::')) return;
-            const parts = scopedKey.slice(9).split('::'); // Remove "expense::" prefix
-            const categoryName = String(parts[0] || '').trim();
-            const subCategoryName = String(parts[1] || '').trim();
-            if (!categoryName) return;
-
-            const catKey = categoryName.toLowerCase().replace(/\s+/g, ' ').trim();
-            if (!mainCategoriesMap.has(catKey)) {
-                mainCategoriesMap.set(catKey, { name: categoryName, subs: new Map() });
-            }
-            if (subCategoryName) {
-                const subKey = subCategoryName.toLowerCase().replace(/\s+/g, ' ').trim();
-                mainCategoriesMap.get(catKey).subs.set(subKey, subCategoryName);
-            }
-        });
-
-        const sortedCategories = Array.from(mainCategoriesMap.values()).sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
-        sortedCategories.forEach((catData) => {
-            const categoryName = catData.name;
-            rows.push({
-                key: makeProfitCategoryKey(categoryName, ''),
-                categoryName,
-                subCategoryName: '',
-                label: categoryName,
-                depth: 0,
-            });
-        });
-
-        return rows;
-    }, [categoryContributionModeMap]);
+    // Both tabs use the SAME rows — scope only affects how contribution_mode is read/saved
+    const salesKpiContributionCategoryRows = kpiContributionCategoryRows;
+    const expenseKpiContributionCategoryRows = kpiContributionCategoryRows;
 
     const activeKpiContributionRows = activeKpiContributionTab === KPI_SCOPE_EXPENSE
         ? expenseKpiContributionCategoryRows

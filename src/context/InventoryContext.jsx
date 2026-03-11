@@ -1844,12 +1844,14 @@ export function InventoryProvider({ children }) {
             });
             setCategoryScopeEntry(sid, 2, resolvedLevel2Name, resolvedLevel1Name, normalizedScope);
 
-            // Upsert sub-category into kpi_profit_category_settings (expense scope)
+            // Upsert sub-category into kpi_profit_category_settings (both scopes)
             await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, resolvedLevel1Name, resolvedLevel2Name);
+            await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, resolvedLevel1Name, resolvedLevel2Name);
         }
 
-        // Upsert main category into kpi_profit_category_settings (expense scope)
+        // Upsert main category into kpi_profit_category_settings (both scopes)
         await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, resolvedLevel1Name, '');
+        await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, resolvedLevel1Name, '');
 
         return { level1Name: resolvedLevel1Name, level1Id, level2Name };
     }, []);
@@ -2592,10 +2594,9 @@ export function InventoryProvider({ children }) {
         });
         setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
 
-        // Upsert main category into kpi_profit_category_settings (sales scope for Category Manager)
-        if (normalizedScope === CATEGORY_SCOPE_SALES) {
-            await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, trimmed, '');
-        }
+        // Upsert main category into kpi_profit_category_settings (both scopes)
+        await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, trimmed, '');
+        await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, trimmed, '');
 
         return { categoryId: resolvedCategoryId, name: trimmed, shopId: sid };
     }, [activeShopId, ensureActiveShopExists]);
@@ -2715,10 +2716,9 @@ export function InventoryProvider({ children }) {
         });
         setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
 
-        // Upsert sub-category into kpi_profit_category_settings (sales scope for Category Manager)
-        if (normalizedScope === CATEGORY_SCOPE_SALES) {
-            await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, l1Name, trimmed);
-        }
+        // Upsert sub-category into kpi_profit_category_settings (both scopes)
+        await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, l1Name, trimmed);
+        await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, l1Name, trimmed);
 
         return { parentCategoryId, name: trimmed, shopId: sid };
     }, [activeShopId, ensureActiveShopExists, categoryNameToId]);
