@@ -1965,6 +1965,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     // how contribution_mode is read/saved.
     const kpiContributionCategoryRows = useMemo(() => {
         const rows = [];
+        const seenKeys = new Set();
         const allMainCats = getLevel1Categories('all') || [];
         
         const sortedMainCats = [...allMainCats].sort((a, b) => {
@@ -1977,13 +1978,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const categoryName = typeof catObj === 'object' ? (catObj?.name || '') : String(catObj || '');
             if (!categoryName) return;
             
-            rows.push({
-                key: makeProfitCategoryKey(categoryName, ''),
-                categoryName,
-                subCategoryName: '',
-                label: categoryName,
-                depth: 0,
-            });
+            const mainKey = makeProfitCategoryKey(categoryName, '');
+            if (!seenKeys.has(mainKey)) {
+                seenKeys.add(mainKey);
+                rows.push({
+                    key: mainKey,
+                    categoryName,
+                    subCategoryName: '',
+                    label: categoryName,
+                    depth: 0,
+                });
+            }
 
             const allSubCats = getLevel2Categories(categoryName, 'all') || [];
             const sortedSubCats = [...allSubCats].sort((a, b) => {
@@ -1996,13 +2001,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 const subCategoryName = typeof subObj === 'object' ? (subObj?.name || '') : String(subObj || '');
                 if (!subCategoryName) return;
 
-                rows.push({
-                    key: makeProfitCategoryKey(categoryName, subCategoryName),
-                    categoryName,
-                    subCategoryName,
-                    label: `${categoryName} / ${subCategoryName}`,
-                    depth: 1,
-                });
+                const subKey = makeProfitCategoryKey(categoryName, subCategoryName);
+                if (!seenKeys.has(subKey)) {
+                    seenKeys.add(subKey);
+                    rows.push({
+                        key: subKey,
+                        categoryName,
+                        subCategoryName,
+                        label: `${categoryName} / ${subCategoryName}`,
+                        depth: 1,
+                    });
+                }
             });
         });
 
