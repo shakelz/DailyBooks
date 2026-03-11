@@ -56,10 +56,6 @@ function makeScopedProfitCategoryKey(scope = KPI_SCOPE_SALES, categoryName = '',
     return `${normalizeKpiScope(scope)}::${makeProfitCategoryKey(categoryName, subCategoryName)}`;
 }
 
-function makeScopedProfitCategoryIdKey(scope = KPI_SCOPE_SALES, categoryId = '') {
-    return `${normalizeKpiScope(scope)}::id::${normalizeCategoryToken(categoryId)}`;
-}
-
 function normalizeKpiContributionMode(value = '') {
     const raw = String(value || '').trim().toLowerCase();
     if (raw === KPI_MODE_PROFIT) return KPI_MODE_PROFIT;
@@ -826,17 +822,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 const scope = normalizeKpiScope(row?.kpi_scope || row?.scope);
                 const categoryName = String(row?.category_name || row?.category || '').trim().toLowerCase();
                 const subCategoryName = String(row?.sub_category_name || row?.sub_category || '').trim().toLowerCase();
-                const categoryId = String(row?.category_id || row?.categoryId || '').trim();
                 if (!categoryName) return acc;
-                const modeFromContributionColumn = row?.contribution_mode ?? row?.contributionMode;
-                const modeFromLegacyBool = row?.profit_only ?? row?.profitOnly ?? row?.is_profit_only;
-                const mode = modeFromContributionColumn === undefined || modeFromContributionColumn === null
-                    ? (Boolean(modeFromLegacyBool) ? KPI_MODE_PROFIT : KPI_MODE_SALES)
-                    : normalizeKpiContributionMode(modeFromContributionColumn);
+                const mode = normalizeKpiContributionMode(row?.contribution_mode ?? 'sales');
                 acc[makeScopedProfitCategoryKey(scope, categoryName, subCategoryName)] = mode;
-                if (categoryId) {
-                    acc[makeScopedProfitCategoryIdKey(scope, categoryId)] = mode;
-                }
                 return acc;
             }, {});
             setCategoryContributionModeMap(map);
@@ -2099,51 +2087,49 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         setIsSavingContributionModeConfig(true);
         setContributionModeConfigStatus('');
+
         try {
             setHasExplicitContributionModeConfig(true);
-            let dbMissing = false;
             const allScopedRows = [
                 ...((salesKpiContributionCategoryRows || []).map((row) => ({ row, scope: KPI_SCOPE_SALES }))),
                 ...((expenseKpiContributionCategoryRows || []).map((row) => ({ row, scope: KPI_SCOPE_EXPENSE }))),
             ];
-            const payloadRows = Array.from(
-                allScopedRows.reduce((acc, { row, scope }) => {
-                    const normalizedScope = normalizeKpiScope(scope);
-                    const categoryName = String(row?.categoryName || '').trim().toLowerCase();
-                    const subCategoryName = String(row?.subCategoryName || '').trim().toLowerCase();
-                    if (!categoryName) return acc;
-                    const dedupeKey = `${settingsShopId}::${normalizedScope}::${categoryName}::${subCategoryName}`;
-                    acc.set(dedupeKey, {
-                        shop_id: settingsShopId,
-                        kpi_scope: normalizedScope,
-                        category_name: categoryName,
-                        sub_category_name: subCategoryName,
-                        contribution_mode: resolveCategoryRowMode(row, normalizedScope),
-                        updated_at: new Date().toISOString(),
-                    });
-                    return acc;
-                }, new Map()).values()
-            );
 
-            if (!dbMissing && payloadRows.length > 0) {
-                const upsertResult = await supabase
+            // Build update promises — one UPDATE per unique category+scope combination
+            const updatePromises = allScopedRows.map(({ row, scope }) => {
+                const normalizedScope = normalizeKpiScope(scope);
+                const categoryName = String(row?.categoryName || '').trim().toLowerCase();
+                const subCategoryName = String(row?.subCategoryName || '').trim().toLowerCase();
+                if (!categoryName) return Promise.resolve();
+
+                const mode = resolveCategoryRowMode(row, normalizedScope);
+
+                // UPDATE only — match by shop_id + kpi_scope + lowercase category names
+                return supabase
                     .from('kpi_profit_category_settings')
-                    .upsert(payloadRows, {
-                        onConflict: 'shop_id,kpi_scope,category_name,sub_category_name',
-                    });
-                if (upsertResult.error) {
-                    if (isMissingDbObjectError(upsertResult.error)) {
-                        dbMissing = true;
-                    } else {
-                        throw new Error(upsertResult.error.message || 'Failed to save KPI category config.');
-                    }
+                    .update({
+                        contribution_mode: mode,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('shop_id', settingsShopId)
+                    .eq('kpi_scope', normalizedScope)
+                    .ilike('category_name', categoryName)
+                    .ilike('sub_category_name', subCategoryName || '');
+            });
+
+            const results = await Promise.all(updatePromises);
+            const failed = results.find((r) => r?.error);
+            if (failed?.error) {
+                if (isMissingDbObjectError(failed.error)) {
+                    setContributionModeConfigStatus('DB table/column missing. Could not save.');
                 } else {
-                    // Map is already correct in memory from user's live selections.
-                    // Do NOT rebuild from payloadRows — key casing mismatch would corrupt the map.
+                    throw new Error(failed.error.message || 'Failed to save KPI settings.');
                 }
+            } else {
+                setContributionModeConfigStatus('Saved.');
             }
 
-            setContributionModeConfigStatus(dbMissing ? 'DB table/column missing. Could not save.' : 'Saved.');
+            // Map is already correct in memory from user's live selections
             setKpiSettingsVersion((prev) => prev + 1);
         } catch (error) {
             setContributionModeConfigStatus(error?.message || 'Failed to save settings.');

@@ -546,44 +546,34 @@ function dedupeCategoryObjectsByName(list = []) {
 // Upsert category into kpi_profit_category_settings table (no duplicates)
 async function upsertKpiCategorySetting(shopId, kpiScope, categoryName, subCategoryName = '') {
     const sid = cleanText(shopId);
-    const scope = normalizeCategoryScope(kpiScope);
-    const catName = cleanText(categoryName).replace(/\s+/g, ' ');
-    const subName = cleanText(subCategoryName).replace(/\s+/g, ' ');
+    const scope = normalizeCategoryScope(kpiScope); // 'sales' or 'expense'
+    const catName = cleanText(categoryName).toLowerCase().replace(/\s+/g, ' ');
+    const subName = cleanText(subCategoryName).toLowerCase().replace(/\s+/g, ' ');
     if (!sid || !catName) return;
 
     try {
-        // Check if already exists (case-insensitive)
-        const existingCheck = await supabase
+        // Use upsert with ignoreDuplicates — do NOT overwrite contribution_mode if row exists
+        const { error } = await supabase
             .from('kpi_profit_category_settings')
-            .select('shop_id,kpi_scope,category_name,sub_category_name')
-            .eq('shop_id', sid)
-            .eq('kpi_scope', scope)
-            .ilike('category_name', catName)
-            .ilike('sub_category_name', subName || '')
-            .limit(1);
+            .upsert(
+                {
+                    shop_id: sid,
+                    kpi_scope: scope,
+                    category_name: catName,
+                    sub_category_name: subName || '',
+                    contribution_mode: 'sales',
+                    updated_at: new Date().toISOString(),
+                },
+                {
+                    onConflict: 'shop_id,kpi_scope,category_name,sub_category_name',
+                    ignoreDuplicates: true,
+                }
+            );
 
-        if (!existingCheck.error && Array.isArray(existingCheck.data) && existingCheck.data.length > 0) {
-            // Already exists, skip insert
-            return;
-        }
-
-        // Insert with default contribution_mode = 'sales' (meaning included in KPI)
-        const insertResult = await supabase
-            .from('kpi_profit_category_settings')
-            .insert([{
-                shop_id: sid,
-                kpi_scope: scope,
-                category_name: catName,
-                sub_category_name: subName || '',
-                contribution_mode: 'sales',
-                updated_at: new Date().toISOString(),
-            }]);
-
-        if (insertResult.error && !isMissingRelationError(insertResult.error, 'kpi_profit_category_settings')) {
-            // If duplicate key error, ignore (concurrent insert)
-            const msg = String(insertResult.error.message || '').toLowerCase();
-            if (!msg.includes('duplicate') && !msg.includes('unique')) {
-                console.warn('upsertKpiCategorySetting insert error:', insertResult.error.message);
+        if (error) {
+            const msg = String(error.message || '').toLowerCase();
+            if (!msg.includes('duplicate') && !msg.includes('unique') && !msg.includes('does not exist')) {
+                console.warn('upsertKpiCategorySetting error:', error.message);
             }
         }
     } catch (err) {
