@@ -1969,7 +1969,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         // Build category tree from actual products
         (Array.isArray(products) ? products : []).forEach((product) => {
-            const catRaw = String(product?.category || '').trim().toLowerCase();
+            const catRaw = extractCategoryName(product?.category).trim().toLowerCase();
             if (!catRaw) return;
             const catKey = catRaw.replace(/\s+/g, ' ');
 
@@ -1977,7 +1977,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 mainCategoriesMap.set(catKey, { name: catKey, subs: new Map() });
             }
 
-            const subRaw = String(product?.subCategory || product?.sub_category || '').trim().toLowerCase();
+            const subRaw = String(
+                (typeof product?.subCategory === 'object' ? product?.subCategory?.name : product?.subCategory)
+                || product?.sub_category
+                || ''
+            ).trim().toLowerCase();
             if (subRaw) {
                 const subKey = subRaw.replace(/\s+/g, ' ');
                 mainCategoriesMap.get(catKey).subs.set(subKey, subKey);
