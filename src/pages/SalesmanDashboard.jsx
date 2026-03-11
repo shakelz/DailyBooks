@@ -1960,40 +1960,23 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const purchaseSubCategoryOptionsRaw = purchaseEntry.category ? (getLevel2Categories(purchaseEntry.category, 'expense') || []) : [];
     const purchaseSubCategoryOptions = purchaseSubCategoryOptionsRaw.map((item) => (typeof item === 'string' ? item : item?.name)).filter(Boolean);
 
-    // Build contribution category rows from actual products — NOT from map keys.
+    // Build contribution category rows from the shop's global category tree.
     // Both Sales and Expense tabs show the SAME category tree; scope only affects
     // how contribution_mode is read/saved.
     const kpiContributionCategoryRows = useMemo(() => {
         const rows = [];
-        const mainCategoriesMap = new Map();
-
-        // Build category tree from actual products
-        (Array.isArray(products) ? products : []).forEach((product) => {
-            const catRaw = extractCategoryName(product?.category).trim().toLowerCase();
-            if (!catRaw) return;
-            const catKey = catRaw.replace(/\s+/g, ' ');
-
-            if (!mainCategoriesMap.has(catKey)) {
-                mainCategoriesMap.set(catKey, { name: catKey, subs: new Map() });
-            }
-
-            const subRaw = String(
-                (typeof product?.subCategory === 'object' ? product?.subCategory?.name : product?.subCategory)
-                || product?.sub_category
-                || ''
-            ).trim().toLowerCase();
-            if (subRaw) {
-                const subKey = subRaw.replace(/\s+/g, ' ');
-                mainCategoriesMap.get(catKey).subs.set(subKey, subKey);
-            }
+        const allMainCats = getLevel1Categories('all') || [];
+        
+        const sortedMainCats = [...allMainCats].sort((a, b) => {
+            const nameA = typeof a === 'object' ? a?.name : String(a || '');
+            const nameB = typeof b === 'object' ? b?.name : String(b || '');
+            return String(nameA || '').localeCompare(String(nameB || ''));
         });
 
-        const sortedCategories = Array.from(mainCategoriesMap.values()).sort((a, b) =>
-            String(a?.name || '').localeCompare(String(b?.name || ''))
-        );
-
-        sortedCategories.forEach((catData) => {
-            const categoryName = catData.name;
+        sortedMainCats.forEach((catObj) => {
+            const categoryName = typeof catObj === 'object' ? (catObj?.name || '') : String(catObj || '');
+            if (!categoryName) return;
+            
             rows.push({
                 key: makeProfitCategoryKey(categoryName, ''),
                 categoryName,
@@ -2001,10 +1984,18 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 label: categoryName,
                 depth: 0,
             });
-            const sortedSubs = Array.from(catData.subs.values()).sort((a, b) =>
-                String(a || '').localeCompare(String(b || ''))
-            );
-            sortedSubs.forEach((subCategoryName) => {
+
+            const allSubCats = getLevel2Categories(categoryName, 'all') || [];
+            const sortedSubCats = [...allSubCats].sort((a, b) => {
+                const nameA = typeof a === 'object' ? a?.name : String(a || '');
+                const nameB = typeof b === 'object' ? b?.name : String(b || '');
+                return String(nameA || '').localeCompare(String(nameB || ''));
+            });
+
+            sortedSubCats.forEach((subObj) => {
+                const subCategoryName = typeof subObj === 'object' ? (subObj?.name || '') : String(subObj || '');
+                if (!subCategoryName) return;
+
                 rows.push({
                     key: makeProfitCategoryKey(categoryName, subCategoryName),
                     categoryName,
@@ -2016,7 +2007,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         });
 
         return rows;
-    }, [products]);
+    }, [getLevel1Categories, getLevel2Categories]);
 
     // Both tabs use the SAME rows — scope only affects how contribution_mode is read/saved
     const salesKpiContributionCategoryRows = kpiContributionCategoryRows;
