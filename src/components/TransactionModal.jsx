@@ -120,10 +120,10 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                     <title>Kassenbeleg</title>
                     <style>
                         @page { size: 58mm auto; margin: 0; }
-                        body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 13px; font-weight: 800; }
+                        body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 15px; font-weight: 700; }
                         .ticket { border: 1px solid #000; padding: 1.5mm; }
                         h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:900; gap: 8px; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:15px; font-weight:700; gap: 8px; }
                         .row > span:last-child, .row > strong:last-child { white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; text-align: right; }
                         .line { border-top:1px solid #000; margin:8px 0; }
                         .center { text-align: center; }
@@ -133,29 +133,29 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                 <body>
                     <div class="ticket">
                         <div class="center">
-                            <p style="font-size:14px; text-transform:uppercase; letter-spacing:1px; font-weight:900;">KUNDENBELEG</p>
-                            <h2>${escapeHtml(shopName)}</h2>
-                            ${shopAddress ? `<p>${escapeHtml(shopAddress)}</p>` : ''}
-                            ${shopPhone ? `<p>Tel: ${escapeHtml(shopPhone)}</p>` : ''}
+                            <p style="font-size:15px; text-transform:uppercase; letter-spacing:2px; font-weight:900;">KUNDENBELEG</p>
+                            <h2 style="font-size:24px; font-weight:900; margin-bottom:3px;">${escapeHtml(shopName)}</h2>
+                            ${shopAddress ? `<p style="font-size:14px; font-weight:600; color:#333;">${escapeHtml(shopAddress)}</p>` : ''}
+                            ${shopPhone ? `<p style="font-size:14px; font-weight:600; color:#333;">Tel: ${escapeHtml(shopPhone)}</p>` : ''}
                         </div>
                         <div class="line"></div>
                         <div style="text-align: center; margin: 6px 0;">
-                            <p style="font-size: 11px; color: #555;">${new Date().toLocaleString('de-DE')}</p>
-                            <p style="font-size: 11px; color: #555;">Beleg: ${escapeHtml(transactionId)}</p>
+                            <p style="font-size: 14px; font-weight: 600; color: #333; margin: 0;">${new Date().toLocaleString('de-DE')}</p>
+                            <p style="font-size: 14px; font-weight: 600; color: #333; margin: 0;">Beleg: ${escapeHtml(transactionId)}</p>
                         </div>
                         <div class="line"></div>
-                        <div class="row" style="font-weight:900; border-bottom:1px solid #000; padding-bottom:4px;"><span>Artikel</span><span>Betrag</span></div>
-                        <div class="row" style="font-size:14px;"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)}</span></div>
-                        <div class="row" style="font-size:14px;"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
-                        <div class="row" style="font-size:14px;"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
+                        <div class="row" style="font-size:15px; font-weight:900; border-bottom:1px solid #000; padding-bottom:4px;"><span>Artikel</span><span>Betrag</span></div>
+                        <div class="row"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)}</span></div>
+                        <div class="row"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
+                        <div class="row"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
                         <div class="line"></div>
-                        <div class="row" style="font-size:16px;"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
-                        ${includeTax ? `<div class="row" style="font-weight:900;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
-                        <div class="row" style="font-weight:900;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
+                        <div class="row" style="font-size:20px; font-weight:900;"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                        ${includeTax ? `<div class="row" style="font-size:13px; font-weight:700;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
+                        <div class="row" style="font-size:13px; font-weight:700;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
                         <div class="line"></div>
-                        <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
+                        <div class="row" style="font-size:15px; font-weight:700;"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
                         <div class="line"></div>
-                        <p style="font-size:11px; font-weight:800; text-align:center;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
+                        <p style="font-size:12px; font-weight:600; text-align:center; line-height:1.6;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
                     </div>
                 </body>
             </html>
