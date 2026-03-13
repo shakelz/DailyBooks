@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2 } from 'lucide-react';
+import {
+    LayoutDashboard,
+    LogOut,
+    PackageSearch,
+    Receipt,
+    Search,
+    ShoppingCart,
+    Smartphone,
+    TrendingUp,
+    Wrench,
+    X,
+    Filter,
+    Plus,
+    Printer
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { priceTag } from '../utils/currency';
@@ -911,52 +925,55 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!autoLockEnabled || !user?.id || adminView) return;
 
         const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
-        const lockScreen = () => {
-            setIsLocked(true);
-            writeLockState(readLastActivityAt(), true);
+        
+        const RESET_EVENTS = ['mousemove', 'mousedown', 'keydown', 'keypress', 'touchstart', 'touchmove', 'click', 'scroll', 'wheel', 'pointermove'];
+
+        const resetTimer = () => {
+            if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+            lockTimerRef.current = setTimeout(() => {
+                // only lock if no modal is open
+                if (!modalInteractionOpenRef.current) {
+                    setIsLocked(true);
+                    writeLockState(Date.now(), true);
+                }
+            }, timeoutMs);
         };
 
-        const scheduleFromLastActivity = () => {
-            clearTimeout(lockTimerRef.current);
-            if (isLockedRef.current) return;
-            const now = Date.now();
-            const lastActivityAt = readLastActivityAt();
-            const remainingMs = timeoutMs - (now - lastActivityAt);
-            if (remainingMs <= 0) {
-                lockScreen();
-                return;
-            }
-            lockTimerRef.current = setTimeout(lockScreen, remainingMs);
-        };
-
-        const handleActivity = () => {
-            if (isLockedRef.current) return;
-            clearTimeout(lockDebounceRef.current);
-            lockDebounceRef.current = setTimeout(() => {
-                writeLockState(Date.now(), false);
-                scheduleFromLastActivity();
-            }, 2000);
-        };
-
-        const handleVisibilityOrFocus = () => {
-            if (document.visibilityState && document.visibilityState !== 'visible') return;
-            scheduleFromLastActivity();
-        };
-
-        const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
-        events.forEach((eventName) => window.addEventListener(eventName, handleActivity, { passive: true }));
-        window.addEventListener('focus', handleVisibilityOrFocus);
-        document.addEventListener('visibilitychange', handleVisibilityOrFocus);
-        scheduleFromLastActivity();
+        RESET_EVENTS.forEach(event => window.addEventListener(event, resetTimer, { passive: true }));
+        resetTimer(); // start timer on mount
 
         return () => {
-            events.forEach((eventName) => window.removeEventListener(eventName, handleActivity));
-            window.removeEventListener('focus', handleVisibilityOrFocus);
-            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
-            clearTimeout(lockTimerRef.current);
-            clearTimeout(lockDebounceRef.current);
+            RESET_EVENTS.forEach(event => window.removeEventListener(event, resetTimer));
+            if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
         };
     }, [adminView, autoLockEnabled, autoLockTimeout, user?.id]);
+
+    useEffect(() => {
+        modalInteractionOpenRef.current = !!(
+            showProfileModal ||
+            showCategoryModal ||
+            showRepairModal ||
+            showPendingOrders ||
+            showOnlineOrderForm ||
+            showTopBarcodeMatches ||
+            showCalc ||
+            showQuickSaleModal ||
+            showInventoryForm ||
+            showTransactionModal ||
+            showMobileInventoryModal ||
+            showOtherInventoryModal ||
+            showSalesProductSuggestions ||
+            showPurchaseProductSuggestions ||
+            showTransactionDetailModal ||
+            showExcludedCategoriesModal
+        );
+    }, [
+        showProfileModal, showCategoryModal, showRepairModal, showPendingOrders,
+        showOnlineOrderForm, showTopBarcodeMatches, showCalc, showQuickSaleModal,
+        showInventoryForm, showTransactionModal, showMobileInventoryModal, showOtherInventoryModal,
+        showSalesProductSuggestions, showPurchaseProductSuggestions, showTransactionDetailModal,
+        showExcludedCategoriesModal
+    ]);
 
     const attemptUnlockWithPin = useCallback(async (pinValue = '') => {
         const enteredPin = String(pinValue || '').trim();
@@ -2766,64 +2783,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         });
     }, [pendingOrders, repairSearchQuery]);
 
-    const printPendingRepairBill = (job) => {
-        if (!job) return;
-        const popup = window.open('', 'pending-repair-bill', 'width=420,height=760');
-        if (!popup) return;
-
-        const toSafe = (value) => String(value || '')
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;')
-            .replaceAll('"', '&quot;')
-            .replaceAll('\'', '&#39;');
-
-        popup.document.write(`
-            <html>
-                <head>
-                    <title>Reparaturbeleg</title>
-                    <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 16px; font-weight: 900; }
-                        h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:16px; font-weight:900; gap: 8px; }
-                        .line { border-top:1px dashed #000; margin:8px 0; }
-                        .center { text-align: center; }
-                        .doc-title { font-size: 18px; font-weight: 900; text-transform: uppercase; margin-bottom: 4px; }
-                        .shop-title { font-size: 24px; font-weight: 900; margin-bottom: 2px; }
-                        .ticket-id { text-align: center; font-size: 32px; font-weight: 800; letter-spacing: 2px; margin: 10px 0; }
-                        .issue-box { margin-top: 8px; border: 1px solid #000; padding: 6px; font-size: 16px; font-weight: 900; }
-                    </style>
-                </head>
-                <body>
-                    <div class="center">
-                        <p class="doc-title">ABHOLSCHEIN</p>
-                        <h2 class="shop-title">${toSafe(receiptShopName)}</h2>
-                        ${receiptShopAddress ? `<p>${toSafe(receiptShopAddress)}</p>` : ''}
-                        ${receiptShopPhone ? `<p>Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
-                    </div>
-                    <div class="line"></div>
-                    <p class="ticket-id">${toSafe(getRepairInvoiceNumber(job) || '-')}</p>
-                    <div class="line"></div>
-                    <div class="row"><span>Rechnung Nr</span><span>${toSafe(getRepairInvoiceNumber(job) || '-')}</span></div>
-                    <div class="row"><span>Name</span><span>${toSafe(job.customerName || '-')}</span></div>
-                    <div class="row"><span>Telefon</span><span>${toSafe(job.phone || job.customerPhone || '-')}</span></div>
-                    <div class="row"><span>Gerät</span><span>${toSafe(job.deviceModel || '-')}</span></div>
-                    <div class="row"><span>IMEI</span><span>${toSafe(job.imei || '-')}</span></div>
-                    <div class="issue-box"><strong>Fehler:</strong> ${toSafe(job.problem || job.issueType || '-')}</div>
-                    <div class="row"><span>Status</span><span>Ausstehend</span></div>
-                    <div class="line"></div>
-                    <div class="row"><span>Kosten</span><span>€ ${(parseFloat(job.estimatedCost) || 0).toFixed(2)}</span></div>
-                    <div class="row"><span>Anzahlung</span><span>€ ${(parseFloat(job.advanceAmount) || 0).toFixed(2)}</span></div>
-                    <div class="row"><span>Abholung</span><span>${toSafe(job.deliveryDate || job.delivery_at || '-')}</span></div>
-                    <div class="line"></div>
-                    <p style="font-size:11px;font-weight:700;">Bitte diesen Kundenbeleg zur Abholung mitbringen.</p>
-                </body>
-            </html>
-        `);
-        popup.document.close();
-        popup.focus();
-        popup.print();
-    };
 
     const printOnlineOrderBill = (order) => {
         if (!order) return;
@@ -4271,7 +4230,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                 </div>
                                                 <button
                                                     type="button"
-                                                    onClick={() => printPendingRepairBill(selectedTransaction.linkedRepairJob)}
+                                                    onClick={() => printRepairJobBill({ ...selectedTransaction.linkedRepairJob, status: 'completed' }, activeShop)}
                                                     className="rounded-lg border border-blue-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
                                                 >
                                                     Print Repair Slip
@@ -5053,7 +5012,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => printPendingRepairBill(job)}
+                                                onClick={() => printRepairJobBill(job, activeShop)}
                                                 className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
                                             >
                                                 Print

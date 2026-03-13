@@ -3,6 +3,7 @@ import { X, Printer, Wrench, Phone, User, Smartphone, Hash, FileText, Calendar, 
 import { useRepairs } from '../context/RepairsContext';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import { printRepairJobBill } from '../utils/printUtils';
 
 export default function RepairModal({ isOpen, onClose }) {
     const { addRepair } = useRepairs();
@@ -40,75 +41,6 @@ export default function RepairModal({ isOpen, onClose }) {
         setErrors({});
     };
 
-    const generatePrintHTML = (job) => {
-        const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => (
-            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
-        ));
-        const receiptShopName = String(activeShop?.name || 'Shop').trim() || 'Shop';
-        const receiptShopAddress = String(activeShop?.address || '').trim();
-        const receiptShopPhone = String(activeShop?.telephone || activeShop?.phone || '').trim();
-        const deliverySource = job?.deliveryDate || job?.delivery_at || '';
-        const parsedDelivery = deliverySource ? new Date(deliverySource) : null;
-        const deliveryFormatted = parsedDelivery && !Number.isNaN(parsedDelivery.getTime())
-            ? parsedDelivery.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
-            : 'N/A';
-        const problemNote = esc(job?.problem || job?.notes || 'N/A');
-        const invoiceNumber = esc(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || 'N/A');
-        const normalizedCost = Number.isFinite(parseFloat(job?.cost ?? job?.estimatedCost))
-            ? parseFloat(job?.cost ?? job?.estimatedCost)
-            : 0;
-        const advanceAmount = Number.isFinite(parseFloat(job?.advanceAmount))
-            ? parseFloat(job.advanceAmount)
-            : 0;
-
-        return `<!DOCTYPE html>
-<html>
-<head>
-    <title>Reparaturbeleg - ${invoiceNumber}</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Courier New', monospace; width: 80mm; font-size: 18px; font-weight: 900; }
-        .label { padding: 4mm; border-bottom: none; page-break-after: auto; }
-        .shop-name { font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 2mm; }
-        .shop-addr { font-size: 15px; text-align: center; margin-bottom: 3mm; color: #333; }
-        .divider { border-top: 1px solid #000; margin: 2mm 0; }
-        .row { display: flex; justify-content: space-between; font-size: 18px; margin: 1mm 0; }
-        .row .label-text { font-weight: bold; }
-        .ref-id { font-size: 26px; font-weight: bold; text-align: center; margin: 3mm 0; letter-spacing: 2px; }
-        .pickup-slip { font-size: 20px; font-weight: 900; text-align: center; letter-spacing: 1px; text-transform: uppercase; margin: 2mm 0; }
-        .problem { font-size: 18px; margin: 2mm 0; padding: 2mm; border: 1px solid #ccc; background: #f5f5f5; }
-        .title { font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 2mm; color: #666; }
-        @media print { body { width: 80mm; } .label { break-inside: avoid; } }
-    </style>
-</head>
-<body>
-    <div class="label">
-        <div class="title">Kundenbeleg</div>
-        <div class="shop-name">${esc(receiptShopName)}</div>
-        ${receiptShopAddress ? `<div class="shop-addr">${esc(receiptShopAddress)}</div>` : ''}
-        ${receiptShopPhone ? `<div class="shop-addr">Tel: ${esc(receiptShopPhone)}</div>` : ''}
-        <div class="divider"></div>
-        <div class="ref-id">${invoiceNumber}</div>
-        <div class="divider"></div>
-        <div class="pickup-slip">ABHOLSCHEIN</div>
-        <div class="divider"></div>
-        <div class="row"><span class="label-text">Rechnung Nr:</span><span>${invoiceNumber}</span></div>
-        <div class="row"><span class="label-text">Name:</span><span>${esc(job.customerName)}</span></div>
-        <div class="row"><span class="label-text">Telefon:</span><span>${esc(job.phone)}</span></div>
-        <div class="row"><span class="label-text">Geraet:</span><span>${esc(job.deviceModel)}</span></div>
-        ${job.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(job.imei)}</span></div>` : ''}
-        <div class="divider"></div>
-        <div class="problem"><strong>Fehler:</strong> ${problemNote}</div>
-        <div class="row"><span class="label-text">${esc(t('repair.receiptTotalCost'))}</span><span>EUR ${normalizedCost.toFixed(2)}</span></div>
-        <div class="row"><span class="label-text">Anzahlung:</span><span>EUR ${advanceAmount.toFixed(2)}</span></div>
-        <div class="row"><span class="label-text">Abholung:</span><span>${deliveryFormatted}</span></div>
-        <div class="divider"></div>
-        <div style="font-size:14px;font-weight:900;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
-    </div>
-</body>
-</html>`;
-    };
-
     const handleSave = async (shouldPrint = false) => {
         const nextErrors = {};
         if (!form.customerName.trim()) nextErrors.customerName = t('repair.customerNameRequired');
@@ -141,21 +73,7 @@ export default function RepairModal({ isOpen, onClose }) {
             const invoiceNumber = String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim();
 
             if (shouldPrint) {
-                const printWindow = window.open('', '_blank', 'width=420,height=700');
-                if (!printWindow) {
-                    alert(t('repair.popupBlocked'));
-                } else {
-                    const html = generatePrintHTML(job);
-                    printWindow.document.open();
-                    printWindow.document.write(html);
-                    printWindow.document.close();
-                    printWindow.focus();
-                    printWindow.onload = () => {
-                        setTimeout(() => {
-                            printWindow.print();
-                        }, 150);
-                    };
-                }
+                printRepairJobBill(job, activeShop);
             } else if (invoiceNumber) {
                 alert(`${t('repair.savedInvoice')} ${invoiceNumber}`);
             }
