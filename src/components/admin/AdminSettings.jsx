@@ -14,7 +14,7 @@ export default function AdminSettings() {
         autoLockEnabled, setAutoLockEnabled,
         autoLockTimeout, setAutoLockTimeout
     } = useAuth();
-    const { clearLocalInventoryCache } = useInventory();
+    const { clearLocalInventoryCache, addTransaction } = useInventory();
 
     // ── Password State ──
     const [newPass, setNewPass] = useState('');
@@ -29,7 +29,9 @@ export default function AdminSettings() {
     const [salesmanNumber, setSalesmanNumber] = useState('');
     const [salesmanCanEditTransactions, setSalesmanCanEditTransactions] = useState(false);
     const [salesmanCanBulkEdit, setSalesmanCanBulkEdit] = useState(false);
-    const [salesmanRate, setSalesmanRate] = useState('12.50');
+    const [salesmanSalaryType, setSalesmanSalaryType] = useState('hourly');
+    const [salesmanHourlyRate, setSalesmanHourlyRate] = useState('12.50');
+    const [salesmanMonthlySalary, setSalesmanMonthlySalary] = useState('');
     const [salesmanPhoto, setSalesmanPhoto] = useState('');
     const [salesmanPhotoFile, setSalesmanPhotoFile] = useState(null);
     const [salesmanError, setSalesmanError] = useState('');
@@ -45,7 +47,9 @@ export default function AdminSettings() {
     const [editSalesmanNumber, setEditSalesmanNumber] = useState('');
     const [editCanEditTransactions, setEditCanEditTransactions] = useState(false);
     const [editCanBulkEdit, setEditCanBulkEdit] = useState(false);
-    const [editRate, setEditRate] = useState('');
+    const [editSalaryType, setEditSalaryType] = useState('hourly');
+    const [editHourlyRate, setEditHourlyRate] = useState('');
+    const [editMonthlySalary, setEditMonthlySalary] = useState('');
 
     // ── Shops State ──
     const [shopName, setShopName] = useState('');
@@ -159,6 +163,54 @@ export default function AdminSettings() {
         return data?.publicUrl || '';
     };
 
+    const handlePayMonthlySalaries = async () => {
+        const monthlyStaff = salesmen.filter(s => (s.salaryType || s.salary_type) === 'monthly' && Number(s.monthlySalary || s.monthly_salary) > 0);
+        if (monthlyStaff.length === 0) {
+            alert('No salesmen found with a monthly salary configured.');
+            return;
+        }
+
+        const totalToPay = monthlyStaff.reduce((sum, s) => sum + Number(s.monthlySalary || s.monthly_salary), 0);
+        if (!window.confirm(`Are you sure you want to pay out ${monthlyStaff.length} monthly salaries totaling €${totalToPay.toFixed(2)}?`)) {
+            return;
+        }
+
+        let successCount = 0;
+        let failCount = 0;
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
+        const timeStr = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+        const isoString = now.toISOString();
+
+        for (const staff of monthlyStaff) {
+            try {
+                const amount = Number(staff.monthlySalary || staff.monthly_salary);
+                await addTransaction({
+                    desc: `Salary: ${staff.name} (Monthly)`,
+                    amount,
+                    type: 'expense',
+                    tx_type: 'fixed_expense',
+                    category: 'Salary',
+                    paymentMethod: 'Auto',
+                    source: 'admin-expense',
+                    is_fixed_expense: true,
+                    isFixedExpense: true,
+                    workerId: staff.id,
+                    notes: `salary_monthly | worker_id:${staff.id} | period:${dateStr}`,
+                    date: dateStr,
+                    time: timeStr,
+                    timestamp: isoString,
+                });
+                successCount++;
+            } catch (err) {
+                console.error(`Failed to process salary for ${staff.name}:`, err);
+                failCount++;
+            }
+        }
+
+        alert(`Monthly Salaries process completed.\nSuccess: ${successCount}\nFailed: ${failCount}`);
+    };
+
     const handleAddSalesman = async (e) => {
         e.preventDefault();
         if (!salesmanName.trim() || salesmanPin.length !== 4) {
@@ -186,12 +238,18 @@ export default function AdminSettings() {
             });
             if (created?.id) {
                 const resolvedPhoto = uploadedPhotoUrl || photoUrlInput;
+                const finalHourlyRate = parseFloat(salesmanHourlyRate) || 0;
+                const finalMonthlySalary = parseFloat(salesmanMonthlySalary) || 0;
                 await updateSalesman(created.id, {
-                    hourlyRate: parseFloat(salesmanRate) || 12.50,
+                    hourlyRate: salesmanSalaryType === 'hourly' ? (finalHourlyRate || 12.50) : 0,
+                    monthlySalary: salesmanSalaryType === 'monthly' ? finalMonthlySalary : 0,
+                    salaryType: salesmanSalaryType,
                     ...(resolvedPhoto ? { photo: resolvedPhoto } : {})
                 });
             }
-            setSalesmanName(''); setSalesmanPin(''); setSalesmanRate('12.50');
+            setSalesmanName(''); setSalesmanPin(''); 
+            setSalesmanHourlyRate('12.50'); setSalesmanMonthlySalary('');
+            setSalesmanSalaryType('hourly');
             setSalesmanNumber('');
             setSalesmanPhoto('');
             setSalesmanPhotoFile(null);
@@ -211,7 +269,9 @@ export default function AdminSettings() {
         setEditPin(s.pin);
         setEditPhoto(s.photo || '');
         setEditPhotoFile(null);
-        setEditRate(String(s.hourlyRate || 12.50));
+        setEditSalaryType(s.salaryType || s.salary_type || 'hourly');
+        setEditHourlyRate(String(s.hourlyRate || '12.50'));
+        setEditMonthlySalary(String(s.monthlySalary || s.monthly_salary || ''));
         setEditSalesmanNumber(String(s.salesmanNumber || ''));
         setEditCanEditTransactions(Boolean(s.canEditTransactions));
         setEditCanBulkEdit(Boolean(s.canBulkEdit));
@@ -228,7 +288,8 @@ export default function AdminSettings() {
 
         const nextName = String(editName || '').trim();
         const nextPin = String(editPin || '').trim();
-        const nextRate = parseFloat(editRate);
+        const nextHourlyRate = parseFloat(editHourlyRate);
+        const nextMonthlySalary = parseFloat(editMonthlySalary);
         const nextNumber = parseInt(editSalesmanNumber, 10) || 0;
         const currentRate = parseFloat(current.hourlyRate) || 12.50;
         const currentNumber = parseInt(current.salesmanNumber, 10) || 0;
@@ -257,8 +318,15 @@ export default function AdminSettings() {
             payload.pin = nextPin;
         }
 
-        if (Number.isFinite(nextRate) && Math.abs(nextRate - currentRate) > 0.0001) {
-            payload.hourlyRate = nextRate;
+        const payloadNextHourly = editSalaryType === 'hourly' ? (nextHourlyRate || 12.50) : 0;
+        const payloadNextMonthly = editSalaryType === 'monthly' ? (nextMonthlySalary || 0) : 0;
+
+        if (payloadNextHourly !== parseFloat(current.hourlyRate || 0) || 
+            payloadNextMonthly !== parseFloat(current.monthlySalary || current.monthly_salary || 0) || 
+            editSalaryType !== current.salaryType) {
+            payload.salaryType = editSalaryType;
+            payload.hourlyRate = payloadNextHourly;
+            payload.monthlySalary = payloadNextMonthly;
         }
 
         if (nextNumber !== currentNumber) {
@@ -912,17 +980,55 @@ export default function AdminSettings() {
                                     placeholder="Auto"
                                 />
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">€/Hour</label>
-                                <input
-                                    type="number"
-                                    step="0.50"
-                                    min="0"
-                                    value={salesmanRate}
-                                    onChange={(e) => setSalesmanRate(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-center font-mono"
-                                    placeholder="12.50"
-                                />
+                            <div className="md:col-span-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                                    Salary Type
+                                </label>
+                                
+                                {/* Toggle buttons */}
+                                <div className="flex rounded-lg border border-slate-200 overflow-hidden mb-2" style={{ width: 'fit-content' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSalesmanSalaryType('hourly')}
+                                        className={`px-3 py-1.5 text-xs font-bold transition-all ${
+                                            salesmanSalaryType === 'hourly' 
+                                            ? 'bg-blue-600 text-white' 
+                                            : 'bg-white text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        €/Hour
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSalesmanSalaryType('monthly')}
+                                        className={`px-3 py-1.5 text-xs font-bold transition-all ${
+                                            salesmanSalaryType === 'monthly' 
+                                            ? 'bg-blue-600 text-white' 
+                                            : 'bg-white text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        €/Month
+                                    </button>
+                                </div>
+
+                                {/* Conditional input */}
+                                {salesmanSalaryType === 'hourly' ? (
+                                    <input
+                                        type="number"
+                                        value={salesmanHourlyRate}
+                                        onChange={(e) => setSalesmanHourlyRate(e.target.value)}
+                                        placeholder="12.50"
+                                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
+                                    />
+                                ) : (
+                                    <input
+                                        type="number"
+                                        value={salesmanMonthlySalary}
+                                        onChange={(e) => setSalesmanMonthlySalary(e.target.value)}
+                                        placeholder="1800"
+                                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
+                                    />
+                                )}
                             </div>
                             <div className="md:col-span-2 rounded-lg border border-slate-200 bg-white p-2 space-y-2">
                                 <p className="text-[10px] font-bold text-slate-500 uppercase">Photo (Upload or URL)</p>
@@ -1005,16 +1111,55 @@ export default function AdminSettings() {
                                     className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
                                 />
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">€/Hour</label>
-                                <input
-                                    type="number"
-                                    step="0.50"
-                                    min="0"
-                                    value={editRate}
-                                    onChange={(e) => setEditRate(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
-                                />
+                            <div className="md:col-span-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                                    Salary Type
+                                </label>
+                                
+                                {/* Toggle buttons */}
+                                <div className="flex rounded-lg border border-slate-200 overflow-hidden mb-2" style={{ width: 'fit-content' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditSalaryType('hourly')}
+                                        className={`px-3 py-1.5 text-xs font-bold transition-all ${
+                                            editSalaryType === 'hourly' 
+                                            ? 'bg-blue-600 text-white' 
+                                            : 'bg-white text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        €/Hour
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditSalaryType('monthly')}
+                                        className={`px-3 py-1.5 text-xs font-bold transition-all ${
+                                            editSalaryType === 'monthly' 
+                                            ? 'bg-blue-600 text-white' 
+                                            : 'bg-white text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        €/Month
+                                    </button>
+                                </div>
+
+                                {/* Conditional input */}
+                                {editSalaryType === 'hourly' ? (
+                                    <input
+                                        type="number"
+                                        value={editHourlyRate}
+                                        onChange={(e) => setEditHourlyRate(e.target.value)}
+                                        placeholder="12.50"
+                                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
+                                    />
+                                ) : (
+                                    <input
+                                        type="number"
+                                        value={editMonthlySalary}
+                                        onChange={(e) => setEditMonthlySalary(e.target.value)}
+                                        placeholder="1800"
+                                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono"
+                                    />
+                                )}
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Salesman No.</label>
@@ -1099,11 +1244,21 @@ export default function AdminSettings() {
                                         )}
                                     </div>
                                     <div>
-                                        <p className="font-bold text-slate-800">{s.name}</p>
-                                        <div className="flex items-center gap-3 text-xs text-slate-400">
+                                        <div className="flex items-center gap-2">
+                                            <p className="font-bold text-slate-800">{s.name}</p>
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                                (s.salaryType || s.salary_type) === 'monthly' 
+                                                    ? 'bg-purple-100 text-purple-700' 
+                                                    : 'bg-blue-100 text-blue-700'
+                                            }`}>
+                                                {(s.salaryType || s.salary_type) === 'monthly' 
+                                                    ? `€${s.monthlySalary || s.monthly_salary}/mo` 
+                                                    : `€${s.hourlyRate}/hr`}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
                                             <span className="flex items-center gap-1 font-mono"><Key size={12} /> PIN: {s.pin}</span>
                                             <span className="flex items-center gap-1 font-mono text-blue-600"><Hash size={12} /> No: {s.salesmanNumber || '-'}</span>
-                                            <span className="flex items-center gap-1 font-mono text-emerald-500"><Clock size={12} /> {s.hourlyRate || 12.50} €/hr</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1144,6 +1299,18 @@ export default function AdminSettings() {
                         ))
                     )}
                 </div>
+
+                {/* Pay Monthly Salaries Button */}
+                {salesmen.filter(s => (s.salaryType || s.salary_type) === 'monthly').length > 0 && (
+                    <div className="pt-4 mt-6 border-t border-slate-100 flex justify-end">
+                        <button
+                            onClick={handlePayMonthlySalaries}
+                            className="px-6 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl shadow-sm hover:bg-emerald-700 transition"
+                        >
+                            Pay Monthly Salaries
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* ── Salesman Display Security ── */}

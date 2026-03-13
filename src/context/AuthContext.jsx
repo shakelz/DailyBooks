@@ -1202,6 +1202,8 @@ function normalizeUserFromProfile(profile) {
         role: normalizedRole,
         pin: asString(profile.pin),
         hourlyRate: parseFloat(profile.hourlyRate ?? profile.hourly_rate ?? 12.5) || 12.5,
+        monthlySalary: parseFloat(profile.monthlySalary ?? profile.monthly_salary ?? 0) || 0,
+        salaryType: asString(profile.salaryType || profile.salary_type || 'hourly').toLowerCase(),
         photo: asString(profile.profile_image || profile.photo || profile.avatar_url),
         profileImage: asString(profile.profile_image || profile.photo || profile.avatar_url),
         active: profile.active !== false,
@@ -1457,7 +1459,7 @@ function buildProfileInsertPayloads({
     const passwordVariants = safePasswordHash ? [{ password_hash: safePasswordHash }] : [{}];
     const rateValue = Number(hourlyRate);
     const hourlyVariants = Number.isFinite(rateValue)
-        ? [{ hourly_rate: rateValue }, {}]
+        ? [{ hourly_rate: rateValue, monthly_salary: asNumber(updates.monthlySalary, 0), salary_type: asString(updates.salaryType || 'hourly') }, {}]
         : [{}];
     const pinVariants = (includePinDigest && safePinDigest)
         ? [{ pin_digest: safePinDigest }]
@@ -1537,6 +1539,8 @@ function buildProfileUpdatePayloads(updates = {}) {
             : { shop_id: updates.shop_id === null ? null : asString(updates.shop_id) }),
         ...(updates.pin_digest === undefined ? {} : { pin_digest: asString(updates.pin_digest) }),
         ...(updates.hourlyRate === undefined ? {} : { hourly_rate: Number(updates.hourlyRate) || 0 }),
+        ...(updates.monthlySalary === undefined ? {} : { monthly_salary: Number(updates.monthlySalary) || 0 }),
+        ...(updates.salaryType === undefined ? {} : { salary_type: String(updates.salaryType) }),
         ...(updates.salesmanNumber === undefined ? {} : { salesman_number: Math.max(0, Math.floor(asNumber(updates.salesmanNumber, 0))) }),
         ...((updates.photo === undefined && updates.profileImage === undefined)
             ? {}

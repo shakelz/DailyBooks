@@ -1833,6 +1833,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 hoursSeries,
                 earnedSeries,
                 chartLabels: daySlots.map((slot) => slot.label),
+                salaryType: String(staff?.salaryType || staff?.salary_type || 'hourly'),
+                hourlyRate: parseFloat(staff?.hourlyRate) || 12.5,
+                monthlySalary: parseFloat(staff?.monthlySalary || staff?.monthly_salary) || 0,
             };
         }).sort((a, b) => b.earned - a.earned);
     }, [adminView, attendanceLogs, dashboardRange, isCustomRangeActive, salesmen, debouncedTransactions]);
@@ -3547,46 +3550,61 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 <h3 className="text-sm font-black text-slate-800">STAFF PRODUCTION & SALARY OVERVIEW</h3>
                                 <span className="text-[11px] text-slate-500">{dashboardRange.label}</span>
                             </div>
-                            {!featuredStaff ? (
+                            {staffProductionRows.length === 0 ? (
                                 <p className="text-xs text-slate-400">No staff activity available.</p>
                             ) : (
-                                <>
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <ProfileAvatar name={featuredStaff.name} photo={featuredStaff.photo} />
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-bold text-slate-800 truncate">{featuredStaff.name}</p>
-                                                <p className="text-[11px] text-slate-500">Full-Time Employee</p>
+                                <div className="space-y-4">
+                                    {staffProductionRows.map((staff) => (
+                                        <div key={`staff-prod-${staff.id}`} className="space-y-2">
+                                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <ProfileAvatar name={staff.name} photo={staff.photo} />
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-sm font-bold text-slate-800 truncate">{staff.name}</p>
+                                                            {staff.salaryType === 'monthly' ? (
+                                                                <span className="bg-white px-2 py-0.5 rounded-full font-mono text-[10px] font-medium border border-teal-100 text-teal-700 shadow-sm">
+                                                                    €{Number(staff.monthlySalary).toFixed(2)}/mo
+                                                                </span>
+                                                            ) : (
+                                                                <span className="bg-white px-2 py-0.5 rounded-full font-mono text-[10px] font-medium border border-blue-100 text-blue-700 shadow-sm">
+                                                                    €{Number(staff.hourlyRate).toFixed(2)}/hr
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-[11px] text-slate-500">Salesman</p>
+                                                    </div>
+                                                </div>
+                                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${staff.isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                    <span className="relative flex h-2 w-2">
+                                                        {staff.isOnline && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
+                                                        <span className={`relative inline-flex h-2 w-2 rounded-full ${staff.isOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                                                    </span>
+                                                    {staff.isOnline ? 'ONLINE' : 'OFFLINE'}
+                                                </span>
                                             </div>
-                                        </div>
-                                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${featuredStaff.isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                            <span className="relative flex h-2 w-2">
-                                                {featuredStaff.isOnline && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
-                                                <span className={`relative inline-flex h-2 w-2 rounded-full ${featuredStaff.isOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                                            </span>
-                                            {featuredStaff.isOnline ? 'ONLINE' : 'OFFLINE'}
-                                        </span>
-                                    </div>
 
-                                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                                        <div className="rounded-xl border border-slate-200 bg-white p-2.5">
-                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Hours</p>
-                                            <p className="text-3xl leading-none font-black text-blue-800 mt-1">{featuredStaff.totalHours.toFixed(2)}h</p>
-                                            <p className="text-[10px] text-slate-500 mt-1">Total Hours Worked</p>
-                                            <div className="mt-2">
-                                                <MiniLineChart values={featuredStaff.hoursSeries} active={isCustomRangeActive} />
+                                            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                <div className="rounded-xl border border-slate-200 bg-white p-2.5">
+                                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Hours</p>
+                                                    <p className="text-3xl leading-none font-black text-blue-800 mt-1">{staff.totalHours.toFixed(2)}h</p>
+                                                    <p className="text-[10px] text-slate-500 mt-1">Total Hours Worked</p>
+                                                    <div className="mt-2">
+                                                        <MiniLineChart values={staff.hoursSeries} active={isCustomRangeActive} />
+                                                    </div>
+                                                </div>
+                                                <div className="rounded-xl border border-slate-200 bg-white p-2.5">
+                                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Earned</p>
+                                                    <p className="text-3xl leading-none font-black text-blue-800 mt-1">{priceTag(staff.earned)}</p>
+                                                    <p className="text-[10px] text-slate-500 mt-1">Total Earned (Gross)</p>
+                                                    <div className="mt-2">
+                                                        <MiniBarChart values={staff.earnedSeries} active={isCustomRangeActive} />
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className="rounded-xl border border-slate-200 bg-white p-2.5">
-                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Earned</p>
-                                            <p className="text-3xl leading-none font-black text-blue-800 mt-1">{priceTag(featuredStaff.earned)}</p>
-                                            <p className="text-[10px] text-slate-500 mt-1">Total Earned (Gross)</p>
-                                            <div className="mt-2">
-                                                <MiniBarChart values={featuredStaff.earnedSeries} active={isCustomRangeActive} />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </>
+                                    ))}
+                                </div>
                             )}
                         </div>
 
