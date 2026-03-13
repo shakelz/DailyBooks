@@ -2883,7 +2883,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <tr>
                         <td style="font-size: 15px; font-weight: 700; color: #111; width: 50%;">Abholung Nr.</td>
                         <td style="text-align: right;">
-                            <span style="background: #111; color: #fff; font-size: 15px; font-weight: 900; padding: 4px 12px; border-radius: 4px; letter-spacing: 2px; display: inline-block;">${orderId}</span>
+                            <span style="background: #000 !important; color: #fff !important; font-size: 15px; font-weight: 900; padding: 4px 12px; border-radius: 4px; letter-spacing: 2px; display: inline-block; -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 2px solid #000;">${orderId}</span>
                         </td>
                     </tr>
                 </table>
