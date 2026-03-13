@@ -1,20 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-    LayoutDashboard,
-    LogOut,
-    PackageSearch,
-    Receipt,
-    Search,
-    ShoppingCart,
-    Smartphone,
-    TrendingUp,
-    Wrench,
-    X,
-    Filter,
-    Plus,
-    Printer
-} from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Printer } from 'lucide-react';
+
+import { printRepairJobBill } from '../utils/printUtils';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { priceTag } from '../utils/currency';
