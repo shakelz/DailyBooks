@@ -2845,10 +2845,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <head>
                     <title>Online-Bestellung</title>
                     <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 13px; font-weight: 700; }
-                        h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:700; gap: 8px; }
+                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 15px; font-weight: 700; line-height: 1.6; }
+                        h2 { margin: 0; font-size: 20px; }
+                        p { margin: 0; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:15px; font-weight:700; gap: 8px; }
+                        .row.total { font-size: 18px; margin-top: 8px; }
                         .line { border-top:1px dashed #000; margin:8px 0; }
+                        .notes { font-size: 14px; font-weight: 700; margin-top: 8px; }
                     </style>
                 </head>
                 <body>
@@ -2869,9 +2872,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <div class="line"></div>
                     <div class="row"><span>Kosten</span><span>€ ${totalPrice.toFixed(2)}</span></div>
                     <div class="row"><span>Anzahlung</span><span>€ ${advanceAmount.toFixed(2)}</span></div>
-                    <div class="row"><strong>Restbetrag</strong><strong>€ ${remainingAmount.toFixed(2)}</strong></div>
+                    <div class="row total"><strong>Restbetrag</strong><strong>€ ${remainingAmount.toFixed(2)}</strong></div>
                     <div class="line"></div>
-                    <p style="font-size:11px;font-weight:700;">${toSafe(order.notes || '-')}</p>
+                    <p class="notes">${toSafe(order.notes || '-')}</p>
                 </body>
             </html>
         `);
@@ -5030,7 +5033,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                 <div key={order.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                                                     <div className="flex items-start justify-between gap-2">
                                                         <div className="min-w-0">
-                                                            <p className="text-xs font-black text-blue-600">{order.orderId || order.id}</p>
+                                                            <p className="text-[10px] font-mono text-blue-500 bg-blue-50 border border-blue-200 rounded-lg px-2 py-0.5 inline-block max-w-[180px] truncate" title={order.orderId || order.id}>
+                                                                #{String(order.orderId || order.id || '').slice(0, 8).toUpperCase()}
+                                                            </p>
                                                             <p className="text-sm font-bold text-slate-800 truncate">{order.itemName || 'Online Order'}</p>
                                                         </div>
                                                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">{order.status || 'ordered'}</span>
