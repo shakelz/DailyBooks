@@ -2830,8 +2830,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const totalPrice = Number(order.totalCost ?? order.amount) || 0;
         const advanceAmount = Number(order.advanceAmount) || 0;
         const remainingAmount = Math.max(0, totalPrice - advanceAmount);
-        const popup = window.open('', 'online-order-bill', 'width=420,height=760');
-        if (!popup) return;
+        
+        const win = window.open('', 'online-order-bill', 'width=420,height=760');
+        if (!win) return;
 
         const toSafe = (value) => String(value || '')
             .replaceAll('&', '&amp;')
@@ -2840,47 +2841,96 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             .replaceAll('"', '&quot;')
             .replaceAll('\'', '&#39;');
 
-        popup.document.write(`
+        const orderId = '#' + String(order.orderId || order.id || '').slice(0, 8).toUpperCase();
+        const now = new Date().toLocaleString('de-DE');
+
+        const row = (label, value) => {
+            if (!value || value === '-' || value === '') return '';
+            return `
+                <tr>
+                    <td style="padding: 5px 0; font-size: 13px; color: #555; width: 45%">${label}</td>
+                    <td style="padding: 5px 0; font-size: 13px; font-weight: 600; color: #111; text-align: right">${toSafe(value)}</td>
+                </tr>`;
+        };
+
+        const html = `
+            <!DOCTYPE html>
             <html>
-                <head>
-                    <title>Online-Bestellung</title>
-                    <style>
-                        body { font-family: 'Courier New', monospace; width: 58mm; margin: 0 auto; padding: 10px; font-size: 15px; font-weight: 700; line-height: 1.6; }
-                        h2 { margin: 0; font-size: 20px; }
-                        p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:15px; font-weight:700; gap: 8px; }
-                        .row.total { font-size: 18px; margin-top: 8px; }
-                        .line { border-top:1px dashed #000; margin:8px 0; }
-                        .notes { font-size: 14px; font-weight: 700; margin-top: 8px; }
-                    </style>
-                </head>
-                <body>
-                    <h2>${toSafe(receiptShopName)}</h2>
-                    ${receiptShopAddress ? `<p>${toSafe(receiptShopAddress)}</p>` : ''}
-                    ${receiptShopPhone ? `<p>Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
-                    <p>${new Date().toLocaleString('de-DE')}</p>
-                    <div class="line"></div>
-                    <div class="row"><span>Bestellung</span><span>${toSafe(order.orderId || order.id || '-')}</span></div>
-                    <div class="row"><span>Plattform</span><span>${toSafe(order.platform || '-')}</span></div>
-                    <div class="row"><span>Artikel</span><span>${toSafe(order.itemName || '-')}</span></div>
-                    <div class="row"><span>Kategorie</span><span>${toSafe(order.category || '-')}</span></div>
-                    <div class="row"><span>Farbe</span><span>${toSafe(order.color || '-')}</span></div>
-                    <div class="row"><span>Status</span><span>${toSafe(order.status || 'ordered')}</span></div>
-                    <div class="row"><span>Zahlung</span><span>${toSafe(order.paymentStatus || 'Paid')}</span></div>
-                    <div class="row"><span>Bestelldatum</span><span>${toSafe(order.orderDate || '-')}</span></div>
-                    <div class="row"><span>Lieferdatum</span><span>${toSafe(order.expectedDeliveryDate || '-')}</span></div>
-                    <div class="line"></div>
-                    <div class="row"><span>Kosten</span><span>€ ${totalPrice.toFixed(2)}</span></div>
-                    <div class="row"><span>Anzahlung</span><span>€ ${advanceAmount.toFixed(2)}</span></div>
-                    <div class="row total"><strong>Restbetrag</strong><strong>€ ${remainingAmount.toFixed(2)}</strong></div>
-                    <div class="line"></div>
-                    <p class="notes">${toSafe(order.notes || '-')}</p>
-                </body>
+            <head>
+                <meta charset="utf-8"/>
+                <title>Online-Bestellung</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 4mm; color: #111; }
+                    .divider { border: none; border-top: 1px dashed #999; margin: 10px 0; }
+                    .shop-name { font-size: 20px; font-weight: 900; text-align: center; letter-spacing: 1px; }
+                    .shop-sub { font-size: 12px; text-align: center; color: #555; margin-top: 3px; }
+                    .order-id { text-align: center; margin: 10px 0; }
+                    .order-id span { background: #000; color: #fff; font-size: 14px; font-weight: 900; padding: 4px 14px; border-radius: 4px; letter-spacing: 2px; }
+                    .date { text-align: center; font-size: 11px; color: #777; margin-bottom: 6px; }
+                    table { width: 100%; border-collapse: collapse; }
+                    .total-row td { font-size: 17px; font-weight: 900; padding: 8px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; }
+                    .amount-row td { font-size: 13px; padding: 4px 0; }
+                    .footer { text-align: center; font-size: 11px; color: #888; margin-top: 14px; line-height: 1.5; }
+                    @media print { body { width: 80mm; } }
+                </style>
+            </head>
+            <body>
+                <p class="shop-name">${toSafe(receiptShopName)}</p>
+                ${receiptShopAddress ? `<p class="shop-sub">${toSafe(receiptShopAddress)}</p>` : ''}
+                ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
+                
+                <hr class="divider"/>
+                
+                <div class="order-id"><span>${orderId}</span></div>
+                <p class="date">${now}</p>
+                
+                <hr class="divider"/>
+                
+                <table>
+                    ${row('Plattform', order.platform)}
+                    ${row('Artikel', order.itemName)}
+                    ${row('Kategorie', order.category)}
+                    ${row('Farbe / Variante', order.color)}
+                    ${row('Status', order.status || 'ordered')}
+                    ${row('Zahlung', order.paymentStatus || 'Paid')}
+                    ${row('Bestelldatum', order.orderDate ? formatDisplayDate(order.orderDate) : '')}
+                    ${row('Lieferdatum', order.expectedDeliveryDate ? formatDisplayDate(order.expectedDeliveryDate) : '')}
+                </table>
+
+                <hr class="divider"/>
+
+                <table>
+                    <tr class="amount-row">
+                        <td style="color:#555">Kosten</td>
+                        <td style="text-align:right; font-weight:600">€ ${totalPrice.toFixed(2)}</td>
+                    </tr>
+                    <tr class="amount-row">
+                        <td style="color:#555">Anzahlung</td>
+                        <td style="text-align:right; font-weight:600">€ ${advanceAmount.toFixed(2)}</td>
+                    </tr>
+                    <tr class="total-row">
+                        <td>Restbetrag</td>
+                        <td style="text-align:right">€ ${remainingAmount.toFixed(2)}</td>
+                    </tr>
+                </table>
+
+                ${order.notes ? `
+                <hr class="divider"/>
+                <p style="font-size:12px; color:#555; font-weight:600">Notizen:</p>
+                <p style="font-size:13px; margin-top:4px">${toSafe(order.notes)}</p>
+                ` : ''}
+
+                <hr class="divider"/>
+                <p class="footer">Danke für Ihr Vertrauen!<br/>${toSafe(receiptShopName)}</p>
+            </body>
             </html>
-        `);
-        popup.document.close();
-        popup.focus();
-        popup.print();
+        `;
+
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        setTimeout(() => { win.print(); win.close(); }, 500);
     };
 
     const completePendingRepair = async (job) => {
