@@ -2847,8 +2847,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             if (!value || value === '-' || value === '') return '';
             return `
                 <tr>
-                    <td style="padding: 6px 0; font-size: 15px; font-weight: 600; color: #333; width: 45%">${label}</td>
-                    <td style="padding: 6px 0; font-size: 15px; font-weight: 700; color: #000; text-align: right">${toSafe(value)}</td>
+                    <td style="padding: 6px 0; font-size: 15px; font-weight: 600; color: #333; width: 48%; vertical-align: top;">${label}</td>
+                    <td style="padding: 6px 0; font-size: 15px; font-weight: 700; color: #000; text-align: right; vertical-align: top;">${toSafe(value)}</td>
                 </tr>`;
         };
 
@@ -2860,7 +2860,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <title>Online-Bestellung</title>
                 <style>
                     * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 4mm; color: #111; }
+                    body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 5mm; color: #111; }
                     .divider { border: none; border-top: 1px dashed #999; margin: 10px 0; }
                     .shop-name { font-size: 24px; font-weight: 900; text-align: center; letter-spacing: 1px; }
                     .shop-sub { font-size: 14px; text-align: center; color: #333; font-weight: 600; margin-top: 3px; }
@@ -2875,16 +2875,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 ${receiptShopAddress ? `<p class="shop-sub">${toSafe(receiptShopAddress)}</p>` : ''}
                 ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
                 
-                <hr class="divider"/>
-                
-                <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin: 10px 0;">
-                    <span style="font-size: 14px; font-weight: 700; color: #111;">Abholung Nr.</span>
-                    <span style="background: #000; color: #fff; font-size: 16px; font-weight: 900; padding: 5px 16px; border-radius: 4px; letter-spacing: 3px;">${orderId}</span>
-                </div>
+                <p style="text-align: center; font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #555; margin-top: 6px;">— Online-Bestellung —</p>
                 
                 <hr class="divider"/>
                 
-                <table>
+                <table style="width:100%; margin: 8px 0;">
+                    <tr>
+                        <td style="font-size: 15px; font-weight: 700; color: #111; width: 50%;">Abholung Nr.</td>
+                        <td style="text-align: right;">
+                            <span style="background: #111; color: #fff; font-size: 15px; font-weight: 900; padding: 4px 12px; border-radius: 4px; letter-spacing: 2px; display: inline-block;">${orderId}</span>
+                        </td>
+                    </tr>
+                </table>
+                
+                <hr class="divider"/>
+                
+                <table style="width: 100%; border-collapse: collapse;">
                     ${row('Plattform', order.platform)}
                     ${row('Artikel', order.itemName)}
                     ${row('Kategorie', order.category)}
@@ -2897,18 +2903,18 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
                 <hr class="divider"/>
 
-                <table>
+                <table style="width: 100%; border-collapse: collapse;">
                     <tr class="amount-row">
-                        <td style="color:#555">Kosten</td>
-                        <td style="text-align:right; font-weight:600">€ ${totalPrice.toFixed(2)}</td>
+                        <td style="font-weight: 600; color: #333;">Kosten</td>
+                        <td style="text-align: right; font-weight: 700; color: #000;">€ ${totalPrice.toFixed(2)}</td>
                     </tr>
                     <tr class="amount-row">
-                        <td style="color:#555">Anzahlung</td>
-                        <td style="text-align:right; font-weight:600">€ ${advanceAmount.toFixed(2)}</td>
+                        <td style="font-weight: 600; color: #333;">Anzahlung</td>
+                        <td style="text-align: right; font-weight: 700; color: #000;">€ ${advanceAmount.toFixed(2)}</td>
                     </tr>
                     <tr class="total-row">
-                        <td>Restbetrag</td>
-                        <td style="text-align:right">€ ${remainingAmount.toFixed(2)}</td>
+                        <td style="padding-right: 8px;">Restbetrag</td>
+                        <td style="text-align: right; white-space: nowrap;">€ ${remainingAmount.toFixed(2)}</td>
                     </tr>
                 </table>
 
