@@ -2842,14 +2842,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             .replaceAll('\'', '&#39;');
 
         const orderId = '#' + String(order.orderId || order.id || '').slice(0, 8).toUpperCase();
-        const now = new Date().toLocaleString('de-DE');
 
         const row = (label, value) => {
             if (!value || value === '-' || value === '') return '';
             return `
                 <tr>
-                    <td style="padding: 5px 0; font-size: 13px; color: #555; width: 45%">${label}</td>
-                    <td style="padding: 5px 0; font-size: 13px; font-weight: 600; color: #111; text-align: right">${toSafe(value)}</td>
+                    <td style="padding: 6px 0; font-size: 15px; font-weight: 600; color: #333; width: 45%">${label}</td>
+                    <td style="padding: 6px 0; font-size: 15px; font-weight: 700; color: #000; text-align: right">${toSafe(value)}</td>
                 </tr>`;
         };
 
@@ -2863,15 +2862,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     * { margin: 0; padding: 0; box-sizing: border-box; }
                     body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 4mm; color: #111; }
                     .divider { border: none; border-top: 1px dashed #999; margin: 10px 0; }
-                    .shop-name { font-size: 20px; font-weight: 900; text-align: center; letter-spacing: 1px; }
-                    .shop-sub { font-size: 12px; text-align: center; color: #555; margin-top: 3px; }
-                    .order-id { text-align: center; margin: 10px 0; }
-                    .order-id span { background: #000; color: #fff; font-size: 14px; font-weight: 900; padding: 4px 14px; border-radius: 4px; letter-spacing: 2px; }
-                    .date { text-align: center; font-size: 11px; color: #777; margin-bottom: 6px; }
-                    table { width: 100%; border-collapse: collapse; }
-                    .total-row td { font-size: 17px; font-weight: 900; padding: 8px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; }
-                    .amount-row td { font-size: 13px; padding: 4px 0; }
-                    .footer { text-align: center; font-size: 11px; color: #888; margin-top: 14px; line-height: 1.5; }
+                    .shop-name { font-size: 24px; font-weight: 900; text-align: center; letter-spacing: 1px; }
+                    .shop-sub { font-size: 14px; text-align: center; color: #333; font-weight: 600; margin-top: 3px; }
+                    .footer { text-align: center; font-size: 13px; color: #555; margin-top: 14px; line-height: 1.6; font-weight: 600; }
+                    .total-row td { font-size: 20px; font-weight: 900; padding: 8px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; }
+                    .amount-row td { font-size: 15px; padding: 5px 0; font-weight: 600; }
                     @media print { body { width: 80mm; } }
                 </style>
             </head>
@@ -2882,8 +2877,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 
                 <hr class="divider"/>
                 
-                <div class="order-id"><span>${orderId}</span></div>
-                <p class="date">${now}</p>
+                <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin: 10px 0;">
+                    <span style="font-size: 14px; font-weight: 700; color: #111;">Abholung Nr.</span>
+                    <span style="background: #000; color: #fff; font-size: 16px; font-weight: 900; padding: 5px 16px; border-radius: 4px; letter-spacing: 3px;">${orderId}</span>
+                </div>
                 
                 <hr class="divider"/>
                 
@@ -2894,8 +2891,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     ${row('Farbe / Variante', order.color)}
                     ${row('Status', order.status || 'ordered')}
                     ${row('Zahlung', order.paymentStatus || 'Paid')}
-                    ${row('Bestelldatum', order.orderDate ? formatDisplayDate(order.orderDate) : '')}
-                    ${row('Lieferdatum', order.expectedDeliveryDate ? formatDisplayDate(order.expectedDeliveryDate) : '')}
+                    ${row('Bestelldatum', order.orderDate ? new Date(order.orderDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '')}
+                    ${row('Lieferdatum', order.expectedDeliveryDate ? new Date(order.expectedDeliveryDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '')}
                 </table>
 
                 <hr class="divider"/>
@@ -2917,8 +2914,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
                 ${order.notes ? `
                 <hr class="divider"/>
-                <p style="font-size:12px; color:#555; font-weight:600">Notizen:</p>
-                <p style="font-size:13px; margin-top:4px">${toSafe(order.notes)}</p>
+                <p style="font-size:14px; color:#333; font-weight:600">Notizen:</p>
+                <p style="font-size:14px; margin-top:4px">${toSafe(order.notes)}</p>
                 ` : ''}
 
                 <hr class="divider"/>
