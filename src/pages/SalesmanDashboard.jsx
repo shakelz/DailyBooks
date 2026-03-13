@@ -1810,14 +1810,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
 
             const totalHours = totalMs / 3600000;
-            const earned = totalHours * hourlyRate;
+            const isMonthly = String(staff?.salaryType || staff?.salary_type) === 'monthly';
+            const earned = isMonthly ? null : totalHours * hourlyRate;
             const paid = salaryByStaff[sid] || 0;
 
             const hoursSeries = isCustomRangeActive
                 ? daySlots.map((slot) => Number(((dailyBucketMs[slot.key] || 0) / 3600000).toFixed(2)))
                 : [];
             const earnedSeries = isCustomRangeActive
-                ? hoursSeries.map((hours) => Number((hours * hourlyRate).toFixed(2)))
+                ? hoursSeries.map((hours) => isMonthly ? null : Number((hours * hourlyRate).toFixed(2)))
                 : [];
 
             const profileOnline = Boolean(staff?.is_online ?? staff?.isOnline ?? staff?.online);
@@ -1846,6 +1847,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const nowMs = Math.min(dashboardRange.end.getTime(), Date.now());
         const staffNameById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), String(staff?.name || 'Staff')]));
         const hourlyRateById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), parseFloat(staff?.hourlyRate) || 12.5]));
+        const salaryTypeById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), String(staff?.salaryType || staff?.salary_type || 'hourly')]));
 
         const inRangeLogs = (attendanceLogs || [])
             .filter((log) => {
@@ -1870,8 +1872,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     const openTs = openInByUser.get(uid);
                     if (Number.isFinite(openTs) && ts > openTs) {
                         sessionHours = (ts - openTs) / 3600000;
+                        const isMonthly = salaryTypeById.get(uid) === 'monthly';
                         const hourlyRate = hourlyRateById.get(uid) || 12.5;
-                        sessionEarned = sessionHours * hourlyRate;
+                        sessionEarned = isMonthly ? 0 : sessionHours * hourlyRate;
                     }
                     openInByUser.delete(uid);
                 }
@@ -3593,10 +3596,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                         <MiniLineChart values={staff.hoursSeries} active={isCustomRangeActive} />
                                                     </div>
                                                 </div>
-                                                <div className="rounded-xl border border-slate-200 bg-white p-2.5">
-                                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Earned</p>
-                                                    <p className="text-3xl leading-none font-black text-blue-800 mt-1">{priceTag(staff.earned)}</p>
-                                                    <p className="text-[10px] text-slate-500 mt-1">Total Earned (Gross)</p>
+                                                <div className="rounded-xl border border-slate-200 bg-white p-2.5 flex flex-col justify-between">
+                                                    <div>
+                                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Earned</p>
+                                                        {staff.salaryType === 'monthly' ? (
+                                                            <div className="mt-2.5 mb-1.5">
+                                                                <span className="text-[11px] font-bold px-2 py-1 rounded-full bg-purple-100 text-purple-700">
+                                                                    €{Number(staff.monthlySalary).toFixed(2)}/mo (Fixed)
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <p className="text-3xl leading-none font-black text-blue-800 mt-1">{priceTag(staff.earned)}</p>
+                                                                <p className="text-[10px] text-slate-500 mt-1">Total Earned (Gross)</p>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                     <div className="mt-2">
                                                         <MiniBarChart values={staff.earnedSeries} active={isCustomRangeActive} />
                                                     </div>
