@@ -11,9 +11,11 @@ export const printRepairJobBill = (job, activeShop) => {
   ).replace(/\D/g, '').slice(-6) || 'N/A'
 
   // Total cost
+  // Prioritize repair-specific fields before 'amount', because when
+  // printing from a transaction, 'amount' is just the partial payment.
   const totalCost = parseFloat(
-    job?.totalCost ?? job?.total_cost ?? 
-    job?.cost ?? job?.amount ?? job?.repairCost ?? job?.estimatedCost ?? 0
+    job?.estimatedCost ?? job?.totalCost ?? job?.total_cost ?? 
+    job?.cost ?? job?.repairCost ?? job?.amount ?? 0
   ) || 0
 
   // Advance
