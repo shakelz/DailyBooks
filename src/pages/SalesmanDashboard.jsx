@@ -3242,7 +3242,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         e.preventDefault();
         if (!validateOnlineOrderForm()) return;
         const totalCost = Number(onlineOrderForm.totalCost) || 0;
-        const shopId = String(user?.shop_id || '');
+        const shopId = String(activeShop?.id || '');
         if (!shopId) {
             alert('No active shop selected');
             return;
