@@ -2734,6 +2734,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const printTransactionDraft = () => {
         if (!selectedTransaction || !transactionDraft) return;
+
+        if (selectedTransaction.repairJob || selectedTransaction.linkedRepairJob) {
+            const job = selectedTransaction.repairJob || selectedTransaction.linkedRepairJob;
+            printRepairJobBill({ ...job, status: 'completed' }, activeShop);
+            return;
+        }
+
         printRecentTransaction({
             ...selectedTransaction,
             desc: transactionDraft.desc,
