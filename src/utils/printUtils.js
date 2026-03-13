@@ -93,6 +93,7 @@ export const printRepairJobBill = (job, activeShop) => {
 
     <hr class="divider-solid"/>
 
+    ${!isCompleted ? `
     <table>
       <tr>
         <td class="amount-label">Kosten</td>
@@ -103,8 +104,8 @@ export const printRepairJobBill = (job, activeShop) => {
         <td class="amount-value">€ ${advance.toFixed(2)}</td>
       </tr>
     </table>
-
     <hr class="divider-solid"/>
+    ` : ''}
 
     <table>
       <tr>
