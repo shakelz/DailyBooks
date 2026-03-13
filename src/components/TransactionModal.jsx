@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { generateId } from '../data/inventoryStore';
@@ -120,10 +120,11 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                     <title>Kassenbeleg</title>
                     <style>
                         @page { size: 58mm auto; margin: 0; }
-                        body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 16px; font-weight: 800; }
+                        body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 13px; font-weight: 800; }
                         .ticket { border: 1px solid #000; padding: 1.5mm; }
                         h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:16px; font-weight:900; gap: 8px; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:13px; font-weight:900; gap: 8px; }
+                        .row > span:last-child, .row > strong:last-child { white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; text-align: right; }
                         .line { border-top:1px solid #000; margin:8px 0; }
                         .center { text-align: center; }
                         .box { border: 1px solid #000; padding: 4px; margin: 4px 0; }
@@ -138,25 +139,23 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                             ${shopPhone ? `<p>Tel: ${escapeHtml(shopPhone)}</p>` : ''}
                         </div>
                         <div class="line"></div>
-                        <div class="box">
-                            <div class="row"><span>Datum</span><span>${new Date().toLocaleString('de-DE')}</span></div>
-                            <div class="row"><span>Belegnummer</span><span>${escapeHtml(transactionId)}</span></div>
+                        <div style="text-align: center; margin: 6px 0;">
+                            <p style="font-size: 11px; color: #555;">${new Date().toLocaleString('de-DE')}</p>
+                            <p style="font-size: 11px; color: #555;">Beleg: ${escapeHtml(transactionId)}</p>
                         </div>
                         <div class="line"></div>
-                        <div class="row" style="font-weight:700; border-bottom:1px solid #000; padding-bottom:4px;"><span>Artikel</span><span>Betrag</span></div>
-                        <div class="row"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)}</span></div>
-                        <div class="row"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
-                        <div class="row"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
+                        <div class="row" style="font-weight:900; border-bottom:1px solid #000; padding-bottom:4px;"><span>Artikel</span><span>Betrag</span></div>
+                        <div class="row" style="font-size:14px;"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)}</span></div>
+                        <div class="row" style="font-size:14px;"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
+                        <div class="row" style="font-size:14px;"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
                         <div class="line"></div>
-                        <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
-                        <div class="row"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                        <div class="row" style="font-size:16px;"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
                         ${includeTax ? `<div class="row" style="font-weight:900;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
                         <div class="row" style="font-weight:900;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
                         <div class="line"></div>
                         <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
-                        <div class="row"><span>Transaktion-ID</span><span>${escapeHtml(transactionId)}</span></div>
                         <div class="line"></div>
-                        <p style="font-size:14px; font-weight:800; text-align:center;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
+                        <p style="font-size:11px; font-weight:800; text-align:center;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
                     </div>
                 </body>
             </html>

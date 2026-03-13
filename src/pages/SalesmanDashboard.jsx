@@ -426,20 +426,21 @@ function buildReceiptHtml({
                 <title>Beleg</title>
                 <style>
                     @page { size: 58mm auto; margin: 0; }
-                    body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 16px; color: #111; font-weight: 800; }
+                    body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 13px; color: #111; font-weight: 800; }
                     .ticket { border: 1px solid #111; padding: 1.5mm; }
                     .center { text-align: center; }
                     .shop { font-size: 24px; font-weight: 900; margin-bottom: 3px; }
                     .line { border-top: 1px solid #111; margin: 6px 0; }
-                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; font-size: 16px; font-weight: 900; }
-                    .head { font-weight: 900; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; font-size: 16px; }
-                    .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 16px; font-weight: 800; }
+                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; font-size: 13px; font-weight: 900; }
+                    .row > span:last-child, .row > strong:last-child { white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+                    .head { font-weight: 900; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; font-size: 13px; }
+                    .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 14px; font-weight: 800; }
                     .line-name { flex: 1; }
-                    .line-price { text-align: right; min-width: 95px; font-weight: 900; }
-                    .small { font-size: 14px; line-height: 1.35; font-weight: 800; }
-                    .tax-table { width: 100%; margin-top: 6px; font-size: 16px; border-collapse: collapse; font-weight: 900; }
+                    .line-price { text-align: right; min-width: 85px; font-weight: 900; white-space: nowrap; }
+                    .small { font-size: 11px; line-height: 1.35; font-weight: 800; }
+                    .tax-table { width: 100%; margin-top: 6px; font-size: 13px; border-collapse: collapse; font-weight: 900; }
                     .tax-table td { padding: 2px 0; }
-                    .tax-table td:last-child { text-align: right; }
+                    .tax-table td:last-child { text-align: right; white-space: nowrap; }
                     .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
                 </style>
             </head>
@@ -453,9 +454,10 @@ function buildReceiptHtml({
                     </div>
 
                     <div class="line"></div>
-                    <div class="box">
-                        <div class="row"><span>Datum</span><span>${dt.toLocaleString('de-DE')}</span></div>
-                        <div class="row"><span>Belegnummer</span><span>${escapeHtml(receiptNo || '-')}</span></div>
+                    <div class="line"></div>
+                    <div style="text-align: center; margin: 6px 0;">
+                        <p style="font-size: 11px; color: #555;">${dt.toLocaleString('de-DE')}</p>
+                        <p style="font-size: 11px; color: #555;">Beleg: ${escapeHtml(receiptNo || '-')}</p>
                     </div>
 
                     <div class="line"></div>
@@ -463,8 +465,8 @@ function buildReceiptHtml({
                     ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 €</div></div>'}
 
                     <div class="line"></div>
-                    <div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>
-                    <div class="row"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                    ${rows.length > 1 ? `<div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>` : ''}
+                    <div class="row" style="font-size: 16px;"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
 
                     ${showTax ? `
                         <table class="tax-table">
@@ -482,7 +484,6 @@ function buildReceiptHtml({
 
                     <div class="line"></div>
                     <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
-                    <div class="row"><span>Transaktion-ID</span><span>${escapeHtml(receiptNo || '-')}</span></div>
                     <div class="line"></div>
                     <div class="small center">
                         Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName || 'Shop')}
