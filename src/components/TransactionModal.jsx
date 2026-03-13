@@ -119,9 +119,13 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                 <head>
                     <title>Kassenbeleg</title>
                     <style>
-                        @page { size: 58mm auto; margin: 0; }
-                        body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 15px; font-weight: 700; }
-                        .ticket { border: 1px solid #000; padding: 1.5mm; }
+                        @media print {
+                            html, body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; }
+                            .receipt-wrapper { width: 80mm; margin: 0 auto; }
+                        }
+                        body { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff; font-family: 'Courier New', monospace; font-size: 15px; font-weight: 700; }
+                        .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 8mm 5mm; }
+                        .ticket { border: 1px solid #000; padding: 1.5mm; width: 100%; box-sizing: border-box; }
                         h2,p { margin: 0; }
                         .row { display:flex; justify-content:space-between; margin-top:6px; font-size:15px; font-weight:700; gap: 8px; }
                         .row > span:last-child, .row > strong:last-child { white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; text-align: right; }
@@ -131,6 +135,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                     </style>
                 </head>
                 <body>
+                    <div class="receipt-wrapper">
                     <div class="ticket">
                         <div class="center">
                             <p style="font-size:15px; text-transform:uppercase; letter-spacing:2px; font-weight:900;">KUNDENBELEG</p>
@@ -149,13 +154,17 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                         <div class="row"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
                         <div class="row"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
                         <div class="line"></div>
-                        <div class="row" style="font-size:20px; font-weight:900;"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                        <div class="row" style="border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 0;">
+                            <strong style="font-size: 16px; font-weight: 900; padding: 6px 2px;">Gesamtbetrag</strong>
+                            <strong style="font-size: 16px; font-weight: 900; text-align: right; white-space: nowrap; padding: 6px 2px;">${formatMoney(grossTotal)}</strong>
+                        </div>
                         ${includeTax ? `<div class="row" style="font-size:13px; font-weight:700;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
                         <div class="row" style="font-size:13px; font-weight:700;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
                         <div class="line"></div>
                         <div class="row" style="font-size:15px; font-weight:700;"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
                         <div class="line"></div>
                         <p style="font-size:12px; font-weight:600; text-align:center; line-height:1.6;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
+                    </div>
                     </div>
                 </body>
             </html>

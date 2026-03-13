@@ -157,18 +157,20 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
             <head>
                 <title>Beleg ${esc(txn.transactionId || txn.id)}</title>
                 <style>
-                    @page { size: 58mm auto; margin: 0; }
+                    @media print {
+                        html, body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; }
+                        .receipt-wrapper { width: 80mm; margin: 0 auto; }
+                    }
                     body {
+                        display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff;
                         font-family: 'Courier New', Courier, monospace;
-                        width: 60mm;
-                        margin: 0 auto;
-                        padding: 0.5mm 0.8mm 0.8mm;
                         font-size: 15px;
                         line-height: 1.4;
                         color: #000;
                         font-weight: 700;
                     }
-                    .ticket { border: 1px solid #000; padding: 1.5mm; }
+                    .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 8mm 5mm; }
+                    .ticket { border: 1px solid #000; padding: 1.5mm; width: 100%; box-sizing: border-box; }
                     .text-center { text-align: center; }
                     .text-right { text-align: right; }
                     .bold { font-weight: 800; }
@@ -181,6 +183,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                 </style>
             </head>
             <body>
+                <div class="receipt-wrapper">
                 <div class="ticket">
                     <div class="text-center">
                         <div style="font-size:15px; text-transform:uppercase; letter-spacing:2px; font-weight:900;">KUNDENBELEG</div>
@@ -221,7 +224,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
 
                     ${taxRows}
 
-                    <table class="bold" style="font-size: 20px; border-top: 1px solid #000; padding-top: 4px; margin-top: 4px; font-weight: 900;">
+                    <table class="bold" style="font-size: 16px; font-weight: 900; border-top: 2px solid #000; border-bottom: 2px solid #000; margin-top: 4px;">
                         <tr>
                             <td style="padding: 6px 2px;">GESAMTBETRAG</td>
                             <td class="text-right" style="white-space: nowrap; padding: 6px 2px;">${formatAmount(amount)}</td>
@@ -236,6 +239,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                             Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${esc(receiptShopName)}
                         </div>
                     </div>
+                </div>
                 </div>
             </body>
             </html>

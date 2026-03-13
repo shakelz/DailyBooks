@@ -425,9 +425,13 @@ function buildReceiptHtml({
             <head>
                 <title>Beleg</title>
                 <style>
-                    @page { size: 58mm auto; margin: 0; }
-                    body { font-family: 'Courier New', monospace; width: 60mm; margin: 0 auto; padding: 0.5mm 0.8mm 0.8mm; font-size: 15px; color: #111; font-weight: 700; }
-                    .ticket { border: 1px solid #111; padding: 1.5mm; }
+                    @media print {
+                        html, body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; }
+                        .receipt-wrapper { width: 80mm; margin: 0 auto; }
+                    }
+                    body { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff; font-family: 'Courier New', monospace; font-size: 15px; color: #111; font-weight: 700; }
+                    .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 8mm 5mm; }
+                    .ticket { border: 1px solid #111; padding: 1.5mm; width: 100%; box-sizing: border-box; }
                     .center { text-align: center; }
                     .shop { font-size: 24px; font-weight: 900; margin-bottom: 3px; }
                     .line { border-top: 1px solid #111; margin: 6px 0; }
@@ -445,6 +449,7 @@ function buildReceiptHtml({
                 </style>
             </head>
             <body>
+                <div class="receipt-wrapper">
                 <div class="ticket">
                     <div class="center">
                         <div style="font-size:15px; font-weight:900; text-transform:uppercase; letter-spacing:2px;">KUNDENBELEG</div>
@@ -466,7 +471,10 @@ function buildReceiptHtml({
 
                     <div class="line"></div>
                     ${rows.length > 1 ? `<div class="row" style="font-size: 15px; font-weight: 700;"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>` : ''}
-                    <div class="row" style="font-size: 20px; font-weight: 900;"><strong>Gesamtbetrag</strong><strong>${formatMoney(grossTotal)}</strong></div>
+                    <div class="row" style="border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 0;">
+                        <strong style="font-size: 16px; font-weight: 900; padding: 6px 2px;">Gesamtbetrag</strong>
+                        <strong style="font-size: 16px; font-weight: 900; padding: 6px 2px; text-align: right; white-space: nowrap;">${formatMoney(grossTotal)}</strong>
+                    </div>
 
                     ${showTax ? `
                         <table class="tax-table">
@@ -488,6 +496,7 @@ function buildReceiptHtml({
                     <div class="small center">
                         Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName || 'Shop')}
                     </div>
+                </div>
                 </div>
             </body>
         </html>
@@ -2814,18 +2823,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <meta charset="utf-8"/>
                 <title>Online-Bestellung</title>
                 <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 5mm; color: #111; }
+                    @media print {
+                        html, body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; }
+                        .receipt-wrapper { width: 80mm; margin: 0 auto; }
+                    }
+                    body { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff; font-family: 'Courier New', monospace; color: #111; }
+                    .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 8mm 5mm; }
                     .divider { border: none; border-top: 1px dashed #999; margin: 10px 0; }
                     .shop-name { font-size: 24px; font-weight: 900; text-align: center; letter-spacing: 1px; }
                     .shop-sub { font-size: 14px; text-align: center; color: #333; font-weight: 600; margin-top: 3px; }
                     .footer { text-align: center; font-size: 13px; color: #555; margin-top: 14px; line-height: 1.6; font-weight: 600; }
-                    .total-row td { font-size: 20px; font-weight: 900; padding: 8px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; }
+                    .total-row td { font-size: 16px; font-weight: 900; padding: 8px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; }
                     .amount-row td { font-size: 15px; padding: 5px 0; font-weight: 600; }
-                    @media print { body { width: 80mm; } }
                 </style>
             </head>
             <body>
+                <div class="receipt-wrapper">
                 <p class="shop-name">${toSafe(receiptShopName)}</p>
                 ${receiptShopAddress ? `<p class="shop-sub">${toSafe(receiptShopAddress)}</p>` : ''}
                 ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
@@ -2880,7 +2893,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 ` : ''}
 
                 <hr class="divider"/>
+                <p class="footer">Bitte diesen Kundenbeleg zur Abholung der Online-Bestellung mitbringen.</p>
+                <p class="footer" style="margin-top: 4px;">Vielen Dank für Ihre Bestellung!</p>
+                <hr class="divider"/>
                 <p class="footer">Danke für Ihr Vertrauen!<br/>${toSafe(receiptShopName)}</p>
+                </div>
             </body>
             </html>
         `;

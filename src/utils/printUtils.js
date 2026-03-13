@@ -46,7 +46,41 @@ export const printRepairJobBill = (job, activeShop) => {
     <meta charset="utf-8"/>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 5mm; }
+      
+      @media print {
+        html, body {
+          width: 100%;
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 0;
+          padding: 0;
+        }
+        
+        .receipt-wrapper {
+          width: 80mm;
+          margin: 0 auto;
+        }
+      }
+
+      body {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px 0;
+        background: #fff;
+      }
+
+      .receipt-wrapper {
+        width: 80mm;
+        max-width: 80mm;
+        font-family: 'Courier New', monospace;
+        padding: 8mm 5mm;
+      }
+
       .center { text-align: center; }
       .shop-name { font-size: 24px; font-weight: 900; text-align: center; }
       .shop-sub { font-size: 14px; text-align: center; color: #111; font-weight: 700; margin-top: 2px; }
@@ -61,15 +95,15 @@ export const printRepairJobBill = (job, activeShop) => {
       .issue-box { border: 2px solid #000; padding: 8px; margin: 10px 0; font-size: 16px; font-weight: 900; color: #000; }
       .amount-label { font-size: 16px; font-weight: 800; color: #111; }
       .amount-value { font-size: 16px; font-weight: 900; text-align: right; color: #000; }
-      .total-label { font-size: 20px; font-weight: 900; color: #000; }
-      .total-value { font-size: 20px; font-weight: 900; text-align: right; color: #000; }
+      .total-label { font-size: 16px; font-weight: 900; color: #000; }
+      .total-value { font-size: 16px; font-weight: 900; text-align: right; color: #000; }
       .footer { text-align: center; font-size: 13px; color: #333; font-weight: 700; margin-top: 16px; line-height: 1.6; }
-      @media print { body { width: 80mm; } }
     </style>
   </head>
   <body>
-    <p class="bill-title">${billTitle}</p>
-    <p class="shop-name">${shopName}</p>
+    <div class="receipt-wrapper">
+      <p class="bill-title">${billTitle}</p>
+      <p class="shop-name">${shopName}</p>
     ${shopAddress ? `<p class="shop-sub">${shopAddress}</p>` : ''}
     ${shopPhone ? `<p class="shop-sub">Tel: ${shopPhone}</p>` : ''}
     
@@ -120,6 +154,7 @@ export const printRepairJobBill = (job, activeShop) => {
       ${isCompleted ? 'Vielen Dank für Ihren Auftrag!' : 'Bitte diesen Kundenbeleg zur Abholung mitbringen.'}<br/>
       ${shopName}
     </p>
+    </div>
   </body>
   </html>`
 
