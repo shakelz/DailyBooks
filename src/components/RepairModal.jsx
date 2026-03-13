@@ -73,7 +73,17 @@ export default function RepairModal({ isOpen, onClose }) {
             const invoiceNumber = String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim();
 
             if (shouldPrint) {
-                printRepairJobBill(job, activeShop);
+                printRepairJobBill({
+                    ...job,
+                    totalCost: parseFloat(form.cost) || 0,
+                    advance: parseFloat(form.advanceAmount) || 0,
+                    customerName: form.customerName.trim(),
+                    phone: form.phone.trim(),
+                    deviceModel: form.deviceModel.trim(),
+                    issue: form.problem.trim(),
+                    expectedDelivery: form.deliveryDate,
+                    status: 'pending'
+                }, activeShop);
             } else if (invoiceNumber) {
                 alert(`${t('repair.savedInvoice')} ${invoiceNumber}`);
             }

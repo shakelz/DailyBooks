@@ -2,13 +2,40 @@ export const printRepairJobBill = (job, activeShop) => {
   const shopName = String(activeShop?.name || 'Shop').trim()
   const shopAddress = String(activeShop?.address || '').trim()
   const shopPhone = String(activeShop?.telephone || activeShop?.phone || '').trim()
-  const jobNumber = String(job?.invoiceNumber || job?.invoice_number || job?.id || '').slice(0, 8).toUpperCase()
-  const remaining = (parseFloat(job?.totalCost || job?.total_cost || 0) - parseFloat(job?.advance || 0)).toFixed(2)
-  const deliveryDate = job?.expectedDelivery || job?.expected_delivery 
-    ? new Date(job.expectedDelivery || job.expected_delivery).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  
+  // Job number
+  const jobNumber = String(
+    job?.invoiceNumber || job?.invoice_number || 
+    job?.refId || job?.jobNumber || job?.job_number ||
+    job?.id || ''
+  ).replace(/\D/g, '').slice(-6) || 'N/A'
+
+  // Total cost
+  const totalCost = parseFloat(
+    job?.totalCost ?? job?.total_cost ?? 
+    job?.cost ?? job?.amount ?? job?.repairCost ?? job?.estimatedCost ?? 0
+  ) || 0
+
+  // Advance
+  const advance = parseFloat(
+    job?.advance ?? job?.advanceAmount ?? 
+    job?.advance_amount ?? job?.deposit ?? 0
+  ) || 0
+
+  const remaining = Math.max(0, totalCost - advance).toFixed(2)
+  const isCompleted = String(job?.status || '').toLowerCase() === 'completed'
+  
+  const customerName = String(job?.customerName || job?.customer_name || job?.name || '-')
+  const phone = String(job?.phone || job?.phoneNumber || job?.phone_number || job?.customerPhone || '-')
+  const deviceModel = String(job?.deviceModel || job?.device_model || job?.device || '-')
+  const imei = String(job?.imei || job?.IMEI || '')
+  const issue = String(job?.issue || job?.problem || job?.problemDescription || job?.problem_description || job?.issueType || '-')
+  
+  const deliveryDateSource = job?.expectedDelivery || job?.expected_delivery || job?.deliveryDate || job?.delivery_at
+  const deliveryDate = deliveryDateSource
+    ? new Date(deliveryDateSource).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : '-'
 
-  const isCompleted = job?.status === 'completed'
   const billTitle = isCompleted ? 'KASSENBON' : 'ABHOLSCHEIN'
 
   const html = `<!DOCTYPE html>
@@ -51,14 +78,14 @@ export const printRepairJobBill = (job, activeShop) => {
     <hr class="divider"/>
     
     <table>
-      <tr><td class="label">Name</td><td class="value">${job?.customerName || job?.customer_name || '-'}</td></tr>
-      <tr><td class="label">Telefon</td><td class="value">${job?.phone || '-'}</td></tr>
-      <tr><td class="label">Gerät</td><td class="value">${job?.deviceModel || job?.device_model || '-'}</td></tr>
-      ${(job?.imei || job?.IMEI) ? `<tr><td class="label">IMEI</td><td class="value">${job.imei || job.IMEI}</td></tr>` : ''}
+      <tr><td class="label">Name</td><td class="value">${customerName}</td></tr>
+      <tr><td class="label">Telefon</td><td class="value">${phone}</td></tr>
+      <tr><td class="label">Gerät</td><td class="value">${deviceModel}</td></tr>
+      ${imei ? `<tr><td class="label">IMEI</td><td class="value">${imei}</td></tr>` : ''}
       ${!isCompleted ? `<tr><td class="label">Abholung</td><td class="value">${deliveryDate}</td></tr>` : ''}
     </table>
 
-    <div class="issue-box">Fehler: ${job?.issue || job?.problem || job?.problemDescription || job?.problem_description || '-'}</div>
+    <div class="issue-box">Fehler: ${issue}</div>
 
     ${!isCompleted ? `<table><tr><td class="label">Status</td><td class="value">Ausstehend</td></tr></table>` : ''}
 
@@ -67,11 +94,11 @@ export const printRepairJobBill = (job, activeShop) => {
     <table>
       <tr>
         <td class="amount-label">Kosten</td>
-        <td class="amount-value">€ ${parseFloat(job?.totalCost || job?.total_cost || 0).toFixed(2)}</td>
+        <td class="amount-value">€ ${totalCost.toFixed(2)}</td>
       </tr>
       <tr>
         <td class="amount-label">Anzahlung</td>
-        <td class="amount-value">€ ${parseFloat(job?.advance || 0).toFixed(2)}</td>
+        <td class="amount-value">€ ${advance.toFixed(2)}</td>
       </tr>
     </table>
 
@@ -80,7 +107,7 @@ export const printRepairJobBill = (job, activeShop) => {
     <table>
       <tr>
         <td class="total-label">${isCompleted ? 'Gesamt' : 'Restbetrag'}</td>
-        <td class="total-value">€ ${isCompleted ? parseFloat(job?.totalCost || job?.total_cost || 0).toFixed(2) : remaining}</td>
+        <td class="total-value">€ ${isCompleted ? totalCost.toFixed(2) : remaining}</td>
       </tr>
     </table>
 
