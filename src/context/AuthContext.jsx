@@ -1224,6 +1224,8 @@ function normalizeSalesman(profile) {
         pin: user.pin,
         active: user.active,
         hourlyRate: user.hourlyRate,
+        monthlySalary: user.monthlySalary,
+        salaryType: user.salaryType,
         photo: user.photo,
         role: user.role,
         email: user.email,
