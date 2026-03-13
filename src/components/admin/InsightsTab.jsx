@@ -9,6 +9,7 @@ import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
     ComposedChart, Area, PieChart, Pie, Cell
 } from 'recharts';
+import DateRangeFilter from './DateRangeFilter';
 import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, Package, RefreshCw, BarChart3, Scale, Users, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
 
 const KPI_MODE_SALES = 'sales';
@@ -94,36 +95,17 @@ export default function InsightsTab() {
     const { transactions, products } = useInventory();
     const { isAdminLike, slowMovingDays, salesmen, attendanceLogs, activeShopId, user } = useAuth();
     const { repairJobs } = useRepairs();
-    const defaultStartDate = new Date(new Date().setDate(new Date().getDate() - 30));
-    const defaultEndDate = new Date();
-    const availableYears = useMemo(() => {
-        const years = new Set();
-        (transactions || []).forEach((txn) => {
-            const d = parseTransactionDate(txn);
-            if (!d) return;
-            years.add(d.getFullYear());
-        });
-        const list = Array.from(years).sort((a, b) => b - a);
-        if (list.length === 0) list.push(new Date().getFullYear());
-        return list;
-    }, [transactions]);
-
-    const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
-    const [timeView, setTimeView] = useState('monthly'); // monthly | weekly
-    const [repairDateFilter, setRepairDateFilter] = useState({
-        startDate: toInputDateString(defaultStartDate),
-        endDate: toInputDateString(defaultEndDate),
-    });
+    const [dateSelection, setDateSelection] = useState([
+        {
+            startDate: new Date(new Date().setDate(new Date().getDate() - 30)),
+            endDate: new Date(),
+            key: 'selection'
+        }
+    ]);
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
     const [showGrossProfitBreakdown, setShowGrossProfitBreakdown] = useState(false);
     const [categoryContributionModeMap, setCategoryContributionModeMap] = useState({});
-
-    useEffect(() => {
-        if (!availableYears.includes(selectedYear)) {
-            setSelectedYear(availableYears[0]);
-        }
-    }, [availableYears, selectedYear]);
 
     const settingsShopId = String(activeShopId || user?.shop_id || '').trim();
     useEffect(() => {
@@ -173,10 +155,12 @@ export default function InsightsTab() {
 
     // ── Helper: Calculate Business Metrics ──
     const analytics = useMemo(() => {
-        const periodType = timeView === 'weekly' ? 'weekly' : 'monthly';
-        const currentYear = Number(selectedYear) || new Date().getFullYear();
-        const rangeStart = new Date(currentYear, 0, 1, 0, 0, 0, 0);
-        const rangeEnd = new Date(currentYear, 11, 31, 23, 59, 59, 999);
+        const rangeStart = new Date(dateSelection[0].startDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(dateSelection[0].endDate);
+        rangeEnd.setHours(23, 59, 59, 999);
+        const diffDays = (rangeEnd - rangeStart) / (1000 * 60 * 60 * 24);
+        const periodType = diffDays <= 60 ? 'weekly' : 'monthly';
 
         const unified = computeUnifiedKpiSnapshot({
             transactions,
@@ -457,7 +441,7 @@ export default function InsightsTab() {
             ],
             slowMovingValue,
         };
-    }, [transactions, products, repairJobs, selectedYear, timeView, salesmen, slowMovingDays, categoryContributionModeMap]);
+    }, [transactions, products, repairJobs, dateSelection, salesmen, slowMovingDays, categoryContributionModeMap]);
 
     // ── Peak Hours Analysis ──
     const peakData = useMemo(() => {
@@ -525,9 +509,10 @@ export default function InsightsTab() {
 
     // ── Salary Analytics per salesman ──
     const salaryData = useMemo(() => {
-        const year = Number(selectedYear) || new Date().getFullYear();
-        const rangeStart = new Date(year, 0, 1, 0, 0, 0, 0);
-        const rangeEnd = new Date(year, 11, 31, 23, 59, 59, 999);
+        const rangeStart = new Date(dateSelection[0].startDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(dateSelection[0].endDate);
+        rangeEnd.setHours(23, 59, 59, 999);
 
         const perSalesman = {};
         let totalSalary = 0;
@@ -550,13 +535,14 @@ export default function InsightsTab() {
             perSalesman: Object.values(perSalesman).sort((a, b) => b.totalPaid - a.totalPaid),
             totalSalary
         };
-    }, [transactions, selectedYear]);
+    }, [transactions, dateSelection]);
 
     // ── Expense Breakdown by category ──
     const expenseData = useMemo(() => {
-        const year = Number(selectedYear) || new Date().getFullYear();
-        const rangeStart = new Date(year, 0, 1, 0, 0, 0, 0);
-        const rangeEnd = new Date(year, 11, 31, 23, 59, 59, 999);
+        const rangeStart = new Date(dateSelection[0].startDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(dateSelection[0].endDate);
+        rangeEnd.setHours(23, 59, 59, 999);
 
         const byCategory = {};
         let total = 0;
@@ -592,19 +578,14 @@ export default function InsightsTab() {
             categories: Object.values(byCategory).sort((a, b) => b.value - a.value),
             total
         };
-    }, [transactions, selectedYear, categoryContributionModeMap]);
+    }, [transactions, dateSelection, categoryContributionModeMap]);
 
     // ── Repairs Analytics ──
     const repairsData = useMemo(() => {
-        let rangeStart = safeDate(`${repairDateFilter.startDate}T00:00:00`) || new Date();
+        const rangeStart = new Date(dateSelection[0].startDate);
         rangeStart.setHours(0, 0, 0, 0);
-        let rangeEnd = safeDate(`${repairDateFilter.endDate}T23:59:59.999`) || new Date();
+        const rangeEnd = new Date(dateSelection[0].endDate);
         rangeEnd.setHours(23, 59, 59, 999);
-        if (rangeStart > rangeEnd) {
-            const tmp = rangeStart;
-            rangeStart = rangeEnd;
-            rangeEnd = tmp;
-        }
 
         const filtered = repairJobs.filter(j => {
             if (!j.createdAt) return false;
@@ -637,7 +618,7 @@ export default function InsightsTab() {
         }
 
         return { total: filtered.length, pending, inProgress, completed: completed.length, completedRevenue, estimatedTotal, avgTurnaround };
-    }, [repairJobs, repairDateFilter, transactions]);
+    }, [repairJobs, dateSelection, transactions]);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
@@ -648,36 +629,7 @@ export default function InsightsTab() {
                     <p className="text-slate-500 text-sm font-medium">Financial KPIs, Market Trends, and Inventory Analytics.</p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white shadow-sm">
-                        <Calendar size={14} className="text-slate-400" />
-                        <select
-                            value={selectedYear}
-                            onChange={(e) => setSelectedYear(Number(e.target.value))}
-                            className="text-xs font-bold text-slate-700 bg-transparent outline-none"
-                        >
-                            {availableYears.map((year) => (
-                                <option key={year} value={year}>{year}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
-                        <button
-                            type="button"
-                            onClick={() => setTimeView('monthly')}
-                            className={`px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg transition-all ${timeView === 'monthly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                        >
-                            Monthly
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setTimeView('weekly')}
-                            className={`px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg transition-all ${timeView === 'weekly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
-                        >
-                            Weekly
-                        </button>
-                    </div>
-                </div>
+                <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
             </div>
 
             {/* ── 1. Financial KPIs (The Big Picture) ── */}
