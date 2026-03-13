@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../supabaseClient';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
 import SmartCategoryForm from '../SmartCategoryForm';
 import DateRangeFilter from './DateRangeFilter';
@@ -58,6 +60,36 @@ export default function InventoryTab() {
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [bulkCategory, setBulkCategory] = useState('');
     const [bulkPercentage, setBulkPercentage] = useState('');
+
+    const [chartView, setChartView] = useState('category');
+    const [purchaseTransactions, setPurchaseTransactions] = useState([]);
+
+    useEffect(() => {
+        if (!activeShopId) return;
+
+        const fetchPurchases = async () => {
+            const start = new Date(dateSelection[0].startDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(dateSelection[0].endDate);
+            end.setHours(23, 59, 59, 999);
+
+            const { data, error } = await supabase
+                .from('transactions')
+                .select('id, amount, category, sub_category, type, created_at')
+                .eq('shop_id', activeShopId)
+                .in('type', ['expense', 'purchase', 'Expense', 'Purchase'])
+                .gte('created_at', start.toISOString())
+                .lte('created_at', end.toISOString())
+                .order('created_at', { ascending: false })
+                .limit(1000);
+
+            if (!error && data) {
+                setPurchaseTransactions(data);
+            }
+        };
+
+        fetchPurchases();
+    }, [activeShopId, dateSelection]);
 
     const [showAuditMode, setShowAuditMode] = useState(false);
     const [auditScans, setAuditScans] = useState(new Set());
@@ -184,6 +216,46 @@ export default function InventoryTab() {
         });
         return Object.entries(sources).sort((a, b) => b[1].totalBuy - a[1].totalBuy).slice(0, 5);
     }, [products]);
+
+    const categoryExpenseData = useMemo(() => {
+        const grouped = purchaseTransactions.reduce((acc, txn) => {
+            const category = String(
+                typeof txn.category === 'object' 
+                    ? (txn.category?.level1 || txn.category?.name || 'Other')
+                    : (txn.category || 'Other')
+            ).trim() || 'Other';
+            
+            acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
+            return acc;
+        }, {});
+
+        return Object.entries(grouped)
+            .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 10);
+    }, [purchaseTransactions]);
+
+    const subCategoryExpenseData = useMemo(() => {
+        const grouped = purchaseTransactions.reduce((acc, txn) => {
+            const parent = String(
+                typeof txn.category === 'object'
+                    ? (txn.category?.level1 || 'Other')
+                    : (txn.category || 'Other')
+            ).trim();
+            const sub = String(txn.subCategory || txn.sub_category || '').trim();
+            const label = sub ? `${parent} / ${sub}` : parent;
+
+            acc[label] = (acc[label] || 0) + (parseFloat(txn.amount) || 0);
+            return acc;
+        }, {});
+
+        return Object.entries(grouped)
+            .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 12);
+    }, [purchaseTransactions]);
+
+    const activeChartData = chartView === 'category' ? categoryExpenseData : subCategoryExpenseData;
 
 
     // ── Handlers ──
@@ -427,6 +499,88 @@ export default function InventoryTab() {
 
                 {/* ── Left: Main Table ── */}
                 <div className="lg:col-span-3 space-y-4">
+                    {/* Category Purchase Insights Chart */}
+                    <div className="mb-6 bg-white rounded-3xl border border-slate-100 shadow-sm p-6 lg:col-span-3 mr-0">
+                      <div className="flex items-center justify-between mb-6">
+                        <div>
+                          <h3 className="text-sm font-black text-slate-800">Purchase Breakdown</h3>
+                          <p className="text-xs text-slate-500 mt-0.5">Top spending categories from expenses & purchases</p>
+                        </div>
+                        <div className="flex rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                          <button
+                            onClick={() => setChartView('category')}
+                            className={`px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition-all ${chartView === 'category' ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                          >
+                            Category
+                          </button>
+                          <button
+                            onClick={() => setChartView('subcategory')}
+                            className={`px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition-all ${chartView === 'subcategory' ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                          >
+                            Sub-Category
+                          </button>
+                        </div>
+                      </div>
+
+                      {activeChartData.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-10 opacity-50">
+                            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-3 text-2xl text-slate-400">📊</div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">No purchase data available</p>
+                        </div>
+                      ) : (
+                        <div style={{ width: '100%', height: Math.max(250, activeChartData.length * 44) }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={activeChartData}
+                              layout="vertical"
+                              margin={{ top: 0, right: 30, left: -20, bottom: 0 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                              <XAxis
+                                type="number"
+                                tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }}
+                                tickFormatter={(v) => `€${v}`}
+                                axisLine={false}
+                                tickLine={false}
+                              />
+                              <YAxis
+                                type="category"
+                                dataKey="category"
+                                tick={{ fontSize: 11, fill: '#334155', fontWeight: 700 }}
+                                width={140}
+                                axisLine={false}
+                                tickLine={false}
+                              />
+                              <Tooltip
+                                formatter={(value) => [`€${Number(value).toFixed(2)}`, 'Amount']}
+                                contentStyle={{
+                                  borderRadius: '16px',
+                                  border: '1px solid #e2e8f0',
+                                  boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  padding: '8px 12px'
+                                }}
+                                itemStyle={{ color: '#0f172a' }}
+                              />
+                              <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={20} animationDuration={1000}>
+                                {activeChartData.map((entry, index) => (
+                                  <Cell
+                                    key={`cell-${index}`}
+                                    fill={[
+                                      '#f97316', '#ef4444', '#f43f5e', '#e11d48',
+                                      '#be123c', '#9f1239', '#881337', '#fcd34d',
+                                      '#fbbf24', '#f59e0b'
+                                    ][index % 10]}
+                                  />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Toolbar */}
                     <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-wrap gap-4 items-center justify-between">
                         <div className={`flex flex-1 min-w-[200px] items-center gap-3 px-4 py-2 rounded-2xl border transition-all ${showAuditMode ? 'bg-slate-50 border-emerald-400 ring-2 ring-emerald-100' : 'bg-slate-50 border-slate-100 focus-within:border-blue-300'}`}>
