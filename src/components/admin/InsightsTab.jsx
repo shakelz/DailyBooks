@@ -126,12 +126,12 @@ function extractExpenseCategory(txn = {}) {
 
     const desc = getTxnDescription(txn).toLowerCase();
     if (desc.includes('monatsgehalt') || desc.includes('salary') || desc.includes('gehalt')) {
-        return 'Personalkosten';
+        return 'Gehalt';
     }
 
     const notes = String(txn?.notes || '').toLowerCase();
     if (notes.includes('monthly_salary')) {
-        return 'Personalkosten';
+        return 'Gehalt';
     }
 
     return 'Sonstiges';
@@ -1380,7 +1380,7 @@ export default function InsightsTab() {
                                         </div>
                                         <div>
                                             <p className="text-sm font-bold text-slate-800">{s.name}</p>
-                                            <p className="text-[10px] text-slate-400">{s.sessions} Sitzung{s.sessions !== 1 ? 'en' : ''}</p>
+                                            <p className="text-[10px] text-slate-400">Monatsgehalt</p>
                                         </div>
                                     </div>
                                     <p className="text-sm font-black text-emerald-600 font-mono">{priceTag(s.totalPaid)}</p>
