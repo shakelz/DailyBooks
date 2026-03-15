@@ -49,55 +49,47 @@ export const printRepairJobBill = (job, activeShop) => {
       
       @media print {
         html, body {
-          width: 100%;
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
           margin: 0;
           padding: 0;
         }
         
         .receipt-wrapper {
-          width: 80mm;
-          margin: 0 auto;
+          width: 100%;
+          margin: 0;
         }
       }
 
       body {
-        display: flex;
-        align-items: flex-start;
-        justify-content: center;
-        min-height: 100vh;
-        margin: 0;
-        padding: 20px 0;
+        font-family: 'Courier New', monospace;
+        width: 80mm;
+        margin: 0 auto;
+        padding: 8mm 5mm;
+        line-height: 1.6;
         background: #fff;
       }
 
       .receipt-wrapper {
-        width: 80mm;
-        max-width: 80mm;
-        font-family: 'Courier New', monospace;
-        padding: 8mm 5mm;
+        width: 100%;
+        max-width: 100%;
       }
 
       .center { text-align: center; }
-      .shop-name { font-size: 24px; font-weight: 900; text-align: center; }
-      .shop-sub { font-size: 14px; text-align: center; color: #111; font-weight: 700; margin-top: 2px; }
-      .bill-title { font-size: 18px; font-weight: 900; text-align: center; letter-spacing: 3px; border: 2px solid #000; padding: 6px 0; margin: 8px 0; }
-      .job-number { font-size: 36px; font-weight: 900; text-align: center; letter-spacing: 4px; margin: 12px 0; color: #000; }
-      .divider { border: none; border-top: 1px dashed #666; margin: 8px 0; }
+      .shop-name { font-size: 26px; font-weight: 900; text-align: center; }
+      .shop-sub { font-size: 15px; font-weight: 600; text-align: center; color: #333; margin-top: 3px; }
+      .bill-title { font-size: 17px; font-weight: 900; text-align: center; letter-spacing: 3px; border: 2px solid #000; padding: 5px 0; margin: 8px 0; }
+      .job-number { font-size: 36px; font-weight: 900; text-align: center; letter-spacing: 4px; margin: 10px 0; }
+      .divider { border: none; border-top: 1px dashed #999; margin: 8px 0; }
       .divider-solid { border: none; border-top: 2px solid #000; margin: 8px 0; }
-      table { width: 100%; border-collapse: collapse; margin: 4px 0; }
-      td { font-size: 16px; padding: 6px 0; vertical-align: top; }
+      table { width: 100%; border-collapse: collapse; }
+      td { font-size: 16px; padding: 7px 2px; vertical-align: top; }
       .label { font-weight: 700; color: #222; width: 42%; }
-      .value { font-weight: 900; color: #000; text-align: right; }
-      .issue-box { border: 2px solid #000; padding: 8px; margin: 10px 0; font-size: 16px; font-weight: 900; color: #000; }
-      .amount-label { font-size: 16px; font-weight: 800; color: #111; }
-      .amount-value { font-size: 16px; font-weight: 900; text-align: right; color: #000; }
-      .total-label { font-size: 16px; font-weight: 900; color: #000; }
-      .total-value { font-size: 16px; font-weight: 900; text-align: right; color: #000; }
-      .footer { text-align: center; font-size: 13px; color: #333; font-weight: 700; margin-top: 16px; line-height: 1.6; }
+      .value { font-weight: 800; color: #000; text-align: right; }
+      .issue-box { border: 2px solid #000; padding: 7px 8px; margin: 8px 0; font-size: 16px; font-weight: 700; }
+      .amount-label { font-size: 16px; font-weight: 700; color: #222; }
+      .amount-value { font-size: 16px; font-weight: 800; text-align: right; }
+      .total-label { font-size: 22px; font-weight: 900; }
+      .total-value { font-size: 22px; font-weight: 900; text-align: right; }
+      .footer { text-align: center; font-size: 14px; color: #333; font-weight: 600; margin-top: 12px; line-height: 1.6; }
     </style>
   </head>
   <body>

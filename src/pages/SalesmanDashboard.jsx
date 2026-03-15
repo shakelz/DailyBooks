@@ -426,26 +426,27 @@ function buildReceiptHtml({
                 <title>Beleg</title>
                 <style>
                     @media print {
-                        html, body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; }
-                        .receipt-wrapper { width: 80mm; margin: 0 auto; }
+                        html, body { margin: 0; padding: 0; }
+                        .receipt-wrapper { width: 100%; margin: 0; }
                     }
-                    body { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff; font-family: 'Courier New', monospace; font-size: 15px; color: #111; font-weight: 700; }
-                    .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 8mm 5mm; }
+                    body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 5mm; line-height: 1.6; background: #fff; font-size: 16px; color: #111; font-weight: 700; }
+                    .receipt-wrapper { width: 100%; max-width: 100%; }
                     .ticket { border: 1px solid #111; padding: 1.5mm; width: 100%; box-sizing: border-box; }
                     .center { text-align: center; }
-                    .shop { font-size: 24px; font-weight: 900; margin-bottom: 3px; }
+                    .shop { font-size: 26px; font-weight: 900; margin-bottom: 3px; }
                     .line { border-top: 1px solid #111; margin: 6px 0; }
-                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; font-size: 15px; font-weight: 700; }
+                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; font-size: 16px; font-weight: 700; }
                     .row > span:last-child, .row > strong:last-child { white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; text-align: right; }
-                    .head { font-weight: 900; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; font-size: 15px; }
-                    .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 15px; font-weight: 700; }
+                    .head { font-weight: 900; border-bottom: 1px solid #111; padding-bottom: 4px; margin-bottom: 4px; font-size: 16px; }
+                    .line-item { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 16px; font-weight: 700; }
                     .line-name { flex: 1; }
                     .line-price { text-align: right; min-width: 85px; font-weight: 700; white-space: nowrap; }
                     .small { font-size: 12px; line-height: 1.6; font-weight: 600; }
                     .tax-table { width: 100%; margin-top: 6px; font-size: 13px; border-collapse: collapse; font-weight: 700; }
-                    .tax-table td { padding: 6px 2px; }
+                    .tax-table td { font-size: 16px; font-weight: 700; padding: 7px 2px; }
                     .tax-table td:last-child { text-align: right; white-space: nowrap; }
                     .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
+                    .footer { font-size: 14px; font-weight: 600; color: #333; line-height: 1.6; }
                 </style>
             </head>
             <body>
@@ -470,10 +471,10 @@ function buildReceiptHtml({
                     ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 €</div></div>'}
 
                     <div class="line"></div>
-                    ${rows.length > 1 ? `<div class="row" style="font-size: 15px; font-weight: 700;"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>` : ''}
+                    ${rows.length > 1 ? `<div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>` : ''}
                     <div class="row" style="border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 0;">
-                        <strong style="font-size: 16px; font-weight: 900; padding: 6px 2px;">Gesamtbetrag</strong>
-                        <strong style="font-size: 16px; font-weight: 900; padding: 6px 2px; text-align: right; white-space: nowrap;">${formatMoney(grossTotal)}</strong>
+                        <strong style="font-size: 22px; font-weight: 900; padding: 7px 2px;">Gesamtbetrag</strong>
+                        <strong style="font-size: 22px; font-weight: 900; padding: 7px 2px; text-align: right; white-space: nowrap;">${formatMoney(grossTotal)}</strong>
                     </div>
 
                     ${showTax ? `
@@ -493,7 +494,7 @@ function buildReceiptHtml({
                     <div class="line"></div>
                     <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
                     <div class="line"></div>
-                    <div class="small center">
+                    <div class="footer center">
                         Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName || 'Shop')}
                     </div>
                 </div>
@@ -2816,10 +2817,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const row = (label, value) => {
             if (!value || value === '-' || value === '') return '';
             return `
-                <tr>
-                    <td style="padding: 6px 0; font-size: 15px; font-weight: 600; color: #333; width: 48%; vertical-align: top;">${label}</td>
-                    <td style="padding: 6px 0; font-size: 15px; font-weight: 700; color: #000; text-align: right; vertical-align: top;">${toSafe(value)}</td>
-                </tr>`;
+    <tr>
+      <td style="padding: 7px 0; font-size: 16px; font-weight: 700; color: #222; width: 48%; vertical-align: top;">${label}</td>
+      <td style="padding: 7px 0; font-size: 16px; font-weight: 800; color: #000; text-align: right; vertical-align: top;">${toSafe(value)}</td>
+    </tr>`;
         };
 
         const html = `
@@ -2830,17 +2831,20 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <title>Online-Bestellung</title>
                 <style>
                     @media print {
-                        html, body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; }
-                        .receipt-wrapper { width: 80mm; margin: 0 auto; }
+                        html, body { margin: 0; padding: 0; }
+                        .receipt-wrapper { width: 100%; margin: 0; }
                     }
-                    body { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff; font-family: 'Courier New', monospace; color: #111; }
-                    .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 8mm 5mm; }
+                    body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 5mm; line-height: 1.6; background: #fff; }
+                    .receipt-wrapper { width: 100%; max-width: 100%; }
                     .divider { border: none; border-top: 1px dashed #999; margin: 10px 0; }
-                    .shop-name { font-size: 24px; font-weight: 900; text-align: center; letter-spacing: 1px; }
-                    .shop-sub { font-size: 14px; text-align: center; color: #333; font-weight: 600; margin-top: 3px; }
-                    .footer { text-align: center; font-size: 13px; color: #555; margin-top: 14px; line-height: 1.6; font-weight: 600; }
-                    .total-row td { font-size: 16px; font-weight: 900; padding: 8px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; }
-                    .amount-row td { font-size: 15px; padding: 5px 0; font-weight: 600; }
+                    .shop-name { font-size: 26px; font-weight: 900; text-align: center; letter-spacing: 1px; }
+                    .shop-sub { font-size: 15px; font-weight: 600; text-align: center; color: #333; margin-top: 3px; }
+                    .bill-title { font-size: 15px; font-weight: 900; text-align: center; letter-spacing: 2px; text-transform: uppercase; color: #555; margin-top: 6px; }
+                    .order-id span { background: #111; color: #fff; font-size: 17px; font-weight: 900; padding: 5px 14px; border-radius: 4px; letter-spacing: 2px; }
+                    .amount-row td { font-size: 16px; padding: 6px 0; font-weight: 700; }
+                    .total-label { font-size: 22px; font-weight: 900; }
+                    .total-value { font-size: 22px; font-weight: 900; text-align: right; }
+                    .footer { text-align: center; font-size: 14px; color: #555; font-weight: 600; margin-top: 14px; line-height: 1.6; }
                 </style>
             </head>
             <body>
@@ -2849,15 +2853,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 ${receiptShopAddress ? `<p class="shop-sub">${toSafe(receiptShopAddress)}</p>` : ''}
                 ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
                 
-                <p style="text-align: center; font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #555; margin-top: 6px;">— Online-Bestellung —</p>
+                <p class="bill-title">Online-Bestellung</p>
                 
                 <hr class="divider"/>
                 
                 <table style="width:100%; margin: 8px 0;">
-                    <tr>
+                    <tr class="order-id">
                         <td style="font-size: 15px; font-weight: 700; color: #111; width: 50%;">Abholung Nr.</td>
                         <td style="text-align: right;">
-                            <span style="background: #000 !important; color: #fff !important; font-size: 15px; font-weight: 900; padding: 4px 12px; border-radius: 4px; letter-spacing: 2px; display: inline-block; -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 2px solid #000;">${orderId}</span>
+                            <span style="display: inline-block; -webkit-print-color-adjust: exact; print-color-adjust: exact;">${orderId}</span>
                         </td>
                     </tr>
                 </table>
@@ -2879,16 +2883,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr class="amount-row">
-                        <td style="font-weight: 600; color: #333;">Kosten</td>
-                        <td style="text-align: right; font-weight: 700; color: #000;">€ ${totalPrice.toFixed(2)}</td>
+                        <td style="color: #333;">Kosten</td>
+                        <td style="text-align: right; color: #000;">€ ${totalPrice.toFixed(2)}</td>
                     </tr>
                     <tr class="amount-row">
-                        <td style="font-weight: 600; color: #333;">Anzahlung</td>
-                        <td style="text-align: right; font-weight: 700; color: #000;">€ ${advanceAmount.toFixed(2)}</td>
+                        <td style="color: #333;">Anzahlung</td>
+                        <td style="text-align: right; color: #000;">€ ${advanceAmount.toFixed(2)}</td>
                     </tr>
-                    <tr class="total-row">
-                        <td style="padding-right: 8px;">Restbetrag</td>
-                        <td style="text-align: right; white-space: nowrap;">€ ${remainingAmount.toFixed(2)}</td>
+                    <tr>
+                        <td class="total-label" style="padding-right: 8px;">Restbetrag</td>
+                        <td class="total-value" style="white-space: nowrap;">€ ${remainingAmount.toFixed(2)}</td>
                     </tr>
                 </table>
 
