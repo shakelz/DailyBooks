@@ -10,7 +10,6 @@ function asNumber(value) {
 const ReceiptTemplate = forwardRef(({
     items,
     transactionId,
-    paymentMethod,
     date,
     time,
     showTax,
@@ -123,12 +122,6 @@ const ReceiptTemplate = forwardRef(({
                     </tr>
                 </tbody>
             </table>
-
-            <div style={{ borderTop: '1px dashed #000', margin: '16px 0 8px 0' }} />
-
-            <div style={{ marginBottom: '8px', fontSize: '15px', fontWeight: '700' }}>
-                <strong>Zahlungsart:</strong> {paymentMethod || 'Bar'}
-            </div>
 
             <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.5', fontWeight: '600', textAlign: 'center' }}>
                 Rueckgabe/Umtausch innerhalb 14 Tagen nur in unbeschaedigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. {receiptShopName}

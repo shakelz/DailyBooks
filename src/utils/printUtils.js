@@ -226,7 +226,6 @@ function buildReceiptTimestamp(issuedAt) {
 function buildKundenbelegHtml({
   items = [],
   transactionId,
-  paymentMethod,
   shopInfo,
   issuedAt,
   showTax = true,
@@ -344,12 +343,6 @@ function buildKundenbelegHtml({
         </tbody>
       </table>
 
-      <hr class="divider" style="margin: 16px 0 8px;"/>
-
-      <div style="margin-bottom: 8px; font-size: 15px; font-weight: 700;">
-        <strong>Zahlungsart:</strong> ${escapePrintHtml(paymentMethod || 'Bar')}
-      </div>
-
       <div style="margin-top: 12px; font-size: 13px; line-height: 1.5; font-weight: 600; text-align: center;">
         R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.
         Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapePrintHtml(shopName)}
@@ -358,14 +351,13 @@ function buildKundenbelegHtml({
   </html>`
 }
 
-export function printKundenbeleg(items, transactionId, paymentMethod, shopInfo, options = {}) {
+export function printKundenbeleg(items, transactionId, _paymentMethod, shopInfo, options = {}) {
   const win = window.open('', '_blank', 'width=420,height=750')
   if (!win) return
 
   win.document.write(buildKundenbelegHtml({
     items,
     transactionId,
-    paymentMethod,
     shopInfo,
     issuedAt: options?.issuedAt,
     showTax: options?.showTax === undefined ? true : Boolean(options.showTax),

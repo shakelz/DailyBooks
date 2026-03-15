@@ -700,8 +700,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const deletingZeroMobileIdsRef = useRef(new Set());
     const zeroStockCleanupDoneRef = useRef(false);
     const deleteUndoTimeoutRef = useRef(null);
-    const lockTimerRef = useRef(null);
-    const lockDebounceRef = useRef(null);
     const isLockedRef = useRef(isLocked);
     const modalInteractionOpenRef = useRef(false);
     const pendingKpiSettingsReloadRef = useRef(false);
@@ -781,19 +779,31 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const receiptShopAddress = activeShop?.address || '';
     const receiptShopPhone = resolveShopPhone(activeShop);
     const settingsShopId = String(user?.shop_id || activeShop?.id || '').trim();
+    const lockTimeoutMs = !user?.id || adminView || !autoLockEnabled
+        ? 0
+        : Math.max(1, Number(autoLockTimeout) || 120) * 1000;
+    const anyModalOpen = Boolean(
+        showTransactionModal
+        || showRepairModal
+        || showInventoryForm
+        || showQuickSaleModal
+        || showCategoryModal
+        || showProfileModal
+        || showTransactionDetailModal
+        || showMobileInventoryModal
+        || showOtherInventoryModal
+        || showExcludedCategoriesModal
+        || showPendingOrders
+        || showOnlineOrderForm
+        || showTopBarcodeMatches
+        || showCalc
+        || showSalesProductSuggestions
+        || showPurchaseProductSuggestions
+    );
 
     useEffect(() => {
         isLockedRef.current = isLocked;
     }, [isLocked]);
-
-    useEffect(() => {
-        modalInteractionOpenRef.current = Boolean(
-            showTransactionModal
-            || showRepairModal
-            || showInventoryForm
-            || showQuickSaleModal
-        );
-    }, [showInventoryForm, showQuickSaleModal, showRepairModal, showTransactionModal]);
 
     useEffect(() => {
         pendingKpiSettingsReloadRef.current = false;
@@ -881,7 +891,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!settingsShopId || modalInteractionOpenRef.current || !pendingKpiSettingsReloadRef.current) return;
         pendingKpiSettingsReloadRef.current = false;
         loadKpiSettingsRef.current?.();
-    }, [settingsShopId, showInventoryForm, showQuickSaleModal, showRepairModal, showTransactionModal]);
+    }, [anyModalOpen, settingsShopId]);
 
     useEffect(() => {
         if (!user) {
@@ -901,79 +911,67 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     useEffect(() => {
         if (!user?.id || adminView) return;
-        if (!autoLockEnabled) {
+        if (!lockTimeoutMs) {
             setIsLocked(false);
             writeLockState(Date.now(), false);
             return;
         }
 
-        const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
         const lastActivityAt = readLastActivityAt();
         const now = Date.now();
         const elapsedMs = now - lastActivityAt;
         const persistedLocked = readPersistedLockFlag();
-        const shouldLock = persistedLocked || elapsedMs >= timeoutMs;
+        const shouldLock = persistedLocked || elapsedMs >= lockTimeoutMs;
         setIsLocked(shouldLock);
         writeLockState(lastActivityAt, shouldLock);
 
         if (!shouldLock) {
             writeLockState(lastActivityAt, false);
         }
-    }, [adminView, autoLockEnabled, autoLockTimeout, user?.id]);
+    }, [adminView, lockTimeoutMs, user?.id]);
 
     useEffect(() => {
-        if (!autoLockEnabled || !user?.id || adminView) return;
+        if (!lockTimeoutMs || lockTimeoutMs <= 0) return;
 
-        const timeoutMs = Math.max(1, Number(autoLockTimeout) || 120) * 1000;
-        
-        const RESET_EVENTS = ['mousemove', 'mousedown', 'keydown', 'keypress', 'touchstart', 'touchmove', 'click', 'scroll', 'wheel', 'pointermove'];
+        const RESET_EVENTS = [
+            'mousemove', 'mousedown', 'keydown', 'keypress',
+            'touchstart', 'touchmove', 'click', 'scroll', 'wheel', 'pointermove'
+        ];
+
+        let timer = null;
 
         const resetTimer = () => {
-            if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
-            lockTimerRef.current = setTimeout(() => {
-                // only lock if no modal is open
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+            writeLockState(Date.now(), isLockedRef.current);
+            if (modalInteractionOpenRef.current) return;
+            timer = setTimeout(() => {
                 if (!modalInteractionOpenRef.current) {
                     setIsLocked(true);
                     writeLockState(Date.now(), true);
                 }
-            }, timeoutMs);
+            }, lockTimeoutMs);
         };
 
-        RESET_EVENTS.forEach(event => window.addEventListener(event, resetTimer, { passive: true }));
-        resetTimer(); // start timer on mount
+        RESET_EVENTS.forEach((event) => {
+            window.addEventListener(event, resetTimer, { passive: true });
+        });
+
+        resetTimer();
 
         return () => {
-            RESET_EVENTS.forEach(event => window.removeEventListener(event, resetTimer));
-            if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+            if (timer) clearTimeout(timer);
+            RESET_EVENTS.forEach((event) => {
+                window.removeEventListener(event, resetTimer);
+            });
         };
-    }, [adminView, autoLockEnabled, autoLockTimeout, user?.id]);
+    }, [lockTimeoutMs, anyModalOpen]);
 
     useEffect(() => {
-        modalInteractionOpenRef.current = !!(
-            showProfileModal ||
-            showCategoryModal ||
-            showRepairModal ||
-            showPendingOrders ||
-            showOnlineOrderForm ||
-            showTopBarcodeMatches ||
-            showCalc ||
-            showQuickSaleModal ||
-            showInventoryForm ||
-            showTransactionModal ||
-            showMobileInventoryModal ||
-            showOtherInventoryModal ||
-            showSalesProductSuggestions ||
-            showPurchaseProductSuggestions ||
-            showTransactionDetailModal ||
-            showExcludedCategoriesModal
-        );
-    }, [
-        showProfileModal, showCategoryModal, showRepairModal, showPendingOrders,
-        showOnlineOrderForm, showTopBarcodeMatches, showCalc, showQuickSaleModal,
-        showInventoryForm, showTransactionModal, showMobileInventoryModal, showOtherInventoryModal,
-        showSalesProductSuggestions, showPurchaseProductSuggestions, showTransactionDetailModal,
-        showExcludedCategoriesModal
-    ]);
+        modalInteractionOpenRef.current = anyModalOpen;
+    }, [anyModalOpen]);
 
     const attemptUnlockWithPin = useCallback(async (pinValue = '') => {
         const enteredPin = String(pinValue || '').trim();
