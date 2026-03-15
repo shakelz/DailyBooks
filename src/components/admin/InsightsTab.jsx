@@ -107,8 +107,52 @@ export default function InsightsTab() {
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
     const [showGrossProfitBreakdown, setShowGrossProfitBreakdown] = useState(false);
     const [categoryContributionModeMap, setCategoryContributionModeMap] = useState({});
+    const [chartTransactions, setChartTransactions] = useState([]);
 
     const settingsShopId = String(activeShopId || user?.shop_id || '').trim();
+
+    // Fetch transactions with categories joined specifically for categorical charts
+    useEffect(() => {
+        if (!settingsShopId) return;
+
+        let cancelled = false;
+        const fetchChartData = async () => {
+            const { data, error } = await supabase
+                .from('transactions')
+                .select(`
+                    transaction_id,
+                    amount,
+                    tx_type,
+                    type,
+                    source,
+                    category_id,
+                    timestamp,
+                    date,
+                    time,
+                    categories (
+                        category_id,
+                        category_name
+                    )
+                `)
+                .eq('shop_id', settingsShopId)
+                .not('amount', 'is', null)
+                .gt('amount', 0);
+
+            if (cancelled) return;
+
+            if (error) {
+                console.error('Error fetching chart transactions:', error);
+                return;
+            }
+
+            if (data) {
+                setChartTransactions(data);
+            }
+        };
+
+        fetchChartData();
+        return () => { cancelled = true; };
+    }, [settingsShopId]);
     useEffect(() => {
         if (!settingsShopId) {
             setCategoryContributionModeMap({});
@@ -623,17 +667,40 @@ export default function InsightsTab() {
 
     // ── Categorical Breakdown Data ──
     const extractChartCategory = (txn) => {
+        // Priority 1: Joined categories table
+        if (txn?.categories?.category_name) {
+            return String(txn.categories.category_name).trim();
+        }
+
         const cat = txn?.category;
+        // Priority 2: Object format
         if (cat && typeof cat === 'object') {
             return String(cat.level1 || cat.name || cat.label || '').trim() || null;
         }
-        if (typeof cat === 'string' && cat.trim()) return cat.trim();
-        return String(txn?.category_name || txn?.categoryName || txn?.cat || '').trim() || null;
+        // Priority 3: String format (skipping UUIDs)
+        if (typeof cat === 'string' && cat.trim()) {
+            const trimmed = cat.trim();
+            // Simple heuristic to skip UUIDs (multiple dashes and 36 chars)
+            if (trimmed.length === 36 && (trimmed.match(/-/g) || []).length === 4) return null;
+            return trimmed;
+        }
+        // Priority 4: Fallback fields
+        const fallback = String(txn?.category_name || txn?.categoryName || txn?.cat || '').trim();
+        if (fallback && !(fallback.length === 36 && (fallback.match(/-/g) || []).length === 4)) return fallback;
+
+        return null;
     };
 
-    const isExpenseType = (txn) => {
-        const t = String(txn?.type || txn?.transactionType || txn?.tx_type || '').toLowerCase().trim();
+    const isExpenseTypeResolved = (txn) => {
+        // Prefer tx_type from DB
+        const t = String(txn?.tx_type || txn?.type || txn?.transactionType || '').toLowerCase().trim();
         return t.includes('expense') || t.includes('purchase') || t.includes('cost') || t === 'adjustment' || t === 'adjustment_amount';
+    };
+
+    const isSaleTypeResolved = (txn) => {
+        const t = String(txn?.tx_type || txn?.type || txn?.transactionType || '').toLowerCase().trim();
+        // Categorize anything not explicitly expense as sale if it has positive amount
+        return !isExpenseTypeResolved(txn) && (parseFloat(txn.amount) || 0) > 0;
     };
 
     const categoryExpenseData = useMemo(() => {
@@ -642,8 +709,8 @@ export default function InsightsTab() {
         const rangeEnd = new Date(dateSelection[0].endDate);
         rangeEnd.setHours(23, 59, 59, 999);
 
-        const purchaseTxns = (transactions || []).filter(txn => {
-            if (!isExpenseType(txn)) return false;
+        const purchaseTxns = (chartTransactions.length > 0 ? chartTransactions : (transactions || [])).filter(txn => {
+            if (!isExpenseTypeResolved(txn)) return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
@@ -659,7 +726,7 @@ export default function InsightsTab() {
             .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
             .sort((a, b) => b.amount - a.amount)
             .slice(0, 10);
-    }, [transactions, dateSelection]);
+    }, [transactions, chartTransactions, dateSelection]);
 
     const categorySalesData = useMemo(() => {
         const rangeStart = new Date(dateSelection[0].startDate);
@@ -667,10 +734,8 @@ export default function InsightsTab() {
         const rangeEnd = new Date(dateSelection[0].endDate);
         rangeEnd.setHours(23, 59, 59, 999);
 
-        const salesTxns = (transactions || []).filter(txn => {
-            if (isExpenseType(txn)) return false;
-            const amount = parseFloat(txn.amount) || 0;
-            if (amount <= 0) return false;
+        const salesTxns = (chartTransactions.length > 0 ? chartTransactions : (transactions || [])).filter(txn => {
+            if (!isSaleTypeResolved(txn)) return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
@@ -686,13 +751,13 @@ export default function InsightsTab() {
             .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
             .sort((a, b) => b.amount - a.amount)
             .slice(0, 10);
-    }, [transactions, dateSelection]);
+    }, [transactions, chartTransactions, dateSelection]);
 
-    // Debug: detailed transaction type analysis
-    console.log('InsightsTab total transactions received:', (transactions || []).length);
-    const typeSet = new Set((transactions || []).map(t => t.type));
-    console.log('All unique transaction types:', [...typeSet]);
-    console.log('Transaction types found:', (transactions || []).slice(0, 20).map(t => ({ type: t.type, transactionType: t.transactionType, tx_type: t.tx_type, category: t.category, amount: t.amount })));
+    // Debug: detailed transaction analysis
+    console.log('InsightsTab total transactions received (context):', (transactions || []).length);
+    console.log('InsightsTab chart transactions fetched (joined):', chartTransactions.length);
+    const typeSet = new Set((chartTransactions.length > 0 ? chartTransactions : (transactions || [])).map(t => t.tx_type || t.type));
+    console.log('Unique transaction types found:', [...typeSet]);
     console.log('categorySalesData:', categorySalesData);
     console.log('categoryExpenseData:', categoryExpenseData);
 
@@ -980,7 +1045,7 @@ export default function InsightsTab() {
                     {categorySalesData.length === 0 ? (
                         <p className="text-xs text-slate-400 text-center py-8">No sales data available for this period.</p>
                     ) : (
-                        <div style={{ width: '100%', height: Math.max(200, categorySalesData.length * 44) }}>
+                        <div style={{ width: '100%', height: `${Math.max(250, categorySalesData.length * 52)}px` }}>
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={categorySalesData} layout="vertical" margin={{ top: 0, right: 80, left: 10, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
@@ -1011,7 +1076,7 @@ export default function InsightsTab() {
                     {categoryExpenseData.length === 0 ? (
                         <p className="text-xs text-slate-400 text-center py-8">No expense data available for this period.</p>
                     ) : (
-                        <div style={{ width: '100%', height: Math.max(200, categoryExpenseData.length * 44) }}>
+                        <div style={{ width: '100%', height: `${Math.max(250, categoryExpenseData.length * 52)}px` }}>
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={categoryExpenseData} layout="vertical" margin={{ top: 0, right: 80, left: 10, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
