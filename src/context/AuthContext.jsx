@@ -1461,7 +1461,7 @@ function buildProfileInsertPayloads({
     const passwordVariants = safePasswordHash ? [{ password_hash: safePasswordHash }] : [{}];
     const rateValue = Number(hourlyRate);
     const hourlyVariants = Number.isFinite(rateValue)
-        ? [{ hourly_rate: rateValue, monthly_salary: asNumber(updates.monthlySalary, 0), salary_type: asString(updates.salaryType || 'hourly') }, {}]
+        ? [{ hourly_rate: rateValue, monthly_salary: 0, salary_type: 'hourly' }, {}]
         : [{}];
     const pinVariants = (includePinDigest && safePinDigest)
         ? [{ pin_digest: safePinDigest }]
