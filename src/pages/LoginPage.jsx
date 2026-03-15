@@ -5,7 +5,7 @@ import { supabase } from '../supabaseClient'
 
 const SALESMAN_LOGIN_PATH = '/terminal-access-v1'
 const ADMIN_LOGIN_PATH = '/management-portal-v1'
-const SALESMAN_DASHBOARD_PATH = `${SALESMAN_LOGIN_PATH}/dashboard`
+const SALESMAN_DASHBOARD_PATH = `${SALESMAN_LOGIN_PATH}/latest-dashboard`
 
 function normalizeRole(value = '') {
     const role = String(value || '').trim().toLowerCase()
