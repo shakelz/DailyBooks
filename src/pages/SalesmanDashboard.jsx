@@ -128,10 +128,38 @@ function todayIsoDate() {
 }
 
 function parseLocalDateInput(value = '') {
-    const [year, month, day] = String(value || '').split('-').map(Number);
-    if (!year || !month || !day) return null;
-    const date = new Date(year, month - 1, day, 0, 0, 0, 0);
-    return Number.isNaN(date.getTime()) ? null : date;
+    if (value instanceof Date) {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        date.setHours(0, 0, 0, 0);
+        return date;
+    }
+
+    if (typeof value === 'number') {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        date.setHours(0, 0, 0, 0);
+        return date;
+    }
+
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+
+    const localDateMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (localDateMatch) {
+        const [, yearValue, monthValue, dayValue] = localDateMatch;
+        const year = Number(yearValue);
+        const month = Number(monthValue);
+        const day = Number(dayValue);
+        if (!year || !month || !day) return null;
+        const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+    parsed.setHours(0, 0, 0, 0);
+    return parsed;
 }
 
 function formatLocalDateInput(value = new Date()) {
