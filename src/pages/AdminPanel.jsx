@@ -188,9 +188,14 @@ export default function AdminPanel() {
 
                 <main className="flex-1 overflow-auto p-4 pb-24 md:p-8 md:pb-8 relative">
                     <div className="max-w-7xl mx-auto">
-                        <div className="mb-5 flex justify-end">
-                            <div className="flex w-full max-w-[390px] flex-col items-stretch gap-3">
-                                {isSuperAdmin ? (
+                        <div className="mb-5 flex flex-wrap items-start justify-end gap-3">
+                            {tabToolbarContent ? (
+                                <div className="order-2 w-full sm:w-auto sm:min-w-[360px]">
+                                    {tabToolbarContent}
+                                </div>
+                            ) : null}
+                            {isSuperAdmin ? (
+                                <div className="order-1 w-full sm:w-auto sm:min-w-[330px]">
                                     <div className="relative rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                                         <div className="pr-8">
                                             <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">Shop wechseln</p>
@@ -216,13 +221,8 @@ export default function AdminPanel() {
                                         </div>
                                         <ChevronDown size={18} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
                                     </div>
-                                ) : null}
-                                {tabToolbarContent ? (
-                                    <div className="w-full">
-                                        {tabToolbarContent}
-                                    </div>
-                                ) : null}
-                            </div>
+                                </div>
+                            ) : null}
                         </div>
                         <Outlet context={{ setAdminTopBarContent: setTabToolbarContent }} />
                     </div>
