@@ -1,6 +1,8 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Users } from 'lucide-react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../supabaseClient';
 import { priceTag } from '../../utils/currency';
 import DateRangeFilter from './DateRangeFilter';
 
@@ -50,6 +52,25 @@ function getPaymentMethodLabel(value) {
     return PAYMENT_METHOD_LABELS[value] || value || 'Bar';
 }
 
+function normalizeMonthlySalesmen(rows = []) {
+    return (Array.isArray(rows) ? rows : [])
+        .map((row) => ({
+            user_id: String(row?.user_id || row?.id || '').trim(),
+            full_name: String(row?.full_name || row?.name || '').trim() || 'Mitarbeiter',
+            monthly_salary: parseFloat(row?.monthly_salary ?? row?.monthlySalary ?? 0) || 0,
+            salary_type: String(row?.salary_type || row?.salaryType || '').toLowerCase().trim() || 'monthly',
+            active: row?.active !== false,
+            shop_id: String(row?.shop_id || '').trim(),
+        }))
+        .filter((row) => row.user_id && row.salary_type === 'monthly' && row.active && row.monthly_salary > 0);
+}
+
+function formatMonthLabel(value) {
+    const date = new Date(`${String(value || '').trim()}-01T12:00:00`);
+    if (Number.isNaN(date.getTime())) return String(value || '').trim() || '-';
+    return date.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+}
+
 function nowLocalInputValue() {
     const now = new Date();
     const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
@@ -95,8 +116,9 @@ function getTxnInvoiceNumber(txn) {
 
 export default function ExpensesTab() {
     const { transactions, addTransaction, updateTransaction, deleteTransaction } = useInventory();
-    const { attendanceLogs, salesmen } = useAuth();
+    const { attendanceLogs, salesmen, activeShopId } = useAuth();
     const salarySyncInFlightRef = useRef(false);
+    const toastTimeoutRef = useRef(null);
 
     const [dateSelection, setDateSelection] = useState([
         {
@@ -125,6 +147,16 @@ export default function ExpensesTab() {
     const [editCustomCategory, setEditCustomCategory] = useState('');
     const [editPaymentMethod, setEditPaymentMethod] = useState('Cash');
     const [editWhen, setEditWhen] = useState(nowLocalInputValue());
+    const [showSalarySection, setShowSalarySection] = useState(false);
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    });
+    const [monthlySalesmen, setMonthlySalesmen] = useState([]);
+    const [editedSalaries, setEditedSalaries] = useState({});
+    const [isBooking, setIsBooking] = useState(false);
+    const [alreadyBooked, setAlreadyBooked] = useState(false);
+    const [toast, setToast] = useState('');
 
     const rangeStart = useMemo(() => {
         const d = new Date(dateSelection[0].startDate);
@@ -295,6 +327,126 @@ export default function ExpensesTab() {
         }, { income: 0, expense: 0 });
     }, [rows]);
 
+    const monthlySalesmenCount = monthlySalesmen.length;
+    const totalMonthlySalary = useMemo(
+        () => monthlySalesmen
+            .reduce((sum, salesman) => sum + (parseFloat(editedSalaries[salesman.user_id] ?? salesman.monthly_salary) || 0), 0)
+            .toFixed(2),
+        [monthlySalesmen, editedSalaries]
+    );
+    const currentMonth = useMemo(() => formatMonthLabel(selectedMonth), [selectedMonth]);
+
+    useEffect(() => {
+        return () => {
+            if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+        };
+    }, []);
+
+    const showToastMessage = (message, duration = 2200) => {
+        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+        setToast(message);
+        toastTimeoutRef.current = setTimeout(() => {
+            setToast('');
+            toastTimeoutRef.current = null;
+        }, duration);
+    };
+
+    useEffect(() => {
+        if (!activeShopId) {
+            setMonthlySalesmen([]);
+            setEditedSalaries({});
+            return;
+        }
+
+        let cancelled = false;
+
+        const fetchMonthlySalesmen = async () => {
+            const fallbackRows = normalizeMonthlySalesmen(salesmen)
+                .filter((salesman) => !salesman.shop_id || String(salesman.shop_id) === String(activeShopId));
+
+            const preferredResult = await supabase
+                .from('profiles')
+                .select('user_id, full_name, monthly_salary, salary_type, active, shop_id')
+                .eq('shop_id', activeShopId)
+                .eq('salary_type', 'monthly')
+                .eq('active', true)
+                .gt('monthly_salary', 0);
+
+            let rows = preferredResult.data;
+            let error = preferredResult.error;
+
+            if (error) {
+                const fallbackQuery = await supabase
+                    .from('profiles')
+                    .select('user_id, full_name, monthly_salary, salary_type, shop_id')
+                    .eq('shop_id', activeShopId)
+                    .eq('salary_type', 'monthly')
+                    .gt('monthly_salary', 0);
+                rows = fallbackQuery.data;
+                error = fallbackQuery.error;
+            }
+
+            const normalizedRows = error
+                ? fallbackRows
+                : normalizeMonthlySalesmen(rows).length > 0
+                    ? normalizeMonthlySalesmen(rows)
+                    : fallbackRows;
+
+            if (cancelled) return;
+
+            setMonthlySalesmen(normalizedRows);
+            setEditedSalaries((prev) => {
+                const validIds = new Set(normalizedRows.map((salesman) => salesman.user_id));
+                return Object.fromEntries(
+                    Object.entries(prev).filter(([userId]) => validIds.has(userId))
+                );
+            });
+        };
+
+        fetchMonthlySalesmen();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activeShopId, salesmen]);
+
+    useEffect(() => {
+        if (!activeShopId || !selectedMonth) {
+            setAlreadyBooked(false);
+            return;
+        }
+
+        let cancelled = false;
+
+        const checkIfBooked = async () => {
+            const { data, error } = await supabase
+                .from('transactions')
+                .select('transaction_id, notes')
+                .eq('shop_id', activeShopId)
+                .ilike('notes', `%monthly_salary%${selectedMonth}%`)
+                .limit(1);
+
+            if (cancelled) return;
+
+            if (error) {
+                const localMatch = (Array.isArray(transactions) ? transactions : []).some((txn) => {
+                    const notes = String(txn?.notes || '');
+                    return notes.includes('monthly_salary') && notes.includes(selectedMonth);
+                });
+                setAlreadyBooked(localMatch);
+                return;
+            }
+
+            setAlreadyBooked(Array.isArray(data) && data.length > 0);
+        };
+
+        checkIfBooked();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activeShopId, selectedMonth, transactions]);
+
     const resetForm = () => {
         setDesc('');
         setAmount('');
@@ -303,6 +455,97 @@ export default function ExpensesTab() {
         setCustomCategory('');
         setPaymentMethod('Cash');
         setWhen(nowLocalInputValue());
+    };
+
+    const handleSalaryEdit = (userId, value) => {
+        setEditedSalaries((prev) => ({ ...prev, [userId]: parseFloat(value) || 0 }));
+    };
+
+    const handleSalarySave = async (userId) => {
+        if (!activeShopId) return;
+        const newAmount = parseFloat(editedSalaries[userId]) || 0;
+
+        let { error } = await supabase
+            .from('profiles')
+            .update({
+                monthly_salary: newAmount,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', userId)
+            .eq('shop_id', activeShopId);
+
+        if (error && /updated_at/i.test(String(error?.message || ''))) {
+            const fallbackResult = await supabase
+                .from('profiles')
+                .update({ monthly_salary: newAmount })
+                .eq('user_id', userId)
+                .eq('shop_id', activeShopId);
+            error = fallbackResult.error;
+        }
+
+        if (error) {
+            alert(error?.message || 'Gehalt konnte nicht aktualisiert werden.');
+            return;
+        }
+
+        setMonthlySalesmen((prev) => prev.map((salesman) => (
+            salesman.user_id === userId
+                ? { ...salesman, monthly_salary: newAmount }
+                : salesman
+        )));
+        setEditedSalaries((prev) => {
+            const next = { ...prev };
+            delete next[userId];
+            return next;
+        });
+        showToastMessage('Gehalt aktualisiert');
+    };
+
+    const handleBookSalaries = async () => {
+        if (!activeShopId) {
+            alert('Bitte zuerst einen Shop auswählen.');
+            return;
+        }
+        if (monthlySalesmen.length === 0) return;
+
+        setIsBooking(true);
+
+        try {
+            const monthName = formatMonthLabel(selectedMonth);
+            const bookingDate = new Date(`${selectedMonth}-01T12:00:00`);
+            const safeBookingDate = Number.isNaN(bookingDate.getTime()) ? new Date() : bookingDate;
+
+            for (const salesman of monthlySalesmen) {
+                const amount = parseFloat(editedSalaries[salesman.user_id] ?? salesman.monthly_salary) || 0;
+                if (amount <= 0) continue;
+
+                await addTransaction({
+                    desc: `Monatsgehalt - ${salesman.full_name} - ${monthName}`,
+                    category: 'Personalkosten',
+                    amount,
+                    quantity: 1,
+                    type: 'expense',
+                    tx_type: 'fixed_expense',
+                    paymentMethod: 'Bank Transfer',
+                    is_fixed_expense: true,
+                    isFixedExpense: true,
+                    workerId: salesman.user_id,
+                    shop_id: activeShopId,
+                    notes: `monthly_salary;user_id=${salesman.user_id};month=${selectedMonth}`,
+                    source: 'salary',
+                    date: safeBookingDate.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: safeBookingDate.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                    timestamp: safeBookingDate.toISOString(),
+                });
+            }
+
+            setAlreadyBooked(true);
+            showToastMessage(`Gehälter für ${monthName} erfolgreich gebucht`, 3200);
+        } catch (error) {
+            alert(`Fehler beim Buchen: ${error?.message || 'Unbekannter Fehler'}`);
+        } finally {
+            setIsBooking(false);
+        }
     };
 
     const submitEntry = async (e) => {
@@ -391,6 +634,11 @@ export default function ExpensesTab() {
 
     return (
         <div className="space-y-6 pb-10">
+            {toast && (
+                <div className="fixed right-4 top-4 z-50 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-2xl">
+                    {toast}
+                </div>
+            )}
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">Ausgaben &amp; Einnahmen</h1>
@@ -402,6 +650,109 @@ export default function ExpensesTab() {
                         {showForm ? 'Abbrechen' : 'Ausgabe hinzufügen'}
                     </button>
                 </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6">
+                <button
+                    type="button"
+                    onClick={() => setShowSalarySection((prev) => !prev)}
+                    className="w-full flex items-center justify-between p-5 hover:bg-slate-50 rounded-2xl transition-all"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center">
+                            <Users size={18} className="text-purple-600" />
+                        </div>
+                        <div className="text-left">
+                            <p className="text-sm font-black text-slate-800">Monatsgehälter buchen</p>
+                            <p className="text-xs text-slate-500">
+                                {currentMonth} - {monthlySalesmenCount} Mitarbeiter - Gesamt: €{totalMonthlySalary}
+                            </p>
+                        </div>
+                    </div>
+                    <ChevronDown size={18} className={`text-slate-400 transition-transform ${showSalarySection ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showSalarySection && (
+                    <div className="px-5 pb-5 border-t border-slate-100">
+                        <div className="flex flex-wrap items-center gap-3 mt-4 mb-4">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Monat:</label>
+                            <input
+                                type="month"
+                                value={selectedMonth}
+                                onChange={(e) => setSelectedMonth(e.target.value)}
+                                className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-medium"
+                            />
+                            {alreadyBooked && (
+                                <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-lg">
+                                    Bereits gebucht für diesen Monat
+                                </span>
+                            )}
+                        </div>
+
+                        {!activeShopId ? (
+                            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                                Bitte einen Shop auswählen, um Monatsgehälter zu laden.
+                            </div>
+                        ) : monthlySalesmen.length === 0 ? (
+                            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                                Keine Mitarbeiter mit Monatsgehalt gefunden.
+                            </div>
+                        ) : (
+                            <>
+                                <div className="space-y-2 mb-4">
+                                    {monthlySalesmen.map((salesman) => {
+                                        const currentValue = parseFloat(editedSalaries[salesman.user_id] ?? salesman.monthly_salary) || 0;
+                                        const savedValue = parseFloat(salesman.monthly_salary) || 0;
+                                        const isDirty = editedSalaries[salesman.user_id] !== undefined && currentValue !== savedValue;
+                                        return (
+                                            <div key={salesman.user_id} className="flex items-center gap-3 bg-slate-50 rounded-xl px-4 py-3">
+                                                <div className="flex-1">
+                                                    <p className="text-sm font-bold text-slate-800">{salesman.full_name}</p>
+                                                    <p className="text-xs text-slate-500">Monatsgehalt</p>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-slate-400">€</span>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={currentValue}
+                                                        onChange={(e) => handleSalaryEdit(salesman.user_id, e.target.value)}
+                                                        className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm font-bold text-right"
+                                                    />
+                                                    {isDirty && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSalarySave(salesman.user_id)}
+                                                            className="text-xs bg-blue-600 text-white px-2 py-1 rounded-lg font-bold hover:bg-blue-700"
+                                                        >
+                                                            Speichern
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+                                    <div>
+                                        <p className="text-xs text-slate-500">Gesamtbetrag</p>
+                                        <p className="text-xl font-black text-slate-800">€ {totalMonthlySalary}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleBookSalaries}
+                                        disabled={isBooking || monthlySalesmen.length === 0}
+                                        className="px-5 py-2.5 rounded-xl bg-purple-600 text-white font-bold text-sm hover:bg-purple-700 disabled:opacity-60 transition-all"
+                                    >
+                                        {isBooking ? 'Wird gebucht...' : alreadyBooked ? 'Erneut buchen' : 'Gehälter buchen'}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -14,7 +14,7 @@ export default function AdminSettings() {
         autoLockEnabled, setAutoLockEnabled,
         autoLockTimeout, setAutoLockTimeout
     } = useAuth();
-    const { clearLocalInventoryCache, addTransaction } = useInventory();
+    const { clearLocalInventoryCache } = useInventory();
 
     // ── Password State ──
     const [newPass, setNewPass] = useState('');
@@ -161,54 +161,6 @@ export default function AdminSettings() {
 
         const { data } = supabase.storage.from('inventory-images').getPublicUrl(storagePath);
         return data?.publicUrl || '';
-    };
-
-    const handlePayMonthlySalaries = async () => {
-        const monthlyStaff = salesmen.filter(s => (s.salaryType || s.salary_type) === 'monthly' && Number(s.monthlySalary || s.monthly_salary) > 0);
-        if (monthlyStaff.length === 0) {
-            alert('Keine Mitarbeiter mit hinterlegtem Monatsgehalt gefunden.');
-            return;
-        }
-
-        const totalToPay = monthlyStaff.reduce((sum, s) => sum + Number(s.monthlySalary || s.monthly_salary), 0);
-        if (!window.confirm(`Monatsgehälter für ${monthlyStaff.length} Mitarbeiter mit insgesamt €${totalToPay.toFixed(2)} auszahlen?`)) {
-            return;
-        }
-
-        let successCount = 0;
-        let failCount = 0;
-        const now = new Date();
-        const dateStr = now.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
-        const timeStr = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
-        const isoString = now.toISOString();
-
-        for (const staff of monthlyStaff) {
-            try {
-                const amount = Number(staff.monthlySalary || staff.monthly_salary);
-                await addTransaction({
-                    desc: `Salary: ${staff.name} (Monthly)`,
-                    amount,
-                    type: 'expense',
-                    tx_type: 'fixed_expense',
-                    category: 'Salary',
-                    paymentMethod: 'Auto',
-                    source: 'admin-expense',
-                    is_fixed_expense: true,
-                    isFixedExpense: true,
-                    workerId: staff.id,
-                    notes: `salary_monthly | worker_id:${staff.id} | period:${dateStr}`,
-                    date: dateStr,
-                    time: timeStr,
-                    timestamp: isoString,
-                });
-                successCount++;
-            } catch (err) {
-                console.error(`Failed to process salary for ${staff.name}:`, err);
-                failCount++;
-            }
-        }
-
-        alert(`Monatsgehälter abgeschlossen.\nErfolgreich: ${successCount}\nFehlgeschlagen: ${failCount}`);
     };
 
     const handleAddSalesman = async (e) => {
@@ -1300,17 +1252,6 @@ export default function AdminSettings() {
                     )}
                 </div>
 
-                {/* Pay Monthly Salaries Button */}
-                {salesmen.filter(s => (s.salaryType || s.salary_type) === 'monthly').length > 0 && (
-                    <div className="pt-4 mt-6 border-t border-slate-100 flex justify-end">
-                        <button
-                            onClick={handlePayMonthlySalaries}
-                            className="px-6 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl shadow-sm hover:bg-emerald-700 transition"
-                        >
-                            Monatsgehälter auszahlen
-                        </button>
-                    </div>
-                )}
             </div>
 
             {/* ── Salesman Display Security ── */}
