@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import DateRangeFilter from '../components/admin/DateRangeFilter';
 import {
     LayoutDashboard, Package, TrendingUp, Settings,
     LogOut, ChevronLeft, ChevronRight, Menu, FileText, Wrench
@@ -21,18 +20,6 @@ export default function AdminPanel() {
     const [sidebarOpen, setSidebarOpen] = useState(() => (
         typeof window !== 'undefined' ? window.innerWidth >= 768 : true
     ));
-    const [adminDashboardDateSelection, setAdminDashboardDateSelection] = useState([
-        (() => {
-            const endDate = new Date();
-            const startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
-            startDate.setHours(0, 0, 0, 0);
-            return {
-                startDate,
-                endDate,
-                key: 'selection',
-            };
-        })(),
-    ]);
 
     const currentShop = useMemo(
         () => shops.find((s) => String(s.id) === String(activeShopId)) || null,
@@ -99,10 +86,6 @@ export default function AdminPanel() {
     };
 
     const showSidebarLabels = isMobile || sidebarOpen;
-    const isDashboardRoute = location.pathname.startsWith(`${ADMIN_BASE_ROUTE}/dashboard`)
-        || location.pathname.startsWith(`${ADMIN_BASE_ROUTE}/owner-dashboard`);
-    const showSharedDateFilter = isDashboardRoute
-        || location.pathname.startsWith(`${ADMIN_BASE_ROUTE}/insights`);
 
     return (
         <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -201,12 +184,6 @@ export default function AdminPanel() {
                 <main className="flex-1 overflow-auto p-4 pb-24 md:p-8 md:pb-8 relative">
                     <div className="max-w-7xl mx-auto">
                         <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
-                            {showSharedDateFilter ? (
-                                <DateRangeFilter
-                                    dateSelection={adminDashboardDateSelection}
-                                    setDateSelection={setAdminDashboardDateSelection}
-                                />
-                            ) : null}
                             {isSuperAdmin ? (
                                 <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
                                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Shop wechseln</span>
@@ -232,12 +209,7 @@ export default function AdminPanel() {
                                 </div>
                             ) : null}
                         </div>
-                        <Outlet
-                            context={{
-                                adminDashboardDateSelection,
-                                setAdminDashboardDateSelection,
-                            }}
-                        />
+                        <Outlet />
                     </div>
                 </main>
 
