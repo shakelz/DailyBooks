@@ -157,3 +157,220 @@ export const printRepairJobBill = (job, activeShop) => {
   win.focus()
   setTimeout(() => { win.print(); win.close() }, 500)
 }
+
+function escapePrintHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('\'', '&#39;')
+}
+
+function formatReceiptMoney(value) {
+  return Number(value || 0).toLocaleString('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+function resolveReceiptItemLabel(item = {}) {
+  return String(
+    item?.name
+    || item?.productName
+    || item?.product_name
+    || item?.desc
+    || 'Artikel'
+  ).trim() || 'Artikel'
+}
+
+function resolveReceiptItemTotal(item = {}) {
+  return Number(item?.total ?? item?.amount ?? 0) || 0
+}
+
+function resolveReceiptItemQuantity(item = {}) {
+  return Math.max(1, parseInt(item?.quantity || '1', 10) || 1)
+}
+
+function resolveReceiptItemCategory(item = {}) {
+  const category = item?.categorySnapshot || item?.category || item?.productSnapshot?.category || ''
+  if (!category) return ''
+  if (typeof category === 'string') return category.trim()
+  return String(category?.level1 || category?.name || '').trim()
+}
+
+function resolveReceiptItemImei(item = {}) {
+  const attrs = {
+    ...(item?.productSnapshot?.verifiedAttributes || {}),
+    ...(item?.verifiedAttributes || {}),
+  }
+  const imei = attrs.IMEI || attrs.imei || ''
+  if (!imei) return ''
+  const category = resolveReceiptItemCategory(item).toLowerCase()
+  const looksLikePhone = category.includes('phone')
+    || category.includes('smartphone')
+    || category.includes('handy')
+    || category.includes('mobile')
+  return looksLikePhone ? String(imei).trim() : ''
+}
+
+function buildReceiptTimestamp(issuedAt) {
+  const source = issuedAt ? new Date(issuedAt) : new Date()
+  const safeDate = Number.isNaN(source.getTime()) ? new Date() : source
+  return {
+    date: safeDate.toLocaleDateString('de-DE'),
+    time: safeDate.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+  }
+}
+
+function buildKundenbelegHtml({
+  items = [],
+  transactionId,
+  paymentMethod,
+  shopInfo,
+  issuedAt,
+  showTax = true,
+}) {
+  const shopName = String(shopInfo?.name || 'Shop').trim() || 'Shop'
+  const shopAddress = String(shopInfo?.address || '').trim()
+  const shopPhone = String(shopInfo?.telephone || shopInfo?.phone || '').trim()
+  const lineItems = Array.isArray(items) ? items : []
+  const grossTotal = lineItems.reduce((sum, item) => sum + resolveReceiptItemTotal(item), 0)
+  const netTotal = grossTotal / 1.19
+  const taxTotal = grossTotal - netTotal
+  const shouldShowTax = Boolean(showTax)
+  const timestamp = buildReceiptTimestamp(issuedAt)
+  const itemRows = lineItems.map((item) => {
+    const qty = resolveReceiptItemQuantity(item)
+    const imei = resolveReceiptItemImei(item)
+    return `
+      <tr>
+        <td style="vertical-align: top; padding-top: 7px; font-size: 15px; font-weight: 700;">${qty}x</td>
+        <td style="vertical-align: top; padding-top: 7px; font-size: 15px; font-weight: 700;">
+          <div>${escapePrintHtml(resolveReceiptItemLabel(item))}</div>
+          ${imei ? `<div style="font-size: 10px; color: #333; margin-top: 2px;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
+        </td>
+        <td style="vertical-align: top; padding-top: 7px; font-size: 15px; font-weight: 700; text-align: right;">
+          &euro; ${formatReceiptMoney(resolveReceiptItemTotal(item))}
+        </td>
+      </tr>
+    `
+  }).join('')
+
+  return `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta charset="utf-8"/>
+      <title>KUNDENBELEG</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        @media print {
+          html, body { margin: 0; padding: 0; }
+          body { width: 80mm; }
+        }
+        body {
+          font-family: 'Courier New', monospace;
+          width: 80mm;
+          margin: 0 auto;
+          padding: 10mm 5mm;
+          line-height: 1.6;
+          color: #000;
+          background: #fff;
+        }
+        .divider { border: none; border-top: 1px dashed #999; margin: 8px 0; }
+        table { width: 100%; border-collapse: collapse; }
+      </style>
+    </head>
+    <body>
+      <div style="font-weight: 900; font-size: 24px; text-align: center;">${escapePrintHtml(shopName)}</div>
+      ${shopAddress ? `<div style="font-size: 14px; font-weight: 600; text-align: center; margin-top: 3px;">${escapePrintHtml(shopAddress)}</div>` : ''}
+      ${shopPhone ? `<div style="font-size: 14px; font-weight: 600; text-align: center; margin-top: 2px;">Tel: ${escapePrintHtml(shopPhone)}</div>` : ''}
+
+      <hr class="divider"/>
+
+      <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">
+        <div><strong>Datum:</strong> ${escapePrintHtml(timestamp.date)} ${escapePrintHtml(timestamp.time)}</div>
+        <div><strong>Beleg-Nr:</strong> ${escapePrintHtml(transactionId || 'N/A')}</div>
+      </div>
+
+      <hr class="divider"/>
+
+      <table style="margin-bottom: 8px;">
+        <thead>
+          <tr style="font-weight: 900; border-bottom: 1px solid #000; font-size: 15px;">
+            <td style="padding-bottom: 6px; width: 15%;">Menge</td>
+            <td style="padding-bottom: 6px; width: 55%;">Artikel</td>
+            <td style="padding-bottom: 6px; width: 30%; text-align: right;">Betrag</td>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemRows || `
+            <tr>
+              <td style="vertical-align: top; padding-top: 7px; font-size: 15px; font-weight: 700;">1x</td>
+              <td style="vertical-align: top; padding-top: 7px; font-size: 15px; font-weight: 700;">Artikel</td>
+              <td style="vertical-align: top; padding-top: 7px; font-size: 15px; font-weight: 700; text-align: right;">&euro; 0,00</td>
+            </tr>
+          `}
+        </tbody>
+      </table>
+
+      <hr class="divider"/>
+
+      <table style="width: 100%; margin-bottom: 8px;">
+        <tbody>
+          <tr>
+            <td style="font-size: 15px; font-weight: 700;">Zwischensumme</td>
+            <td style="text-align: right; font-size: 15px; font-weight: 700;">&euro; ${formatReceiptMoney(grossTotal)}</td>
+          </tr>
+          ${shouldShowTax ? `
+            <tr>
+              <td style="font-size: 14px; font-weight: 700;">Netto (19%)</td>
+              <td style="text-align: right; font-size: 14px; font-weight: 700;">&euro; ${formatReceiptMoney(netTotal)}</td>
+            </tr>
+            <tr>
+              <td style="font-size: 14px; font-weight: 700;">USt. (19%)</td>
+              <td style="text-align: right; font-size: 14px; font-weight: 700;">&euro; ${formatReceiptMoney(taxTotal)}</td>
+            </tr>
+          ` : ''}
+        </tbody>
+      </table>
+
+      <table style="width: 100%; font-weight: 900; font-size: 22px; border-top: 2px solid #000; padding-top: 6px; margin-top: 6px;">
+        <tbody>
+          <tr>
+            <td>GESAMTBETRAG</td>
+            <td style="text-align: right;">&euro; ${formatReceiptMoney(grossTotal)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <hr class="divider" style="margin: 16px 0 8px;"/>
+
+      <div style="margin-bottom: 8px; font-size: 15px; font-weight: 700;">
+        <strong>Zahlungsart:</strong> ${escapePrintHtml(paymentMethod || 'Bar')}
+      </div>
+
+      <div style="margin-top: 12px; font-size: 13px; line-height: 1.5; font-weight: 600; text-align: center;">
+        R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.
+        Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapePrintHtml(shopName)}
+      </div>
+    </body>
+  </html>`
+}
+
+export function printKundenbeleg(items, transactionId, paymentMethod, shopInfo, options = {}) {
+  const win = window.open('', '_blank', 'width=420,height=750')
+  if (!win) return
+
+  win.document.write(buildKundenbelegHtml({
+    items,
+    transactionId,
+    paymentMethod,
+    shopInfo,
+    issuedAt: options?.issuedAt,
+    showTax: options?.showTax === undefined ? true : Boolean(options.showTax),
+  }))
+  win.document.close()
+  win.focus()
+  setTimeout(() => { win.print(); win.close() }, 500)
+}

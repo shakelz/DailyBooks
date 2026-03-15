@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { generateId } from '../data/inventoryStore';
 import { priceTag } from '../utils/currency';
+import { printKundenbeleg } from '../utils/printUtils';
 
 // Dynamic Attributes, Discount Logic, German Tax Breakdown
 
@@ -99,7 +100,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
     const purchasePriceSnapshot = parseFloat(product.purchasePrice) || 0;
     const estimatedProfit = (finalUnitPrice - purchasePriceSnapshot) * qty;
 
-    const handlePrint = () => {
+    const legacyHandlePrint = () => {
         const escapeHtml = (value) => String(value || '')
             .replaceAll('&', '&amp;')
             .replaceAll('<', '&lt;')
@@ -172,6 +173,32 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
         popup.document.close();
         popup.focus();
         popup.print();
+    };
+    void legacyHandlePrint;
+
+    const handlePrint = () => {
+        printKundenbeleg(
+            [{
+                name: product?.name || product?.productName || 'Artikel',
+                quantity: parseInt(qty || 1, 10) || 1,
+                amount: grossTotal,
+                total: grossTotal,
+                category: product?.category || product?.categorySnapshot || null,
+                verifiedAttributes: { ...verifiedAttrs },
+                productSnapshot: {
+                    ...(product?.productSnapshot || {}),
+                    verifiedAttributes: { ...verifiedAttrs },
+                    category: product?.category || product?.categorySnapshot || product?.productSnapshot?.category || null,
+                },
+            }],
+            transactionId,
+            paymentMethod || 'Cash',
+            activeShop,
+            {
+                issuedAt: new Date(),
+                showTax: includeTax,
+            }
+        );
     };
 
     const handleConfirm = async (e) => {

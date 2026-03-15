@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Printer } from 'lucide-react';
 
-import { printRepairJobBill } from '../utils/printUtils';
+import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { priceTag } from '../utils/currency';
@@ -503,6 +503,7 @@ function buildReceiptHtml({
         </html>
     `;
 }
+void buildReceiptHtml;
 
 function CompactTrendCard({ label, value, colorClass, onClick = null, hint = '' }) {
     const iconMap = {
@@ -2498,36 +2499,42 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         submitSimpleEntry('sales');
     };
 
+    const buildKundenbelegItemsFromTransaction = (txn = {}) => {
+        const sourceItems = Array.isArray(txn?.groupedItems) && txn.groupedItems.length > 0
+            ? txn.groupedItems
+            : (Array.isArray(txn?.transactionItems) && txn.transactionItems.length > 0
+                ? txn.transactionItems
+                : [txn]);
+
+        return sourceItems.map((item) => {
+            const quantity = Math.max(1, parseInt(item?.quantity || txn?.quantity || '1', 10) || 1);
+            const total = Number(item?.total ?? item?.amount ?? txn?.amount ?? 0) || 0;
+            return {
+                name: item?.name || item?.productName || item?.product_name || item?.desc || txn?.desc || txn?.description || 'Artikel',
+                quantity,
+                amount: total,
+                total,
+                category: item?.categorySnapshot || item?.category || txn?.categorySnapshot || txn?.category || null,
+                verifiedAttributes: item?.verifiedAttributes || item?.productSnapshot?.verifiedAttributes || {},
+                productSnapshot: item?.productSnapshot || null,
+            };
+        });
+    };
+
     const printRecentTransaction = (txn) => {
         if (!txn) return;
 
-        const amountValue = parseFloat(txn.amount) || 0;
         const txnDate = txn.timestamp ? new Date(txn.timestamp) : new Date();
-        const popup = window.open('', 'recent-transaction-receipt', 'width=420,height=760');
-        if (!popup) return;
-        const qty = Math.max(1, parseInt(txn.quantity || '1', 10) || 1);
-        const unitPrice = qty > 0 ? amountValue / qty : amountValue;
-
-        popup.document.write(buildReceiptHtml({
-            shopName: receiptShopName,
-            shopAddress: receiptShopAddress,
-            shopPhone: receiptShopPhone,
-            issuedAt: txnDate,
-            receiptNo: getTransactionInvoiceNumber(txn) || txn.transactionId || txn.id || '-',
-            paymentMethod: txn.paymentMethod || 'Cash',
-            showTax: txn.includeTax === undefined ? billShowTax : Boolean(txn.includeTax),
-            items: [
-                {
-                    name: txn.desc || 'Transaktion',
-                    quantity: qty,
-                    unitPrice,
-                    total: amountValue,
-                },
-            ],
-        }));
-        popup.document.close();
-        popup.focus();
-        popup.print();
+        printKundenbeleg(
+            buildKundenbelegItemsFromTransaction(txn),
+            getTransactionInvoiceNumber(txn) || txn.transactionId || txn.id || '-',
+            txn.paymentMethod || 'Cash',
+            activeShop,
+            {
+                issuedAt: txnDate,
+                showTax: txn.includeTax === undefined ? billShowTax : Boolean(txn.includeTax),
+            }
+        );
     };
 
     const printMobileLabel = (product) => {
@@ -3042,27 +3049,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return;
         }
 
-        const popup = window.open('', 'quick-sale-receipt', 'width=420,height=760');
-        if (!popup) return;
-
-        popup.document.write(buildReceiptHtml({
-            shopName: receiptShopName,
-            shopAddress: receiptShopAddress,
-            shopPhone: receiptShopPhone,
-            issuedAt: new Date(),
-            receiptNo: `QS-${Date.now()}`,
-            paymentMethod: quickSaleForm.paymentMode || 'Cash',
-            showTax: billShowTax,
-            items: lines.map((line) => ({
+        printKundenbeleg(
+            lines.map((line) => ({
                 name: line.name,
                 quantity: line.quantity,
-                unitPrice: line.amount,
+                amount: line.total,
                 total: line.total,
+                category: line.category || 'General',
             })),
-        }));
-        popup.document.close();
-        popup.focus();
-        popup.print();
+            `QS-${Date.now()}`,
+            quickSaleForm.paymentMode || 'Cash',
+            activeShop,
+            {
+                issuedAt: new Date(),
+                showTax: billShowTax,
+            }
+        );
     };
 
     const completeQuickSale = async () => {

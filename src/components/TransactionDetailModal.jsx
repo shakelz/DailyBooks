@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
+import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
 
 // ══════════════════════════════════════════════════════════
 // TransactionDetailModal — v5 Detail View
@@ -111,7 +112,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
         return String(value).trim().length > 0;
     });
 
-        const handlePrint = () => {
+        const legacyHandlePrint = () => {
         const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => (
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
         ));
@@ -251,6 +252,36 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
         setTimeout(() => {
             win.print();
         }, 500);
+    };
+    void legacyHandlePrint;
+
+    const handlePrint = () => {
+        const linkedRepairJob = txn?.repairJob || txn?.linkedRepairJob || null;
+        if (linkedRepairJob) {
+            printRepairJobBill({ ...linkedRepairJob, status: linkedRepairJob?.status || 'completed' }, activeShop);
+            return;
+        }
+
+        const receiptItems = groupedItems.map((item) => ({
+            name: item?.name || item?.productName || item?.desc || 'Artikel',
+            quantity: parseInt(item?.quantity || 1, 10) || 1,
+            amount: parseFloat(item?.amount) || 0,
+            total: parseFloat(item?.amount) || 0,
+            category: item?.categorySnapshot || item?.category || null,
+            verifiedAttributes: item?.verifiedAttributes || item?.productSnapshot?.verifiedAttributes || {},
+            productSnapshot: item?.productSnapshot || null,
+        }));
+
+        printKundenbeleg(
+            receiptItems,
+            txn?.invoiceNumber || txn?.invoice_number || txn?.transactionId || txn?.id,
+            txn?.paymentMethod || 'Cash',
+            activeShop,
+            {
+                issuedAt: txn?.timestamp || txn?.created_at || new Date(),
+                showTax,
+            }
+        );
     };
 
     return (

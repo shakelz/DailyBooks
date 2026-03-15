@@ -30,7 +30,7 @@ const ReceiptTemplate = forwardRef(({
 
     const renderIMEI = (item) => {
         const category = typeof item?.category === 'object' ? item.category?.level1 : item?.category;
-        const isPhoneCategory = category && ['phone', 'smartphone', 'handy'].some((token) => String(category).toLowerCase().includes(token));
+        const isPhoneCategory = category && ['phone', 'smartphone', 'handy', 'mobile'].some((token) => String(category).toLowerCase().includes(token));
         if (!isPhoneCategory || !item?.verifiedAttributes?.IMEI) return null;
         return (
             <div style={{ fontSize: '10px', color: '#333', marginTop: '2px' }}>
@@ -44,47 +44,47 @@ const ReceiptTemplate = forwardRef(({
             ref={ref}
             style={{
                 width: '80mm',
-                padding: '10mm 4mm',
+                padding: '10mm 5mm',
                 fontFamily: '"Courier New", Courier, monospace',
-                fontSize: '12px',
-                lineHeight: '1.4',
+                fontSize: '15px',
+                lineHeight: '1.6',
                 color: '#000',
                 backgroundColor: '#fff',
                 margin: '0 auto'
             }}
         >
             <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                <div style={{ fontWeight: 'bold', fontSize: '16px' }}>{receiptShopName}</div>
-                {receiptShopAddress && <div style={{ marginTop: '4px' }}>{receiptShopAddress}</div>}
-                {receiptShopTelephone && <div style={{ marginTop: '2px' }}>Tel: {receiptShopTelephone}</div>}
+                <div style={{ fontWeight: '900', fontSize: '24px', textAlign: 'center' }}>{receiptShopName}</div>
+                {receiptShopAddress && <div style={{ fontSize: '14px', fontWeight: '600', textAlign: 'center', marginTop: '3px' }}>{receiptShopAddress}</div>}
+                {receiptShopTelephone && <div style={{ fontSize: '14px', fontWeight: '600', textAlign: 'center', marginTop: '2px' }}>Tel: {receiptShopTelephone}</div>}
             </div>
 
             <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
 
-            <div style={{ fontSize: '11px', marginBottom: '8px' }}>
+            <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>
                 <div><strong>Datum:</strong> {date || new Date().toLocaleDateString('de-DE')} {time || new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
                 <div><strong>Beleg-Nr:</strong> {transactionId || 'N/A'}</div>
             </div>
 
             <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px', fontSize: '12px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
                 <thead>
-                    <tr style={{ fontWeight: 'bold', borderBottom: '1px solid #000' }}>
-                        <td style={{ paddingBottom: '4px', width: '15%' }}>Menge</td>
-                        <td style={{ paddingBottom: '4px', width: '55%' }}>Artikel</td>
-                        <td style={{ paddingBottom: '4px', width: '30%', textAlign: 'right' }}>Betrag</td>
+                    <tr style={{ fontWeight: '900', borderBottom: '1px solid #000', fontSize: '15px' }}>
+                        <td style={{ paddingBottom: '6px', width: '15%' }}>Menge</td>
+                        <td style={{ paddingBottom: '6px', width: '55%' }}>Artikel</td>
+                        <td style={{ paddingBottom: '6px', width: '30%', textAlign: 'right' }}>Betrag</td>
                     </tr>
                 </thead>
                 <tbody>
                     {lineItems.map((item, idx) => (
                         <tr key={idx}>
-                            <td style={{ verticalAlign: 'top', paddingTop: '6px' }}>{item?.quantity || 1}x</td>
-                            <td style={{ verticalAlign: 'top', paddingTop: '6px' }}>
+                            <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '15px', fontWeight: '700' }}>{item?.quantity || 1}x</td>
+                            <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '15px', fontWeight: '700' }}>
                                 <div>{item?.name || item?.productName || 'Artikel'}</div>
                                 {renderIMEI(item)}
                             </td>
-                            <td style={{ verticalAlign: 'top', paddingTop: '6px', textAlign: 'right' }}>
+                            <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '15px', fontWeight: '700', textAlign: 'right' }}>
                                 {priceTag(asNumber(item?.amount))}
                             </td>
                         </tr>
@@ -94,28 +94,28 @@ const ReceiptTemplate = forwardRef(({
 
             <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
 
-            <table style={{ width: '100%', fontSize: '11px', marginBottom: '8px' }}>
+            <table style={{ width: '100%', marginBottom: '8px' }}>
                 <tbody>
                     <tr>
-                        <td>Zwischensumme</td>
-                        <td style={{ textAlign: 'right' }}>{priceTag(grossTotal)}</td>
+                        <td style={{ fontSize: '15px', fontWeight: '700' }}>Zwischensumme</td>
+                        <td style={{ textAlign: 'right', fontSize: '15px', fontWeight: '700' }}>{priceTag(grossTotal)}</td>
                     </tr>
                     {shouldShowTax && (
                         <>
                             <tr>
-                                <td>Netto (19%)</td>
-                                <td style={{ textAlign: 'right' }}>{priceTag(netTotal)}</td>
+                                <td style={{ fontSize: '14px', fontWeight: '700' }}>Netto (19%)</td>
+                                <td style={{ textAlign: 'right', fontSize: '14px', fontWeight: '700' }}>{priceTag(netTotal)}</td>
                             </tr>
                             <tr>
-                                <td>USt. (19%)</td>
-                                <td style={{ textAlign: 'right' }}>{priceTag(taxTotal)}</td>
+                                <td style={{ fontSize: '14px', fontWeight: '700' }}>USt. (19%)</td>
+                                <td style={{ textAlign: 'right', fontSize: '14px', fontWeight: '700' }}>{priceTag(taxTotal)}</td>
                             </tr>
                         </>
                     )}
                 </tbody>
             </table>
 
-            <table style={{ width: '100%', fontWeight: 'bold', fontSize: '16px', borderTop: '2px solid #000', paddingTop: '4px', marginTop: '4px' }}>
+            <table style={{ width: '100%', fontWeight: '900', fontSize: '22px', borderTop: '2px solid #000', paddingTop: '6px', marginTop: '6px' }}>
                 <tbody>
                     <tr>
                         <td>GESAMTBETRAG</td>
@@ -126,14 +126,12 @@ const ReceiptTemplate = forwardRef(({
 
             <div style={{ borderTop: '1px dashed #000', margin: '16px 0 8px 0' }} />
 
-            <div style={{ fontSize: '10px', textAlign: 'center', marginTop: '16px' }}>
-                <div style={{ marginBottom: '8px' }}>
-                    <strong>Zahlungsart:</strong> {paymentMethod || 'Bar'}
-                </div>
+            <div style={{ marginBottom: '8px', fontSize: '15px', fontWeight: '700' }}>
+                <strong>Zahlungsart:</strong> {paymentMethod || 'Bar'}
+            </div>
 
-                <div style={{ marginTop: '12px', fontSize: '9px', lineHeight: '1.3' }}>
-                    Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. {receiptShopName}
-                </div>
+            <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.5', fontWeight: '600', textAlign: 'center' }}>
+                Rueckgabe/Umtausch innerhalb 14 Tagen nur in unbeschaedigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. {receiptShopName}
             </div>
         </div>
     );
