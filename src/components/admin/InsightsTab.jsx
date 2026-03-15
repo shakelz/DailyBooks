@@ -131,12 +131,42 @@ export default function InsightsTab() {
         let cancelled = false;
         const fetchChartData = async () => {
             try {
-                const { data: txnData, error: txnError } = await supabase
+                const preferredTransactionSelect = [
+                    'transaction_id',
+                    'transactionId',
+                    'id',
+                    'amount',
+                    'tx_type',
+                    'type',
+                    'source',
+                    'category',
+                    'category_id',
+                    'notes',
+                    'description',
+                    'desc',
+                    'timestamp',
+                    'date',
+                    'time',
+                ].join(', ');
+
+                let txnResult = await supabase
                     .from('transactions')
-                    .select('*')
+                    .select(preferredTransactionSelect)
                     .eq('shop_id', settingsShopId)
                     .not('amount', 'is', null)
                     .gt('amount', 0);
+
+                if (txnResult.error) {
+                    console.warn('Preferred chart transaction select failed, retrying with wildcard:', txnResult.error);
+                    txnResult = await supabase
+                        .from('transactions')
+                        .select('*')
+                        .eq('shop_id', settingsShopId)
+                        .not('amount', 'is', null)
+                        .gt('amount', 0);
+                }
+
+                const { data: txnData, error: txnError } = txnResult;
 
                 if (cancelled) return;
 
@@ -183,6 +213,8 @@ export default function InsightsTab() {
                     const categoryId = String(txn?.category_id || txn?.categoryId || '').trim();
                     return {
                         ...txn,
+                        notes: String(txn?.notes || txn?.note || '').trim(),
+                        description: String(txn?.description || txn?.desc || '').trim(),
                         resolvedCategoryName: categoryLookup[categoryId] || null,
                     };
                 });
@@ -716,6 +748,17 @@ export default function InsightsTab() {
             return String(txn.resolvedCategoryName).trim();
         }
 
+        const notes = String(txn?.notes || txn?.note || '');
+        const subCategoryMatch = notes.match(/SubCategory[:\s]+([^|;\n]+)/i);
+        if (subCategoryMatch?.[1]?.trim()) {
+            return subCategoryMatch[1].trim();
+        }
+
+        const categoryMatch = notes.match(/Category[:\s]+([^|;\n]+)/i);
+        if (categoryMatch?.[1]?.trim()) {
+            return categoryMatch[1].trim();
+        }
+
         const cat = txn?.category;
         if (cat && typeof cat === 'object') {
             return String(cat.level1 || cat.name || cat.label || '').trim() || null;
@@ -728,57 +771,53 @@ export default function InsightsTab() {
         const fallback = String(txn?.category_name || txn?.categoryName || txn?.cat || '').trim();
         if (fallback && !isUUID(fallback)) return fallback;
 
+        const description = String(txn?.description || txn?.desc || '').trim();
+        const descriptionLower = description.toLowerCase();
+        if (description && description.length < 50 && !descriptionLower.includes('repair') && !descriptionLower.includes('salary')) {
+            return description;
+        }
+
         return null;
     };
 
     const isExpenseTypeResolved = (txn) => {
         const t = String(txn?.tx_type || txn?.type || txn?.transactionType || '').toLowerCase().trim();
-        return t === 'product_purchase' || t === 'shop_expense' || t === 'purchase';
+        return t === 'product_purchase' || t === 'shop_expense' || t === 'purchase' || t === 'expense';
     };
 
     const isSaleTypeResolved = (txn) => {
         const t = String(txn?.tx_type || txn?.type || txn?.transactionType || '').toLowerCase().trim();
-        return t === 'product_sale' || t === 'shop' || t === 'repair_amount';
+        return t === 'product_sale' || t === 'shop' || t === 'sale';
     };
 
-    const categoryExpenseData = useMemo(() => {
+    const purchaseChartTransactions = useMemo(() => {
         const rangeStart = new Date(dateSelection[0].startDate);
         rangeStart.setHours(0, 0, 0, 0);
         const rangeEnd = new Date(dateSelection[0].endDate);
         rangeEnd.setHours(23, 59, 59, 999);
 
-        const purchaseTxns = (chartTransactions.length > 0 ? chartTransactions : (transactions || [])).filter(txn => {
+        return (chartTransactions.length > 0 ? chartTransactions : (transactions || [])).filter((txn) => {
             if (!isExpenseTypeResolved(txn)) return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
-
-        const grouped = purchaseTxns.reduce((acc, txn) => {
-            const category = extractChartCategory(txn);
-            if (!category) return acc;
-            acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
-            return acc;
-        }, {});
-
-        return Object.entries(grouped)
-            .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
-            .sort((a, b) => b.amount - a.amount)
-            .slice(0, 10);
     }, [transactions, chartTransactions, dateSelection]);
 
-    const categorySalesData = useMemo(() => {
+    const salesChartTransactions = useMemo(() => {
         const rangeStart = new Date(dateSelection[0].startDate);
         rangeStart.setHours(0, 0, 0, 0);
         const rangeEnd = new Date(dateSelection[0].endDate);
         rangeEnd.setHours(23, 59, 59, 999);
 
-        const salesTxns = (chartTransactions.length > 0 ? chartTransactions : (transactions || [])).filter(txn => {
+        return (chartTransactions.length > 0 ? chartTransactions : (transactions || [])).filter((txn) => {
             if (!isSaleTypeResolved(txn)) return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
+    }, [transactions, chartTransactions, dateSelection]);
 
-        const grouped = salesTxns.reduce((acc, txn) => {
+    const categoryExpenseData = useMemo(() => {
+        const grouped = purchaseChartTransactions.reduce((acc, txn) => {
             const category = extractChartCategory(txn);
             if (!category) return acc;
             acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
@@ -789,13 +828,30 @@ export default function InsightsTab() {
             .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
             .sort((a, b) => b.amount - a.amount)
             .slice(0, 10);
-    }, [transactions, chartTransactions, dateSelection]);
+    }, [purchaseChartTransactions]);
+
+    const categorySalesData = useMemo(() => {
+        const grouped = salesChartTransactions.reduce((acc, txn) => {
+            const category = extractChartCategory(txn);
+            if (!category) return acc;
+            acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
+            return acc;
+        }, {});
+
+        return Object.entries(grouped)
+            .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 10);
+    }, [salesChartTransactions]);
 
     // Debug: detailed transaction analysis
     console.log('InsightsTab total transactions received (context):', (transactions || []).length);
     console.log('InsightsTab chart transactions fetched (manual category merge):', chartTransactions.length);
+    console.log('Sample chartTransaction full object:', chartTransactions.slice(0, 3));
     const typeSet = new Set((chartTransactions.length > 0 ? chartTransactions : (transactions || [])).map(t => t.tx_type || t.type));
     console.log('Unique transaction types found:', [...typeSet]);
+    console.log('salesTxns count:', salesChartTransactions.length);
+    console.log('purchaseTxns count:', purchaseChartTransactions.length);
     console.log('categorySalesData:', categorySalesData);
     console.log('categoryExpenseData:', categoryExpenseData);
 
