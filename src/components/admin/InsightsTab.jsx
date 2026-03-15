@@ -16,6 +16,8 @@ const KPI_MODE_SALES = 'sales';
 const KPI_MODE_PROFIT = 'profit';
 const KPI_MODE_EXCLUDED = 'excluded';
 const CHART_CARD_CLASS = 'bg-white rounded-2xl border border-slate-200 shadow-sm p-5';
+const DAY_MS = 24 * 60 * 60 * 1000;
+const GERMAN_SHORT_MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
 function normalizeToken(value = '') {
     return String(value || '').trim().toLowerCase();
@@ -130,6 +132,66 @@ function parseTransactionDate(txn) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function getDayBucketKey(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatDayBucketLabel(date) {
+    return `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatMonthBucketLabel(date) {
+    return `${GERMAN_SHORT_MONTHS[date.getMonth()]} ${String(date.getFullYear()).slice(-2)}`;
+}
+
+function buildFilledDailyRows(periodData = [], startDate, endDate) {
+    const periodByKey = new Map(
+        (Array.isArray(periodData) ? periodData : []).map((point) => [point.periodKey, point])
+    );
+    const rows = [];
+    const cursor = new Date(startDate);
+    cursor.setHours(0, 0, 0, 0);
+
+    while (cursor <= endDate) {
+        const point = periodByKey.get(getDayBucketKey(cursor));
+        rows.push({
+            date: formatDayBucketLabel(cursor),
+            periodLabel: formatDayBucketLabel(cursor),
+            sales: Number(point?.sales || 0),
+            profit: Number(point?.profit ?? point?.revenue ?? 0),
+            expenses: Number(point?.expenses || 0),
+            periodStartMs: cursor.getTime(),
+        });
+        cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return rows;
+}
+
+function buildFilledMonthlyRows(periodData = [], startDate, endDate) {
+    const periodByKey = new Map(
+        (Array.isArray(periodData) ? periodData : []).map((point) => [point.periodKey, point])
+    );
+    const rows = [];
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    const finalMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+
+    while (cursor <= finalMonth) {
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
+        const point = periodByKey.get(key);
+        rows.push({
+            periodLabel: formatMonthBucketLabel(cursor),
+            sales: Number(point?.sales || 0),
+            profit: Number(point?.profit ?? point?.revenue ?? 0),
+            expenses: Number(point?.expenses || 0),
+            periodStartMs: cursor.getTime(),
+        });
+        cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    return rows;
+}
+
 function isCashbookEntry(txn) {
     const source = String(txn?.source || '').toLowerCase();
     return source === 'admin'
@@ -176,6 +238,9 @@ export default function InsightsTab() {
         end.setHours(23, 59, 59, 999);
         return end;
     }, [dateSelection]);
+    const rangeDays = useMemo(() => {
+        return Math.max(1, Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS) + 1);
+    }, [rangeStart, rangeEnd]);
     const timeView = ((rangeEnd - rangeStart) / (1000 * 60 * 60 * 24)) <= 60 ? 'weekly' : 'monthly';
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
@@ -561,6 +626,51 @@ export default function InsightsTab() {
             slowMovingValue,
         };
     }, [transactions, products, filteredRepairJobs, rangeStart, rangeEnd, timeView, salesmen, slowMovingDays, categoryContributionModeMap]);
+
+    const revenueTimelineSnapshot = useMemo(() => {
+        return computeUnifiedKpiSnapshot({
+            transactions,
+            products,
+            repairJobs: filteredRepairJobs,
+            rangeStart,
+            rangeEnd,
+            periodType: 'daily',
+            categoryContributionModeMap,
+        });
+    }, [transactions, products, filteredRepairJobs, rangeStart, rangeEnd, categoryContributionModeMap]);
+
+    const revenueChartData = useMemo(() => {
+        const dailyRows = buildFilledDailyRows(revenueTimelineSnapshot.periodData || [], rangeStart, rangeEnd);
+        return dailyRows.map((row, index, rows) => {
+            const from = Math.max(0, index - 27);
+            const windowRows = rows.slice(from, index + 1);
+            const trend = windowRows.reduce((sum, item) => sum + (item.sales || 0), 0) / Math.max(1, windowRows.length);
+            return {
+                ...row,
+                trend,
+            };
+        });
+    }, [revenueTimelineSnapshot.periodData, rangeStart, rangeEnd]);
+
+    const profitExpenseGrouping = rangeDays > 31 ? 'monthly' : 'daily';
+    const profitExpenseSnapshot = useMemo(() => {
+        return computeUnifiedKpiSnapshot({
+            transactions,
+            products,
+            repairJobs: filteredRepairJobs,
+            rangeStart,
+            rangeEnd,
+            periodType: profitExpenseGrouping,
+            categoryContributionModeMap,
+        });
+    }, [transactions, products, filteredRepairJobs, rangeStart, rangeEnd, profitExpenseGrouping, categoryContributionModeMap]);
+
+    const profitVsExpenseChartData = useMemo(() => {
+        if (profitExpenseGrouping === 'monthly') {
+            return buildFilledMonthlyRows(profitExpenseSnapshot.periodData || [], rangeStart, rangeEnd);
+        }
+        return buildFilledDailyRows(profitExpenseSnapshot.periodData || [], rangeStart, rangeEnd);
+    }, [profitExpenseSnapshot.periodData, rangeStart, rangeEnd, profitExpenseGrouping]);
 
     // ── Peak Hours Analysis ──
     const peakData = useMemo(() => {
@@ -1048,13 +1158,13 @@ export default function InsightsTab() {
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h3 className="text-sm font-black text-slate-800 mb-0.5">Umsatz im Zeitverlauf</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tagesverlauf &amp; Trends</p>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Täglicher Verlauf inkl. 4-Wochen-Trend</p>
                         </div>
                         <Calendar size={20} className="text-slate-300" />
                     </div>
                     <div className="h-80 w-full">
                         <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
-                            <ComposedChart data={analytics.chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <ComposedChart data={revenueChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
                                         <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1} />
@@ -1064,10 +1174,10 @@ export default function InsightsTab() {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                                 <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} interval={0} />
                                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
-                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value, name) => [name === 'trend' ? `€${(Number(value) || 0).toFixed(2)}` : priceTag(Number(value) || 0), name === 'trend' ? `${timeView === 'weekly' ? '4-Wochen' : '3-Monats'}-Trend` : 'Umsatz']} />
+                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value, name) => [name === 'trend' ? `€${(Number(value) || 0).toFixed(2)}` : priceTag(Number(value) || 0), name === 'trend' ? '4-Wochen-Trend' : 'Umsatz']} />
                                 <Legend iconType="circle" />
                                 <Area type="monotone" dataKey="sales" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSales)" name="Umsatz" />
-                                <Line type="monotone" dataKey="trend" stroke="#fbbf24" strokeWidth={3} dot={false} name={timeView === 'weekly' ? '4-Wochen-Trend' : '3-Monats-Trend'} />
+                                <Line type="monotone" dataKey="trend" stroke="#fbbf24" strokeWidth={3} dot={false} name="4-Wochen-Trend" />
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>
@@ -1078,13 +1188,13 @@ export default function InsightsTab() {
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h3 className="text-sm font-black text-slate-800 mb-0.5">Gewinn vs. Ausgaben</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{timeView === 'weekly' ? 'Wöchentlicher' : 'Monatlicher'} Vergleich</p>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{profitExpenseGrouping === 'daily' ? 'Täglicher' : 'Monatlicher'} Vergleich</p>
                         </div>
                         <Scale size={20} className="text-slate-300" />
                     </div>
                     <div className="h-80 w-full">
                         <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
-                            <BarChart data={analytics.profitVsExpenseData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <BarChart data={profitVsExpenseChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                                 <XAxis dataKey="periodLabel" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} interval={0} />
                                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />

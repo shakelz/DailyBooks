@@ -409,6 +409,17 @@ function getWeekStart(date) {
 }
 
 function getPeriodMeta(date, periodType) {
+  if (periodType === 'daily') {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+    return {
+      periodKey: key,
+      periodLabel: formatDate(start, 'dd.MM', { locale: de }),
+      periodStartMs: start.getTime(),
+    };
+  }
+
   if (periodType === 'weekly') {
     const start = getWeekStart(date);
     const end = new Date(start);
