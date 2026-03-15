@@ -1444,6 +1444,14 @@ export function InventoryProvider({ children }) {
                 const normalizedTransactions = txnResult.data.map((row) => normalizeTransactionRecord(row, {
                     workersById,
                 }));
+                console.log(
+                    'ALL fetched transactions tx_types:',
+                    normalizedTransactions.map((txn) => ({
+                        tx_type: txn?.tx_type,
+                        source: txn?.source,
+                        desc: txn?.description || txn?.desc || '',
+                    }))
+                );
                 const hydratedTransactions = normalizedTransactions.map((row) => mergeTransactionWithSnapshot(row, snapshotMap));
                 setTransactions(dedupeTransactionsByIdentity(hydratedTransactions));
             } else {

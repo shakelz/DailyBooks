@@ -492,6 +492,17 @@ export default function InsightsTab() {
         const productProfit = Number.isFinite(strictKpi.productProfit) ? strictKpi.productProfit : unified.productProfit;
         const serviceProfit = Number.isFinite(strictKpi.serviceProfit) ? strictKpi.serviceProfit : unified.serviceProfit;
         const totalProfit = Number.isFinite(strictKpi.grossNetProfit) ? strictKpi.grossNetProfit : (productProfit + serviceProfit);
+        console.log(
+            'All transactions passed to fixed expense check:',
+            transactions.map((txn) => ({
+                source: txn?.source || txn?.tx_source || '',
+                tx_type: txn?.tx_type || txn?.type || '',
+                desc: txn?.description || txn?.desc || '',
+                amount: txn?.amount || 0,
+                isFixed: isFixedExpenseInsightTransaction(txn),
+                created_at: txn?.created_at || txn?.timestamp || '',
+            }))
+        );
         const fixedExpenseTransactions = transactions.filter(isFixedExpenseInsightTransaction);
         const totalFixedExpenses = fixedExpenseTransactions
             .reduce((sum, txn) => sum + (parseFloat(txn?.amount) || 0), 0);

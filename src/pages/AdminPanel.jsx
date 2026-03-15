@@ -22,11 +22,16 @@ export default function AdminPanel() {
         typeof window !== 'undefined' ? window.innerWidth >= 768 : true
     ));
     const [adminDashboardDateSelection, setAdminDashboardDateSelection] = useState([
-        {
-            startDate: new Date(new Date().setHours(0, 0, 0, 0)),
-            endDate: new Date(),
-            key: 'selection',
-        },
+        (() => {
+            const endDate = new Date();
+            const startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+            startDate.setHours(0, 0, 0, 0);
+            return {
+                startDate,
+                endDate,
+                key: 'selection',
+            };
+        })(),
     ]);
 
     const currentShop = useMemo(
