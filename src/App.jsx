@@ -15,6 +15,7 @@ import InsightsTab from './components/admin/InsightsTab'
 import ExpensesTab from './components/admin/ExpensesTab'
 import AdminSettings from './components/admin/AdminSettings'
 import RepairsTab from './components/admin/RepairsTab'
+import AdminDashboard from './components/admin/AdminDashboard'
 import PWAInstallButton from './components/PWAInstallButton'
 import SalesmanDashboardErrorBoundary from './components/SalesmanDashboardErrorBoundary'
 import { supabaseConfigError } from './supabaseClient'
@@ -143,8 +144,8 @@ function App() {
 
                   <Route path={`${ADMIN_LOGIN_PATH}/*`} element={<AdminRouteShell />}>
                     <Route index element={<Navigate to="dashboard" replace />} />
-                    <Route path="dashboard" element={<SalesmanDashboardErrorBoundary><SalesmanDashboard adminView /></SalesmanDashboardErrorBoundary>} />
-                    <Route path="owner-dashboard" element={<SalesmanDashboardErrorBoundary><SalesmanDashboard adminView /></SalesmanDashboardErrorBoundary>} />
+                    <Route path="dashboard" element={<SalesmanDashboardErrorBoundary><AdminDashboard /></SalesmanDashboardErrorBoundary>} />
+                    <Route path="owner-dashboard" element={<SalesmanDashboardErrorBoundary><AdminDashboard /></SalesmanDashboardErrorBoundary>} />
                     <Route path="inventory" element={<InventoryTab />} />
                     <Route path="insights" element={<InsightsTab />} />
                     <Route path="expenses" element={<ExpensesTab />} />

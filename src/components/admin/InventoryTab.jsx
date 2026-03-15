@@ -25,6 +25,8 @@ import {
     XCircle
 } from 'lucide-react';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export default function InventoryTab() {
     const {
         products,
@@ -67,6 +69,22 @@ export default function InventoryTab() {
     const [editingLinkId, setEditingLinkId] = useState('');
     const { links: importantLinks, addLink, updateLink, deleteLink, loading: linksLoading } = useSupplierLinks(activeShopId);
 
+    const rangeStart = useMemo(() => {
+        const start = new Date(dateSelection[0].startDate);
+        start.setHours(0, 0, 0, 0);
+        return start;
+    }, [dateSelection]);
+
+    const rangeEnd = useMemo(() => {
+        const end = new Date(dateSelection[0].endDate);
+        end.setHours(23, 59, 59, 999);
+        return end;
+    }, [dateSelection]);
+
+    const rangeDays = useMemo(() => {
+        return Math.max(1, Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS) + 1);
+    }, [rangeStart, rangeEnd]);
+
     const getProductCategoryL1 = useCallback((product) => {
         if (!product) return '';
         if (typeof product.category === 'object' && product.category !== null) {
@@ -106,15 +124,28 @@ export default function InventoryTab() {
         return addedDate < cutoff;
     };
 
+    const getProductTimestamp = useCallback((product) => {
+        const parsed = new Date(product?.timestamp || product?.created_at || '');
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }, []);
+
+    const productsInRange = useMemo(() => {
+        return products.filter((product) => {
+            const productDate = getProductTimestamp(product);
+            if (!productDate) return true;
+            return productDate >= rangeStart && productDate <= rangeEnd;
+        });
+    }, [products, getProductTimestamp, rangeStart, rangeEnd]);
+
     const stats = useMemo(() => {
-        const totalValue = products.reduce((sum, p) => sum + (p.purchasePrice * p.stock), 0);
-        const uniqueItems = products.length;
-        const lowStockCount = products.filter(p => p.stock < 3).length;
+        const totalValue = productsInRange.reduce((sum, p) => sum + (p.purchasePrice * p.stock), 0);
+        const uniqueItems = productsInRange.length;
+        const lowStockCount = productsInRange.filter(p => p.stock < 3).length;
         return { totalValue, uniqueItems, lowStockCount };
-    }, [products]);
+    }, [productsInRange]);
 
     const filteredProducts = useMemo(() => {
-        return products.filter(p => {
+        return productsInRange.filter(p => {
             const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                 (p.barcode || '').toLowerCase().includes(searchTerm.toLowerCase());
             const matchesCategory = filterCategory === 'All' || getProductCategoryL1(p) === filterCategory;
@@ -126,11 +157,11 @@ export default function InventoryTab() {
 
             return matchesSearch && matchesCategory && matchesStatus;
         });
-    }, [products, searchTerm, filterCategory, filterStatus, getProductCategoryL1]);
+    }, [productsInRange, searchTerm, filterCategory, filterStatus, getProductCategoryL1]);
 
     const categoryAnalysis = useMemo(() => {
         const analysis = {};
-        products.forEach(p => {
+        productsInRange.forEach(p => {
             const cat = getProductCategoryL1(p) || 'Ohne Kategorie';
             if (!analysis[cat]) analysis[cat] = { capital: 0, potentialProfit: 0 };
             analysis[cat].capital += p.purchasePrice * p.stock;
@@ -141,30 +172,35 @@ export default function InventoryTab() {
             name,
             ...data
         }));
-    }, [products, getProductCategoryL1]);
+    }, [productsInRange, getProductCategoryL1]);
 
     const salesVelocityMap = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
-
         const map = {};
         transactions.forEach(t => {
-            if (t.type === 'income' && t.productId && t.timestamp) {
-                const tDate = new Date(t.timestamp);
-                if (tDate >= rangeStart && tDate <= rangeEnd) {
-                    if (!map[t.productId]) map[t.productId] = 0;
-                    map[t.productId] += (parseInt(t.quantity) || 1);
-                }
-            }
+            const rawType = String(t?.tx_type || t?.type || '').toLowerCase();
+            const isSaleTxn = rawType === 'product_sale' || rawType === 'sale' || rawType === 'income';
+            if (!isSaleTxn) return;
+
+            const tDate = new Date(t?.occurred_at || t?.created_at || t?.timestamp || '');
+            if (Number.isNaN(tDate.getTime()) || tDate < rangeStart || tDate > rangeEnd) return;
+
+            const items = Array.isArray(t?.transactionItems) && t.transactionItems.length > 0
+                ? t.transactionItems
+                : [{ product_id: t?.productId || t?.product_id, qty: t?.quantity }];
+
+            items.forEach((item) => {
+                const productId = item?.product_id || item?.productId;
+                if (!productId) return;
+                if (!map[productId]) map[productId] = 0;
+                map[productId] += (parseInt(item?.qty ?? item?.quantity ?? 1, 10) || 1);
+            });
         });
         return map;
-    }, [transactions, dateSelection]);
+    }, [transactions, rangeStart, rangeEnd]);
 
     const supplierInsights = useMemo(() => {
         const sources = {};
-        products.forEach(p => {
+        productsInRange.forEach(p => {
             if (p.productUrl) {
                 let sourceName = 'Unknown';
                 try {
@@ -183,7 +219,7 @@ export default function InventoryTab() {
             }
         });
         return Object.entries(sources).sort((a, b) => b[1].totalBuy - a[1].totalBuy).slice(0, 5);
-    }, [products]);
+    }, [productsInRange]);
 
     // ── Handlers ──
     const handleDownloadCSV = () => {
@@ -371,6 +407,7 @@ export default function InventoryTab() {
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">Inventar</h1>
                     <p className="text-slate-500 text-sm font-medium">Produktkatalog, Lagerbestände und Lieferantenanalysen.</p>
+                    <p className="text-[11px] text-slate-400 font-semibold mt-1">Zeitraumfilter wirkt auf Liste, Abverkaufswarnungen und Analysen.</p>
                 </div>
                 <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
             </div>
@@ -662,12 +699,12 @@ export default function InventoryTab() {
                                                         </div>
                                                         {(() => {
                                                             const unitsSold = salesVelocityMap[product.id] || 0;
-                                                            const dailyVelocity = unitsSold / 30;
+                                                            const dailyVelocity = unitsSold / rangeDays;
                                                             if (dailyVelocity > 0 && product.stock > 0) {
                                                                 const daysRemaining = product.stock / dailyVelocity;
                                                                 if (daysRemaining < 5) {
                                                                     return (
-                                                                        <div className="px-2 py-0.5 rounded-lg bg-orange-100 border border-orange-200 text-orange-600 flex items-center gap-1 shadow-sm whitespace-nowrap animate-pulse mt-1" title={`${unitsSold} sold in 30 days`}>
+                                                                        <div className="px-2 py-0.5 rounded-lg bg-orange-100 border border-orange-200 text-orange-600 flex items-center gap-1 shadow-sm whitespace-nowrap animate-pulse mt-1" title={`${unitsSold} sold in ${rangeDays} days`}>
                                                                             <span className="text-xs">🔮</span>
                                                                             <span className="text-[10px] font-black uppercase tracking-wider">{Math.ceil(daysRemaining)} Days Left!</span>
                                                                         </div>
@@ -844,7 +881,7 @@ export default function InventoryTab() {
                                 </div>
                             ))}
                             {supplierInsights.length === 0 && (
-                                <p className="text-xs text-slate-400 italic text-center py-4">Produkt-URLs hinzufügen, um Lieferantenanalysen zu sehen.</p>
+                                <p className="text-xs text-slate-400 italic text-center py-4">Keine Lieferantenanalysen im ausgewählten Zeitraum.</p>
                             )}
                         </div>
                     </div>
@@ -865,7 +902,7 @@ export default function InventoryTab() {
                                     <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden">
                                         <div
                                             className="bg-blue-500 h-full rounded-full"
-                                            style={{ width: `${(cat.capital / stats.totalValue) * 100}%` }}
+                                            style={{ width: `${stats.totalValue > 0 ? (cat.capital / stats.totalValue) * 100 : 0}%` }}
                                         />
                                     </div>
                                     <div className="flex justify-between items-center pt-1">
