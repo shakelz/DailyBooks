@@ -15,6 +15,7 @@ import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, P
 const KPI_MODE_SALES = 'sales';
 const KPI_MODE_PROFIT = 'profit';
 const KPI_MODE_EXCLUDED = 'excluded';
+const CHART_CARD_CLASS = 'bg-white rounded-2xl border border-slate-200 shadow-sm p-5';
 
 function normalizeToken(value = '') {
     return String(value || '').trim().toLowerCase();
@@ -129,52 +130,6 @@ export default function InsightsTab() {
             }));
     }, [contextTransactions]);
 
-    useEffect(() => {
-        if (!contextTransactions?.length) return;
-
-        console.log('Context transaction sample:', JSON.stringify(contextTransactions[0], null, 2));
-        console.log('Context tx types:', [...new Set(
-            contextTransactions
-                .map((t) => t?.type || t?.tx_type || t?.transactionType)
-                .filter(Boolean)
-        )]);
-    }, [contextTransactions]);
-
-    useEffect(() => {
-        if (!chartTransactions.length) return;
-
-        console.log('FULL RAW TRANSACTION:', JSON.stringify(chartTransactions[0], null, 2));
-        console.log('ALL TX TYPES:', [...new Set(
-            chartTransactions
-                .map((t) => t?.tx_type || t?.type || t?.transactionType)
-                .filter(Boolean)
-        )]);
-        console.log('SAMPLE NOTES:', chartTransactions.slice(0, 5).map((t) => t.notes));
-        console.log('SAMPLE DESCRIPTIONS:', chartTransactions.slice(0, 5).map((t) => t.description));
-    }, [chartTransactions]);
-
-    useEffect(() => {
-        let cancelled = false;
-
-        const loadCategorySample = async () => {
-            const { data: allCats, error } = await supabase
-                .from('categories')
-                .select('*')
-                .limit(10);
-
-            if (cancelled) return;
-
-            if (error) {
-                console.error('Error fetching categories sample:', error);
-                return;
-            }
-
-            console.log('CATEGORIES TABLE SAMPLE:', JSON.stringify(allCats || [], null, 2));
-        };
-
-        loadCategorySample();
-        return () => { cancelled = true; };
-    }, [settingsShopId]);
     useEffect(() => {
         if (!settingsShopId) {
             setCategoryContributionModeMap({});
@@ -792,19 +747,40 @@ export default function InsightsTab() {
     return (
         <div className="space-y-4 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
             {/* ── Header ── */}
-            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Business Intelligence</h1>
-                    <p className="text-slate-500 text-sm font-medium">Financial KPIs, Market Trends, and Inventory Analytics.</p>
-                </div>
+            <div className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-blue-50/60 p-5 shadow-sm">
+                <div className="absolute -left-10 -top-14 h-32 w-32 rounded-full bg-blue-200/40 blur-3xl" />
+                <div className="absolute -bottom-16 right-0 h-40 w-40 rounded-full bg-emerald-200/30 blur-3xl" />
+                <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="min-w-0 h-full">
+                        <span className="inline-flex items-center rounded-full border border-white/80 bg-white/85 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-slate-500 shadow-sm">
+                            Insights Hub
+                        </span>
+                        <div className="mt-3">
+                            <h1 className="text-2xl md:text-[2rem] font-black text-slate-800 tracking-tight">Business Intelligence</h1>
+                            <p className="text-slate-500 text-sm md:text-[15px] font-medium mt-1 max-w-2xl">
+                                Financial KPIs, market trends, category mix, and inventory signals in one cleaner workspace.
+                            </p>
+                        </div>
+                    </div>
 
-                <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
+                    <div className="w-full xl:w-auto">
+                        <div className="rounded-2xl border border-white/80 bg-white/85 p-2 shadow-sm backdrop-blur">
+                            <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* ── 1. Financial KPIs (The Big Picture) ── */}
-            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-5 gap-4">
+            <section className="space-y-4">
+                <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.24em] mb-1">Overview</p>
+                    <h2 className="text-lg font-black tracking-tight text-slate-800">Financial Snapshot</h2>
+                    <p className="text-sm font-medium text-slate-500 mt-1">Core profit, growth, and expense metrics for the currently selected range.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-4">
                 {isAdminLike && (
-                    <div className="min-w-0">
+                    <div className="min-w-0 h-full">
                         <MetricCard
                             title="Final Profit (Net-Net)"
                             value={priceTag(analytics.finalProfit)}
@@ -818,7 +794,7 @@ export default function InsightsTab() {
                     </div>
                 )}
                 {isAdminLike && (
-                    <div className="min-w-0">
+                    <div className="min-w-0 h-full">
                         <MetricCard
                             title="Total Fixed Expenses"
                             value={priceTag(analytics.totalFixedExpenses)}
@@ -829,7 +805,7 @@ export default function InsightsTab() {
                     </div>
                 )}
                 {isAdminLike && (
-                    <div className="min-w-0">
+                    <div className="min-w-0 h-full">
                         <MetricCard
                             title="Non-fixed Expenses"
                             value={priceTag(analytics.totalNonFixedExpenses)}
@@ -839,7 +815,7 @@ export default function InsightsTab() {
                         />
                     </div>
                 )}
-                <div className="min-w-0">
+                <div className="min-w-0 h-full">
                     <MetricCard
                         title="Gross Net Profit"
                         value={priceTag(analytics.totalProfit)}
@@ -851,7 +827,7 @@ export default function InsightsTab() {
                         hint={showGrossProfitBreakdown ? 'Hide calculation details' : 'Tap to view calculation details'}
                     />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 h-full">
                     <MetricCard
                         title="Sales Growth (Weekly)"
                         value={`${analytics.salesGrowth > 0 ? '+' : ''}${analytics.salesGrowth.toFixed(1)}%`}
@@ -860,11 +836,12 @@ export default function InsightsTab() {
                         subtext={`vs Previous ${timeView === 'weekly' ? 'Week' : 'Month'}`}
                     />
                 </div>
-            </div>
+                </div>
 
-            {isAdminLike && showFinalProfitBreakdown && (
-                <div className="bg-white border border-emerald-100 rounded-3xl shadow-sm p-5">
-                    <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="mt-4 space-y-4">
+                {isAdminLike && showFinalProfitBreakdown && (
+                <div className="bg-white border border-emerald-100 rounded-2xl shadow-sm p-5">
+                    <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between mb-4">
                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Final Profit Calculation</h3>
                         <span className="text-xs font-bold text-emerald-600">Net = (Product Profit + Service Profit) - (Fixed Expenses + Non-fixed Expenses + Inventory Purchases)</span>
                     </div>
@@ -899,11 +876,11 @@ export default function InsightsTab() {
                         </div>
                     </div>
                 </div>
-            )}
+                )}
 
-            {showGrossProfitBreakdown && (
-                <div className="bg-white border border-blue-100 rounded-3xl shadow-sm p-5">
-                    <div className="flex items-center justify-between gap-3 mb-4">
+                {showGrossProfitBreakdown && (
+                <div className="bg-white border border-blue-100 rounded-2xl shadow-sm p-5">
+                    <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between mb-4">
                         <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Gross Net Profit Calculation</h3>
                         <span className="text-xs font-bold text-blue-600">Gross = Product Profit + Service Profit</span>
                     </div>
@@ -926,86 +903,94 @@ export default function InsightsTab() {
                         </div>
                     </div>
                 </div>
-            )}
+                )}
+                </div>
+            </section>
 
             {/* ── 2. Team Performance (Salesman Leaderboard) ── */}
-            <div className="bg-gradient-to-br from-indigo-900 to-slate-800 p-4 md:p-6 rounded-[2rem] shadow-xl border border-indigo-800 text-white">
-                <div className="flex items-center gap-3 mb-6">
-                    <div className="p-3 bg-indigo-500/20 rounded-xl text-indigo-300"><Users size={20} /></div>
-                    <div className="flex-1">
-                        <h3 className="text-lg font-bold">Salesman Leaderboard 🏆</h3>
-                        <p className="text-xs text-indigo-300 font-bold uppercase tracking-wider">Top Performers by Revenue & Margin</p>
+            <section className={CHART_CARD_CLASS}>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-4">
+                    <div className="flex items-start gap-3">
+                        <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600"><Users size={20} /></div>
+                        <div className="flex-1">
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Salesman Leaderboard</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Top performers by revenue and margin</p>
+                        </div>
+                    </div>
+                    <div className="inline-flex items-center gap-2 self-start rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                        Selected Range
                     </div>
                 </div>
                 <div className="md:hidden space-y-2">
                     {analytics.salesmanData.length === 0 ? (
-                        <div className="py-6 text-center text-sm text-indigo-300 rounded-xl border border-indigo-500/20">
+                        <div className="py-6 text-center text-sm text-slate-400 rounded-2xl border border-slate-200 bg-slate-50">
                             No sales data found.
                         </div>
                     ) : analytics.salesmanData.map((staff, idx) => (
-                        <div key={`mobile-leader-${idx}`} className="rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3">
+                        <div key={`mobile-leader-${idx}`} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
                             <div className="flex items-center justify-between gap-3">
                                 <div className="flex items-center gap-3 min-w-0">
                                     <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${idx === 0 ? 'bg-yellow-400 text-yellow-900' : idx === 1 ? 'bg-slate-300 text-slate-800' : idx === 2 ? 'bg-orange-400 text-orange-900' : 'bg-slate-700 text-white'}`}>
                                         {idx + 1}
                                     </span>
-                                    <p className="font-bold text-sm truncate">{staff.name}</p>
+                                    <p className="font-bold text-sm text-slate-800 truncate">{staff.name}</p>
                                 </div>
-                                <p className="font-black text-emerald-400">{priceTag(staff.sales)}</p>
+                                <p className="font-black text-emerald-600">{priceTag(staff.sales)}</p>
                             </div>
                             <div className="grid grid-cols-2 gap-2 mt-2 text-[11px]">
-                                <div className="rounded-lg bg-white/10 px-2 py-1">
-                                    <p className="text-indigo-300 uppercase text-[9px] font-bold">Avg Margin</p>
-                                    <p className="font-bold text-blue-300">{staff.avgMargin.toFixed(1)}%</p>
+                                <div className="rounded-xl border border-slate-100 bg-white px-2 py-2">
+                                    <p className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Avg Margin</p>
+                                    <p className="font-bold text-blue-500">{staff.avgMargin.toFixed(1)}%</p>
                                 </div>
-                                <div className="rounded-lg bg-white/10 px-2 py-1">
-                                    <p className="text-indigo-300 uppercase text-[9px] font-bold">Avg Discount</p>
-                                    <p className="font-bold text-red-300">€{staff.avgDiscount.toFixed(2)}</p>
+                                <div className="rounded-xl border border-slate-100 bg-white px-2 py-2">
+                                    <p className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Avg Discount</p>
+                                    <p className="font-bold text-red-500">{priceTag(staff.avgDiscount)}</p>
                                 </div>
                             </div>
                         </div>
                     ))}
                 </div>
 
-                <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-100">
+                    <table className="w-full text-left border-collapse bg-white">
                         <thead>
-                            <tr className="border-b border-indigo-500/30">
-                                <th className="py-3 px-4 text-[10px] font-black text-indigo-300 uppercase tracking-widest">Rank/Name</th>
-                                <th className="py-3 px-4 text-[10px] font-black text-indigo-300 uppercase tracking-widest text-center">Gross Sales</th>
-                                <th className="py-3 px-4 text-[10px] font-black text-indigo-300 uppercase tracking-widest text-center">Avg Margin</th>
-                                <th className="py-3 px-4 text-[10px] font-black text-indigo-300 uppercase tracking-widest text-center">Avg Discount</th>
+                            <tr className="border-b border-slate-200 bg-slate-50/80">
+                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Rank/Name</th>
+                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Gross Sales</th>
+                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Avg Margin</th>
+                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Avg Discount</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-indigo-500/20">
+                        <tbody className="divide-y divide-slate-100">
                             {analytics.salesmanData.map((staff, idx) => (
-                                <tr key={idx} className="hover:bg-indigo-500/10 transition-colors">
+                                <tr key={idx} className="hover:bg-slate-50 transition-colors">
                                     <td className="py-3 px-4">
                                         <div className="flex items-center gap-3">
                                             <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${idx === 0 ? 'bg-yellow-400 text-yellow-900' : idx === 1 ? 'bg-slate-300 text-slate-800' : idx === 2 ? 'bg-orange-400 text-orange-900' : 'bg-slate-700 text-white'}`}>
                                                 {idx + 1}
                                             </span>
-                                            <span className="font-bold text-sm">{staff.name}</span>
+                                            <span className="font-bold text-sm text-slate-800">{staff.name}</span>
                                         </div>
                                     </td>
-                                    <td className="py-3 px-4 text-center font-black text-emerald-400">{priceTag(staff.sales)}</td>
-                                    <td className="py-3 px-4 text-center text-sm font-bold text-blue-300">{staff.avgMargin.toFixed(1)}%</td>
-                                    <td className="py-3 px-4 text-center text-sm font-bold text-red-300">€{staff.avgDiscount.toFixed(2)}</td>
+                                    <td className="py-3 px-4 text-center font-black text-emerald-600">{priceTag(staff.sales)}</td>
+                                    <td className="py-3 px-4 text-center text-sm font-bold text-blue-500">{staff.avgMargin.toFixed(1)}%</td>
+                                    <td className="py-3 px-4 text-center text-sm font-bold text-red-500">{priceTag(staff.avgDiscount)}</td>
                                 </tr>
                             ))}
                             {analytics.salesmanData.length === 0 && (
-                                <tr><td colSpan="4" className="py-6 text-center text-sm text-indigo-300">No sales data found.</td></tr>
+                                <tr><td colSpan="4" className="py-6 text-center text-sm text-slate-400">No sales data found.</td></tr>
                             )}
                         </tbody>
                     </table>
                 </div>
-            </div>
+            </section>
 
             {/* ── 3. Advanced Visualizations ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-4 items-stretch">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
                 {/* Sales vs Time (Line Chart) */}
-                <div className="lg:col-span-2 xl:col-span-7 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full overflow-hidden">
+                <div className={`${CHART_CARD_CLASS} min-h-[360px] overflow-hidden`}>
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h3 className="text-sm font-black text-slate-800 mb-0.5">Sales vs. Time</h3>
@@ -1035,7 +1020,7 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Profit vs Expense Over Time */}
-                <div className="lg:col-span-2 xl:col-span-5 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full overflow-hidden">
+                <div className={`${CHART_CARD_CLASS} min-h-[360px] overflow-hidden`}>
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h3 className="text-sm font-black text-slate-800 mb-0.5">Profit vs Expense</h3>
@@ -1060,9 +1045,9 @@ export default function InsightsTab() {
             </div>
 
             {/* ── Categorical Breakdown — Horizontal Bar Charts ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Sales by Category */}
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className={`${CHART_CARD_CLASS} overflow-hidden`}>
                     <div className="flex items-start gap-3 mb-4">
                         <div className="p-3 bg-blue-50 rounded-xl text-blue-500"><BarChart3 size={20} /></div>
                         <div>
@@ -1073,14 +1058,14 @@ export default function InsightsTab() {
                     {categorySalesData.length === 0 ? (
                         <p className="text-xs text-slate-400 text-center py-8">No sales data available for this period.</p>
                     ) : (
-                        <div style={{ width: '100%', height: `${Math.max(150, categorySalesData.length * 32)}px` }}>
+                        <div style={{ width: '100%', height: `${Math.max(280, categorySalesData.length * 42)}px` }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={categorySalesData} layout="vertical" margin={{ top: 4, right: 70, left: 8, bottom: 4 }} barCategoryGap="25%" barGap={2}>
+                                <BarChart data={categorySalesData} layout="vertical" margin={{ top: 4, right: 80, left: 20, bottom: 4 }} barCategoryGap="25%" barGap={2}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
-                                    <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={110} axisLine={false} tickLine={false} />
+                                    <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={130} axisLine={false} tickLine={false} />
                                     <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Sales']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
-                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={18}>
+                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={22}>
                                         <LabelList dataKey="amount" position="right" formatter={(value) => `€${value.toFixed(0)}`} style={{ fontSize: '11px', fontWeight: '700', fill: '#334155' }} />
                                         {categorySalesData.map((entry, index) => (
                                             <Cell key={`sales-cell-${index}`} fill={['#3b82f6','#10b981','#8b5cf6','#06b6d4','#f59e0b','#ec4899','#14b8a6','#6366f1','#84cc16','#0ea5e9'][index % 10]} />
@@ -1093,7 +1078,7 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Expense by Category */}
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                <div className={`${CHART_CARD_CLASS} overflow-hidden`}>
                     <div className="flex items-start gap-3 mb-4">
                         <div className="p-3 bg-red-50 rounded-xl text-red-500"><DollarSign size={20} /></div>
                         <div>
@@ -1104,14 +1089,14 @@ export default function InsightsTab() {
                     {categoryExpenseData.length === 0 ? (
                         <p className="text-xs text-slate-400 text-center py-8">No expense data available for this period.</p>
                     ) : (
-                        <div style={{ width: '100%', height: `${Math.max(150, categoryExpenseData.length * 32)}px` }}>
+                        <div style={{ width: '100%', height: `${Math.max(280, categoryExpenseData.length * 42)}px` }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={categoryExpenseData} layout="vertical" margin={{ top: 4, right: 70, left: 8, bottom: 4 }} barCategoryGap="25%" barGap={2}>
+                                <BarChart data={categoryExpenseData} layout="vertical" margin={{ top: 4, right: 80, left: 20, bottom: 4 }} barCategoryGap="25%" barGap={2}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
-                                    <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={110} axisLine={false} tickLine={false} />
+                                    <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={130} axisLine={false} tickLine={false} />
                                     <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Expense']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
-                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={18}>
+                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={22}>
                                         <LabelList dataKey="amount" position="right" formatter={(value) => `€${value.toFixed(0)}`} style={{ fontSize: '11px', fontWeight: '700', fill: '#334155' }} />
                                         {categoryExpenseData.map((entry, index) => (
                                             <Cell key={`expense-cell-${index}`} fill={['#f97316','#ef4444','#a855f7','#f59e0b','#ec4899','#14b8a6','#8b5cf6','#06b6d4','#10b981','#3b82f6'][index % 10]} />
@@ -1125,9 +1110,9 @@ export default function InsightsTab() {
             </div>
 
             {/* ── Peak Hours + Pie Charts ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-4 items-stretch">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Peak Hours Analysis */}
-                <div className="xl:col-span-5 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
+                <div className={`${CHART_CARD_CLASS} min-h-[360px] flex flex-col overflow-hidden`}>
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h3 className="text-sm font-black text-slate-800 mb-0.5">Peak Hours</h3>
@@ -1170,7 +1155,7 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Category Profitability (Pie Chart) */}
-                <div className="xl:col-span-6 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
+                <div className={`${CHART_CARD_CLASS} min-h-[360px] flex flex-col overflow-hidden`}>
                     <h3 className="text-sm font-black text-slate-800 mb-0.5">Category Profitability</h3>
                     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Which categories are Cash Cows?</p>
                     <div className="flex-1 w-full min-h-[250px]">
@@ -1194,41 +1179,45 @@ export default function InsightsTab() {
                     </div>
                 </div>
 
-                {/* Service vs Product Margin (Pie Chart) */}
-                <div className="lg:col-span-2 xl:col-span-6 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
-                    <h3 className="text-sm font-black text-slate-800 mb-0.5">Profit Margins Breakdown</h3>
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Service vs Product Revenue Mix</p>
-                    <div className="flex-1 w-full min-h-[250px] relative">
-                        <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
-                            <PieChart>
-                                <Pie
-                                    data={[
-                                        { name: 'Service Profit', value: Math.max(0, analytics.serviceProfit) || 0 }, // fallback to 0 if negative or null
-                                        { name: 'Product Profit', value: Math.max(0, analytics.productProfit) || 0 }
-                                    ]}
-                                    cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value"
-                                >
-                                    <Cell fill="#8b5cf6" /> {/* Purple for Service */}
-                                    <Cell fill="#0ea5e9" /> {/* Blue for Product */}
-                                </Pie>
-                                <Tooltip formatter={(value) => priceTag(value)} contentStyle={{ borderRadius: '12px' }} />
-                                <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                            </PieChart>
-                        </ResponsiveContainer>
-                        {/* Center Text displaying total */}
-                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8">
-                            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total</span>
-                            <span className="text-xl font-black text-slate-800">{priceTag(analytics.serviceProfit + analytics.productProfit)}</span>
-                        </div>
+            </div>
+
+            <div className={CHART_CARD_CLASS}>
+                <h3 className="text-sm font-black text-slate-800 mb-0.5">Profit Margins Breakdown</h3>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Service vs Product Revenue Mix</p>
+                <div className="relative h-[340px] w-full">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                        <PieChart>
+                            <Pie
+                                data={[
+                                    { name: 'Service Profit', value: Math.max(0, analytics.serviceProfit) || 0 },
+                                    { name: 'Product Profit', value: Math.max(0, analytics.productProfit) || 0 }
+                                ]}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={72}
+                                outerRadius={108}
+                                paddingAngle={5}
+                                dataKey="value"
+                            >
+                                <Cell fill="#8b5cf6" />
+                                <Cell fill="#0ea5e9" />
+                            </Pie>
+                            <Tooltip formatter={(value) => priceTag(value)} contentStyle={{ borderRadius: '12px' }} />
+                            <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                        </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8">
+                        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total</span>
+                        <span className="text-2xl font-black text-slate-800">{priceTag(analytics.serviceProfit + analytics.productProfit)}</span>
                     </div>
                 </div>
             </div>
 
             {/* ── 4. Data Science Insights ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-4 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
                 {/* Top 5 Best Sellers */}
-                <div className="xl:col-span-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full">
+                <div className={`${CHART_CARD_CLASS} h-full`}>
                     <div className="flex items-center gap-3 mb-4">
                         <div className="p-3 bg-amber-50 rounded-xl text-amber-500"><Zap size={20} /></div>
                         <div>
@@ -1254,7 +1243,7 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Supplier Performance */}
-                <div className="xl:col-span-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full">
+                <div className={`${CHART_CARD_CLASS} h-full`}>
                     <div className="flex items-center gap-3 mb-4">
                         <div className="p-3 bg-blue-50 rounded-xl text-blue-500"><Package size={20} /></div>
                         <div>
@@ -1276,9 +1265,9 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Inventory Intelligence */}
-                <div className="space-y-4 lg:col-span-2 xl:col-span-4">
+                <div className="space-y-4">
                     {/* Turnover Ratio */}
-                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                    <div className={CHART_CARD_CLASS}>
                         <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                                 <RefreshCw size={18} className="text-blue-500" />
@@ -1290,7 +1279,7 @@ export default function InsightsTab() {
                     </div>
 
                     {/* Stock Aging Analysis */}
-                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex-1">
+                    <div className={`${CHART_CARD_CLASS} flex-1`}>
                         <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-red-50 rounded-xl text-red-500"><AlertCircle size={20} /></div>
                             <div>
@@ -1310,15 +1299,14 @@ export default function InsightsTab() {
                         </div>
                     </div>
                 </div>
-
             </div>
 
             {/* ── 5. Salary, Expenses & Repairs Analytics (Admin Only) ── */}
             {isAdminLike && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
                     {/* Salary Analytics */}
-                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full">
+                    <div className={`${CHART_CARD_CLASS} h-full`}>
                         <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-emerald-50 rounded-xl text-emerald-500"><DollarSign size={20} /></div>
                             <div>
@@ -1350,7 +1338,7 @@ export default function InsightsTab() {
                     </div>
 
                     {/* Expense Breakdown */}
-                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full">
+                    <div className={`${CHART_CARD_CLASS} h-full`}>
                         <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-red-50 rounded-xl text-red-500"><Activity size={20} /></div>
                             <div>
@@ -1396,7 +1384,7 @@ export default function InsightsTab() {
                     </div>
 
                     {/* Repairs Analytics */}
-                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full lg:col-span-2 xl:col-span-1">
+                    <div className={`${CHART_CARD_CLASS} h-full`}>
                         <div className="flex flex-col gap-3 mb-4">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 bg-purple-50 rounded-xl text-purple-500"><Wrench size={20} /></div>
@@ -1464,14 +1452,14 @@ function MetricCard({ title, value, icon, color, trend, subtext, onClick, isActi
         amber: 'bg-amber-50 text-amber-600 border-amber-100',
     };
 
-    const sharedClassName = `p-4 xl:p-6 rounded-3xl border shadow-sm flex items-start justify-between bg-white border-slate-100 md:hover:border-blue-300 md:hover:shadow-md transition-all group w-full text-left ${onClick ? 'cursor-pointer' : ''} ${isActive ? 'ring-2 ring-emerald-200 border-emerald-200' : ''}`;
+    const sharedClassName = `p-5 rounded-2xl border shadow-sm flex h-full items-start justify-between gap-4 bg-white border-slate-200 md:hover:border-blue-300 md:hover:shadow-md transition-all group w-full text-left ${onClick ? 'cursor-pointer' : ''} ${isActive ? 'ring-2 ring-emerald-200 border-emerald-200' : ''}`;
 
     if (onClick) {
         return (
             <button type="button" onClick={onClick} className={sharedClassName}>
                 <div>
                     <p className="text-[10px] xl:text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 xl:mb-2">{title}</p>
-                    <h3 className="text-xl xl:text-3xl font-black text-slate-800 tracking-tight whitespace-nowrap">{value}</h3>
+                    <h3 className="text-xl xl:text-3xl font-black text-slate-800 tracking-tight leading-tight break-words">{value}</h3>
                     {trend && <p className={`text-[10px] xl:text-xs font-bold mt-1 xl:mt-2 flex items-center gap-1 ${trend.startsWith('-') ? 'text-red-500' : 'text-emerald-500'}`}>
                         <TrendingUp size={12} /> {trend}
                     </p>}
@@ -1494,7 +1482,7 @@ function MetricCard({ title, value, icon, color, trend, subtext, onClick, isActi
         <div className={sharedClassName}>
             <div>
                 <p className="text-[10px] xl:text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 xl:mb-2">{title}</p>
-                <h3 className="text-xl xl:text-3xl font-black text-slate-800 tracking-tight whitespace-nowrap">{value}</h3>
+                <h3 className="text-xl xl:text-3xl font-black text-slate-800 tracking-tight leading-tight break-words">{value}</h3>
                 {trend && <p className={`text-[10px] xl:text-xs font-bold mt-1 xl:mt-2 flex items-center gap-1 ${trend.startsWith('-') ? 'text-red-500' : 'text-emerald-500'}`}>
                     <TrendingUp size={12} /> {trend}
                 </p>}
