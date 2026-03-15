@@ -621,6 +621,65 @@ export default function InsightsTab() {
         return { total: filtered.length, pending, inProgress, completed: completed.length, completedRevenue, estimatedTotal, avgTurnaround };
     }, [repairJobs, dateSelection, transactions]);
 
+    // ── Categorical Breakdown Data ──
+    const categoryExpenseData = useMemo(() => {
+        const rangeStart = new Date(dateSelection[0].startDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(dateSelection[0].endDate);
+        rangeEnd.setHours(23, 59, 59, 999);
+
+        const purchaseTxns = (transactions || []).filter(txn => {
+            const t = String(txn?.type || '').toLowerCase();
+            if (t !== 'expense' && t !== 'purchase') return false;
+            const d = parseTransactionDate(txn);
+            return d && d >= rangeStart && d <= rangeEnd;
+        });
+
+        const grouped = purchaseTxns.reduce((acc, txn) => {
+            const category = String(
+                typeof txn.category === 'object'
+                    ? (txn.category?.level1 || txn.category?.name || 'Other')
+                    : (txn.category || 'Other')
+            ).trim() || 'Other';
+            acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
+            return acc;
+        }, {});
+
+        return Object.entries(grouped)
+            .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 10);
+    }, [transactions, dateSelection]);
+
+    const categorySalesData = useMemo(() => {
+        const rangeStart = new Date(dateSelection[0].startDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(dateSelection[0].endDate);
+        rangeEnd.setHours(23, 59, 59, 999);
+
+        const salesTxns = (transactions || []).filter(txn => {
+            const t = String(txn?.type || '').toLowerCase();
+            if (t !== 'income' && t !== 'revenue' && t !== 'sale' && t !== 'product_sale' && t !== 'repair_amount' && t !== 'repair_job' && t !== 'reparing_job') return false;
+            const d = parseTransactionDate(txn);
+            return d && d >= rangeStart && d <= rangeEnd;
+        });
+
+        const grouped = salesTxns.reduce((acc, txn) => {
+            const category = String(
+                typeof txn.category === 'object'
+                    ? (txn.category?.level1 || txn.category?.name || 'Other')
+                    : (txn.category || 'Other')
+            ).trim() || 'Other';
+            acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
+            return acc;
+        }, {});
+
+        return Object.entries(grouped)
+            .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 10);
+    }, [transactions, dateSelection]);
+
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
             {/* ── Header ── */}
@@ -889,6 +948,69 @@ export default function InsightsTab() {
                         </ResponsiveContainer>
                     </div>
                 </div>
+
+            {/* ── Categorical Breakdown — Horizontal Bar Charts ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Sales by Category */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
+                    <div className="flex items-center gap-3 mb-5">
+                        <div className="p-3 bg-blue-50 rounded-xl text-blue-500"><BarChart3 size={20} /></div>
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800">Sales by Category</h3>
+                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Revenue breakdown per category</p>
+                        </div>
+                    </div>
+                    {categorySalesData.length === 0 ? (
+                        <p className="text-xs text-slate-400 text-center py-8">No sales data available for this period.</p>
+                    ) : (
+                        <div style={{ width: '100%', height: Math.max(200, categorySalesData.length * 44) }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={categorySalesData} layout="vertical" margin={{ top: 0, right: 60, left: 10, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                                    <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
+                                    <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={110} axisLine={false} tickLine={false} />
+                                    <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Sales']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={26}>
+                                        {categorySalesData.map((entry, index) => (
+                                            <Cell key={`sales-cell-${index}`} fill={['#3b82f6','#10b981','#8b5cf6','#06b6d4','#f59e0b','#ec4899','#14b8a6','#6366f1','#84cc16','#0ea5e9'][index % 10]} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    )}
+                </div>
+
+                {/* Expense by Category */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
+                    <div className="flex items-center gap-3 mb-5">
+                        <div className="p-3 bg-red-50 rounded-xl text-red-500"><DollarSign size={20} /></div>
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800">Expense by Category</h3>
+                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Purchase/expense breakdown per category</p>
+                        </div>
+                    </div>
+                    {categoryExpenseData.length === 0 ? (
+                        <p className="text-xs text-slate-400 text-center py-8">No expense data available for this period.</p>
+                    ) : (
+                        <div style={{ width: '100%', height: Math.max(200, categoryExpenseData.length * 44) }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={categoryExpenseData} layout="vertical" margin={{ top: 0, right: 60, left: 10, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                                    <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
+                                    <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={110} axisLine={false} tickLine={false} />
+                                    <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Expense']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={26}>
+                                        {categoryExpenseData.map((entry, index) => (
+                                            <Cell key={`expense-cell-${index}`} fill={['#f97316','#ef4444','#a855f7','#f59e0b','#ec4899','#14b8a6','#8b5cf6','#06b6d4','#10b981','#3b82f6'][index % 10]} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    )}
+                </div>
+            </div>
 
                 {/* Peak Hours Analysis */}
                 <div className="xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
