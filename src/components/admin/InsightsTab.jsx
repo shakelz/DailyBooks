@@ -81,7 +81,7 @@ function resolveCategoryRowName(row = {}) {
 }
 
 function parseTransactionDate(txn) {
-    const parsed = new Date(txn?.timestamp || `${txn?.date || ''} ${txn?.time || ''}`);
+    const parsed = new Date(txn?.occurred_at || txn?.created_at || txn?.timestamp || `${txn?.date || ''} ${txn?.time || ''}`);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -131,42 +131,12 @@ export default function InsightsTab() {
         let cancelled = false;
         const fetchChartData = async () => {
             try {
-                const preferredTransactionSelect = [
-                    'transaction_id',
-                    'transactionId',
-                    'id',
-                    'amount',
-                    'tx_type',
-                    'type',
-                    'source',
-                    'category',
-                    'category_id',
-                    'notes',
-                    'description',
-                    'desc',
-                    'timestamp',
-                    'date',
-                    'time',
-                ].join(', ');
-
-                let txnResult = await supabase
+                const { data: txnData, error: txnError } = await supabase
                     .from('transactions')
-                    .select(preferredTransactionSelect)
+                    .select('transaction_id, amount, tx_type, category_id, notes, description, source, created_at')
                     .eq('shop_id', settingsShopId)
                     .not('amount', 'is', null)
                     .gt('amount', 0);
-
-                if (txnResult.error) {
-                    console.warn('Preferred chart transaction select failed, retrying with wildcard:', txnResult.error);
-                    txnResult = await supabase
-                        .from('transactions')
-                        .select('*')
-                        .eq('shop_id', settingsShopId)
-                        .not('amount', 'is', null)
-                        .gt('amount', 0);
-                }
-
-                const { data: txnData, error: txnError } = txnResult;
 
                 if (cancelled) return;
 
@@ -781,13 +751,13 @@ export default function InsightsTab() {
     };
 
     const isExpenseTypeResolved = (txn) => {
-        const t = String(txn?.tx_type || txn?.type || txn?.transactionType || '').toLowerCase().trim();
-        return t === 'product_purchase' || t === 'shop_expense' || t === 'purchase' || t === 'expense';
+        const t = String(txn?.tx_type || '').toLowerCase().trim();
+        return t === 'product_purchase' || t === 'shop_expense';
     };
 
     const isSaleTypeResolved = (txn) => {
-        const t = String(txn?.tx_type || txn?.type || txn?.transactionType || '').toLowerCase().trim();
-        return t === 'product_sale' || t === 'shop' || t === 'sale';
+        const t = String(txn?.tx_type || '').toLowerCase().trim();
+        return t === 'product_sale';
     };
 
     const purchaseChartTransactions = useMemo(() => {
@@ -848,6 +818,7 @@ export default function InsightsTab() {
     console.log('InsightsTab total transactions received (context):', (transactions || []).length);
     console.log('InsightsTab chart transactions fetched (manual category merge):', chartTransactions.length);
     console.log('Sample chartTransaction full object:', chartTransactions.slice(0, 3));
+    console.log('Full transaction object:', chartTransactions[0] ? JSON.stringify(chartTransactions[0], null, 2) : null);
     const typeSet = new Set((chartTransactions.length > 0 ? chartTransactions : (transactions || [])).map(t => t.tx_type || t.type));
     console.log('Unique transaction types found:', [...typeSet]);
     console.log('salesTxns count:', salesChartTransactions.length);
