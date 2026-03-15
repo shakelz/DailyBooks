@@ -799,6 +799,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         || showCalc
         || showSalesProductSuggestions
         || showPurchaseProductSuggestions
+        || Boolean(selectedMobileInventoryItem)
+        || Boolean(activeKpiBreakdownType)
     );
 
     useEffect(() => {
@@ -931,7 +933,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [adminView, lockTimeoutMs, user?.id]);
 
     useEffect(() => {
-        if (!lockTimeoutMs || lockTimeoutMs <= 0) return;
+        modalInteractionOpenRef.current = anyModalOpen;
+    }, [anyModalOpen]);
+
+    useEffect(() => {
+        if (!lockTimeoutMs || lockTimeoutMs <= 0) return undefined;
 
         const RESET_EVENTS = [
             'mousemove', 'mousedown', 'keydown', 'keypress',
@@ -962,16 +968,72 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         resetTimer();
 
         return () => {
-            if (timer) clearTimeout(timer);
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
             RESET_EVENTS.forEach((event) => {
                 window.removeEventListener(event, resetTimer);
             });
         };
-    }, [lockTimeoutMs, anyModalOpen]);
+    }, [lockTimeoutMs]);
 
     useEffect(() => {
-        modalInteractionOpenRef.current = anyModalOpen;
-    }, [anyModalOpen]);
+        if (!lockTimeoutMs || lockTimeoutMs <= 0) return undefined;
+        if (!anyModalOpen) return undefined;
+
+        writeLockState(Date.now(), isLockedRef.current);
+        return undefined;
+    }, [anyModalOpen, lockTimeoutMs]);
+
+    useEffect(() => {
+        let escCount = 0;
+        let escTimer = null;
+
+        const handleEscapeReset = (event) => {
+            if (event.key !== 'Escape') return;
+
+            escCount += 1;
+            if (escTimer) clearTimeout(escTimer);
+            escTimer = setTimeout(() => {
+                escCount = 0;
+                escTimer = null;
+            }, 1000);
+
+            if (escCount < 3) return;
+
+            setShowTransactionModal(false);
+            setShowRepairModal(false);
+            setShowQuickSaleModal(false);
+            setShowInventoryForm(false);
+            setShowMobileInventoryModal(false);
+            setShowOtherInventoryModal(false);
+            setShowTransactionDetailModal(false);
+            setShowCategoryModal(false);
+            setShowProfileModal(false);
+            setShowExcludedCategoriesModal(false);
+            setShowPendingOrders(false);
+            setShowOnlineOrderForm(false);
+            setShowTopBarcodeMatches(false);
+            setShowCalc(false);
+            setShowSalesProductSuggestions(false);
+            setShowPurchaseProductSuggestions(false);
+            setSelectedMobileInventoryItem(null);
+            setActiveKpiBreakdownType('');
+
+            escCount = 0;
+            if (escTimer) {
+                clearTimeout(escTimer);
+                escTimer = null;
+            }
+        };
+
+        window.addEventListener('keydown', handleEscapeReset);
+        return () => {
+            if (escTimer) clearTimeout(escTimer);
+            window.removeEventListener('keydown', handleEscapeReset);
+        };
+    }, []);
 
     const attemptUnlockWithPin = useCallback(async (pinValue = '') => {
         const enteredPin = String(pinValue || '').trim();
