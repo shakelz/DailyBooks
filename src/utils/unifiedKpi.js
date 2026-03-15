@@ -119,8 +119,18 @@ function isAdminExpenseSource(source = '') {
 }
 
 function isFixedExpenseTxn(txn = {}) {
+  const source = normalizeToken(txn?.source || txn?.tx_source || '');
   return Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false)
-    || isFixedExpenseType(getTxType(txn));
+    || isFixedExpenseType(getTxType(txn))
+    || isAdminExpenseSource(source);
+}
+
+function isInventoryPurchaseTxn(txn = {}) {
+  const txType = getTxType(txn);
+  const source = normalizeToken(txn?.source || txn?.tx_source || '');
+  return txType === 'product_purchase'
+    || txType === 'purchase'
+    || (isProductExpenseType(txType) && source === 'purchase');
 }
 
 function isSalesTxn(txn = {}) {
@@ -577,18 +587,7 @@ export function computeUnifiedKpiSnapshot({
         productById,
       });
       if (filtered.included) strictServiceProfit += filtered.amount;
-    } else if (isFixedExpenseType(txType) && isAdminExpenseSource(sourceText)) {
-      if (includeAdminFixedExpenses) {
-        const filtered = calculateFilteredTotal({
-          txn,
-          scope: KPI_SCOPE_EXPENSE,
-          categoryContributionModeMap,
-          productById,
-          applyProfitModeForExpenseScope: true,
-        });
-        if (filtered.included) strictFixedExpenses += filtered.amount;
-      }
-    } else if (isProductExpenseType(txType) && sourceText === 'expense') {
+    } else if (isExpenseTxn(txn)) {
       const filtered = calculateFilteredTotal({
         txn,
         scope: KPI_SCOPE_EXPENSE,
@@ -597,18 +596,16 @@ export function computeUnifiedKpiSnapshot({
         applyProfitModeForExpenseScope: true,
       });
       if (filtered.included && !shouldIgnoreGeneralExpense(txn, filtered)) {
-        strictNonFixedExpenses += filtered.amount;
-      }
-    } else if (isProductExpenseType(txType) && sourceText === 'purchase') {
-      const filtered = calculateFilteredTotal({
-        txn,
-        scope: KPI_SCOPE_EXPENSE,
-        categoryContributionModeMap,
-        productById,
-        applyProfitModeForExpenseScope: true,
-      });
-      if (filtered.included && !shouldIgnoreGeneralExpense(txn, filtered)) {
-        strictInventoryPurchases += filtered.amount;
+        if (isFixedExpenseTxn(txn)) {
+          if (!includeAdminFixedExpenses && isAdminExpenseSource(sourceText)) {
+            return;
+          }
+          strictFixedExpenses += filtered.amount;
+        } else if (isInventoryPurchaseTxn(txn)) {
+          strictInventoryPurchases += filtered.amount;
+        } else if (!isAdminExpenseSource(sourceText)) {
+          strictNonFixedExpenses += filtered.amount;
+        }
       }
     }
 
@@ -663,7 +660,7 @@ export function computeUnifiedKpiSnapshot({
         fixedExpenses += amount;
         period.fixedExpenses += amount;
       } else {
-        const isPurchaseLike = txType === 'product_purchase' || txType === 'product_expense' || txType === 'purchase';
+        const isPurchaseLike = isInventoryPurchaseTxn(txn);
         if (isPurchaseLike) {
           purchases += amount;
           inventoryPurchases += amount;

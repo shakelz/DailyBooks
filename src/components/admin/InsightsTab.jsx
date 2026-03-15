@@ -425,6 +425,18 @@ export default function InsightsTab() {
         const finalProfit = Number.isFinite(strictKpi.finalProfit)
             ? strictKpi.finalProfit
             : ((productProfit + serviceProfit) - (totalFixedExpenses + totalNonFixedExpenses + totalInventoryPurchases));
+        const fixedExpenseTransactions = transactions.filter((txn) => {
+            const txnDate = parseTransactionDate(txn);
+            if (!txnDate || txnDate < rangeStart || txnDate > rangeEnd) return false;
+
+            const source = String(txn?.source || txn?.tx_source || '').toLowerCase().trim();
+            const txType = String(txn?.tx_type || txn?.type || '').toLowerCase().trim();
+            const isFixed = txn?.is_fixed_expense === true || txn?.isFixedExpense === true;
+
+            return isFixed || source === 'admin-expense' || txType === 'fixed_expense' || (txType === 'shop_expense' && source === 'admin-expense');
+        });
+        console.log('Fixed expense transactions:', fixedExpenseTransactions);
+        console.log('Total fixed:', totalFixedExpenses);
         const avgMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
         const salesGrowth = unified.salesGrowth;
 
