@@ -7,7 +7,7 @@ import { computeUnifiedKpiSnapshot } from '../../utils/unifiedKpi';
 import { supabase } from '../../supabaseClient';
 import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-    ComposedChart, Area, PieChart, Pie, Cell
+    ComposedChart, Area, PieChart, Pie, Cell, LabelList
 } from 'recharts';
 import DateRangeFilter from './DateRangeFilter';
 import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, Package, RefreshCw, BarChart3, Scale, Users, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
@@ -622,6 +622,15 @@ export default function InsightsTab() {
     }, [repairJobs, dateSelection, transactions]);
 
     // ── Categorical Breakdown Data ──
+    const extractChartCategory = (txn) => {
+        const cat = txn?.category;
+        if (cat && typeof cat === 'object') {
+            return String(cat.level1 || cat.name || cat.label || '').trim() || null;
+        }
+        if (typeof cat === 'string' && cat.trim()) return cat.trim();
+        return String(txn?.category_name || txn?.categoryName || txn?.cat || '').trim() || null;
+    };
+
     const categoryExpenseData = useMemo(() => {
         const rangeStart = new Date(dateSelection[0].startDate);
         rangeStart.setHours(0, 0, 0, 0);
@@ -629,18 +638,15 @@ export default function InsightsTab() {
         rangeEnd.setHours(23, 59, 59, 999);
 
         const purchaseTxns = (transactions || []).filter(txn => {
-            const t = String(txn?.type || '').toLowerCase();
-            if (t !== 'expense' && t !== 'purchase') return false;
+            const t = String(txn?.type || txn?.transactionType || '').toLowerCase().trim();
+            if (t !== 'expense' && t !== 'purchase' && t !== 'cost' && t !== 'admin-expense' && t !== 'shop_expense' && t !== 'product_purchase' && t !== 'product_expense') return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
 
         const grouped = purchaseTxns.reduce((acc, txn) => {
-            const category = String(
-                typeof txn.category === 'object'
-                    ? (txn.category?.level1 || txn.category?.name || 'Other')
-                    : (txn.category || 'Other')
-            ).trim() || 'Other';
+            const category = extractChartCategory(txn);
+            if (!category) return acc;
             acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
             return acc;
         }, {});
@@ -658,18 +664,15 @@ export default function InsightsTab() {
         rangeEnd.setHours(23, 59, 59, 999);
 
         const salesTxns = (transactions || []).filter(txn => {
-            const t = String(txn?.type || '').toLowerCase();
-            if (t !== 'income' && t !== 'revenue' && t !== 'sale' && t !== 'product_sale' && t !== 'repair_amount' && t !== 'repair_job' && t !== 'reparing_job') return false;
+            const t = String(txn?.type || txn?.transactionType || '').toLowerCase().trim();
+            if (t !== 'income' && t !== 'revenue' && t !== 'sale' && t !== 'sales' && t !== 'product_sale' && t !== 'repair_amount' && t !== 'repair_job' && t !== 'reparing_job') return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
 
         const grouped = salesTxns.reduce((acc, txn) => {
-            const category = String(
-                typeof txn.category === 'object'
-                    ? (txn.category?.level1 || txn.category?.name || 'Other')
-                    : (txn.category || 'Other')
-            ).trim() || 'Other';
+            const category = extractChartCategory(txn);
+            if (!category) return acc;
             acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
             return acc;
         }, {});
@@ -679,6 +682,11 @@ export default function InsightsTab() {
             .sort((a, b) => b.amount - a.amount)
             .slice(0, 10);
     }, [transactions, dateSelection]);
+
+    // Debug: check category data shape
+    console.log('Sample transactions for category check:', (transactions || []).slice(0, 5).map(t => ({ category: t.category, type: t.type, amount: t.amount })));
+    console.log('categorySalesData:', categorySalesData);
+    console.log('categoryExpenseData:', categoryExpenseData);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
@@ -966,12 +974,13 @@ export default function InsightsTab() {
                     ) : (
                         <div style={{ width: '100%', height: Math.max(200, categorySalesData.length * 44) }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={categorySalesData} layout="vertical" margin={{ top: 0, right: 60, left: 10, bottom: 0 }}>
+                                <BarChart data={categorySalesData} layout="vertical" margin={{ top: 0, right: 80, left: 10, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
                                     <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={110} axisLine={false} tickLine={false} />
                                     <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Sales']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
                                     <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={26}>
+                                        <LabelList dataKey="amount" position="right" formatter={(value) => `€${value.toFixed(0)}`} style={{ fontSize: '11px', fontWeight: '700', fill: '#334155' }} />
                                         {categorySalesData.map((entry, index) => (
                                             <Cell key={`sales-cell-${index}`} fill={['#3b82f6','#10b981','#8b5cf6','#06b6d4','#f59e0b','#ec4899','#14b8a6','#6366f1','#84cc16','#0ea5e9'][index % 10]} />
                                         ))}
@@ -996,12 +1005,13 @@ export default function InsightsTab() {
                     ) : (
                         <div style={{ width: '100%', height: Math.max(200, categoryExpenseData.length * 44) }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={categoryExpenseData} layout="vertical" margin={{ top: 0, right: 60, left: 10, bottom: 0 }}>
+                                <BarChart data={categoryExpenseData} layout="vertical" margin={{ top: 0, right: 80, left: 10, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
                                     <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={110} axisLine={false} tickLine={false} />
                                     <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Expense']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
                                     <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={26}>
+                                        <LabelList dataKey="amount" position="right" formatter={(value) => `€${value.toFixed(0)}`} style={{ fontSize: '11px', fontWeight: '700', fill: '#334155' }} />
                                         {categoryExpenseData.map((entry, index) => (
                                             <Cell key={`expense-cell-${index}`} fill={['#f97316','#ef4444','#a855f7','#f59e0b','#ec4899','#14b8a6','#8b5cf6','#06b6d4','#10b981','#3b82f6'][index % 10]} />
                                         ))}
