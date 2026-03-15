@@ -9,8 +9,8 @@
     "build": "vite build",
     "build:desktop-renderer": "vite build --base=./",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "deploy": "vercel --prod",
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
     "electron:start": "electron .",
     "electron:start:v2": "electron electron.main.v2.js",
     "dist:desktop": "npm run build:desktop-renderer && electron-builder",
@@ -31,6 +31,7 @@
     "recharts": "^3.7.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.28.0",
     "@eslint/js": "^9.39.1",
     "@tailwindcss/vite": "^4.1.18",
     "@types/react": "^19.2.7",
@@ -44,7 +45,8 @@
     "globals": "^16.5.0",
     "supabase": "^2.77.0",
     "tailwindcss": "^4.1.18",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "wrangler": "^4.73.0"
   },
   "build": {
     "appId": "com.carefone.erp",
