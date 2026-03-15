@@ -631,6 +631,11 @@ export default function InsightsTab() {
         return String(txn?.category_name || txn?.categoryName || txn?.cat || '').trim() || null;
     };
 
+    const isExpenseType = (txn) => {
+        const t = String(txn?.type || txn?.transactionType || txn?.tx_type || '').toLowerCase().trim();
+        return t.includes('expense') || t.includes('purchase') || t.includes('cost') || t === 'adjustment' || t === 'adjustment_amount';
+    };
+
     const categoryExpenseData = useMemo(() => {
         const rangeStart = new Date(dateSelection[0].startDate);
         rangeStart.setHours(0, 0, 0, 0);
@@ -638,8 +643,7 @@ export default function InsightsTab() {
         rangeEnd.setHours(23, 59, 59, 999);
 
         const purchaseTxns = (transactions || []).filter(txn => {
-            const t = String(txn?.type || txn?.transactionType || '').toLowerCase().trim();
-            if (t !== 'expense' && t !== 'purchase' && t !== 'cost' && t !== 'admin-expense' && t !== 'shop_expense' && t !== 'product_purchase' && t !== 'product_expense') return false;
+            if (!isExpenseType(txn)) return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
@@ -664,8 +668,9 @@ export default function InsightsTab() {
         rangeEnd.setHours(23, 59, 59, 999);
 
         const salesTxns = (transactions || []).filter(txn => {
-            const t = String(txn?.type || txn?.transactionType || '').toLowerCase().trim();
-            if (t !== 'income' && t !== 'revenue' && t !== 'sale' && t !== 'sales' && t !== 'product_sale' && t !== 'repair_amount' && t !== 'repair_job' && t !== 'reparing_job') return false;
+            if (isExpenseType(txn)) return false;
+            const amount = parseFloat(txn.amount) || 0;
+            if (amount <= 0) return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
@@ -683,8 +688,11 @@ export default function InsightsTab() {
             .slice(0, 10);
     }, [transactions, dateSelection]);
 
-    // Debug: check category data shape
-    console.log('Sample transactions for category check:', (transactions || []).slice(0, 5).map(t => ({ category: t.category, type: t.type, amount: t.amount })));
+    // Debug: detailed transaction type analysis
+    console.log('InsightsTab total transactions received:', (transactions || []).length);
+    const typeSet = new Set((transactions || []).map(t => t.type));
+    console.log('All unique transaction types:', [...typeSet]);
+    console.log('Transaction types found:', (transactions || []).slice(0, 20).map(t => ({ type: t.type, transactionType: t.transactionType, tx_type: t.tx_type, category: t.category, amount: t.amount })));
     console.log('categorySalesData:', categorySalesData);
     console.log('categoryExpenseData:', categoryExpenseData);
 
