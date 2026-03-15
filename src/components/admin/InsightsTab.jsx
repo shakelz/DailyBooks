@@ -72,14 +72,6 @@ function isUUID(value = '') {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
 
-function resolveCategoryRowId(row = {}) {
-    return String(row?.category_id || row?.id || '').trim();
-}
-
-function resolveCategoryRowName(row = {}) {
-    return String(row?.category_name || row?.name || row?.label || '').trim();
-}
-
 function parseTransactionDate(txn) {
     const parsed = new Date(txn?.occurred_at || txn?.created_at || txn?.timestamp || `${txn?.date || ''} ${txn?.time || ''}`);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -104,7 +96,7 @@ function isRepairRevenueTransaction(txn) {
 }
 
 export default function InsightsTab() {
-    const { transactions, products } = useInventory();
+    const { transactions: contextTransactions, products } = useInventory();
     const { isAdminLike, slowMovingDays, salesmen, attendanceLogs, activeShopId, user } = useAuth();
     const { repairJobs } = useRepairs();
     const [dateSelection, setDateSelection] = useState([
@@ -119,85 +111,68 @@ export default function InsightsTab() {
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
     const [showGrossProfitBreakdown, setShowGrossProfitBreakdown] = useState(false);
     const [categoryContributionModeMap, setCategoryContributionModeMap] = useState({});
-    const [chartTransactions, setChartTransactions] = useState([]);
+    const transactions = useMemo(() => contextTransactions || [], [contextTransactions]);
 
     const settingsShopId = String(activeShopId || user?.shop_id || '').trim();
 
-    // Fetch transactions and categories separately because the schema cache
-    // may not expose a relationship for category_id in every deployment.
+    const chartTransactions = useMemo(() => {
+        return (contextTransactions || [])
+            .filter((txn) => {
+                const amount = parseFloat(txn?.amount || 0);
+                return amount > 0;
+            })
+            .map((txn) => ({
+                ...txn,
+                notes: String(txn?.notes || txn?.note || '').trim(),
+                description: String(txn?.description || txn?.desc || '').trim(),
+                resolvedCategoryName: String(txn?.resolvedCategoryName || '').trim() || null,
+            }));
+    }, [contextTransactions]);
+
     useEffect(() => {
-        if (!settingsShopId) return;
+        if (!contextTransactions?.length) return;
 
+        console.log('Context transaction sample:', JSON.stringify(contextTransactions[0], null, 2));
+        console.log('Context tx types:', [...new Set(
+            contextTransactions
+                .map((t) => t?.type || t?.tx_type || t?.transactionType)
+                .filter(Boolean)
+        )]);
+    }, [contextTransactions]);
+
+    useEffect(() => {
+        if (!chartTransactions.length) return;
+
+        console.log('FULL RAW TRANSACTION:', JSON.stringify(chartTransactions[0], null, 2));
+        console.log('ALL TX TYPES:', [...new Set(
+            chartTransactions
+                .map((t) => t?.tx_type || t?.type || t?.transactionType)
+                .filter(Boolean)
+        )]);
+        console.log('SAMPLE NOTES:', chartTransactions.slice(0, 5).map((t) => t.notes));
+        console.log('SAMPLE DESCRIPTIONS:', chartTransactions.slice(0, 5).map((t) => t.description));
+    }, [chartTransactions]);
+
+    useEffect(() => {
         let cancelled = false;
-        const fetchChartData = async () => {
-            try {
-                const { data: txnData, error: txnError } = await supabase
-                    .from('transactions')
-                    .select('transaction_id, amount, tx_type, category_id, notes, description, source, created_at')
-                    .eq('shop_id', settingsShopId)
-                    .not('amount', 'is', null)
-                    .gt('amount', 0);
 
-                if (cancelled) return;
+        const loadCategorySample = async () => {
+            const { data: allCats, error } = await supabase
+                .from('categories')
+                .select('*')
+                .limit(10);
 
-                if (txnError) {
-                    console.error('Error fetching transactions:', txnError);
-                    return;
-                }
+            if (cancelled) return;
 
-                const scopedCategoriesResult = await supabase
-                    .from('categories')
-                    .select('*')
-                    .eq('shop_id', settingsShopId);
-
-                if (cancelled) return;
-
-                let categoryRows = scopedCategoriesResult.data || [];
-                if (scopedCategoriesResult.error) {
-                    console.warn('Scoped category fetch failed, retrying without shop filter:', scopedCategoriesResult.error);
-
-                    const fallbackCategoriesResult = await supabase
-                        .from('categories')
-                        .select('*');
-
-                    if (cancelled) return;
-
-                    if (fallbackCategoriesResult.error) {
-                        console.error('Error fetching categories:', fallbackCategoriesResult.error);
-                        categoryRows = [];
-                    } else {
-                        categoryRows = fallbackCategoriesResult.data || [];
-                    }
-                }
-
-                const categoryLookup = (categoryRows || []).reduce((acc, row) => {
-                    const id = resolveCategoryRowId(row);
-                    const name = resolveCategoryRowName(row);
-                    if (id && name) {
-                        acc[id] = name;
-                    }
-                    return acc;
-                }, {});
-
-                const mergedTransactions = (txnData || []).map((txn) => {
-                    const categoryId = String(txn?.category_id || txn?.categoryId || '').trim();
-                    return {
-                        ...txn,
-                        notes: String(txn?.notes || txn?.note || '').trim(),
-                        description: String(txn?.description || txn?.desc || '').trim(),
-                        resolvedCategoryName: categoryLookup[categoryId] || null,
-                    };
-                });
-
-                setChartTransactions(mergedTransactions);
-            } catch (error) {
-                if (!cancelled) {
-                    console.error('Error fetching chart transactions:', error);
-                }
+            if (error) {
+                console.error('Error fetching categories sample:', error);
+                return;
             }
+
+            console.log('CATEGORIES TABLE SAMPLE:', JSON.stringify(allCats || [], null, 2));
         };
 
-        fetchChartData();
+        loadCategorySample();
         return () => { cancelled = true; };
     }, [settingsShopId]);
     useEffect(() => {
@@ -751,13 +726,13 @@ export default function InsightsTab() {
     };
 
     const isExpenseTypeResolved = (txn) => {
-        const t = String(txn?.tx_type || '').toLowerCase().trim();
-        return t === 'product_purchase' || t === 'shop_expense';
+        const t = String(txn?.type || txn?.tx_type || txn?.transactionType || '').toLowerCase().trim();
+        return t === 'product_purchase' || t === 'shop_expense' || t === 'purchase' || t === 'expense';
     };
 
     const isSaleTypeResolved = (txn) => {
-        const t = String(txn?.tx_type || '').toLowerCase().trim();
-        return t === 'product_sale';
+        const t = String(txn?.type || txn?.tx_type || txn?.transactionType || '').toLowerCase().trim();
+        return t === 'product_sale' || t === 'shop' || t === 'sale' || t === 'income' || t === 'repair_amount';
     };
 
     const purchaseChartTransactions = useMemo(() => {
@@ -766,12 +741,12 @@ export default function InsightsTab() {
         const rangeEnd = new Date(dateSelection[0].endDate);
         rangeEnd.setHours(23, 59, 59, 999);
 
-        return (chartTransactions.length > 0 ? chartTransactions : (transactions || [])).filter((txn) => {
+        return chartTransactions.filter((txn) => {
             if (!isExpenseTypeResolved(txn)) return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
-    }, [transactions, chartTransactions, dateSelection]);
+    }, [chartTransactions, dateSelection]);
 
     const salesChartTransactions = useMemo(() => {
         const rangeStart = new Date(dateSelection[0].startDate);
@@ -779,12 +754,12 @@ export default function InsightsTab() {
         const rangeEnd = new Date(dateSelection[0].endDate);
         rangeEnd.setHours(23, 59, 59, 999);
 
-        return (chartTransactions.length > 0 ? chartTransactions : (transactions || [])).filter((txn) => {
+        return chartTransactions.filter((txn) => {
             if (!isSaleTypeResolved(txn)) return false;
             const d = parseTransactionDate(txn);
             return d && d >= rangeStart && d <= rangeEnd;
         });
-    }, [transactions, chartTransactions, dateSelection]);
+    }, [chartTransactions, dateSelection]);
 
     const categoryExpenseData = useMemo(() => {
         const grouped = purchaseChartTransactions.reduce((acc, txn) => {
@@ -814,20 +789,8 @@ export default function InsightsTab() {
             .slice(0, 10);
     }, [salesChartTransactions]);
 
-    // Debug: detailed transaction analysis
-    console.log('InsightsTab total transactions received (context):', (transactions || []).length);
-    console.log('InsightsTab chart transactions fetched (manual category merge):', chartTransactions.length);
-    console.log('Sample chartTransaction full object:', chartTransactions.slice(0, 3));
-    console.log('Full transaction object:', chartTransactions[0] ? JSON.stringify(chartTransactions[0], null, 2) : null);
-    const typeSet = new Set((chartTransactions.length > 0 ? chartTransactions : (transactions || [])).map(t => t.tx_type || t.type));
-    console.log('Unique transaction types found:', [...typeSet]);
-    console.log('salesTxns count:', salesChartTransactions.length);
-    console.log('purchaseTxns count:', purchaseChartTransactions.length);
-    console.log('categorySalesData:', categorySalesData);
-    console.log('categoryExpenseData:', categoryExpenseData);
-
     return (
-        <div className="space-y-8 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
+        <div className="space-y-4 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
             {/* ── Header ── */}
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>
@@ -1039,14 +1002,14 @@ export default function InsightsTab() {
             </div>
 
             {/* ── 3. Advanced Visualizations ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-6 items-stretch">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-4 items-stretch">
 
                 {/* Sales vs Time (Line Chart) */}
-                <div className="lg:col-span-2 xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full overflow-hidden">
-                    <div className="flex items-center justify-between mb-6">
+                <div className="lg:col-span-2 xl:col-span-7 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full overflow-hidden">
+                    <div className="flex items-center justify-between mb-4">
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Sales vs. Time</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Daily Performance & Trends</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Sales vs. Time</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Daily Performance & Trends</p>
                         </div>
                         <Calendar size={20} className="text-slate-300" />
                     </div>
@@ -1072,11 +1035,11 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Profit vs Expense Over Time */}
-                <div className="lg:col-span-2 xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full overflow-hidden">
-                    <div className="flex items-center justify-between mb-6">
+                <div className="lg:col-span-2 xl:col-span-5 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full overflow-hidden">
+                    <div className="flex items-center justify-between mb-4">
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Profit vs Expense</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">{timeView === 'weekly' ? 'Weekly' : 'Monthly'} Comparison</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Profit vs Expense</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{timeView === 'weekly' ? 'Weekly' : 'Monthly'} Comparison</p>
                         </div>
                         <Scale size={20} className="text-slate-300" />
                     </div>
@@ -1097,27 +1060,27 @@ export default function InsightsTab() {
             </div>
 
             {/* ── Categorical Breakdown — Horizontal Bar Charts ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                 {/* Sales by Category */}
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
-                    <div className="flex items-center gap-3 mb-5">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                    <div className="flex items-start gap-3 mb-4">
                         <div className="p-3 bg-blue-50 rounded-xl text-blue-500"><BarChart3 size={20} /></div>
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Sales by Category</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Revenue breakdown per category</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Sales by Category</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Revenue breakdown per category</p>
                         </div>
                     </div>
                     {categorySalesData.length === 0 ? (
                         <p className="text-xs text-slate-400 text-center py-8">No sales data available for this period.</p>
                     ) : (
-                        <div style={{ width: '100%', height: `${Math.max(250, categorySalesData.length * 52)}px` }}>
+                        <div style={{ width: '100%', height: `${Math.max(150, categorySalesData.length * 32)}px` }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={categorySalesData} layout="vertical" margin={{ top: 0, right: 80, left: 10, bottom: 0 }}>
+                                <BarChart data={categorySalesData} layout="vertical" margin={{ top: 4, right: 70, left: 8, bottom: 4 }} barCategoryGap="25%" barGap={2}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
                                     <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={110} axisLine={false} tickLine={false} />
                                     <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Sales']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
-                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={26}>
+                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={18}>
                                         <LabelList dataKey="amount" position="right" formatter={(value) => `€${value.toFixed(0)}`} style={{ fontSize: '11px', fontWeight: '700', fill: '#334155' }} />
                                         {categorySalesData.map((entry, index) => (
                                             <Cell key={`sales-cell-${index}`} fill={['#3b82f6','#10b981','#8b5cf6','#06b6d4','#f59e0b','#ec4899','#14b8a6','#6366f1','#84cc16','#0ea5e9'][index % 10]} />
@@ -1130,25 +1093,25 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Expense by Category */}
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
-                    <div className="flex items-center gap-3 mb-5">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                    <div className="flex items-start gap-3 mb-4">
                         <div className="p-3 bg-red-50 rounded-xl text-red-500"><DollarSign size={20} /></div>
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Expense by Category</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Purchase/expense breakdown per category</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Expense by Category</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Purchase/expense breakdown per category</p>
                         </div>
                     </div>
                     {categoryExpenseData.length === 0 ? (
                         <p className="text-xs text-slate-400 text-center py-8">No expense data available for this period.</p>
                     ) : (
-                        <div style={{ width: '100%', height: `${Math.max(250, categoryExpenseData.length * 52)}px` }}>
+                        <div style={{ width: '100%', height: `${Math.max(150, categoryExpenseData.length * 32)}px` }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={categoryExpenseData} layout="vertical" margin={{ top: 0, right: 80, left: 10, bottom: 0 }}>
+                                <BarChart data={categoryExpenseData} layout="vertical" margin={{ top: 4, right: 70, left: 8, bottom: 4 }} barCategoryGap="25%" barGap={2}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
                                     <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={110} axisLine={false} tickLine={false} />
                                     <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Expense']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
-                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={26}>
+                                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={18}>
                                         <LabelList dataKey="amount" position="right" formatter={(value) => `€${value.toFixed(0)}`} style={{ fontSize: '11px', fontWeight: '700', fill: '#334155' }} />
                                         {categoryExpenseData.map((entry, index) => (
                                             <Cell key={`expense-cell-${index}`} fill={['#f97316','#ef4444','#a855f7','#f59e0b','#ec4899','#14b8a6','#8b5cf6','#06b6d4','#10b981','#3b82f6'][index % 10]} />
@@ -1162,13 +1125,13 @@ export default function InsightsTab() {
             </div>
 
             {/* ── Peak Hours + Pie Charts ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-6 items-stretch">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-4 items-stretch">
                 {/* Peak Hours Analysis */}
-                <div className="xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
-                    <div className="flex items-center justify-between mb-6">
+                <div className="xl:col-span-5 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
+                    <div className="flex items-center justify-between mb-4">
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Peak Hours</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">When is the rush?</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Peak Hours</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">When is the rush?</p>
                         </div>
                         <div className="flex bg-slate-100 p-1 rounded-lg">
                             <button
@@ -1207,9 +1170,9 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Category Profitability (Pie Chart) */}
-                <div className="xl:col-span-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
-                    <h3 className="text-lg font-bold text-slate-800 mb-2">Category Profitability</h3>
-                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-6">Which categories are Cash Cows?</p>
+                <div className="xl:col-span-6 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
+                    <h3 className="text-sm font-black text-slate-800 mb-0.5">Category Profitability</h3>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Which categories are Cash Cows?</p>
                     <div className="flex-1 w-full min-h-[250px]">
                         {analytics.categoryData.length > 0 ? (
                             <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
@@ -1232,9 +1195,9 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Service vs Product Margin (Pie Chart) */}
-                <div className="lg:col-span-2 xl:col-span-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
-                    <h3 className="text-lg font-bold text-slate-800 mb-2">Profit Margins Breakdown</h3>
-                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-6">Service vs Product Revenue Mix</p>
+                <div className="lg:col-span-2 xl:col-span-6 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
+                    <h3 className="text-sm font-black text-slate-800 mb-0.5">Profit Margins Breakdown</h3>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Service vs Product Revenue Mix</p>
                     <div className="flex-1 w-full min-h-[250px] relative">
                         <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
                             <PieChart>
@@ -1262,15 +1225,15 @@ export default function InsightsTab() {
             </div>
 
             {/* ── 4. Data Science Insights ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-6 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-4 items-start">
 
                 {/* Top 5 Best Sellers */}
-                <div className="xl:col-span-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
-                    <div className="flex items-center gap-3 mb-6">
+                <div className="xl:col-span-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full">
+                    <div className="flex items-center gap-3 mb-4">
                         <div className="p-3 bg-amber-50 rounded-xl text-amber-500"><Zap size={20} /></div>
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Top 5 Best Sellers</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Fastest Moving Products</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Top 5 Best Sellers</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Fastest Moving Products</p>
                         </div>
                     </div>
                     <div className="space-y-4">
@@ -1291,12 +1254,12 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Supplier Performance */}
-                <div className="xl:col-span-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
-                    <div className="flex items-center gap-3 mb-6">
+                <div className="xl:col-span-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full">
+                    <div className="flex items-center gap-3 mb-4">
                         <div className="p-3 bg-blue-50 rounded-xl text-blue-500"><Package size={20} /></div>
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Supplier Performance</h3>
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Profit Leaders (Domain vs Local)</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Supplier Performance</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Profit Leaders (Domain vs Local)</p>
                         </div>
                     </div>
                     <div className="h-64 w-full">
@@ -1313,9 +1276,9 @@ export default function InsightsTab() {
                 </div>
 
                 {/* Inventory Intelligence */}
-                <div className="space-y-6 lg:col-span-2 xl:col-span-4">
+                <div className="space-y-4 lg:col-span-2 xl:col-span-4">
                     {/* Turnover Ratio */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
                         <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                                 <RefreshCw size={18} className="text-blue-500" />
@@ -1327,12 +1290,12 @@ export default function InsightsTab() {
                     </div>
 
                     {/* Stock Aging Analysis */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex-1">
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex-1">
                         <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-red-50 rounded-xl text-red-500"><AlertCircle size={20} /></div>
                             <div>
-                                <h3 className="text-lg font-bold text-slate-800">Stock Aging</h3>
-                                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Risk Analysis ({'>'}30 Days)</p>
+                                <h3 className="text-sm font-black text-slate-800 mb-0.5">Stock Aging</h3>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Risk Analysis ({'>'}30 Days)</p>
                             </div>
                         </div>
                         <div className="mt-4">
@@ -1352,15 +1315,15 @@ export default function InsightsTab() {
 
             {/* ── 5. Salary, Expenses & Repairs Analytics (Admin Only) ── */}
             {isAdminLike && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
 
                     {/* Salary Analytics */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
-                        <div className="flex items-center gap-3 mb-6">
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full">
+                        <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-emerald-50 rounded-xl text-emerald-500"><DollarSign size={20} /></div>
                             <div>
-                                <h3 className="text-lg font-bold text-slate-800">Salary Report</h3>
-                                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Per-Salesman Breakdown</p>
+                                <h3 className="text-sm font-black text-slate-800 mb-0.5">Salary Report</h3>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Per-Salesman Breakdown</p>
                             </div>
                         </div>
                         <div className="flex items-baseline justify-between mb-4 pb-4 border-b border-slate-100">
@@ -1387,12 +1350,12 @@ export default function InsightsTab() {
                     </div>
 
                     {/* Expense Breakdown */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
-                        <div className="flex items-center gap-3 mb-6">
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full">
+                        <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-red-50 rounded-xl text-red-500"><Activity size={20} /></div>
                             <div>
-                                <h3 className="text-lg font-bold text-slate-800">Expense Breakdown</h3>
-                                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">By Category</p>
+                                <h3 className="text-sm font-black text-slate-800 mb-0.5">Expense Breakdown</h3>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">By Category</p>
                             </div>
                         </div>
                         <div className="flex items-baseline justify-between mb-4 pb-4 border-b border-slate-100">
@@ -1433,13 +1396,13 @@ export default function InsightsTab() {
                     </div>
 
                     {/* Repairs Analytics */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full lg:col-span-2 xl:col-span-1">
-                        <div className="flex flex-col gap-3 mb-6">
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 h-full lg:col-span-2 xl:col-span-1">
+                        <div className="flex flex-col gap-3 mb-4">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 bg-purple-50 rounded-xl text-purple-500"><Wrench size={20} /></div>
                                 <div>
-                                    <h3 className="text-lg font-bold text-slate-800">Repairs Report</h3>
-                                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Service Performance</p>
+                                    <h3 className="text-sm font-black text-slate-800 mb-0.5">Repairs Report</h3>
+                                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Service Performance</p>
                                 </div>
                             </div>
                         </div>
