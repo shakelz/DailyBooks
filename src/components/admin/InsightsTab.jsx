@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { useRepairs } from '../../context/RepairsContext';
@@ -10,7 +9,7 @@ import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
     ComposedChart, Area, PieChart, Pie, Cell, LabelList
 } from 'recharts';
-import DateRangeFilter from './DateRangeFilter';
+import AdminTabToolbar from './AdminTabToolbar';
 import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, Package, RefreshCw, BarChart3, Scale, Users, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
 
 const KPI_MODE_SALES = 'sales';
@@ -212,7 +211,6 @@ function isRepairRevenueTransaction(txn) {
 }
 
 export default function InsightsTab() {
-    const { setAdminTopBarContent } = useOutletContext() || {};
     const { transactions: contextTransactions, products } = useInventory();
     const { isAdminLike, slowMovingDays, salesmen, attendanceLogs, activeShopId, user } = useAuth();
     const { repairJobs } = useRepairs();
@@ -239,19 +237,6 @@ export default function InsightsTab() {
     const rangeDays = useMemo(() => {
         return Math.max(1, Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS) + 1);
     }, [rangeStart, rangeEnd]);
-    useEffect(() => {
-        if (!setAdminTopBarContent) return undefined;
-
-        setAdminTopBarContent(
-            <DateRangeFilter
-                dateSelection={dateSelection}
-                setDateSelection={setDateSelection}
-                className="w-full justify-between"
-            />
-        );
-
-        return () => setAdminTopBarContent(null);
-    }, [dateSelection, setAdminTopBarContent]);
     const timeView = ((rangeEnd - rangeStart) / (1000 * 60 * 60 * 24)) <= 60 ? 'weekly' : 'monthly';
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
@@ -927,6 +912,7 @@ export default function InsightsTab() {
 
     return (
         <div className="space-y-4 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
+            <AdminTabToolbar dateSelection={dateSelection} setDateSelection={setDateSelection} />
             {/* ── Header ── */}
             <div className="relative overflow-visible rounded-[30px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-blue-50/60 p-5 shadow-sm">
                 <div className="absolute -left-10 -top-14 h-32 w-32 rounded-full bg-blue-200/40 blur-3xl" />

@@ -1,5 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useState, useMemo } from 'react';
 import { useRepairs } from '../../context/RepairsContext';
 import { useInventory } from '../../context/InventoryContext';
 import { priceTag } from '../../utils/currency';
@@ -8,10 +7,9 @@ import {
     Search, DollarSign, Smartphone, User, Phone, Hash
 } from 'lucide-react';
 import CompleteRepairModal from './CompleteRepairModal';
-import DateRangeFilter from './DateRangeFilter';
+import AdminTabToolbar from './AdminTabToolbar';
 
 export default function RepairsTab() {
-    const { setAdminTopBarContent } = useOutletContext() || {};
     const { repairJobs, updateRepairStatus, deleteRepair } = useRepairs();
     const { products, transactions } = useInventory();
 
@@ -63,20 +61,6 @@ export default function RepairsTab() {
             return createdAt >= rangeStart && createdAt <= rangeEnd;
         });
     }, [repairJobs, dateSelection]);
-
-    useEffect(() => {
-        if (!setAdminTopBarContent) return undefined;
-
-        setAdminTopBarContent(
-            <DateRangeFilter
-                dateSelection={dateSelection}
-                setDateSelection={setDateSelection}
-                className="w-full justify-between"
-            />
-        );
-
-        return () => setAdminTopBarContent(null);
-    }, [dateSelection, setAdminTopBarContent]);
 
     // ── KPIs ──
     const kpis = useMemo(() => {
@@ -174,6 +158,7 @@ export default function RepairsTab() {
 
     return (
         <div className="space-y-6 max-w-6xl relative">
+            <AdminTabToolbar dateSelection={dateSelection} setDateSelection={setDateSelection} />
             {/* Header */}
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>

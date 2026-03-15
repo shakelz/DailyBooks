@@ -1,10 +1,9 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
 import SmartCategoryForm from '../SmartCategoryForm';
-import DateRangeFilter from './DateRangeFilter';
+import AdminTabToolbar from './AdminTabToolbar';
 import { useSupplierLinks } from '../../hooks/useSupplierLinks';
 import {
     Package,
@@ -29,7 +28,6 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default function InventoryTab() {
-    const { setAdminTopBarContent } = useOutletContext() || {};
     const {
         products,
         transactions,
@@ -82,20 +80,6 @@ export default function InventoryTab() {
         end.setHours(23, 59, 59, 999);
         return end;
     }, [dateSelection]);
-
-    useEffect(() => {
-        if (!setAdminTopBarContent) return undefined;
-
-        setAdminTopBarContent(
-            <DateRangeFilter
-                dateSelection={dateSelection}
-                setDateSelection={setDateSelection}
-                className="w-full justify-between"
-            />
-        );
-
-        return () => setAdminTopBarContent(null);
-    }, [dateSelection, setAdminTopBarContent]);
 
     const rangeDays = useMemo(() => {
         return Math.max(1, Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS) + 1);
@@ -418,6 +402,7 @@ export default function InventoryTab() {
 
     return (
         <div className="space-y-6">
+            <AdminTabToolbar dateSelection={dateSelection} setDateSelection={setDateSelection} />
             {/* ── Header with Date Filter ── */}
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>

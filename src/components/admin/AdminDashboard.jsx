@@ -1,10 +1,8 @@
-import { useEffect, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import DateRangeFilter from './DateRangeFilter';
+import { useState } from 'react';
+import AdminTabToolbar from './AdminTabToolbar';
 import SalesmanDashboard from '../../pages/SalesmanDashboard';
 
 export default function AdminDashboard() {
-    const { setAdminTopBarContent } = useOutletContext() || {};
     const [dateSelection, setDateSelection] = useState([
         {
             startDate: new Date(new Date().setHours(0, 0, 0, 0)),
@@ -13,22 +11,9 @@ export default function AdminDashboard() {
         }
     ]);
 
-    useEffect(() => {
-        if (!setAdminTopBarContent) return undefined;
-
-        setAdminTopBarContent(
-            <DateRangeFilter
-                dateSelection={dateSelection}
-                setDateSelection={setDateSelection}
-                className="w-full justify-between"
-            />
-        );
-
-        return () => setAdminTopBarContent(null);
-    }, [dateSelection, setAdminTopBarContent]);
-
     return (
         <div className="space-y-4">
+            <AdminTabToolbar dateSelection={dateSelection} setDateSelection={setDateSelection} />
             <SalesmanDashboard adminView adminDashboardDateSelection={dateSelection} />
         </div>
     );

@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
     LayoutDashboard, Package, TrendingUp, Settings,
-    LogOut, ChevronLeft, ChevronRight, Menu, FileText, Wrench, ChevronDown
+    LogOut, ChevronLeft, ChevronRight, Menu, FileText, Wrench
 } from 'lucide-react';
 
 const ADMIN_BASE_ROUTE = '/management-portal-v1';
@@ -13,14 +13,13 @@ const SALESMAN_DASHBOARD_ROUTE = '/terminal-access-v1/dashboard';
 export default function AdminPanel() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { logout, role, isAdminLike, isSuperAdmin, activeShopId, setActiveShopId, shops } = useAuth();
+    const { logout, role, isAdminLike, activeShopId, shops } = useAuth();
     const [isMobile, setIsMobile] = useState(() => (
         typeof window !== 'undefined' ? window.innerWidth < 768 : false
     ));
     const [sidebarOpen, setSidebarOpen] = useState(() => (
         typeof window !== 'undefined' ? window.innerWidth >= 768 : true
     ));
-    const [tabToolbarContent, setTabToolbarContent] = useState(null);
 
     const currentShop = useMemo(
         () => shops.find((s) => String(s.id) === String(activeShopId)) || null,
@@ -53,10 +52,6 @@ export default function AdminPanel() {
             setSidebarOpen(false);
         }
     }, [location.pathname, isMobile]);
-
-    useEffect(() => {
-        setTabToolbarContent(null);
-    }, [location.pathname]);
 
     if (!isAdminLike) {
         return <Navigate to={role === 'salesman' ? SALESMAN_DASHBOARD_ROUTE : SALESMAN_LOGIN_ROUTE} replace />;
@@ -188,43 +183,7 @@ export default function AdminPanel() {
 
                 <main className="flex-1 overflow-auto p-4 pb-24 md:p-8 md:pb-8 relative">
                     <div className="max-w-7xl mx-auto">
-                        <div className="mb-5 flex flex-wrap items-start justify-end gap-3">
-                            {tabToolbarContent ? (
-                                <div className="order-2 w-full sm:w-auto sm:min-w-[360px]">
-                                    {tabToolbarContent}
-                                </div>
-                            ) : null}
-                            {isSuperAdmin ? (
-                                <div className="order-1 w-full sm:w-auto sm:min-w-[330px]">
-                                    <div className="relative rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                                        <div className="pr-8">
-                                            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">Shop wechseln</p>
-                                            <select
-                                                value={activeShopId || ''}
-                                                onChange={(e) => setActiveShopId(e.target.value)}
-                                                className="mt-1 w-full appearance-none bg-transparent pr-6 text-base font-bold text-slate-700 outline-none"
-                                                style={{ fontSize: 16, fontWeight: 700 }}
-                                            >
-                                                {role === 'super_admin' ? (
-                                                    <option value="" style={{ fontSize: 16, fontWeight: 500 }}>Globale Ansicht (Alle Shops)</option>
-                                                ) : null}
-                                                {shops.length === 0 ? (
-                                                    <option value="" style={{ fontSize: 16, fontWeight: 500 }}>Keine Shops</option>
-                                                ) : (
-                                                    shops.map((shop) => (
-                                                        <option key={shop.id} value={shop.id} style={{ fontSize: 16, fontWeight: 500 }}>
-                                                            {shop.name}
-                                                        </option>
-                                                    ))
-                                                )}
-                                            </select>
-                                        </div>
-                                        <ChevronDown size={18} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                                    </div>
-                                </div>
-                            ) : null}
-                        </div>
-                        <Outlet context={{ setAdminTopBarContent: setTabToolbarContent }} />
+                        <Outlet />
                     </div>
                 </main>
 

@@ -4,8 +4,7 @@ import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
 import { priceTag } from '../../utils/currency';
-import { useOutletContext } from 'react-router-dom';
-import DateRangeFilter from './DateRangeFilter';
+import AdminTabToolbar from './AdminTabToolbar';
 
 const EXPENSE_CATEGORY_OPTIONS = [
     'General',
@@ -116,7 +115,6 @@ function getTxnInvoiceNumber(txn) {
 }
 
 export default function ExpensesTab() {
-    const { setAdminTopBarContent } = useOutletContext() || {};
     const { transactions, addTransaction, updateTransaction, deleteTransaction } = useInventory();
     const { attendanceLogs, salesmen, activeShopId } = useAuth();
     const salarySyncInFlightRef = useRef(false);
@@ -171,20 +169,6 @@ export default function ExpensesTab() {
         d.setHours(23, 59, 59, 999);
         return d;
     }, [dateSelection]);
-
-    useEffect(() => {
-        if (!setAdminTopBarContent) return undefined;
-
-        setAdminTopBarContent(
-            <DateRangeFilter
-                dateSelection={dateSelection}
-                setDateSelection={setDateSelection}
-                className="w-full justify-between"
-            />
-        );
-
-        return () => setAdminTopBarContent(null);
-    }, [dateSelection, setAdminTopBarContent]);
 
     const salaryBuckets = useMemo(() => {
         const staffById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), staff]));
@@ -655,6 +639,7 @@ export default function ExpensesTab() {
                     {toast}
                 </div>
             )}
+            <AdminTabToolbar dateSelection={dateSelection} setDateSelection={setDateSelection} />
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">Ausgaben &amp; Einnahmen</h1>
