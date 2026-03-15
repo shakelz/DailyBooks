@@ -118,11 +118,16 @@ function isAdminExpenseSource(source = '') {
     || alpha === 'adminexpneses';
 }
 
+function isSalaryExpenseSource(source = '') {
+  return normalizeToken(source) === 'salary';
+}
+
 function isFixedExpenseTxn(txn = {}) {
   const source = normalizeToken(txn?.source || txn?.tx_source || '');
   return Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false)
     || isFixedExpenseType(getTxType(txn))
-    || isAdminExpenseSource(source);
+    || isAdminExpenseSource(source)
+    || isSalaryExpenseSource(source);
 }
 
 function isInventoryPurchaseTxn(txn = {}) {
@@ -651,7 +656,7 @@ export function computeUnifiedKpiSnapshot({
       if (shouldIgnoreGeneralExpense(txn, filtered)) return;
 
       const amount = filtered.rawAmount;
-      pushBreakdown(expenseBreakdownMap, filtered.categoryName || txn?.category || 'Other', filtered.subCategoryName, amount, 'Expenses');
+      pushBreakdown(expenseBreakdownMap, filtered.categoryName || txn?.category || 'Sonstiges', filtered.subCategoryName, amount, 'Expenses');
       if (isFixedExpenseTxn(txn) || isFixedExpenseType(txType)) {
         const sourceText = normalizeToken(txn?.source || txn?.tx_source || '');
         if (!includeAdminFixedExpenses && isAdminExpenseSource(sourceText)) {

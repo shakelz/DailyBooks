@@ -73,6 +73,70 @@ function isUUID(value = '') {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
 
+function getTxnSource(txn = {}) {
+    return String(txn?.source || txn?.tx_source || '').toLowerCase().trim();
+}
+
+function getTxnType(txn = {}) {
+    return String(txn?.tx_type || txn?.type || txn?.transactionType || '').toLowerCase().trim();
+}
+
+function getTxnDescription(txn = {}) {
+    return String(txn?.description || txn?.desc || '').trim();
+}
+
+function isSalaryTransaction(txn = {}) {
+    const source = getTxnSource(txn);
+    const notes = String(txn?.notes || '').toLowerCase();
+    const desc = getTxnDescription(txn).toLowerCase();
+
+    return source === 'salary'
+        || source === 'admin-expense'
+        || notes.includes('monthly_salary')
+        || desc.includes('monatsgehalt')
+        || desc.includes('salary')
+        || desc.includes('gehalt');
+}
+
+function isFixedExpenseInsightTransaction(txn = {}) {
+    const source = getTxnSource(txn);
+    const txType = getTxnType(txn);
+    const isFixed = txn?.is_fixed_expense === true || txn?.isFixedExpense === true;
+
+    return isFixed
+        || source === 'admin-expense'
+        || source === 'salary'
+        || txType === 'fixed_expense'
+        || (txType === 'shop_expense' && (source === 'admin-expense' || source === 'salary'));
+}
+
+function extractExpenseCategory(txn = {}) {
+    const cat = txn?.category;
+    if (cat && typeof cat === 'object') {
+        return String(cat.level1 || cat.name || '').trim() || null;
+    }
+    if (typeof cat === 'string' && cat.trim() && !isUUID(cat)) {
+        return cat.trim();
+    }
+
+    const directFallback = String(txn?.category_name || txn?.categoryName || '').trim();
+    if (directFallback && !isUUID(directFallback)) {
+        return directFallback;
+    }
+
+    const desc = getTxnDescription(txn).toLowerCase();
+    if (desc.includes('monatsgehalt') || desc.includes('salary') || desc.includes('gehalt')) {
+        return 'Personalkosten';
+    }
+
+    const notes = String(txn?.notes || '').toLowerCase();
+    if (notes.includes('monthly_salary')) {
+        return 'Personalkosten';
+    }
+
+    return 'Sonstiges';
+}
+
 function parseTransactionDate(txn) {
     const parsed = new Date(txn?.occurred_at || txn?.created_at || txn?.timestamp || `${txn?.date || ''} ${txn?.time || ''}`);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -429,11 +493,7 @@ export default function InsightsTab() {
             const txnDate = parseTransactionDate(txn);
             if (!txnDate || txnDate < rangeStart || txnDate > rangeEnd) return false;
 
-            const source = String(txn?.source || txn?.tx_source || '').toLowerCase().trim();
-            const txType = String(txn?.tx_type || txn?.type || '').toLowerCase().trim();
-            const isFixed = txn?.is_fixed_expense === true || txn?.isFixedExpense === true;
-
-            return isFixed || source === 'admin-expense' || txType === 'fixed_expense' || (txType === 'shop_expense' && source === 'admin-expense');
+            return isFixedExpenseInsightTransaction(txn);
         });
         console.log('Fixed expense transactions:', fixedExpenseTransactions);
         console.log('Total fixed:', totalFixedExpenses);
@@ -552,12 +612,24 @@ export default function InsightsTab() {
         let totalSalary = 0;
 
         transactions.forEach(t => {
-            if (t.category !== 'Salary' || t.type !== 'expense' || !t.isFixedExpense) return;
-            if (!t.timestamp) return;
-            const tDate = new Date(t.timestamp);
+            if (!isSalaryTransaction(t)) return;
+            const tDate = parseTransactionDate(t);
+            if (!tDate) return;
             if (tDate < rangeStart || tDate > rangeEnd) return;
 
-            const name = t.salesmanName || t.desc?.replace('Salary: ', '').split(' (')[0] || 'Unknown';
+            const workerId = String(t?.workerId || t?.worker_id || '').trim();
+            const matchedSalesman = workerId
+                ? (salesmen || []).find((staff) => String(staff?.id || staff?.user_id || '').trim() === workerId)
+                : null;
+            const matchedName = String(matchedSalesman?.name || matchedSalesman?.full_name || '').trim();
+            const description = getTxnDescription(t);
+            const germanMatch = description.match(/monatsgehalt\s*-\s*(.+?)\s*-\s*.+$/i);
+            const englishMatch = description.match(/salary:\s*(.+?)\s*(?:\(|$)/i);
+            const name = matchedName
+                || String(t?.salesmanName || t?.staffName || '').trim()
+                || germanMatch?.[1]?.trim()
+                || englishMatch?.[1]?.trim()
+                || 'Unbekannt';
             const amount = parseFloat(t.amount) || 0;
             if (!perSalesman[name]) perSalesman[name] = { name, totalPaid: 0, sessions: 0 };
             perSalesman[name].totalPaid += amount;
@@ -569,7 +641,7 @@ export default function InsightsTab() {
             perSalesman: Object.values(perSalesman).sort((a, b) => b.totalPaid - a.totalPaid),
             totalSalary
         };
-    }, [transactions, dateSelection]);
+    }, [transactions, dateSelection, salesmen]);
 
     // ── Expense Breakdown by category ──
     const expenseData = useMemo(() => {
@@ -582,17 +654,18 @@ export default function InsightsTab() {
         let total = 0;
 
         transactions.forEach(t => {
-            if (t.type !== 'expense' || !t.isFixedExpense) return;
-            if (!t.timestamp) return;
-            const tDate = new Date(t.timestamp);
+            if (!isFixedExpenseInsightTransaction(t)) return;
+            const tDate = parseTransactionDate(t);
+            if (!tDate) return;
             if (tDate < rangeStart || tDate > rangeEnd) return;
 
+            const categoryName = extractExpenseCategory(t) || 'Sonstiges';
             const mode = (() => {
-                const exact = scopedCategoryKey('expense', t.category || 'Other', t.subCategory || t.subcategory || '');
+                const exact = scopedCategoryKey('expense', categoryName, t.subCategory || t.subcategory || '');
                 if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, exact)) {
                     return normalizeContributionMode(categoryContributionModeMap[exact]);
                 }
-                const fallback = scopedCategoryKey('expense', t.category || 'Other', '');
+                const fallback = scopedCategoryKey('expense', categoryName, '');
                 if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, fallback)) {
                     return normalizeContributionMode(categoryContributionModeMap[fallback]);
                 }
@@ -600,11 +673,10 @@ export default function InsightsTab() {
             })();
             if (mode === KPI_MODE_EXCLUDED) return;
 
-            const cat = t.category || 'Other';
             const amount = parseFloat(t.amount) || 0;
-            if (!byCategory[cat]) byCategory[cat] = { name: cat, value: 0, count: 0 };
-            byCategory[cat].value += amount;
-            byCategory[cat].count += 1;
+            if (!byCategory[categoryName]) byCategory[categoryName] = { name: categoryName, value: 0, count: 0 };
+            byCategory[categoryName].value += amount;
+            byCategory[categoryName].count += 1;
             total += amount;
         });
 
@@ -693,12 +765,12 @@ export default function InsightsTab() {
     };
 
     const isExpenseTypeResolved = (txn) => {
-        const t = String(txn?.type || txn?.tx_type || txn?.transactionType || '').toLowerCase().trim();
+        const t = getTxnType(txn);
         return t === 'product_purchase' || t === 'shop_expense' || t === 'purchase' || t === 'expense';
     };
 
     const isSaleTypeResolved = (txn) => {
-        const t = String(txn?.type || txn?.tx_type || txn?.transactionType || '').toLowerCase().trim();
+        const t = getTxnType(txn);
         return t === 'product_sale' || t === 'shop' || t === 'sale' || t === 'income' || t === 'repair_amount';
     };
 
