@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Camera, Languages } from 'lucide-react';
+import { Camera, Languages, LogIn, LogOut, Power, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -178,7 +178,9 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                             : 'bg-green-50 border-green-100 text-green-600 hover:bg-green-100 hover:scale-105 shadow-sm'
                             }`}
                     >
-                        <span className="text-3xl">IN</span>
+                        <span className="flex items-center justify-center">
+                            <LogIn size={30} strokeWidth={2.4} />
+                        </span>
                         <span className="font-bold text-sm">{t('profile.punchIn')}</span>
                     </button>
 
@@ -190,7 +192,9 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                             : 'bg-red-50 border-red-100 text-red-600 hover:bg-red-100 hover:scale-105 shadow-sm'
                             }`}
                     >
-                        <span className="text-3xl">OUT</span>
+                        <span className="flex items-center justify-center">
+                            <LogOut size={30} strokeWidth={2.4} />
+                        </span>
                         <span className="font-bold text-sm">{t('profile.punchOut')}</span>
                     </button>
 
@@ -205,7 +209,9 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                         }}
                         className="h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 bg-slate-50 border-slate-200 text-slate-600 hover:bg-white hover:border-blue-200 hover:text-blue-600 hover:shadow-md"
                     >
-                        <span className="text-3xl">SW</span>
+                        <span className="flex items-center justify-center">
+                            <Users size={30} strokeWidth={2.2} />
+                        </span>
                         <span className="font-bold text-sm">{t('profile.switchUser')}</span>
                     </button>
 
@@ -213,7 +219,9 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                         onClick={handleLogout}
                         className="h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 bg-red-50 border-red-100 text-red-600 hover:bg-red-100 hover:scale-105 shadow-sm"
                     >
-                        <span className="text-3xl">X</span>
+                        <span className="flex items-center justify-center">
+                            <Power size={28} strokeWidth={2.4} />
+                        </span>
                         <span className="font-bold text-sm">{t('profile.logout')}</span>
                     </button>
                 </div>
