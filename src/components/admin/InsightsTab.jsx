@@ -948,6 +948,7 @@ export default function InsightsTab() {
                         </ResponsiveContainer>
                     </div>
                 </div>
+            </div>
 
             {/* ── Categorical Breakdown — Horizontal Bar Charts ── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1012,6 +1013,8 @@ export default function InsightsTab() {
                 </div>
             </div>
 
+            {/* ── Peak Hours + Pie Charts ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-6 items-stretch">
                 {/* Peak Hours Analysis */}
                 <div className="xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-full overflow-hidden">
                     <div className="flex items-center justify-between mb-6">
