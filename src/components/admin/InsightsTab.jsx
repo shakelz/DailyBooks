@@ -1181,37 +1181,6 @@ export default function InsightsTab() {
 
             </div>
 
-            <div className={CHART_CARD_CLASS}>
-                <h3 className="text-sm font-black text-slate-800 mb-0.5">Profit Margins Breakdown</h3>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Service vs Product Revenue Mix</p>
-                <div className="relative h-[340px] w-full">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                        <PieChart>
-                            <Pie
-                                data={[
-                                    { name: 'Service Profit', value: Math.max(0, analytics.serviceProfit) || 0 },
-                                    { name: 'Product Profit', value: Math.max(0, analytics.productProfit) || 0 }
-                                ]}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={72}
-                                outerRadius={108}
-                                paddingAngle={5}
-                                dataKey="value"
-                            >
-                                <Cell fill="#8b5cf6" />
-                                <Cell fill="#0ea5e9" />
-                            </Pie>
-                            <Tooltip formatter={(value) => priceTag(value)} contentStyle={{ borderRadius: '12px' }} />
-                            <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                        </PieChart>
-                    </ResponsiveContainer>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-8">
-                        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total</span>
-                        <span className="text-2xl font-black text-slate-800">{priceTag(analytics.serviceProfit + analytics.productProfit)}</span>
-                    </div>
-                </div>
-            </div>
 
             {/* ── 4. Data Science Insights ── */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
