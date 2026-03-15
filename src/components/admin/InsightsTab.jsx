@@ -10,7 +10,6 @@ import {
     ComposedChart, Area, PieChart, Pie, Cell, LabelList
 } from 'recharts';
 import { useOutletContext } from 'react-router-dom';
-import DateRangeFilter from './DateRangeFilter';
 import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, Package, RefreshCw, BarChart3, Scale, Users, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
 
 const KPI_MODE_SALES = 'sales';
@@ -41,24 +40,6 @@ function scopedCategoryKey(scope = 'sales', categoryName = '', subCategoryName =
 
 function scopedCategoryIdKey(scope = 'sales', categoryId = '') {
     return `${normalizeKpiScope(scope)}::id::${normalizeToken(categoryId)}`;
-}
-
-function toLocalDateKey(value) {
-    const d = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(d.getTime())) return '';
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-}
-
-function toInputDateString(value) {
-    const d = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(d.getTime())) {
-        const fallback = new Date();
-        return toLocalDateKey(fallback);
-    }
-    return toLocalDateKey(d);
 }
 
 function safeDate(value) {
@@ -103,12 +84,18 @@ function isFixedExpenseInsightTransaction(txn = {}) {
     const source = getTxnSource(txn);
     const txType = getTxnType(txn);
     const isFixed = txn?.is_fixed_expense === true || txn?.isFixedExpense === true;
+    const notes = String(txn?.notes || '').toLowerCase();
+    const desc = getTxnDescription(txn).toLowerCase();
 
     return isFixed
         || source === 'admin-expense'
         || source === 'salary'
         || txType === 'fixed_expense'
-        || (txType === 'shop_expense' && (source === 'admin-expense' || source === 'salary'));
+        || (txType === 'shop_expense' && (source === 'admin-expense' || source === 'salary'))
+        || notes.includes('monthly_salary')
+        || desc.includes('monatsgehalt')
+        || desc.includes('salary')
+        || desc.includes('gehalt');
 }
 
 function extractExpenseCategory(txn = {}) {
@@ -165,33 +152,52 @@ export default function InsightsTab() {
     const { transactions: contextTransactions, products } = useInventory();
     const { isAdminLike, slowMovingDays, salesmen, attendanceLogs, activeShopId, user } = useAuth();
     const { repairJobs } = useRepairs();
-    const outletContext = useOutletContext() || {};
-    const [localDateSelection, setLocalDateSelection] = useState([
-        {
-            startDate: new Date(new Date().setDate(new Date().getDate() - 30)),
-            endDate: new Date(),
-            key: 'selection'
-        }
-    ]);
-    const sharedDateSelection = Array.isArray(outletContext?.adminDashboardDateSelection) && outletContext.adminDashboardDateSelection.length
-        ? outletContext.adminDashboardDateSelection
-        : null;
-    const sharedSetDateSelection = typeof outletContext?.setAdminDashboardDateSelection === 'function'
-        ? outletContext.setAdminDashboardDateSelection
-        : null;
-    const dateSelection = sharedDateSelection || localDateSelection;
-    const setDateSelection = sharedSetDateSelection || setLocalDateSelection;
-    const timeView = ((new Date(dateSelection[0].endDate) - new Date(dateSelection[0].startDate)) / (1000 * 60 * 60 * 24)) <= 60 ? 'weekly' : 'monthly';
+    const { adminDashboardDateSelection } = useOutletContext() || {};
+    const fallbackDateSelection = useMemo(() => {
+        const endDate = new Date();
+        const startDate = new Date(endDate);
+        startDate.setDate(startDate.getDate() - 30);
+        return [{ startDate, endDate, key: 'selection' }];
+    }, []);
+    const dateSelection = Array.isArray(adminDashboardDateSelection) && adminDashboardDateSelection.length
+        ? adminDashboardDateSelection
+        : fallbackDateSelection;
+    const rangeStart = useMemo(() => {
+        const start = dateSelection?.[0]?.startDate
+            ? new Date(dateSelection[0].startDate)
+            : new Date();
+        start.setHours(0, 0, 0, 0);
+        return start;
+    }, [dateSelection]);
+    const rangeEnd = useMemo(() => {
+        const end = dateSelection?.[0]?.endDate
+            ? new Date(dateSelection[0].endDate)
+            : new Date();
+        end.setHours(23, 59, 59, 999);
+        return end;
+    }, [dateSelection]);
+    const timeView = ((rangeEnd - rangeStart) / (1000 * 60 * 60 * 24)) <= 60 ? 'weekly' : 'monthly';
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
     const [showGrossProfitBreakdown, setShowGrossProfitBreakdown] = useState(false);
     const [categoryContributionModeMap, setCategoryContributionModeMap] = useState({});
-    const transactions = useMemo(() => contextTransactions || [], [contextTransactions]);
+    const transactions = useMemo(() => {
+        return (contextTransactions || []).filter((txn) => {
+            const txnDate = parseTransactionDate(txn);
+            return txnDate && txnDate >= rangeStart && txnDate <= rangeEnd;
+        });
+    }, [contextTransactions, rangeStart, rangeEnd]);
+    const filteredRepairJobs = useMemo(() => {
+        return (repairJobs || []).filter((job) => {
+            const jobDate = safeDate(job?.createdAt || job?.created_at || job?.completedAt || job?.completed_at || job?.timestamp);
+            return jobDate && jobDate >= rangeStart && jobDate <= rangeEnd;
+        });
+    }, [repairJobs, rangeStart, rangeEnd]);
 
     const settingsShopId = String(activeShopId || user?.shop_id || '').trim();
 
     const chartTransactions = useMemo(() => {
-        return (contextTransactions || [])
+        return transactions
             .filter((txn) => {
                 const amount = parseFloat(txn?.amount || 0);
                 return amount > 0;
@@ -202,7 +208,7 @@ export default function InsightsTab() {
                 description: String(txn?.description || txn?.desc || '').trim(),
                 resolvedCategoryName: String(txn?.resolvedCategoryName || '').trim() || null,
             }));
-    }, [contextTransactions]);
+    }, [transactions]);
 
     useEffect(() => {
         if (!settingsShopId) {
@@ -251,17 +257,12 @@ export default function InsightsTab() {
 
     // ── Helper: Calculate Business Metrics ──
     const analytics = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
-        const diffDays = (rangeEnd - rangeStart) / (1000 * 60 * 60 * 24);
-        const periodType = diffDays <= 60 ? 'weekly' : 'monthly';
+        const periodType = timeView === 'weekly' ? 'weekly' : 'monthly';
 
         const unified = computeUnifiedKpiSnapshot({
             transactions,
             products,
-            repairJobs,
+            repairJobs: filteredRepairJobs,
             rangeStart,
             rangeEnd,
             periodType,
@@ -491,7 +492,9 @@ export default function InsightsTab() {
         const productProfit = Number.isFinite(strictKpi.productProfit) ? strictKpi.productProfit : unified.productProfit;
         const serviceProfit = Number.isFinite(strictKpi.serviceProfit) ? strictKpi.serviceProfit : unified.serviceProfit;
         const totalProfit = Number.isFinite(strictKpi.grossNetProfit) ? strictKpi.grossNetProfit : (productProfit + serviceProfit);
-        const totalFixedExpenses = Number.isFinite(strictKpi.fixedExpenses) ? strictKpi.fixedExpenses : unified.totals.fixedExpenses;
+        const fixedExpenseTransactions = transactions.filter(isFixedExpenseInsightTransaction);
+        const totalFixedExpenses = fixedExpenseTransactions
+            .reduce((sum, txn) => sum + (parseFloat(txn?.amount) || 0), 0);
         const totalNonFixedExpenses = Number.isFinite(strictKpi.nonFixedExpenses) ? strictKpi.nonFixedExpenses : unified.totals.smallExpenses;
         const totalInventoryPurchases = Number.isFinite(strictKpi.inventoryPurchases)
             ? strictKpi.inventoryPurchases
@@ -499,14 +502,15 @@ export default function InsightsTab() {
         const finalProfit = Number.isFinite(strictKpi.finalProfit)
             ? strictKpi.finalProfit
             : ((productProfit + serviceProfit) - (totalFixedExpenses + totalNonFixedExpenses + totalInventoryPurchases));
-        const fixedExpenseTransactions = transactions.filter((txn) => {
-            const txnDate = parseTransactionDate(txn);
-            if (!txnDate || txnDate < rangeStart || txnDate > rangeEnd) return false;
-
-            return isFixedExpenseInsightTransaction(txn);
-        });
-        console.log('Fixed expense transactions:', fixedExpenseTransactions);
-        console.log('Total fixed:', totalFixedExpenses);
+        console.log(
+            'Fixed expense txns found:',
+            fixedExpenseTransactions.length,
+            fixedExpenseTransactions.map((txn) => ({
+                desc: txn?.description || txn?.desc || '',
+                source: txn?.source || txn?.tx_source || '',
+                amount: txn?.amount || 0,
+            }))
+        );
         const avgMargin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
         const salesGrowth = unified.salesGrowth;
 
@@ -545,7 +549,7 @@ export default function InsightsTab() {
             ],
             slowMovingValue,
         };
-    }, [transactions, products, repairJobs, dateSelection, salesmen, slowMovingDays, categoryContributionModeMap]);
+    }, [transactions, products, filteredRepairJobs, rangeStart, rangeEnd, timeView, salesmen, slowMovingDays, categoryContributionModeMap]);
 
     // ── Peak Hours Analysis ──
     const peakData = useMemo(() => {
@@ -613,19 +617,11 @@ export default function InsightsTab() {
 
     // ── Salary Analytics per salesman ──
     const salaryData = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
-
         const perSalesman = {};
         let totalSalary = 0;
 
         transactions.forEach(t => {
             if (!isSalaryTransaction(t)) return;
-            const tDate = parseTransactionDate(t);
-            if (!tDate) return;
-            if (tDate < rangeStart || tDate > rangeEnd) return;
 
             const workerId = String(t?.workerId || t?.worker_id || '').trim();
             const matchedSalesman = workerId
@@ -651,23 +647,15 @@ export default function InsightsTab() {
             perSalesman: Object.values(perSalesman).sort((a, b) => b.totalPaid - a.totalPaid),
             totalSalary
         };
-    }, [transactions, dateSelection, salesmen]);
+    }, [transactions, salesmen]);
 
     // ── Expense Breakdown by category ──
     const expenseData = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
-
         const byCategory = {};
         let total = 0;
 
         transactions.forEach(t => {
             if (!isFixedExpenseInsightTransaction(t)) return;
-            const tDate = parseTransactionDate(t);
-            if (!tDate) return;
-            if (tDate < rangeStart || tDate > rangeEnd) return;
 
             const categoryName = extractExpenseCategory(t) || 'Sonstiges';
             const mode = (() => {
@@ -694,31 +682,16 @@ export default function InsightsTab() {
             categories: Object.values(byCategory).sort((a, b) => b.value - a.value),
             total
         };
-    }, [transactions, dateSelection, categoryContributionModeMap]);
+    }, [transactions, categoryContributionModeMap]);
 
     // ── Repairs Analytics ──
     const repairsData = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
-
-        const filtered = repairJobs.filter(j => {
-            if (!j.createdAt) return false;
-            const d = safeDate(j.createdAt);
-            if (!d) return false;
-            return d >= rangeStart && d <= rangeEnd;
-        });
+        const filtered = filteredRepairJobs;
 
         const pending = filtered.filter(j => j.status === 'pending').length;
         const inProgress = filtered.filter(j => j.status === 'in_progress').length;
         const completed = filtered.filter(j => j.status === 'completed');
-        const repairRevenueTxns = transactions
-            .filter((txn) => isRepairRevenueTransaction(txn))
-            .filter((txn) => {
-                const d = parseTransactionDate(txn);
-                return d && d >= rangeStart && d <= rangeEnd;
-            });
+        const repairRevenueTxns = transactions.filter((txn) => isRepairRevenueTransaction(txn));
         const completedRevenue = repairRevenueTxns.reduce((sum, txn) => sum + (parseFloat(txn.amount) || 0), 0);
         const estimatedTotal = filtered.reduce((sum, j) => sum + (parseFloat(j.estimatedCost) || 0), 0);
 
@@ -734,7 +707,7 @@ export default function InsightsTab() {
         }
 
         return { total: filtered.length, pending, inProgress, completed: completed.length, completedRevenue, estimatedTotal, avgTurnaround };
-    }, [repairJobs, dateSelection, transactions]);
+    }, [filteredRepairJobs, transactions]);
 
     // ── Categorical Breakdown Data ──
     const extractChartCategory = (txn) => {
@@ -785,30 +758,12 @@ export default function InsightsTab() {
     };
 
     const purchaseChartTransactions = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
-
-        return chartTransactions.filter((txn) => {
-            if (!isExpenseTypeResolved(txn)) return false;
-            const d = parseTransactionDate(txn);
-            return d && d >= rangeStart && d <= rangeEnd;
-        });
-    }, [chartTransactions, dateSelection]);
+        return chartTransactions.filter((txn) => isExpenseTypeResolved(txn));
+    }, [chartTransactions]);
 
     const salesChartTransactions = useMemo(() => {
-        const rangeStart = new Date(dateSelection[0].startDate);
-        rangeStart.setHours(0, 0, 0, 0);
-        const rangeEnd = new Date(dateSelection[0].endDate);
-        rangeEnd.setHours(23, 59, 59, 999);
-
-        return chartTransactions.filter((txn) => {
-            if (!isSaleTypeResolved(txn)) return false;
-            const d = parseTransactionDate(txn);
-            return d && d >= rangeStart && d <= rangeEnd;
-        });
-    }, [chartTransactions, dateSelection]);
+        return chartTransactions.filter((txn) => isSaleTypeResolved(txn));
+    }, [chartTransactions]);
 
     const categoryExpenseData = useMemo(() => {
         const grouped = purchaseChartTransactions.reduce((acc, txn) => {
@@ -844,7 +799,7 @@ export default function InsightsTab() {
             <div className="relative overflow-visible rounded-[30px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-blue-50/60 p-5 shadow-sm">
                 <div className="absolute -left-10 -top-14 h-32 w-32 rounded-full bg-blue-200/40 blur-3xl" />
                 <div className="absolute -bottom-16 right-0 h-40 w-40 rounded-full bg-emerald-200/30 blur-3xl" />
-                <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                <div className="relative">
                     <div className="min-w-0 h-full">
                         <span className="inline-flex items-center rounded-full border border-white/80 bg-white/85 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-slate-500 shadow-sm">
                             Auswertungen
@@ -854,12 +809,6 @@ export default function InsightsTab() {
                             <p className="text-slate-500 text-sm md:text-[15px] font-medium mt-1 max-w-2xl">
                                 Finanz-KPIs, Markttrends, Kategorienmix und Inventarsignale in einem übersichtlichen Arbeitsbereich.
                             </p>
-                        </div>
-                    </div>
-
-                    <div className="relative z-30 w-full xl:w-auto">
-                        <div className="rounded-2xl border border-white/80 bg-white/85 p-2 shadow-sm backdrop-blur overflow-visible">
-                            <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
                         </div>
                     </div>
                 </div>

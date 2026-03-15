@@ -96,6 +96,8 @@ export default function AdminPanel() {
     const showSidebarLabels = isMobile || sidebarOpen;
     const isDashboardRoute = location.pathname.startsWith(`${ADMIN_BASE_ROUTE}/dashboard`)
         || location.pathname.startsWith(`${ADMIN_BASE_ROUTE}/owner-dashboard`);
+    const showSharedDateFilter = isDashboardRoute
+        || location.pathname.startsWith(`${ADMIN_BASE_ROUTE}/insights`);
 
     return (
         <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -194,7 +196,7 @@ export default function AdminPanel() {
                 <main className="flex-1 overflow-auto p-4 pb-24 md:p-8 md:pb-8 relative">
                     <div className="max-w-7xl mx-auto">
                         <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
-                            {isDashboardRoute ? (
+                            {showSharedDateFilter ? (
                                 <DateRangeFilter
                                     dateSelection={adminDashboardDateSelection}
                                     setDateSelection={setAdminDashboardDateSelection}

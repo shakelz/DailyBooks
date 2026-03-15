@@ -125,12 +125,46 @@ function isSalaryExpenseSource(source = '') {
   return normalizeToken(source) === 'salary';
 }
 
-function isFixedExpenseTxn(txn = {}) {
+function getTxnNotes(txn = {}) {
+  return normalizeToken(txn?.notes || txn?.note || '');
+}
+
+function getTxnDescription(txn = {}) {
+  const candidates = [
+    txn?.description,
+    txn?.desc,
+    txn?.name,
+    txn?.expense_name,
+    txn?.expenseName,
+    txn?.expense_title,
+    txn?.expenseTitle,
+  ];
+  for (const value of candidates) {
+    const text = normalizeToken(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function isAdminManagedFixedExpenseTxn(txn = {}) {
   const source = normalizeToken(txn?.source || txn?.tx_source || '');
+  const txType = getTxType(txn);
+  const notes = getTxnNotes(txn);
+  const desc = getTxnDescription(txn);
+
+  return isAdminExpenseSource(source)
+    || isSalaryExpenseSource(source)
+    || (txType === 'shop_expense' && (isAdminExpenseSource(source) || isSalaryExpenseSource(source)))
+    || notes.includes('monthly_salary')
+    || desc.includes('monatsgehalt')
+    || desc.includes('salary')
+    || desc.includes('gehalt');
+}
+
+function isFixedExpenseTxn(txn = {}) {
   return Boolean(txn?.is_fixed_expense ?? txn?.isFixedExpense ?? false)
     || isFixedExpenseType(getTxType(txn))
-    || isAdminExpenseSource(source)
-    || isSalaryExpenseSource(source);
+    || isAdminManagedFixedExpenseTxn(txn);
 }
 
 function isInventoryPurchaseTxn(txn = {}) {
@@ -604,7 +638,7 @@ export function computeUnifiedKpiSnapshot({
       });
       if (filtered.included && !shouldIgnoreGeneralExpense(txn, filtered)) {
         if (isFixedExpenseTxn(txn)) {
-          if (!includeAdminFixedExpenses && isAdminExpenseSource(sourceText)) {
+          if (!includeAdminFixedExpenses && isAdminManagedFixedExpenseTxn(txn)) {
             return;
           }
           strictFixedExpenses += filtered.amount;
@@ -660,8 +694,7 @@ export function computeUnifiedKpiSnapshot({
       const amount = filtered.rawAmount;
       pushBreakdown(expenseBreakdownMap, filtered.categoryName || txn?.category || 'Sonstiges', filtered.subCategoryName, amount, 'Expenses');
       if (isFixedExpenseTxn(txn) || isFixedExpenseType(txType)) {
-        const sourceText = normalizeToken(txn?.source || txn?.tx_source || '');
-        if (!includeAdminFixedExpenses && isAdminExpenseSource(sourceText)) {
+        if (!includeAdminFixedExpenses && isAdminManagedFixedExpenseTxn(txn)) {
           return;
         }
         fixedExpenses += amount;
