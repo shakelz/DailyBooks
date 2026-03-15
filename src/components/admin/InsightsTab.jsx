@@ -68,6 +68,18 @@ function safeText(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function isUUID(value = '') {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+
+function resolveCategoryRowId(row = {}) {
+    return String(row?.category_id || row?.id || '').trim();
+}
+
+function resolveCategoryRowName(row = {}) {
+    return String(row?.category_name || row?.name || row?.label || '').trim();
+}
+
 function parseTransactionDate(txn) {
     const parsed = new Date(txn?.timestamp || `${txn?.date || ''} ${txn?.time || ''}`);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -111,42 +123,75 @@ export default function InsightsTab() {
 
     const settingsShopId = String(activeShopId || user?.shop_id || '').trim();
 
-    // Fetch transactions with categories joined specifically for categorical charts
+    // Fetch transactions and categories separately because the schema cache
+    // may not expose a relationship for category_id in every deployment.
     useEffect(() => {
         if (!settingsShopId) return;
 
         let cancelled = false;
         const fetchChartData = async () => {
-            const { data, error } = await supabase
-                .from('transactions')
-                .select(`
-                    transaction_id,
-                    amount,
-                    tx_type,
-                    type,
-                    source,
-                    category_id,
-                    timestamp,
-                    date,
-                    time,
-                    categories (
-                        category_id,
-                        category_name
-                    )
-                `)
-                .eq('shop_id', settingsShopId)
-                .not('amount', 'is', null)
-                .gt('amount', 0);
+            try {
+                const { data: txnData, error: txnError } = await supabase
+                    .from('transactions')
+                    .select('*')
+                    .eq('shop_id', settingsShopId)
+                    .not('amount', 'is', null)
+                    .gt('amount', 0);
 
-            if (cancelled) return;
+                if (cancelled) return;
 
-            if (error) {
-                console.error('Error fetching chart transactions:', error);
-                return;
-            }
+                if (txnError) {
+                    console.error('Error fetching transactions:', txnError);
+                    return;
+                }
 
-            if (data) {
-                setChartTransactions(data);
+                const scopedCategoriesResult = await supabase
+                    .from('categories')
+                    .select('*')
+                    .eq('shop_id', settingsShopId);
+
+                if (cancelled) return;
+
+                let categoryRows = scopedCategoriesResult.data || [];
+                if (scopedCategoriesResult.error) {
+                    console.warn('Scoped category fetch failed, retrying without shop filter:', scopedCategoriesResult.error);
+
+                    const fallbackCategoriesResult = await supabase
+                        .from('categories')
+                        .select('*');
+
+                    if (cancelled) return;
+
+                    if (fallbackCategoriesResult.error) {
+                        console.error('Error fetching categories:', fallbackCategoriesResult.error);
+                        categoryRows = [];
+                    } else {
+                        categoryRows = fallbackCategoriesResult.data || [];
+                    }
+                }
+
+                const categoryLookup = (categoryRows || []).reduce((acc, row) => {
+                    const id = resolveCategoryRowId(row);
+                    const name = resolveCategoryRowName(row);
+                    if (id && name) {
+                        acc[id] = name;
+                    }
+                    return acc;
+                }, {});
+
+                const mergedTransactions = (txnData || []).map((txn) => {
+                    const categoryId = String(txn?.category_id || txn?.categoryId || '').trim();
+                    return {
+                        ...txn,
+                        resolvedCategoryName: categoryLookup[categoryId] || null,
+                    };
+                });
+
+                setChartTransactions(mergedTransactions);
+            } catch (error) {
+                if (!cancelled) {
+                    console.error('Error fetching chart transactions:', error);
+                }
             }
         };
 
@@ -667,40 +712,33 @@ export default function InsightsTab() {
 
     // ── Categorical Breakdown Data ──
     const extractChartCategory = (txn) => {
-        // Priority 1: Joined categories table
-        if (txn?.categories?.category_name) {
-            return String(txn.categories.category_name).trim();
+        if (txn?.resolvedCategoryName) {
+            return String(txn.resolvedCategoryName).trim();
         }
 
         const cat = txn?.category;
-        // Priority 2: Object format
         if (cat && typeof cat === 'object') {
             return String(cat.level1 || cat.name || cat.label || '').trim() || null;
         }
-        // Priority 3: String format (skipping UUIDs)
         if (typeof cat === 'string' && cat.trim()) {
             const trimmed = cat.trim();
-            // Simple heuristic to skip UUIDs (multiple dashes and 36 chars)
-            if (trimmed.length === 36 && (trimmed.match(/-/g) || []).length === 4) return null;
+            if (isUUID(trimmed)) return null;
             return trimmed;
         }
-        // Priority 4: Fallback fields
         const fallback = String(txn?.category_name || txn?.categoryName || txn?.cat || '').trim();
-        if (fallback && !(fallback.length === 36 && (fallback.match(/-/g) || []).length === 4)) return fallback;
+        if (fallback && !isUUID(fallback)) return fallback;
 
         return null;
     };
 
     const isExpenseTypeResolved = (txn) => {
-        // Prefer tx_type from DB
         const t = String(txn?.tx_type || txn?.type || txn?.transactionType || '').toLowerCase().trim();
-        return t.includes('expense') || t.includes('purchase') || t.includes('cost') || t === 'adjustment' || t === 'adjustment_amount';
+        return t === 'product_purchase' || t === 'shop_expense' || t === 'purchase';
     };
 
     const isSaleTypeResolved = (txn) => {
         const t = String(txn?.tx_type || txn?.type || txn?.transactionType || '').toLowerCase().trim();
-        // Categorize anything not explicitly expense as sale if it has positive amount
-        return !isExpenseTypeResolved(txn) && (parseFloat(txn.amount) || 0) > 0;
+        return t === 'product_sale' || t === 'shop' || t === 'repair_amount';
     };
 
     const categoryExpenseData = useMemo(() => {
@@ -755,7 +793,7 @@ export default function InsightsTab() {
 
     // Debug: detailed transaction analysis
     console.log('InsightsTab total transactions received (context):', (transactions || []).length);
-    console.log('InsightsTab chart transactions fetched (joined):', chartTransactions.length);
+    console.log('InsightsTab chart transactions fetched (manual category merge):', chartTransactions.length);
     const typeSet = new Set((chartTransactions.length > 0 ? chartTransactions : (transactions || [])).map(t => t.tx_type || t.type));
     console.log('Unique transaction types found:', [...typeSet]);
     console.log('categorySalesData:', categorySalesData);
