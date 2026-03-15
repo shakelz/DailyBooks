@@ -4,6 +4,7 @@ import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
 import { priceTag } from '../../utils/currency';
+import { useOutletContext } from 'react-router-dom';
 import DateRangeFilter from './DateRangeFilter';
 
 const EXPENSE_CATEGORY_OPTIONS = [
@@ -115,6 +116,7 @@ function getTxnInvoiceNumber(txn) {
 }
 
 export default function ExpensesTab() {
+    const { setAdminTopBarContent } = useOutletContext() || {};
     const { transactions, addTransaction, updateTransaction, deleteTransaction } = useInventory();
     const { attendanceLogs, salesmen, activeShopId } = useAuth();
     const salarySyncInFlightRef = useRef(false);
@@ -169,6 +171,20 @@ export default function ExpensesTab() {
         d.setHours(23, 59, 59, 999);
         return d;
     }, [dateSelection]);
+
+    useEffect(() => {
+        if (!setAdminTopBarContent) return undefined;
+
+        setAdminTopBarContent(
+            <DateRangeFilter
+                dateSelection={dateSelection}
+                setDateSelection={setDateSelection}
+                className="w-full justify-between"
+            />
+        );
+
+        return () => setAdminTopBarContent(null);
+    }, [dateSelection, setAdminTopBarContent]);
 
     const salaryBuckets = useMemo(() => {
         const staffById = new Map((salesmen || []).map((staff) => [String(staff?.id || ''), staff]));
@@ -639,13 +655,12 @@ export default function ExpensesTab() {
                     {toast}
                 </div>
             )}
-            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">Ausgaben &amp; Einnahmen</h1>
                     <p className="text-slate-500 text-sm font-medium">Bearbeitbares Kassenbuch mit roten Ausgaben und grünen Einnahmen.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                    <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
                     <button onClick={() => setShowForm((v) => !v)} className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
                         {showForm ? 'Abbrechen' : 'Ausgabe hinzufügen'}
                     </button>

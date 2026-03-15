@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { useRepairs } from '../../context/RepairsContext';
 import { useInventory } from '../../context/InventoryContext';
 import { priceTag } from '../../utils/currency';
@@ -10,6 +11,7 @@ import CompleteRepairModal from './CompleteRepairModal';
 import DateRangeFilter from './DateRangeFilter';
 
 export default function RepairsTab() {
+    const { setAdminTopBarContent } = useOutletContext() || {};
     const { repairJobs, updateRepairStatus, deleteRepair } = useRepairs();
     const { products, transactions } = useInventory();
 
@@ -61,6 +63,20 @@ export default function RepairsTab() {
             return createdAt >= rangeStart && createdAt <= rangeEnd;
         });
     }, [repairJobs, dateSelection]);
+
+    useEffect(() => {
+        if (!setAdminTopBarContent) return undefined;
+
+        setAdminTopBarContent(
+            <DateRangeFilter
+                dateSelection={dateSelection}
+                setDateSelection={setDateSelection}
+                className="w-full justify-between"
+            />
+        );
+
+        return () => setAdminTopBarContent(null);
+    }, [dateSelection, setAdminTopBarContent]);
 
     // ── KPIs ──
     const kpis = useMemo(() => {
@@ -159,14 +175,13 @@ export default function RepairsTab() {
     return (
         <div className="space-y-6 max-w-6xl relative">
             {/* Header */}
-            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                         <Wrench size={24} className="text-blue-600" /> Reparaturen
                     </h1>
                     <p className="text-slate-500 text-sm">Reparaturaufträge verfolgen, verwalten und abschließen.</p>
                 </div>
-                <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
             </div>
 
             {/* KPI Cards */}

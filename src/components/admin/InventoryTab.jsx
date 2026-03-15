@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
@@ -28,6 +29,7 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default function InventoryTab() {
+    const { setAdminTopBarContent } = useOutletContext() || {};
     const {
         products,
         transactions,
@@ -80,6 +82,20 @@ export default function InventoryTab() {
         end.setHours(23, 59, 59, 999);
         return end;
     }, [dateSelection]);
+
+    useEffect(() => {
+        if (!setAdminTopBarContent) return undefined;
+
+        setAdminTopBarContent(
+            <DateRangeFilter
+                dateSelection={dateSelection}
+                setDateSelection={setDateSelection}
+                className="w-full justify-between"
+            />
+        );
+
+        return () => setAdminTopBarContent(null);
+    }, [dateSelection, setAdminTopBarContent]);
 
     const rangeDays = useMemo(() => {
         return Math.max(1, Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS) + 1);
@@ -403,13 +419,12 @@ export default function InventoryTab() {
     return (
         <div className="space-y-6">
             {/* ── Header with Date Filter ── */}
-            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">Inventar</h1>
                     <p className="text-slate-500 text-sm font-medium">Produktkatalog, Lagerbestände und Lieferantenanalysen.</p>
                     <p className="text-[11px] text-slate-400 font-semibold mt-1">Zeitraumfilter wirkt auf Liste, Abverkaufswarnungen und Analysen.</p>
                 </div>
-                <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
             </div>
 
             {/* ── KPI Cards ── */}

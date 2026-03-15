@@ -14,7 +14,7 @@ function getSelection(dateSelection = []) {
     return [{ startDate: today, endDate: today, key: 'selection' }];
 }
 
-export default function DateRangeFilter({ dateSelection, setDateSelection }) {
+export default function DateRangeFilter({ dateSelection, setDateSelection, className = '' }) {
     const [showPicker, setShowPicker] = useState(false);
     const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
     const ref = useRef(null);
@@ -108,7 +108,7 @@ export default function DateRangeFilter({ dateSelection, setDateSelection }) {
     };
 
     return (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+        <div className={`flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-1 shadow-sm ${className}`.trim()}>
             <div className="relative" ref={ref}>
                 <button
                     type="button"

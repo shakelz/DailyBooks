@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { useRepairs } from '../../context/RepairsContext';
@@ -211,6 +212,7 @@ function isRepairRevenueTransaction(txn) {
 }
 
 export default function InsightsTab() {
+    const { setAdminTopBarContent } = useOutletContext() || {};
     const { transactions: contextTransactions, products } = useInventory();
     const { isAdminLike, slowMovingDays, salesmen, attendanceLogs, activeShopId, user } = useAuth();
     const { repairJobs } = useRepairs();
@@ -237,6 +239,19 @@ export default function InsightsTab() {
     const rangeDays = useMemo(() => {
         return Math.max(1, Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / DAY_MS) + 1);
     }, [rangeStart, rangeEnd]);
+    useEffect(() => {
+        if (!setAdminTopBarContent) return undefined;
+
+        setAdminTopBarContent(
+            <DateRangeFilter
+                dateSelection={dateSelection}
+                setDateSelection={setDateSelection}
+                className="w-full justify-between"
+            />
+        );
+
+        return () => setAdminTopBarContent(null);
+    }, [dateSelection, setAdminTopBarContent]);
     const timeView = ((rangeEnd - rangeStart) / (1000 * 60 * 60 * 24)) <= 60 ? 'weekly' : 'monthly';
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
@@ -916,7 +931,7 @@ export default function InsightsTab() {
             <div className="relative overflow-visible rounded-[30px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-blue-50/60 p-5 shadow-sm">
                 <div className="absolute -left-10 -top-14 h-32 w-32 rounded-full bg-blue-200/40 blur-3xl" />
                 <div className="absolute -bottom-16 right-0 h-40 w-40 rounded-full bg-emerald-200/30 blur-3xl" />
-                <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                <div className="relative flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0 h-full">
                         <span className="inline-flex items-center rounded-full border border-white/80 bg-white/85 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-slate-500 shadow-sm">
                             Auswertungen
@@ -927,9 +942,6 @@ export default function InsightsTab() {
                                 Finanz-KPIs, Markttrends, Kategorienmix und Inventarsignale in einem übersichtlichen Arbeitsbereich.
                             </p>
                         </div>
-                    </div>
-                    <div className="relative z-10 w-full xl:w-auto">
-                        <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
                     </div>
                 </div>
             </div>
