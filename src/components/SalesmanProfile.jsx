@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Camera, Languages } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -45,16 +45,12 @@ export default function SalesmanProfile({ isOpen, onClose }) {
     } = useAuth();
     const { language, setLanguage, t } = useLanguage();
     const navigate = useNavigate();
-    const location = useLocation();
     const fileInputRef = useRef(null);
     const [isPhotoBusy, setIsPhotoBusy] = useState(false);
     const [photoFeedback, setPhotoFeedback] = useState('');
     const [photoError, setPhotoError] = useState('');
 
-    const salesmanDashboardPath = '/terminal-access-v1/dashboard';
-    const salesmanLatestDashboardPath = '/terminal-access-v1/latest-dashboard';
     const salesmanLoginPath = '/terminal-access-v1';
-    const isOnLatestDashboard = location.pathname.includes(salesmanLatestDashboardPath);
 
     const todayStr = new Date().toLocaleDateString('en-PK');
     const myLogsToday = attendanceLogs.filter((log) => log.date === todayStr && log.userId === user?.id);
@@ -173,7 +169,7 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                     )}
                 </div>
 
-                <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="p-5 grid grid-cols-2 gap-3">
                     <button
                         onClick={() => onPunchCommand('IN')}
                         disabled={isPunchedIn || isAttendanceActionPending}
@@ -211,17 +207,6 @@ export default function SalesmanProfile({ isOpen, onClose }) {
                     >
                         <span className="text-3xl">SW</span>
                         <span className="font-bold text-sm">{t('profile.switchUser')}</span>
-                    </button>
-
-                    <button
-                        onClick={() => {
-                            navigate(isOnLatestDashboard ? salesmanDashboardPath : salesmanLatestDashboardPath);
-                            onClose?.();
-                        }}
-                        className="h-24 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100 hover:scale-105 shadow-sm"
-                    >
-                        <span className="text-3xl">{isOnLatestDashboard ? 'NEW' : 'OLD'}</span>
-                        <span className="font-bold text-sm">{isOnLatestDashboard ? t('profile.newDashboard') : t('profile.oldDashboard')}</span>
                     </button>
 
                     <button
