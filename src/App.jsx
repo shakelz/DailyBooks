@@ -152,8 +152,8 @@ function App() {
                     <Route path="settings" element={<AdminSettings />} />
                   </Route>
 
-                  <Route path={SALESMAN_DASHBOARD_PATH} element={<SalesmanGuard><LatestDashboard /></SalesmanGuard>} />
-                  <Route path={SALESMAN_LATEST_DASHBOARD_PATH} element={<Navigate to={SALESMAN_DASHBOARD_PATH} replace />} />
+                  <Route path={SALESMAN_DASHBOARD_PATH} element={<SalesmanGuard><SalesmanDashboardErrorBoundary><SalesmanDashboard /></SalesmanDashboardErrorBoundary></SalesmanGuard>} />
+                  <Route path={SALESMAN_LATEST_DASHBOARD_PATH} element={<SalesmanGuard><LatestDashboard /></SalesmanGuard>} />
 
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
