@@ -228,6 +228,7 @@ export default function AdminPanel() {
                         <Outlet
                             context={{
                                 adminDashboardDateSelection,
+                                setAdminDashboardDateSelection,
                             }}
                         />
                     </div>

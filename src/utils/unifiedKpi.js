@@ -1,3 +1,6 @@
+import { format as formatDate } from 'date-fns';
+import { de } from 'date-fns/locale';
+
 const KPI_MODE_SALES = 'sales';
 const KPI_MODE_PROFIT = 'profit';
 const KPI_MODE_EXCLUDED = 'excluded';
@@ -379,17 +382,16 @@ function getPeriodMeta(date, periodType) {
     const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
     return {
       periodKey: key,
-      periodLabel: `${start.getDate()}/${start.getMonth() + 1} - ${end.getDate()}/${end.getMonth() + 1}`,
+      periodLabel: `${formatDate(start, 'dd.MM', { locale: de })} – ${formatDate(end, 'dd.MM', { locale: de })}`,
       periodStartMs: start.getTime(),
     };
   }
 
   const key = getMonthKey(date);
   const monthIdx = date.getMonth();
-  const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return {
     periodKey: key,
-    periodLabel: `${labels[monthIdx]} ${date.getFullYear()}`,
+    periodLabel: formatDate(date, 'MMM yyyy', { locale: de }),
     periodStartMs: new Date(date.getFullYear(), monthIdx, 1).getTime(),
   };
 }

@@ -9,6 +9,7 @@ import {
     LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
     ComposedChart, Area, PieChart, Pie, Cell, LabelList
 } from 'recharts';
+import { useOutletContext } from 'react-router-dom';
 import DateRangeFilter from './DateRangeFilter';
 import { TrendingUp, DollarSign, Activity, AlertCircle, Calendar, Filter, Zap, Package, RefreshCw, BarChart3, Scale, Users, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -164,13 +165,22 @@ export default function InsightsTab() {
     const { transactions: contextTransactions, products } = useInventory();
     const { isAdminLike, slowMovingDays, salesmen, attendanceLogs, activeShopId, user } = useAuth();
     const { repairJobs } = useRepairs();
-    const [dateSelection, setDateSelection] = useState([
+    const outletContext = useOutletContext() || {};
+    const [localDateSelection, setLocalDateSelection] = useState([
         {
             startDate: new Date(new Date().setDate(new Date().getDate() - 30)),
             endDate: new Date(),
             key: 'selection'
         }
     ]);
+    const sharedDateSelection = Array.isArray(outletContext?.adminDashboardDateSelection) && outletContext.adminDashboardDateSelection.length
+        ? outletContext.adminDashboardDateSelection
+        : null;
+    const sharedSetDateSelection = typeof outletContext?.setAdminDashboardDateSelection === 'function'
+        ? outletContext.setAdminDashboardDateSelection
+        : null;
+    const dateSelection = sharedDateSelection || localDateSelection;
+    const setDateSelection = sharedSetDateSelection || setLocalDateSelection;
     const timeView = ((new Date(dateSelection[0].endDate) - new Date(dateSelection[0].startDate)) / (1000 * 60 * 60 * 24)) <= 60 ? 'weekly' : 'monthly';
     const [peakHourMode, setPeakHourMode] = useState('today'); // 'today' or '7d'
     const [showFinalProfitBreakdown, setShowFinalProfitBreakdown] = useState(false);
@@ -831,7 +841,7 @@ export default function InsightsTab() {
     return (
         <div className="space-y-4 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
             {/* ── Header ── */}
-            <div className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-blue-50/60 p-5 shadow-sm">
+            <div className="relative overflow-visible rounded-[30px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-blue-50/60 p-5 shadow-sm">
                 <div className="absolute -left-10 -top-14 h-32 w-32 rounded-full bg-blue-200/40 blur-3xl" />
                 <div className="absolute -bottom-16 right-0 h-40 w-40 rounded-full bg-emerald-200/30 blur-3xl" />
                 <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -847,8 +857,8 @@ export default function InsightsTab() {
                         </div>
                     </div>
 
-                    <div className="w-full xl:w-auto">
-                        <div className="rounded-2xl border border-white/80 bg-white/85 p-2 shadow-sm backdrop-blur">
+                    <div className="relative z-30 w-full xl:w-auto">
+                        <div className="rounded-2xl border border-white/80 bg-white/85 p-2 shadow-sm backdrop-blur overflow-visible">
                             <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
                         </div>
                     </div>
