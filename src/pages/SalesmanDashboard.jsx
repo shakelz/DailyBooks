@@ -709,11 +709,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
     const translatedTreeRef = useRef(null);
+    const resetTimerHandlerRef = useRef(null);
+    const calcKeyboardHandlerRef = useRef(null);
     const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
 
     useTranslatedTextTree(translatedTreeRef);
 
-    const readLastActivityAt = () => {
+    const readLastActivityAt = useCallback(() => {
         let raw = volatileLockState.get(lockStateKey);
         if (!raw) {
             try {
@@ -729,9 +731,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         } catch {
             return Date.now();
         }
-    };
+    }, [lockStateKey]);
 
-    const readPersistedLockFlag = () => {
+    const readPersistedLockFlag = useCallback(() => {
         let raw = volatileLockState.get(lockStateKey);
         if (!raw) {
             try {
@@ -747,9 +749,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         } catch {
             return false;
         }
-    };
+    }, [lockStateKey]);
 
-    const writeLockState = (nextLastActivityAt = Date.now(), nextIsLocked = isLockedRef.current) => {
+    const writeLockState = useCallback((nextLastActivityAt = Date.now(), nextIsLocked = isLockedRef.current) => {
         const payload = {
             lastActivityAt: Number(nextLastActivityAt) || Date.now(),
             isLocked: Boolean(nextIsLocked),
@@ -768,7 +770,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         } catch {
             // Ignore storage issues; volatile cache still works for current session.
         }
-    };
+    }, [lockStateKey]);
     const canEditTransactions = adminView || Boolean(
         user?.canEditTransactions
         ?? user?.permissions?.canEditTransactions
@@ -804,8 +806,42 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     );
 
     useEffect(() => {
+        if (!import.meta.env.DEV || typeof window === 'undefined') return undefined;
+
+        const originalAdd = window.addEventListener.bind(window);
+        const originalRemove = window.removeEventListener.bind(window);
+        let listenerCount = 0;
+
+        const patchedAdd = (type, ...args) => {
+            listenerCount += 1;
+            if (listenerCount > 100) {
+                console.warn(`WARNING: ${listenerCount} event listeners registered! Possible leak.`);
+            }
+            return originalAdd(type, ...args);
+        };
+
+        const patchedRemove = (type, ...args) => {
+            listenerCount = Math.max(0, listenerCount - 1);
+            return originalRemove(type, ...args);
+        };
+
+        window.addEventListener = patchedAdd;
+        window.removeEventListener = patchedRemove;
+
+        return () => {
+            window.addEventListener = originalAdd;
+            window.removeEventListener = originalRemove;
+        };
+    }, []);
+
+    useEffect(() => {
         isLockedRef.current = isLocked;
     }, [isLocked]);
+
+    useEffect(() => {
+        resetTimerHandlerRef.current = null;
+        calcKeyboardHandlerRef.current = null;
+    }, []);
 
     useEffect(() => {
         pendingKpiSettingsReloadRef.current = false;
@@ -930,11 +966,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!shouldLock) {
             writeLockState(lastActivityAt, false);
         }
-    }, [adminView, lockTimeoutMs, user?.id]);
+    }, [adminView, lockTimeoutMs, readLastActivityAt, readPersistedLockFlag, user?.id, writeLockState]);
 
     useEffect(() => {
         modalInteractionOpenRef.current = anyModalOpen;
-    }, [anyModalOpen]);
+        if (anyModalOpen) {
+            writeLockState(Date.now(), isLockedRef.current);
+            return;
+        }
+        resetTimerHandlerRef.current?.();
+    }, [anyModalOpen, writeLockState]);
 
     useEffect(() => {
         if (!lockTimeoutMs || lockTimeoutMs <= 0) return undefined;
@@ -946,7 +987,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         let timer = null;
 
-        const resetTimer = () => {
+        resetTimerHandlerRef.current = () => {
             if (timer) {
                 clearTimeout(timer);
                 timer = null;
@@ -961,30 +1002,27 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }, lockTimeoutMs);
         };
 
+        const stableHandler = () => {
+            resetTimerHandlerRef.current?.();
+        };
+
         RESET_EVENTS.forEach((event) => {
-            window.addEventListener(event, resetTimer, { passive: true });
+            window.addEventListener(event, stableHandler, { passive: true });
         });
 
-        resetTimer();
+        stableHandler();
 
         return () => {
             if (timer) {
                 clearTimeout(timer);
                 timer = null;
             }
+            resetTimerHandlerRef.current = null;
             RESET_EVENTS.forEach((event) => {
-                window.removeEventListener(event, resetTimer);
+                window.removeEventListener(event, stableHandler);
             });
         };
-    }, [lockTimeoutMs]);
-
-    useEffect(() => {
-        if (!lockTimeoutMs || lockTimeoutMs <= 0) return undefined;
-        if (!anyModalOpen) return undefined;
-
-        writeLockState(Date.now(), isLockedRef.current);
-        return undefined;
-    }, [anyModalOpen, lockTimeoutMs]);
+    }, [lockTimeoutMs, writeLockState]);
 
     useEffect(() => {
         let escCount = 0;
@@ -1061,7 +1099,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setUnlockError(true);
         setUnlockPin('');
         setTimeout(() => setUnlockError(false), 1500);
-    }, [verifySalesmanUnlockPin]);
+    }, [verifySalesmanUnlockPin, writeLockState]);
 
     const handleUnlock = async (event) => {
         event?.preventDefault();
@@ -1077,7 +1115,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     useEffect(() => {
         writeLockState(readLastActivityAt(), isLocked);
-    }, [isLocked]);
+    }, [isLocked, readLastActivityAt, writeLockState]);
 
     const handleClearLocalCache = useCallback(() => {
         if (!adminView) return;
@@ -3262,7 +3300,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
     };
 
-    const handleCalcPress = (key) => {
+    const handleCalcPress = useCallback((key) => {
         if (key === 'C') { setCalcDisplay('0'); setCalcPrev(null); setCalcOp(null); return; }
         if (key === 'BACK') { setCalcDisplay((d) => d.length > 1 ? d.slice(0, -1) : '0'); return; }
         if (['+', '-', '*', '/'].includes(key)) {
@@ -3287,15 +3325,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
         if (key === '.' && calcDisplay.includes('.')) return;
         setCalcDisplay((d) => d === '0' && key !== '.' ? key : d + key);
-    };
+    }, [calcDisplay, calcOp, calcPrev]);
 
     useEffect(() => {
-        if (!showCalc) return undefined;
-        const handleCalcKeyboard = (event) => {
+        calcKeyboardHandlerRef.current = (event) => {
             if (event.altKey || event.ctrlKey || event.metaKey) return;
             const target = event.target;
             const tagName = target?.tagName || '';
-            if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return;
+            if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || target?.isContentEditable) return;
             let mapped = '';
             const key = event.key;
             if (/^[0-9]$/.test(key)) mapped = key;
@@ -3308,9 +3345,20 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             event.preventDefault();
             handleCalcPress(mapped);
         };
+    }, [handleCalcPress]);
+
+    useEffect(() => {
+        if (!showCalc) return undefined;
+
+        const handleCalcKeyboard = (event) => {
+            calcKeyboardHandlerRef.current?.(event);
+        };
+
         window.addEventListener('keydown', handleCalcKeyboard);
-        return () => window.removeEventListener('keydown', handleCalcKeyboard);
-    }, [showCalc, calcDisplay, calcPrev, calcOp]);
+        return () => {
+            window.removeEventListener('keydown', handleCalcKeyboard);
+        };
+    }, [showCalc]);
 
     const resolveOnlineOrderTotals = (order = {}) => {
         const totalCost = Number(order?.totalCost ?? order?.amount) || 0;
