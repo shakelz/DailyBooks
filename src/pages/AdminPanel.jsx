@@ -69,19 +69,19 @@ export default function AdminPanel() {
 
     const menuItems = [
         { label: 'Dashboard', route: dashboardRoute, icon: <LayoutDashboard size={20} /> },
-        { label: 'Inventory', route: `${ADMIN_BASE_ROUTE}/inventory`, icon: <Package size={20} /> },
-        { label: 'Insights', route: `${ADMIN_BASE_ROUTE}/insights`, icon: <TrendingUp size={20} /> },
-        { label: 'Repairs', route: `${ADMIN_BASE_ROUTE}/repairs`, icon: <Wrench size={20} /> },
-        { label: 'Expenses', route: `${ADMIN_BASE_ROUTE}/expenses`, icon: <FileText size={20} /> },
+        { label: 'Inventar', route: `${ADMIN_BASE_ROUTE}/inventory`, icon: <Package size={20} /> },
+        { label: 'Auswertungen', route: `${ADMIN_BASE_ROUTE}/insights`, icon: <TrendingUp size={20} /> },
+        { label: 'Reparaturen', route: `${ADMIN_BASE_ROUTE}/repairs`, icon: <Wrench size={20} /> },
+        { label: 'Ausgaben', route: `${ADMIN_BASE_ROUTE}/expenses`, icon: <FileText size={20} /> },
         (role === 'super_admin')
-            ? { label: 'Manage All Shops', route: `${ADMIN_BASE_ROUTE}/settings`, icon: <Settings size={20} /> }
-            : ((role !== 'salesman') ? { label: 'Settings', route: `${ADMIN_BASE_ROUTE}/settings`, icon: <Settings size={20} /> } : null),
+            ? { label: 'Alle Shops verwalten', route: `${ADMIN_BASE_ROUTE}/settings`, icon: <Settings size={20} /> }
+            : ((role !== 'salesman') ? { label: 'Einstellungen', route: `${ADMIN_BASE_ROUTE}/settings`, icon: <Settings size={20} /> } : null),
     ].filter(Boolean);
     const mobileBottomItems = [
-        { label: 'Home', route: dashboardRoute, icon: <LayoutDashboard size={18} /> },
-        { label: 'Sales', route: `${ADMIN_BASE_ROUTE}/insights`, icon: <TrendingUp size={18} /> },
-        { label: 'Inventory', route: `${ADMIN_BASE_ROUTE}/inventory`, icon: <Package size={18} /> },
-        { label: 'Repairs', route: `${ADMIN_BASE_ROUTE}/repairs`, icon: <Wrench size={18} /> },
+        { label: 'Start', route: dashboardRoute, icon: <LayoutDashboard size={18} /> },
+        { label: 'Verkauf', route: `${ADMIN_BASE_ROUTE}/insights`, icon: <TrendingUp size={18} /> },
+        { label: 'Inventar', route: `${ADMIN_BASE_ROUTE}/inventory`, icon: <Package size={18} /> },
+        { label: 'Reparaturen', route: `${ADMIN_BASE_ROUTE}/repairs`, icon: <Wrench size={18} /> },
     ];
     const handleLogout = () => {
         const result = logout();
@@ -121,7 +121,7 @@ export default function AdminPanel() {
                             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center font-bold">
                                 <LayoutDashboard size={16} />
                             </div>
-                            <span className="font-bold text-lg tracking-tight">Admin<span className="text-cyan-400">Dashboard</span></span>
+                            <span className="font-bold text-lg tracking-tight">Admin<span className="text-cyan-400">-Dashboard</span></span>
                         </div>
                     ) : (
                         <div className="w-full flex justify-center">
@@ -161,7 +161,7 @@ export default function AdminPanel() {
                         className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-red-400 hover:bg-slate-800 hover:text-red-300 transition-all ${!showSidebarLabels && 'justify-center'}`}
                     >
                         <LogOut size={20} />
-                        {showSidebarLabels && <span className="font-medium text-sm">Logout</span>}
+                        {showSidebarLabels && <span className="font-medium text-sm">Abmelden</span>}
                     </button>
                 </div>
             </aside>
@@ -172,7 +172,7 @@ export default function AdminPanel() {
                     <div>
                         <div className="font-bold text-slate-800 flex items-center gap-1.5">
                             <LayoutDashboard size={16} className="text-blue-600" />
-                            <span>Admin Dashboard</span>
+                            <span>Admin-Dashboard</span>
                         </div>
                         {currentShop && (
                             <div className="text-[10px] text-slate-400 font-semibold">{currentShop.name}</div>
@@ -202,7 +202,7 @@ export default function AdminPanel() {
                             ) : null}
                             {isSuperAdmin ? (
                                 <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
-                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Switch Shop</span>
+                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Shop wechseln</span>
                                     <select
                                         value={activeShopId || ''}
                                         onChange={(e) => setActiveShopId(e.target.value)}
@@ -210,10 +210,10 @@ export default function AdminPanel() {
                                         style={{ fontSize: 16, fontWeight: 500 }}
                                     >
                                         {role === 'super_admin' ? (
-                                            <option value="" style={{ fontSize: 16, fontWeight: 500 }}>Global View (All Shops)</option>
+                                            <option value="" style={{ fontSize: 16, fontWeight: 500 }}>Globale Ansicht (Alle Shops)</option>
                                         ) : null}
                                         {shops.length === 0 ? (
-                                            <option value="" style={{ fontSize: 16, fontWeight: 500 }}>No Shops</option>
+                                            <option value="" style={{ fontSize: 16, fontWeight: 500 }}>Keine Shops</option>
                                         ) : (
                                             shops.map((shop) => (
                                                 <option key={shop.id} value={shop.id} style={{ fontSize: 16, fontWeight: 500 }}>

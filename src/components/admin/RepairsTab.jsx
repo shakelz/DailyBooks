@@ -146,14 +146,14 @@ export default function RepairsTab() {
     };
 
     const handleDelete = (job) => {
-        if (window.confirm(`Delete repair ${getRepairInvoiceNumber(job)}? This cannot be undone.`)) {
+        if (window.confirm(`Reparatur ${getRepairInvoiceNumber(job)} löschen? Das kann nicht rückgängig gemacht werden.`)) {
             deleteRepair(job.id);
         }
     };
 
     const statusConfig = {
-        pending: { label: 'Pending', color: 'amber', icon: <Clock size={12} /> },
-        completed: { label: 'Completed', color: 'emerald', icon: <CheckCircle2 size={12} /> },
+        pending: { label: 'Ausstehend', color: 'amber', icon: <Clock size={12} /> },
+        completed: { label: 'Abgeschlossen', color: 'emerald', icon: <CheckCircle2 size={12} /> },
     };
 
     return (
@@ -162,9 +162,9 @@ export default function RepairsTab() {
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                        <Wrench size={24} className="text-blue-600" /> Repair Analytics
+                        <Wrench size={24} className="text-blue-600" /> Reparaturen
                     </h1>
-                    <p className="text-slate-500 text-sm">Track, manage, and complete repair jobs.</p>
+                    <p className="text-slate-500 text-sm">Reparaturaufträge verfolgen, verwalten und abschließen.</p>
                 </div>
                 <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
             </div>
@@ -174,28 +174,28 @@ export default function RepairsTab() {
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-amber-100">
                     <div className="flex items-center gap-2 mb-2">
                         <div className="p-2 bg-amber-50 rounded-lg text-amber-500"><AlertCircle size={18} /></div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Pending</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Ausstehend</span>
                     </div>
                     <p className="text-3xl font-black text-amber-600">{kpis.pendingCount}</p>
                 </div>
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-blue-100">
                     <div className="flex items-center gap-2 mb-2">
                         <div className="p-2 bg-blue-50 rounded-lg text-blue-500"><Hash size={18} /></div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Total Jobs</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Gesamtaufträge</span>
                     </div>
                     <p className="text-3xl font-black text-blue-600">{kpis.totalJobs}</p>
                 </div>
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-emerald-100">
                     <div className="flex items-center gap-2 mb-2">
                         <div className="p-2 bg-emerald-50 rounded-lg text-emerald-500"><CheckCircle2 size={18} /></div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Completed</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Abgeschlossen</span>
                     </div>
                     <p className="text-3xl font-black text-emerald-600">{kpis.completedCount}</p>
                 </div>
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-violet-100">
                     <div className="flex items-center gap-2 mb-2">
                         <div className="p-2 bg-violet-50 rounded-lg text-violet-500"><DollarSign size={18} /></div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Revenue</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Umsatz</span>
                     </div>
                     <p className="text-2xl font-black text-violet-600">{priceTag(repairRevenueTotal)}</p>
                 </div>
@@ -208,7 +208,7 @@ export default function RepairsTab() {
                     <input
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
-                        placeholder="Search by Invoice, Ref ID, Customer, Device, Phone..."
+                        placeholder="Reparaturen suchen..."
                         className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     />
                 </div>
@@ -222,7 +222,7 @@ export default function RepairsTab() {
                                 : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                                 }`}
                         >
-                            {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+                            {s === 'all' ? 'Alle' : s === 'pending' ? 'Ausstehend' : 'Abgeschlossen'}
                         </button>
                     ))}
                 </div>
@@ -233,8 +233,8 @@ export default function RepairsTab() {
                 {filteredJobs.length === 0 ? (
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-12 text-center">
                         <Wrench size={48} className="mx-auto text-slate-300 mb-3" />
-                        <p className="text-slate-400 font-medium">No repair jobs found.</p>
-                        <p className="text-slate-300 text-xs mt-1">Jobs will appear here when created from the Salesman Dashboard.</p>
+                        <p className="text-slate-400 font-medium">Keine Reparaturaufträge gefunden.</p>
+                        <p className="text-slate-300 text-xs mt-1">Aufträge erscheinen hier, wenn sie im Salesman-Dashboard erstellt werden.</p>
                     </div>
                 ) : (
                     filteredJobs.map(job => {
@@ -266,7 +266,7 @@ export default function RepairsTab() {
                                                     {sc.icon} {sc.label}
                                                 </span>
                                                 {isOverdue && (
-                                                    <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-[10px] font-bold uppercase">OVERDUE</span>
+                                                    <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-[10px] font-bold uppercase">ÜBERFÄLLIG</span>
                                                 )}
                                             </div>
 
@@ -287,12 +287,12 @@ export default function RepairsTab() {
 
                                             <div className="mt-3">
                                                 <p className="text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
-                                                    <strong>Issue:</strong> {job.problem || job.issueType || '-'}
+                                                    <strong>Problem:</strong> {job.problem || job.issueType || '-'}
                                                 </p>
 
                                                 {job.partsUsed && job.partsUsed.length > 0 && (
                                                     <div className="mt-2 bg-blue-50/50 px-3 py-2 rounded-lg border border-blue-100">
-                                                        <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1">Parts Added:</p>
+                                                        <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1">Hinzugefügte Teile:</p>
                                                         <div className="flex flex-wrap gap-2">
                                                             {job.partsUsed.map((p, i) => (
                                                                 <span key={i} className="text-xs bg-white border border-blue-100 px-2 py-0.5 rounded text-slate-600">
@@ -305,26 +305,26 @@ export default function RepairsTab() {
                                             </div>
 
                                             <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-50 text-[10px]">
-                                                <span className="text-slate-400">Created: {createdDate}</span>
+                                                <span className="text-slate-400">Erstellt: {createdDate}</span>
                                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-md border font-bold ${isOverdue
                                                     ? 'bg-rose-50 text-rose-700 border-rose-200'
                                                     : job.status === 'pending'
                                                         ? 'bg-amber-50 text-amber-700 border-amber-200'
                                                         : 'bg-slate-50 text-slate-500 border-slate-200'
                                                     }`}>
-                                                    Due: {deliveryDate}
+                                                    Fällig: {deliveryDate}
                                                 </span>
                                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-md border font-bold ${job.status === 'pending'
                                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                     : 'bg-slate-50 text-slate-500 border-slate-200'
                                                     }`}>
-                                                    Est: {priceTag(job.estimatedCost)}
+                                                    Geschätzt: {priceTag(job.estimatedCost)}
                                                 </span>
                                                 {job.status === 'completed' && (
                                                     <>
-                                                        <span className="text-slate-600">Gross: {priceTag(billedAmount)}</span>
-                                                        <span className="text-slate-600">Parts Cost: <span className="text-rose-500 font-medium">{priceTag(partsCost)}</span></span>
-                                                        <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">Net Profit: {priceTag(netProfit)}</span>
+                                                        <span className="text-slate-600">Brutto: {priceTag(billedAmount)}</span>
+                                                        <span className="text-slate-600">Teilekosten: <span className="text-rose-500 font-medium">{priceTag(partsCost)}</span></span>
+                                                        <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">Nettogewinn: {priceTag(netProfit)}</span>
                                                     </>
                                                 )}
                                             </div>
@@ -337,14 +337,14 @@ export default function RepairsTab() {
                                                     onClick={() => handleInitiateComplete(job)}
                                                     className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 transition-colors"
                                                 >
-                                                    <CheckCircle2 size={12} /> Complete
+                                                    <CheckCircle2 size={12} /> Abschließen
                                                 </button>
                                             )}
                                             <button
                                                 onClick={() => handleDelete(job)}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-500 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
                                             >
-                                                <Trash2 size={12} /> Delete
+                                                <Trash2 size={12} /> Löschen
                                             </button>
                                         </div>
                                     </div>
@@ -357,17 +357,17 @@ export default function RepairsTab() {
 
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
                 <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-black text-slate-800">Repair Transactions</h3>
-                    <span className="text-[10px] font-bold text-slate-500">{repairTransactions.length} entries</span>
+                    <h3 className="text-sm font-black text-slate-800">Reparaturtransaktionen</h3>
+                    <span className="text-[10px] font-bold text-slate-500">{repairTransactions.length} Einträge</span>
                 </div>
                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                     {repairTransactions.length === 0 ? (
-                        <p className="text-xs text-slate-400">No repair transactions in selected range.</p>
+                        <p className="text-xs text-slate-400">Keine Reparaturtransaktionen im gewählten Zeitraum.</p>
                     ) : repairTransactions.map((txn) => (
                         <div key={txn.id} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 flex items-center justify-between gap-2">
                             <div className="min-w-0">
-                                <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Repair Service'}</p>
-                                <p className="text-[11px] text-slate-500 truncate">{txn.date || '-'} {txn.time || ''} | {txn.paymentMethod || 'Cash'}</p>
+                                <p className="text-xs font-bold text-slate-700 truncate">{txn.desc || 'Reparaturservice'}</p>
+                                <p className="text-[11px] text-slate-500 truncate">{txn.date || '-'} {txn.time || ''} | {txn.paymentMethod || 'Bar'}</p>
                             </div>
                             <p className="text-sm font-black text-emerald-600">{priceTag(txn.amount || 0)}</p>
                         </div>

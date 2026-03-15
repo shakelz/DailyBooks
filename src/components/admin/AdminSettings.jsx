@@ -94,7 +94,7 @@ export default function AdminSettings() {
                 return;
             }
             if (pin.length !== 4) {
-                setSalesmanPinError('PIN must be exactly 4 digits.');
+                setSalesmanPinError('Die PIN muss genau 4 Ziffern haben.');
                 return;
             }
 
@@ -102,10 +102,10 @@ export default function AdminSettings() {
             try {
                 const result = await checkSalesmanPinAvailability(pin);
                 if (cancelled) return;
-                setSalesmanPinError(result?.available ? '' : (result?.message || 'PIN already in use.'));
+                setSalesmanPinError(result?.available ? '' : (result?.message || 'PIN wird bereits verwendet.'));
             } catch {
                 if (!cancelled) {
-                    setSalesmanPinError('Unable to verify PIN right now.');
+                    setSalesmanPinError('PIN kann derzeit nicht geprüft werden.');
                 }
             } finally {
                 if (!cancelled) setCheckingSalesmanPin(false);
@@ -123,21 +123,21 @@ export default function AdminSettings() {
     const handlePasswordUpdate = async (e) => {
         e.preventDefault();
         if (newPass.length < 4) {
-            setPassMsg('❌ Password too short!');
+            setPassMsg('❌ Passwort ist zu kurz.');
             return;
         }
         if (newPass !== confirmPass) {
-            setPassMsg('❌ Passwords do not match!');
+            setPassMsg('❌ Passwörter stimmen nicht überein.');
             return;
         }
         try {
             await updateAdminPassword(newPass);
-            setPassMsg('Password updated successfully.');
+            setPassMsg('Passwort erfolgreich aktualisiert.');
             setNewPass('');
             setConfirmPass('');
             setTimeout(() => setPassMsg(''), 2000);
         } catch (error) {
-            setPassMsg(error?.message || 'Failed to update password.');
+            setPassMsg(error?.message || 'Passwort konnte nicht aktualisiert werden.');
         }
     };
 
@@ -166,12 +166,12 @@ export default function AdminSettings() {
     const handlePayMonthlySalaries = async () => {
         const monthlyStaff = salesmen.filter(s => (s.salaryType || s.salary_type) === 'monthly' && Number(s.monthlySalary || s.monthly_salary) > 0);
         if (monthlyStaff.length === 0) {
-            alert('No salesmen found with a monthly salary configured.');
+            alert('Keine Mitarbeiter mit hinterlegtem Monatsgehalt gefunden.');
             return;
         }
 
         const totalToPay = monthlyStaff.reduce((sum, s) => sum + Number(s.monthlySalary || s.monthly_salary), 0);
-        if (!window.confirm(`Are you sure you want to pay out ${monthlyStaff.length} monthly salaries totaling €${totalToPay.toFixed(2)}?`)) {
+        if (!window.confirm(`Monatsgehälter für ${monthlyStaff.length} Mitarbeiter mit insgesamt €${totalToPay.toFixed(2)} auszahlen?`)) {
             return;
         }
 
@@ -208,16 +208,16 @@ export default function AdminSettings() {
             }
         }
 
-        alert(`Monthly Salaries process completed.\nSuccess: ${successCount}\nFailed: ${failCount}`);
+        alert(`Monatsgehälter abgeschlossen.\nErfolgreich: ${successCount}\nFehlgeschlagen: ${failCount}`);
     };
 
     const handleAddSalesman = async (e) => {
         e.preventDefault();
         if (!salesmanName.trim() || salesmanPin.length !== 4) {
-            setSalesmanError('Name and 4-digit PIN required.');
+            setSalesmanError('Name und 4-stellige PIN sind erforderlich.');
             return;
         }
-        const pinCheckTemporarilyUnavailable = salesmanPinError === 'Unable to verify PIN right now.';
+        const pinCheckTemporarilyUnavailable = salesmanPinError === 'PIN kann derzeit nicht geprüft werden.';
         if (salesmanPinError && !pinCheckTemporarilyUnavailable) {
             setSalesmanError(salesmanPinError);
             return;
@@ -259,7 +259,7 @@ export default function AdminSettings() {
             setSalesmanError('');
             setSalesmanPinError('');
         } catch (error) {
-            setSalesmanError(error?.message || 'Failed to add salesman.');
+            setSalesmanError(error?.message || 'Mitarbeiter konnte nicht hinzugefügt werden.');
         }
     };
 
@@ -282,7 +282,7 @@ export default function AdminSettings() {
         e.preventDefault();
         const current = salesmen.find((s) => s.id === editingId);
         if (!current) {
-            alert('Salesman not found.');
+            alert('Mitarbeiter nicht gefunden.');
             return;
         }
 
@@ -300,7 +300,7 @@ export default function AdminSettings() {
 
         if (nextName !== String(current.name || '')) {
             if (!nextName) {
-                alert('Name cannot be empty.');
+                alert('Name darf nicht leer sein.');
                 return;
             }
             payload.name = nextName;
@@ -308,11 +308,11 @@ export default function AdminSettings() {
 
         if (nextPin && nextPin !== String(current.pin || '')) {
             if (nextPin.length !== 4) {
-                alert('PIN must be 4 digits.');
+                alert('PIN muss 4 Ziffern haben.');
                 return;
             }
             if (salesmen.some(s => s.pin === nextPin && s.id !== editingId)) {
-                alert('PIN already in use!');
+                alert('PIN wird bereits verwendet.');
                 return;
             }
             payload.pin = nextPin;
@@ -361,7 +361,7 @@ export default function AdminSettings() {
             await updateSalesman(editingId, payload);
             setEditingId(null);
         } catch (error) {
-            alert(error?.message || 'Failed to update salesman.');
+            alert(error?.message || 'Mitarbeiter konnte nicht aktualisiert werden.');
         }
     };
 
@@ -372,15 +372,15 @@ export default function AdminSettings() {
         setCreatedManager(null);
 
         if (!shopName.trim()) {
-            setShopError('Shop name is required.');
+            setShopError('Shop-Name ist erforderlich.');
             return;
         }
         if (!shopOwnerEmail.trim()) {
-            setShopError('Owner email is required.');
+            setShopError('Inhaber-E-Mail ist erforderlich.');
             return;
         }
         if (!shopOwnerPassword.trim()) {
-            setShopError('Owner password is required.');
+            setShopError('Inhaber-Passwort ist erforderlich.');
             return;
         }
 
@@ -407,7 +407,7 @@ export default function AdminSettings() {
             }
             await refreshShops(result?.shop?.id || activeShopId);
         } catch (error) {
-            setShopError(error?.message || 'Failed to create shop.');
+            setShopError(error?.message || 'Shop konnte nicht erstellt werden.');
         } finally {
             setIsCreatingShop(false);
         }
@@ -450,7 +450,7 @@ export default function AdminSettings() {
     const handleSaveShop = async () => {
         if (!editingShopId) return;
         if (!editingShopName.trim()) {
-            setShopError('Shop name is required.');
+            setShopError('Shop-Name ist erforderlich.');
             return;
         }
 
@@ -471,11 +471,11 @@ export default function AdminSettings() {
             const updated = await updateShop(editingShopId, {
                 ...payload
             });
-            setShopMessage(`Shop "${updated?.name || editingShopName}" updated successfully.`);
+            setShopMessage(`Shop "${updated?.name || editingShopName}" wurde erfolgreich aktualisiert.`);
             cancelShopEdit();
             await refreshShops(updated?.id || activeShopId);
         } catch (error) {
-            setShopError(error?.message || 'Failed to update shop.');
+            setShopError(error?.message || 'Shop konnte nicht aktualisiert werden.');
         } finally {
             setIsSavingShop(false);
         }
@@ -497,10 +497,10 @@ export default function AdminSettings() {
             if (editingShopId === shop.id) {
                 cancelShopEdit();
             }
-            setShopMessage(`Shop "${shop.name}" deleted successfully.`);
+            setShopMessage(`Shop "${shop.name}" wurde erfolgreich gelöscht.`);
             await refreshShops();
         } catch (error) {
-            setShopError(error?.message || 'Failed to delete shop.');
+            setShopError(error?.message || 'Shop konnte nicht gelöscht werden.');
         } finally {
             setDeletingShopId('');
         }
@@ -514,11 +514,11 @@ export default function AdminSettings() {
     };
 
     const handleForceRefreshAppData = async () => {
-        const confirmed = window.confirm('This will clear local DailyBooks cache and reload latest data from database. Continue?');
+        const confirmed = window.confirm('Dadurch wird der lokale DailyBooks-Cache gelöscht und die neuesten Daten aus der Datenbank neu geladen. Fortfahren?');
         if (!confirmed) return;
 
         setIsRefreshingAppData(true);
-        setAppRefreshMsg('Clearing local cache...');
+        setAppRefreshMsg('Lokaler Cache wird geleert...');
 
         try {
             Object.keys(localStorage || {}).forEach((key) => {
@@ -547,22 +547,22 @@ export default function AdminSettings() {
                 await Promise.all(registrations.map((registration) => registration.unregister()));
             }
 
-            setAppRefreshMsg('Reloading app with fresh data...');
+            setAppRefreshMsg('App wird mit aktuellen Daten neu geladen...');
             setTimeout(() => {
                 window.location.reload();
             }, 300);
         } catch (error) {
-            setAppRefreshMsg(error?.message || 'Failed to refresh app data. Please try again.');
+            setAppRefreshMsg(error?.message || 'App-Daten konnten nicht aktualisiert werden. Bitte erneut versuchen.');
             setIsRefreshingAppData(false);
         }
     };
 
     const handleClearLocalCacheOnly = async () => {
-        const confirmed = window.confirm('Clear local DailyBooks cache on this device?');
+        const confirmed = window.confirm('Lokalen DailyBooks-Cache auf diesem Gerät löschen?');
         if (!confirmed) return;
 
         setIsRefreshingAppData(true);
-        setAppRefreshMsg('Clearing local cache...');
+        setAppRefreshMsg('Lokaler Cache wird geleert...');
         try {
             Object.keys(localStorage || {}).forEach((key) => {
                 if (String(key).startsWith('dailybooks_')) {
@@ -577,9 +577,9 @@ export default function AdminSettings() {
             if (typeof clearLocalInventoryCache === 'function') {
                 clearLocalInventoryCache();
             }
-            setAppRefreshMsg('Local cache cleared.');
+            setAppRefreshMsg('Lokaler Cache wurde geleert.');
         } catch (error) {
-            setAppRefreshMsg(error?.message || 'Failed to clear local cache.');
+            setAppRefreshMsg(error?.message || 'Lokaler Cache konnte nicht geleert werden.');
         } finally {
             setIsRefreshingAppData(false);
         }
@@ -588,8 +588,8 @@ export default function AdminSettings() {
     return (
         <div className="space-y-6 max-w-4xl">
             <div>
-                <h1 className="text-2xl font-bold text-slate-800">System Settings</h1>
-                <p className="text-slate-500 text-sm">Manage security, users, and shop-level access.</p>
+                <h1 className="text-2xl font-bold text-slate-800">Einstellungen</h1>
+                <p className="text-slate-500 text-sm">Sicherheit, Benutzer und Shop-Zugriffe verwalten.</p>
             </div>
 
             {/* ── Admin: Manage Shops ── */}
@@ -597,22 +597,22 @@ export default function AdminSettings() {
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                     <div className="flex items-center justify-between gap-4">
                         <div>
-                            <h2 className="text-lg font-bold text-slate-800">Bill Settings</h2>
+                            <h2 className="text-lg font-bold text-slate-800">Shop-Einstellungen</h2>
                             <p className="text-xs text-slate-400">
-                                Shop: {activeShop.name} ({activeShop.address || 'No address'})
+                                Shop: {activeShop.name} ({activeShop.address || 'Keine Adresse'})
                             </p>
                         </div>
                         <button
                             type="button"
                             onClick={() => setBillShowTax(!billShowTax)}
                             className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${billShowTax ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                            title="Enable tax lines on bills"
+                            title="Steuerzeilen auf Belegen aktivieren"
                         >
                             <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${billShowTax ? 'translate-x-6' : 'translate-x-0'}`} />
                         </button>
                     </div>
                     <p className="text-sm text-slate-600 mt-3">
-                        Tax lines on bills are currently <span className="font-bold">{billShowTax ? 'Enabled' : 'Disabled'}</span>.
+                        Steuerzeilen auf Belegen sind derzeit <span className="font-bold">{billShowTax ? 'aktiviert' : 'deaktiviert'}</span>.
                     </p>
                 </div>
             )}
@@ -624,38 +624,38 @@ export default function AdminSettings() {
                             <Store size={20} />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-slate-800">Manage Shops</h2>
-                            <p className="text-xs text-slate-400">Create and manage tenant shops.</p>
+                            <h2 className="text-lg font-bold text-slate-800">Shops verwalten</h2>
+                            <p className="text-xs text-slate-400">Shops erstellen und verwalten.</p>
                         </div>
                     </div>
 
                     <form onSubmit={handleCreateShop} className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
                         <div className="md:col-span-1">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Shop Name</label>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Shop-Name</label>
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
                                 <Store size={14} className="text-slate-400" />
                                 <input
                                     value={shopName}
                                     onChange={(e) => setShopName(e.target.value)}
                                     className="w-full bg-transparent outline-none text-sm font-medium"
-                                    placeholder="e.g. DailyBooks Berlin"
+                                    placeholder="z. B. DailyBooks Berlin"
                                 />
                             </div>
                         </div>
                         <div className="md:col-span-1">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Address</label>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Adresse</label>
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
                                 <MapPin size={14} className="text-slate-400" />
                                 <input
                                     value={shopAddress}
                                     onChange={(e) => setShopAddress(e.target.value)}
                                     className="w-full bg-transparent outline-none text-sm font-medium"
-                                    placeholder="Street, postal code, city"
+                                    placeholder="Straße, Postleitzahl, Stadt"
                                 />
                             </div>
                         </div>
                         <div className="md:col-span-1">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Telephone</label>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Telefon</label>
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
                                 <Phone size={14} className="text-slate-400" />
                                 <input
@@ -668,7 +668,7 @@ export default function AdminSettings() {
                             </div>
                         </div>
                         <div className="md:col-span-1">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Owner Email</label>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Inhaber-E-Mail</label>
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
                                 <Mail size={14} className="text-slate-400" />
                                 <input
@@ -676,12 +676,12 @@ export default function AdminSettings() {
                                     value={shopOwnerEmail}
                                     onChange={(e) => setShopOwnerEmail(e.target.value)}
                                     className="w-full bg-transparent outline-none text-sm font-medium"
-                                    placeholder="owner@shop.com"
+                                    placeholder="inhaber@shop.de"
                                 />
                             </div>
                         </div>
                         <div className="md:col-span-1">
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Owner Password</label>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Inhaber-Passwort</label>
                             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
                                 <Key size={14} className="text-slate-400" />
                                 <input
@@ -689,7 +689,7 @@ export default function AdminSettings() {
                                     value={shopOwnerPassword}
                                     onChange={(e) => setShopOwnerPassword(e.target.value)}
                                     className="w-full bg-transparent outline-none text-sm font-medium"
-                                    placeholder="Set owner password"
+                                    placeholder="Inhaber-Passwort festlegen"
                                 />
                             </div>
                         </div>
@@ -699,7 +699,7 @@ export default function AdminSettings() {
                             className="md:col-span-1 px-4 py-2.5 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700 active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
                         >
                             <UserPlus size={16} />
-                            {isCreatingShop ? 'Creating...' : 'Create Shop'}
+                            {isCreatingShop ? 'Wird erstellt...' : 'Shop erstellen'}
                         </button>
                     </form>
 
@@ -708,27 +708,27 @@ export default function AdminSettings() {
 
                     {createdManager && (
                         <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50">
-                            <p className="text-xs font-black text-emerald-700 uppercase tracking-wider mb-2">Admin Credentials</p>
+                            <p className="text-xs font-black text-emerald-700 uppercase tracking-wider mb-2">Admin-Zugangsdaten</p>
                             <div className={`grid grid-cols-1 gap-3 text-sm ${createdManager.pin ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
                                 <div><span className="text-slate-500">Email:</span> <span className="font-bold text-slate-800">{createdManager.email}</span></div>
                                 {createdManager.pin && <div><span className="text-slate-500">PIN:</span> <span className="font-bold text-slate-800">{createdManager.pin}</span></div>}
-                                <div><span className="text-slate-500">Password:</span> <span className="font-bold text-slate-800">{createdManager.password}</span></div>
+                                <div><span className="text-slate-500">Passwort:</span> <span className="font-bold text-slate-800">{createdManager.password}</span></div>
                             </div>
                         </div>
                     )}
 
                     <div className="pt-2">
-                        <h3 className="text-sm font-bold text-slate-700 mb-3">Registered Shops ({shops.length})</h3>
+                        <h3 className="text-sm font-bold text-slate-700 mb-3">Registrierte Shops ({shops.length})</h3>
                         <div className="space-y-2">
                             {shops.length === 0 ? (
-                                <p className="text-sm text-slate-400">No shops found.</p>
+                                <p className="text-sm text-slate-400">Keine Shops gefunden.</p>
                             ) : (
                                 shops.map((shop) => (
                                     <div key={shop.id} className="px-3 py-2 rounded-xl border border-slate-100 bg-slate-50 space-y-3">
                                         {editingShopId === shop.id ? (
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
                                                 <div>
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Shop Name</label>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Shop-Name</label>
                                                     <input
                                                         value={editingShopName}
                                                         onChange={(e) => setEditingShopName(e.target.value)}
@@ -736,7 +736,7 @@ export default function AdminSettings() {
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Address</label>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Adresse</label>
                                                     <input
                                                         value={editingShopAddress}
                                                         onChange={(e) => setEditingShopAddress(e.target.value)}
@@ -744,7 +744,7 @@ export default function AdminSettings() {
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Telephone</label>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Telefon</label>
                                                     <input
                                                         type="tel"
                                                         value={editingShopTelephone}
@@ -754,30 +754,30 @@ export default function AdminSettings() {
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Owner Email</label>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Inhaber-E-Mail</label>
                                                     <input
                                                         type="email"
                                                         value={editingShopOwnerEmail}
                                                         onChange={(e) => setEditingShopOwnerEmail(e.target.value)}
                                                         className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
-                                                        placeholder="owner@shop.com"
+                                                        placeholder="inhaber@shop.de"
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Owner Password</label>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Inhaber-Passwort</label>
                                                     <div className="relative">
                                                         <input
                                                             type={showEditingShopOwnerPassword ? 'text' : 'password'}
                                                             value={editingShopOwnerPassword}
                                                             onChange={(e) => setEditingShopOwnerPassword(e.target.value)}
                                                             className="w-full px-3 py-2 pr-9 rounded-lg border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-violet-500/20"
-                                                            placeholder="Leave blank to keep current"
+                                                            placeholder="Leer lassen, um das aktuelle zu behalten"
                                                         />
                                                         <button
                                                             type="button"
                                                             onClick={() => setShowEditingShopOwnerPassword((prev) => !prev)}
                                                             className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 rounded"
-                                                            title={showEditingShopOwnerPassword ? 'Hide Password' : 'Show Password'}
+                                                            title={showEditingShopOwnerPassword ? 'Passwort ausblenden' : 'Passwort anzeigen'}
                                                         >
                                                             {showEditingShopOwnerPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                                                         </button>
@@ -791,7 +791,7 @@ export default function AdminSettings() {
                                                         className="flex-1 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-1"
                                                     >
                                                         <Save size={14} />
-                                                        {isSavingShop ? 'Saving...' : 'Update'}
+                                                        {isSavingShop ? 'Wird gespeichert...' : 'Aktualisieren'}
                                                     </button>
                                                     <button
                                                         type="button"
@@ -799,7 +799,7 @@ export default function AdminSettings() {
                                                         className="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-100 flex items-center gap-1"
                                                     >
                                                         <X size={14} />
-                                                        Cancel
+                                                        Abbrechen
                                                     </button>
                                                 </div>
                                             </div>
@@ -807,7 +807,7 @@ export default function AdminSettings() {
                                             <div className="flex flex-wrap items-center justify-between gap-3">
                                                 <div>
                                                     <p className="text-sm font-bold text-slate-800">{shop.name}</p>
-                                                    <p className="text-xs text-slate-500">{shop.address || 'Address not set'}</p>
+                                                    <p className="text-xs text-slate-500">{shop.address || 'Adresse nicht gesetzt'}</p>
                                                     <p className="text-xs text-slate-500">{
                                                         shop.telephone
                                                         || shop.phone
@@ -818,25 +818,25 @@ export default function AdminSettings() {
                                                         || shop.mobile
                                                         || shop.telefon
                                                         || shop.tel
-                                                        || 'Telephone not set'
+                                                        || 'Telefon nicht gesetzt'
                                                     }</p>
                                                 </div>
                                                 <div className="flex items-center gap-3">
                                                     <div className="text-right">
-                                                        <div className="text-xs text-slate-500 font-mono">{shop.owner_email || 'No owner email'}</div>
+                                                        <div className="text-xs text-slate-500 font-mono">{shop.owner_email || 'Keine Inhaber-E-Mail'}</div>
                                                         <div className="text-xs text-slate-500 font-mono flex items-center justify-end gap-1 mt-1">
-                                                            <span>Password:</span>
+                                                            <span>Passwort:</span>
                                                             <span className="font-semibold text-slate-700">
                                                                 {shop.owner_password
                                                                     ? (visibleShopPasswords[shop.id] ? shop.owner_password : '••••••••')
-                                                                    : 'N/A'}
+                                                                    : 'k. A.'}
                                                             </span>
                                                             {shop.owner_password && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => toggleShopPassword(shop.id)}
                                                                     className="p-1 rounded hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-colors"
-                                                                    title={visibleShopPasswords[shop.id] ? 'Hide Password' : 'Show Password'}
+                                                                    title={visibleShopPasswords[shop.id] ? 'Passwort ausblenden' : 'Passwort anzeigen'}
                                                                 >
                                                                     {visibleShopPasswords[shop.id] ? <EyeOff size={13} /> : <Eye size={13} />}
                                                                 </button>
@@ -847,7 +847,7 @@ export default function AdminSettings() {
                                                         type="button"
                                                         onClick={() => startShopEdit(shop)}
                                                         className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                        title="Edit Shop"
+                                                        title="Shop bearbeiten"
                                                     >
                                                         <Edit2 size={16} />
                                                     </button>
@@ -856,7 +856,7 @@ export default function AdminSettings() {
                                                         onClick={() => handleDeleteShop(shop)}
                                                         disabled={deletingShopId === shop.id}
                                                         className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-60"
-                                                        title="Delete Shop"
+                                                        title="Shop löschen"
                                                     >
                                                         <Trash2 size={16} />
                                                     </button>
@@ -879,21 +879,21 @@ export default function AdminSettings() {
                         <Shield size={20} />
                     </div>
                     <div>
-                        <h2 className="text-lg font-bold text-slate-800">Admin Security</h2>
-                        <p className="text-xs text-slate-400">Update your login credentials</p>
+                        <h2 className="text-lg font-bold text-slate-800">Admin-Sicherheit</h2>
+                        <p className="text-xs text-slate-400">Anmeldedaten aktualisieren</p>
                     </div>
                 </div>
 
                 <form onSubmit={handlePasswordUpdate} className="space-y-4 max-w-md">
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">New Password</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Neues Passwort</label>
                         <div className="relative">
                             <input
                                 type={showPass ? 'text' : 'password'}
                                 value={newPass}
                                 onChange={(e) => setNewPass(e.target.value)}
                                 className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                placeholder="Enter new password"
+                                placeholder="Neues Passwort eingeben"
                             />
                             <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-500">
                                 {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -901,18 +901,18 @@ export default function AdminSettings() {
                         </div>
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Confirm Password</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Passwort bestätigen</label>
                         <input
                             type="password"
                             value={confirmPass}
                             onChange={(e) => setConfirmPass(e.target.value)}
                             className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                            placeholder="Confirm new password"
+                            placeholder="Neues Passwort bestätigen"
                         />
                     </div>
                     {passMsg && <p className={`text-sm font-medium ${passMsg.toLowerCase().includes('successfully') ? 'text-emerald-500' : 'text-red-500'}`}>{passMsg}</p>}
                     <button type="submit" className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 active:scale-95 transition-all">
-                        Update Password
+                        Passwort aktualisieren
                     </button>
                 </form>
             </div>
@@ -926,8 +926,8 @@ export default function AdminSettings() {
                             <Users size={20} />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-slate-800">Salesman Accounts</h2>
-                            <p className="text-xs text-slate-400">Manage access for your team</p>
+                            <h2 className="text-lg font-bold text-slate-800">Mitarbeiterkonten</h2>
+                            <p className="text-xs text-slate-400">Zugriffe für dein Team verwalten</p>
                         </div>
                     </div>
                     <button
@@ -935,14 +935,14 @@ export default function AdminSettings() {
                         className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors font-medium text-sm"
                     >
                         {showAddSalesman ? <X size={16} /> : <Plus size={16} />}
-                        {showAddSalesman ? 'Cancel' : 'Add Salesman'}
+                        {showAddSalesman ? 'Abbrechen' : 'Mitarbeiter hinzufügen'}
                     </button>
                 </div>
 
                 {/* Add Salesman Form */}
                 {showAddSalesman && !editingId && (
                     <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200 animate-in fade-in slide-in-from-top-2">
-                        <h3 className="text-sm font-bold text-slate-700 mb-3">Add New Salesman</h3>
+                        <h3 className="text-sm font-bold text-slate-700 mb-3">Mitarbeiter hinzufügen</h3>
                         <form onSubmit={handleAddSalesman} className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
                             <div className="md:col-span-2">
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Name</label>
@@ -950,11 +950,11 @@ export default function AdminSettings() {
                                     value={salesmanName}
                                     onChange={(e) => setSalesmanName(e.target.value)}
                                     className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                                    placeholder="e.g. Ali"
+                                    placeholder="z. B. Ali"
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">4-Digit PIN</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">4-stellige PIN</label>
                                 <input
                                     value={salesmanPin}
                                     onChange={(e) => {
@@ -965,12 +965,12 @@ export default function AdminSettings() {
                                     placeholder="0000"
                                 />
                                 {checkingSalesmanPin && salesmanPin.length === 4 && !salesmanPinError && (
-                                    <p className="text-[10px] text-slate-400 mt-1">Checking PIN...</p>
+                                    <p className="text-[10px] text-slate-400 mt-1">PIN wird geprüft...</p>
                                 )}
                                 {salesmanPinError && <p className="text-[10px] text-rose-500 mt-1">{salesmanPinError}</p>}
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Salesman No.</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mitarbeiternr.</label>
                                 <input
                                     type="number"
                                     min="1"
@@ -982,7 +982,7 @@ export default function AdminSettings() {
                             </div>
                             <div className="md:col-span-2">
                                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                                    Salary Type
+                                    Gehaltstyp
                                 </label>
                                 
                                 {/* Toggle buttons */}
@@ -996,7 +996,7 @@ export default function AdminSettings() {
                                             : 'bg-white text-slate-600 hover:bg-slate-50'
                                         }`}
                                     >
-                                        €/Hour
+                                        Pro Stunde
                                     </button>
                                     <button
                                         type="button"
@@ -1007,7 +1007,7 @@ export default function AdminSettings() {
                                             : 'bg-white text-slate-600 hover:bg-slate-50'
                                         }`}
                                     >
-                                        €/Month
+                                        Pro Monat
                                     </button>
                                 </div>
 
@@ -1031,7 +1031,7 @@ export default function AdminSettings() {
                                 )}
                             </div>
                             <div className="md:col-span-2 rounded-lg border border-slate-200 bg-white p-2 space-y-2">
-                                <p className="text-[10px] font-bold text-slate-500 uppercase">Photo (Upload or URL)</p>
+                                <p className="text-[10px] font-bold text-slate-500 uppercase">Foto (Upload oder URL)</p>
                                 <input
                                     value={salesmanPhoto}
                                     onChange={(e) => setSalesmanPhoto(e.target.value)}
@@ -1040,7 +1040,7 @@ export default function AdminSettings() {
                                 />
                                 <div className="flex items-center justify-between gap-2">
                                     <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-600 cursor-pointer">
-                                        <Upload size={12} /> Upload
+                                        <Upload size={12} /> Hochladen
                                         <input
                                             type="file"
                                             accept="image/*"
@@ -1052,14 +1052,14 @@ export default function AdminSettings() {
                                         />
                                     </label>
                                     <span className="text-[10px] text-slate-500 truncate">
-                                        {salesmanPhotoFile ? salesmanPhotoFile.name : 'No file selected'}
+                                        {salesmanPhotoFile ? salesmanPhotoFile.name : 'Keine Datei ausgewählt'}
                                     </span>
                                 </div>
                             </div>
                             <div className="md:col-span-2 rounded-lg border border-slate-200 bg-white p-2 space-y-2">
-                                <p className="text-[10px] font-bold text-slate-500 uppercase">Special Authorities</p>
+                                <p className="text-[10px] font-bold text-slate-500 uppercase">Besondere Berechtigungen</p>
                                 <label className="flex items-center justify-between gap-2 text-xs text-slate-600">
-                                    <span>Edit transaction history</span>
+                                    <span>Transaktionsverlauf bearbeiten</span>
                                     <input
                                         type="checkbox"
                                         checked={salesmanCanEditTransactions}
@@ -1068,7 +1068,7 @@ export default function AdminSettings() {
                                     />
                                 </label>
                                 <label className="flex items-center justify-between gap-2 text-xs text-slate-600">
-                                    <span>Bulk edit option</span>
+                                    <span>Massenbearbeitung</span>
                                     <input
                                         type="checkbox"
                                         checked={salesmanCanBulkEdit}
@@ -1078,7 +1078,7 @@ export default function AdminSettings() {
                                 </label>
                             </div>
                             <button type="submit" className="md:col-span-6 w-full md:w-auto px-6 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors">
-                                Add User
+                                Benutzer hinzufügen
                             </button>
                         </form>
                         {salesmanError && <p className="text-red-500 text-xs mt-2 font-medium">{salesmanError}</p>}
@@ -1089,9 +1089,9 @@ export default function AdminSettings() {
                 {editingId && (
                     <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200 animate-in fade-in slide-in-from-top-2">
                         <div className="flex justify-between items-center mb-3">
-                            <h3 className="text-sm font-bold text-blue-700">Edit Salesman</h3>
+                            <h3 className="text-sm font-bold text-blue-700">Mitarbeiter bearbeiten</h3>
                             <button onClick={() => setEditingId(null)} className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1">
-                                <X size={12} /> Cancel
+                                <X size={12} /> Abbrechen
                             </button>
                         </div>
                         <form onSubmit={handleSaveEdit} className="grid grid-cols-1 md:grid-cols-6 gap-3">
@@ -1113,7 +1113,7 @@ export default function AdminSettings() {
                             </div>
                             <div className="md:col-span-2">
                                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                                    Salary Type
+                                    Gehaltstyp
                                 </label>
                                 
                                 {/* Toggle buttons */}
@@ -1127,7 +1127,7 @@ export default function AdminSettings() {
                                             : 'bg-white text-slate-600 hover:bg-slate-50'
                                         }`}
                                     >
-                                        €/Hour
+                                        Pro Stunde
                                     </button>
                                     <button
                                         type="button"
@@ -1138,7 +1138,7 @@ export default function AdminSettings() {
                                             : 'bg-white text-slate-600 hover:bg-slate-50'
                                         }`}
                                     >
-                                        €/Month
+                                        Pro Monat
                                     </button>
                                 </div>
 
@@ -1162,7 +1162,7 @@ export default function AdminSettings() {
                                 )}
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Salesman No.</label>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mitarbeiternr.</label>
                                 <input
                                     type="number"
                                     min="1"
@@ -1173,7 +1173,7 @@ export default function AdminSettings() {
                                 />
                             </div>
                             <div className="md:col-span-2 rounded-lg border border-blue-200 bg-white p-2 space-y-2">
-                                <p className="text-[10px] font-bold text-slate-500 uppercase">Photo (Upload or URL)</p>
+                                <p className="text-[10px] font-bold text-slate-500 uppercase">Foto (Upload oder URL)</p>
                                 <input
                                     value={editPhoto}
                                     onChange={(e) => setEditPhoto(e.target.value)}
@@ -1182,7 +1182,7 @@ export default function AdminSettings() {
                                 />
                                 <div className="flex items-center justify-between gap-2">
                                     <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-xs font-semibold text-blue-600 cursor-pointer">
-                                        <Upload size={12} /> Upload
+                                        <Upload size={12} /> Hochladen
                                         <input
                                             type="file"
                                             accept="image/*"
@@ -1194,14 +1194,14 @@ export default function AdminSettings() {
                                         />
                                     </label>
                                     <span className="text-[10px] text-slate-500 truncate">
-                                        {editPhotoFile ? editPhotoFile.name : 'No file selected'}
+                                        {editPhotoFile ? editPhotoFile.name : 'Keine Datei ausgewählt'}
                                     </span>
                                 </div>
                             </div>
                             <div className="md:col-span-2 rounded-lg border border-blue-200 bg-white p-2 space-y-2">
-                                <p className="text-[10px] font-bold text-slate-500 uppercase">Special Authorities</p>
+                                <p className="text-[10px] font-bold text-slate-500 uppercase">Besondere Berechtigungen</p>
                                 <label className="flex items-center justify-between gap-2 text-xs text-slate-600">
-                                    <span>Edit transaction history</span>
+                                    <span>Transaktionsverlauf bearbeiten</span>
                                     <input
                                         type="checkbox"
                                         checked={editCanEditTransactions}
@@ -1210,7 +1210,7 @@ export default function AdminSettings() {
                                     />
                                 </label>
                                 <label className="flex items-center justify-between gap-2 text-xs text-slate-600">
-                                    <span>Bulk edit option</span>
+                                    <span>Massenbearbeitung</span>
                                     <input
                                         type="checkbox"
                                         checked={editCanBulkEdit}
@@ -1221,7 +1221,7 @@ export default function AdminSettings() {
                             </div>
                             <div className="md:col-span-6">
                                 <button type="submit" className="w-full px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
-                                    <Save size={16} /> Update Salesman
+                                    <Save size={16} /> Mitarbeiter aktualisieren
                                 </button>
                             </div>
                         </form>
@@ -1231,7 +1231,7 @@ export default function AdminSettings() {
                 {/* Salesman List */}
                 <div className="space-y-3">
                     {salesmen.length === 0 ? (
-                        <p className="text-slate-400 text-sm text-center py-4">No active salesmen.</p>
+                        <p className="text-slate-400 text-sm text-center py-4">Keine aktiven Mitarbeiter.</p>
                     ) : (
                         salesmen.map((s) => (
                             <div key={s.id} className={`flex items-center justify-between p-4 rounded-xl border transition-colors group ${editingId === s.id ? 'bg-blue-50/50 border-blue-200' : 'bg-slate-50 border-slate-100 hover:border-emerald-200'}`}>
@@ -1252,13 +1252,13 @@ export default function AdminSettings() {
                                                     : 'bg-blue-100 text-blue-700'
                                             }`}>
                                                 {(s.salaryType || s.salary_type) === 'monthly' 
-                                                    ? `€${s.monthlySalary || s.monthly_salary}/mo` 
-                                                    : `€${s.hourlyRate}/hr`}
+                                                    ? `€${s.monthlySalary || s.monthly_salary}/Monat` 
+                                                    : `€${s.hourlyRate}/Std.`}
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
                                             <span className="flex items-center gap-1 font-mono"><Key size={12} /> PIN: {s.pin}</span>
-                                            <span className="flex items-center gap-1 font-mono text-blue-600"><Hash size={12} /> No: {s.salesmanNumber || '-'}</span>
+                                            <span className="flex items-center gap-1 font-mono text-blue-600"><Hash size={12} /> Nr.: {s.salesmanNumber || '-'}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1266,31 +1266,31 @@ export default function AdminSettings() {
                                     <button
                                         onClick={() => updateSalesman(s.id, { canEditTransactions: !s.canEditTransactions })}
                                         className={`px-2 py-1 rounded text-[10px] font-bold border transition-colors ${s.canEditTransactions ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}
-                                        title="Allow transaction history editing"
+                                        title="Bearbeitung des Transaktionsverlaufs erlauben"
                                     >
-                                        Edit Txn: {s.canEditTransactions ? 'On' : 'Off'}
+                                        Transaktionen: {s.canEditTransactions ? 'An' : 'Aus'}
                                     </button>
                                     <button
                                         onClick={() => updateSalesman(s.id, { canBulkEdit: !s.canBulkEdit })}
                                         className={`px-2 py-1 rounded text-[10px] font-bold border transition-colors ${s.canBulkEdit ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-500'}`}
-                                        title="Allow bulk edit option"
+                                        title="Massenbearbeitung erlauben"
                                     >
-                                        Bulk: {s.canBulkEdit ? 'On' : 'Off'}
+                                        Massenbearb.: {s.canBulkEdit ? 'An' : 'Aus'}
                                     </button>
                                     <button
                                         onClick={() => startEdit(s)}
                                         className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                        title="Edit"
+                                        title="Bearbeiten"
                                         disabled={editingId === s.id}
                                     >
                                         <Edit2 size={18} />
                                     </button>
                                     <button
                                         onClick={() => {
-                                            if (window.confirm(`Remove ${s.name}?`)) deleteSalesman(s.id);
+                                            if (window.confirm(`${s.name} entfernen?`)) deleteSalesman(s.id);
                                         }}
                                         className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                        title="Delete"
+                                        title="Löschen"
                                     >
                                         <Trash2 size={18} />
                                     </button>
@@ -1307,7 +1307,7 @@ export default function AdminSettings() {
                             onClick={handlePayMonthlySalaries}
                             className="px-6 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl shadow-sm hover:bg-emerald-700 transition"
                         >
-                            Pay Monthly Salaries
+                            Monatsgehälter auszahlen
                         </button>
                     </div>
                 )}
@@ -1320,16 +1320,16 @@ export default function AdminSettings() {
                         <Lock size={20} />
                     </div>
                     <div>
-                        <h2 className="text-lg font-bold text-slate-800">Salesman Display Security</h2>
-                        <p className="text-xs text-slate-400">Auto-lock salesman screen after inactivity</p>
+                        <h2 className="text-lg font-bold text-slate-800">Mitarbeiterbildschirm-Sicherheit</h2>
+                        <p className="text-xs text-slate-400">Bildschirm nach Inaktivität automatisch sperren</p>
                     </div>
                 </div>
                 <div className="space-y-4 max-w-md">
                     {/* Toggle */}
                     <div className="flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-bold text-slate-700">Enable Auto-Lock</p>
-                            <p className="text-xs text-slate-400">Blur & lock screen when idle</p>
+                            <p className="text-sm font-bold text-slate-700">Auto-Sperre aktivieren</p>
+                            <p className="text-xs text-slate-400">Bildschirm bei Inaktivität ausblenden und sperren</p>
                         </div>
                         <button
                             onClick={() => setAutoLockEnabled(!autoLockEnabled)}
@@ -1342,8 +1342,8 @@ export default function AdminSettings() {
                     {/* Timeout */}
                     {autoLockEnabled && (
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Lock Timeout</label>
-                            <p className="text-xs text-slate-400 mb-2">Screen locks after this many seconds of inactivity.</p>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Sperr-Timeout</label>
+                            <p className="text-xs text-slate-400 mb-2">Bildschirm sperrt nach so vielen Sekunden Inaktivität.</p>
                             <div className="flex items-center gap-3">
                                 <input
                                     type="number"
@@ -1353,7 +1353,7 @@ export default function AdminSettings() {
                                     onChange={(e) => setAutoLockTimeout(Math.max(0, parseInt(e.target.value) || 0))}
                                     className="w-24 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500/20 text-center font-mono font-bold text-lg"
                                 />
-                                <span className="text-sm text-slate-500 font-medium">seconds</span>
+                                <span className="text-sm text-slate-500 font-medium">Sekunden</span>
                                 <span className="text-xs text-slate-400">({(autoLockTimeout / 60).toFixed(1)} min)</span>
                             </div>
                         </div>
@@ -1368,13 +1368,13 @@ export default function AdminSettings() {
                         <Clock size={20} />
                     </div>
                     <div>
-                        <h2 className="text-lg font-bold text-slate-800">Inventory Settings</h2>
-                        <p className="text-xs text-slate-400">Configure stock analysis thresholds</p>
+                        <h2 className="text-lg font-bold text-slate-800">Inventar-Einstellungen</h2>
+                        <p className="text-xs text-slate-400">Schwellenwerte für Lageranalyse konfigurieren</p>
                     </div>
                 </div>
                 <div className="max-w-md">
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Slow Moving Threshold (Days)</label>
-                    <p className="text-xs text-slate-400 mb-2">Products older than this will be tagged as "Slow Moving".</p>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Schwelle Langsamdreher (Tage)</label>
+                    <p className="text-xs text-slate-400 mb-2">Produkte älter als dieser Wert werden als „Langsamdreher“ markiert.</p>
                     <div className="flex items-center gap-3">
                         <input
                             type="number"
@@ -1384,7 +1384,7 @@ export default function AdminSettings() {
                             onChange={(e) => setSlowMovingDays(Math.max(1, parseInt(e.target.value) || 30))}
                             className="w-24 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500/20 text-center font-mono font-bold text-lg"
                         />
-                        <span className="text-sm text-slate-500 font-medium">days</span>
+                        <span className="text-sm text-slate-500 font-medium">Tage</span>
                     </div>
                 </div>
             </div>
@@ -1395,12 +1395,12 @@ export default function AdminSettings() {
                         <RefreshCw size={20} />
                     </div>
                     <div>
-                        <h2 className="text-lg font-bold text-slate-800">App Data Sync</h2>
-                        <p className="text-xs text-slate-400">Force reload latest app state from database</p>
+                        <h2 className="text-lg font-bold text-slate-800">App-Daten-Synchronisierung</h2>
+                        <p className="text-xs text-slate-400">Aktuellsten App-Status aus der Datenbank neu laden</p>
                     </div>
                 </div>
                 <div className="max-w-2xl space-y-3">
-                    <p className="text-sm text-slate-600">Use this on staff devices when they are seeing old data due to browser cache or old installed app files.</p>
+                    <p className="text-sm text-slate-600">Auf Mitarbeitergeräten verwenden, wenn wegen Browser-Cache oder alter App-Dateien veraltete Daten angezeigt werden.</p>
                     <div className="flex flex-wrap gap-2">
                         <button
                             type="button"
@@ -1409,7 +1409,7 @@ export default function AdminSettings() {
                             className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white font-semibold transition-colors ${isRefreshingAppData ? 'bg-slate-400 cursor-not-allowed' : 'bg-slate-700 hover:bg-slate-800'}`}
                         >
                             <Trash2 size={16} />
-                            Clear Local Cache
+                            Lokalen Cache leeren
                         </button>
                         <button
                             type="button"
@@ -1418,7 +1418,7 @@ export default function AdminSettings() {
                             className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white font-semibold transition-colors ${isRefreshingAppData ? 'bg-slate-400 cursor-not-allowed' : 'bg-sky-600 hover:bg-sky-700'}`}
                         >
                             <RefreshCw size={16} className={isRefreshingAppData ? 'animate-spin' : ''} />
-                            {isRefreshingAppData ? 'Refreshing...' : 'Force Refresh App Data'}
+                            {isRefreshingAppData ? 'Aktualisierung...' : 'App-Daten neu laden'}
                         </button>
                     </div>
                     {appRefreshMsg && <p className="text-xs font-medium text-slate-500">{appRefreshMsg}</p>}

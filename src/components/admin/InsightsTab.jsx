@@ -230,7 +230,7 @@ export default function InsightsTab() {
             if (Array.isArray(txn?.categoryPath) && txn.categoryPath[0]) return safeText(txn.categoryPath[0]);
             if (Array.isArray(txn?.productSnapshot?.categoryPath) && txn.productSnapshot.categoryPath[0]) return safeText(txn.productSnapshot.categoryPath[0]);
             const linkedCategory = extractCategoryLevel1(linkedProduct?.category);
-            return linkedCategory || 'General Sales';
+            return linkedCategory || 'Allgemeiner Verkauf';
         };
 
         const resolveContributionMode = (scope, categoryName, subCategoryName) => {
@@ -753,12 +753,12 @@ export default function InsightsTab() {
                 <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                     <div className="min-w-0 h-full">
                         <span className="inline-flex items-center rounded-full border border-white/80 bg-white/85 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-slate-500 shadow-sm">
-                            Insights Hub
+                            Auswertungen
                         </span>
                         <div className="mt-3">
-                            <h1 className="text-2xl md:text-[2rem] font-black text-slate-800 tracking-tight">Business Intelligence</h1>
+                            <h1 className="text-2xl md:text-[2rem] font-black text-slate-800 tracking-tight">Geschäftsauswertung</h1>
                             <p className="text-slate-500 text-sm md:text-[15px] font-medium mt-1 max-w-2xl">
-                                Financial KPIs, market trends, category mix, and inventory signals in one cleaner workspace.
+                                Finanz-KPIs, Markttrends, Kategorienmix und Inventarsignale in einem übersichtlichen Arbeitsbereich.
                             </p>
                         </div>
                     </div>
@@ -774,40 +774,40 @@ export default function InsightsTab() {
             {/* ── 1. Financial KPIs (The Big Picture) ── */}
             <section className="space-y-4">
                 <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.24em] mb-1">Overview</p>
-                    <h2 className="text-lg font-black tracking-tight text-slate-800">Financial Snapshot</h2>
-                    <p className="text-sm font-medium text-slate-500 mt-1">Core profit, growth, and expense metrics for the currently selected range.</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.24em] mb-1">Überblick</p>
+                    <h2 className="text-lg font-black tracking-tight text-slate-800">Finanzübersicht</h2>
+                    <p className="text-sm font-medium text-slate-500 mt-1">Zentrale Gewinn-, Wachstums- und Ausgabenkennzahlen für den aktuell gewählten Zeitraum.</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-4">
                 {isAdminLike && (
                     <div className="min-w-0 h-full">
                         <MetricCard
-                            title="Final Profit (Net-Net)"
+                            title="Endgewinn (Netto-Netto)"
                             value={priceTag(analytics.finalProfit)}
                             icon={<DollarSign size={24} />}
                             color="emerald"
                             trend={analytics.salesGrowth > 0 ? `+${analytics.salesGrowth.toFixed(1)}%` : null}
                             onClick={() => setShowFinalProfitBreakdown(prev => !prev)}
                             isActive={showFinalProfitBreakdown}
-                            hint={showFinalProfitBreakdown ? 'Hide calculation details' : 'Tap to view calculation details'}
+                            hint={showFinalProfitBreakdown ? 'Berechnungsdetails ausblenden' : 'Antippen, um Berechnungsdetails zu sehen'}
                         />
                     </div>
                 )}
                 {isAdminLike && (
                     <div className="min-w-0 h-full">
                         <MetricCard
-                            title="Total Fixed Expenses"
+                            title="Gesamte Fixkosten"
                             value={priceTag(analytics.totalFixedExpenses)}
                             icon={<Activity size={24} />}
                             color="red"
-                            subtext="Rent, Salary, etc."
+                            subtext="Miete, Gehalt usw."
                         />
                     </div>
                 )}
                 {isAdminLike && (
                     <div className="min-w-0 h-full">
                         <MetricCard
-                            title="Non-fixed Expenses"
+                            title="Variable Ausgaben"
                             value={priceTag(analytics.totalNonFixedExpenses)}
                             icon={<AlertCircle size={24} />}
                             color="amber"
@@ -817,23 +817,23 @@ export default function InsightsTab() {
                 )}
                 <div className="min-w-0 h-full">
                     <MetricCard
-                        title="Gross Net Profit"
+                        title="Brutto-Nettogewinn"
                         value={priceTag(analytics.totalProfit)}
                         icon={<TrendingUp size={24} />}
                         color="blue"
-                        subtext={`Prod: ${priceTag(analytics.productProfit)} | Serv: ${priceTag(analytics.serviceProfit)}`}
+                        subtext={`Prod.: ${priceTag(analytics.productProfit)} | Service: ${priceTag(analytics.serviceProfit)}`}
                         onClick={() => setShowGrossProfitBreakdown(prev => !prev)}
                         isActive={showGrossProfitBreakdown}
-                        hint={showGrossProfitBreakdown ? 'Hide calculation details' : 'Tap to view calculation details'}
+                        hint={showGrossProfitBreakdown ? 'Berechnungsdetails ausblenden' : 'Antippen, um Berechnungsdetails zu sehen'}
                     />
                 </div>
                 <div className="min-w-0 h-full">
                     <MetricCard
-                        title="Sales Growth (Weekly)"
+                        title="Umsatzwachstum (wöchentlich)"
                         value={`${analytics.salesGrowth > 0 ? '+' : ''}${analytics.salesGrowth.toFixed(1)}%`}
                         icon={<TrendingUp size={24} />}
                         color={analytics.salesGrowth >= 0 ? 'purple' : 'red'}
-                        subtext={`vs Previous ${timeView === 'weekly' ? 'Week' : 'Month'}`}
+                        subtext={`ggü. vorheriger ${timeView === 'weekly' ? 'Woche' : 'Monat'}`}
                     />
                 </div>
                 </div>
@@ -842,36 +842,36 @@ export default function InsightsTab() {
                 {isAdminLike && showFinalProfitBreakdown && (
                 <div className="bg-white border border-emerald-100 rounded-2xl shadow-sm p-5">
                     <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between mb-4">
-                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Final Profit Calculation</h3>
-                        <span className="text-xs font-bold text-emerald-600">Net = (Product Profit + Service Profit) - (Fixed Expenses + Non-fixed Expenses + Inventory Purchases)</span>
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Endgewinn-Berechnung</h3>
+                        <span className="text-xs font-bold text-emerald-600">Netto = (Produktgewinn + Servicegewinn) - (Fixkosten + variable Ausgaben + Wareneinkäufe)</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                         <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Product Profit</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Produktgewinn</p>
                             <p className="text-lg font-black text-slate-800">{priceTag(analytics.productProfit)}</p>
                         </div>
                         <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Service Profit</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Servicegewinn</p>
                             <p className="text-lg font-black text-slate-800">{priceTag(analytics.serviceProfit)}</p>
                         </div>
                         <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3">
-                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Gross Net Profit</p>
+                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Brutto-Nettogewinn</p>
                             <p className="text-lg font-black text-blue-700">{priceTag(analytics.totalProfit)}</p>
                         </div>
                         <div className="rounded-2xl border border-red-100 bg-red-50 p-3">
-                            <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Total Fixed Expenses</p>
+                            <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Gesamte Fixkosten</p>
                             <p className="text-lg font-black text-red-700">{priceTag(analytics.totalFixedExpenses)}</p>
                         </div>
                         <div className="rounded-2xl border border-orange-100 bg-orange-50 p-3">
-                            <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Non-fixed Expenses</p>
+                            <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Variable Ausgaben</p>
                             <p className="text-lg font-black text-orange-700">{priceTag(analytics.totalNonFixedExpenses)}</p>
                         </div>
                         <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3">
-                            <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Inventory Purchases</p>
+                            <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Wareneinkäufe</p>
                             <p className="text-lg font-black text-amber-700">{priceTag(analytics.totalInventoryPurchases)}</p>
                         </div>
                         <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 md:col-span-2 xl:col-span-2">
-                            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Final Profit (Net-Net)</p>
+                            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Endgewinn (Netto-Netto)</p>
                             <p className="text-2xl font-black text-emerald-700">{priceTag(analytics.finalProfit)}</p>
                         </div>
                     </div>
@@ -881,24 +881,24 @@ export default function InsightsTab() {
                 {showGrossProfitBreakdown && (
                 <div className="bg-white border border-blue-100 rounded-2xl shadow-sm p-5">
                     <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between mb-4">
-                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Gross Net Profit Calculation</h3>
-                        <span className="text-xs font-bold text-blue-600">Gross = Product Profit + Service Profit</span>
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Brutto-Nettogewinn-Berechnung</h3>
+                        <span className="text-xs font-bold text-blue-600">Brutto = Produktgewinn + Servicegewinn</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
                         <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Product Profit</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Produktgewinn</p>
                             <p className="text-lg font-black text-slate-800">{priceTag(analytics.productProfit)}</p>
                         </div>
                         <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Service Profit</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Servicegewinn</p>
                             <p className="text-lg font-black text-slate-800">{priceTag(analytics.serviceProfit)}</p>
                         </div>
                         <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3">
-                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Gross Net Profit</p>
+                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Brutto-Nettogewinn</p>
                             <p className="text-lg font-black text-blue-700">{priceTag(analytics.totalProfit)}</p>
                         </div>
                         <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-3">
-                            <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Average Margin</p>
+                            <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Durchschnittsmarge</p>
                             <p className="text-lg font-black text-indigo-700">{analytics.avgMargin.toFixed(1)}%</p>
                         </div>
                     </div>
@@ -913,19 +913,19 @@ export default function InsightsTab() {
                     <div className="flex items-start gap-3">
                         <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600"><Users size={20} /></div>
                         <div className="flex-1">
-                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Salesman Leaderboard</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Top performers by revenue and margin</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Verkäufer-Rangliste</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Top-Performer nach Umsatz und Marge</p>
                         </div>
                     </div>
                     <div className="inline-flex items-center gap-2 self-start rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
                         <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                        Selected Range
+                        Gewählter Zeitraum
                     </div>
                 </div>
                 <div className="md:hidden space-y-2">
                     {analytics.salesmanData.length === 0 ? (
                         <div className="py-6 text-center text-sm text-slate-400 rounded-2xl border border-slate-200 bg-slate-50">
-                            No sales data found.
+                            Keine Verkaufsdaten gefunden.
                         </div>
                     ) : analytics.salesmanData.map((staff, idx) => (
                         <div key={`mobile-leader-${idx}`} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
@@ -940,11 +940,11 @@ export default function InsightsTab() {
                             </div>
                             <div className="grid grid-cols-2 gap-2 mt-2 text-[11px]">
                                 <div className="rounded-xl border border-slate-100 bg-white px-2 py-2">
-                                    <p className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Avg Margin</p>
+                                    <p className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Ø Marge</p>
                                     <p className="font-bold text-blue-500">{staff.avgMargin.toFixed(1)}%</p>
                                 </div>
                                 <div className="rounded-xl border border-slate-100 bg-white px-2 py-2">
-                                    <p className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Avg Discount</p>
+                                    <p className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Ø Rabatt</p>
                                     <p className="font-bold text-red-500">{priceTag(staff.avgDiscount)}</p>
                                 </div>
                             </div>
@@ -956,10 +956,10 @@ export default function InsightsTab() {
                     <table className="w-full text-left border-collapse bg-white">
                         <thead>
                             <tr className="border-b border-slate-200 bg-slate-50/80">
-                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Rank/Name</th>
-                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Gross Sales</th>
-                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Avg Margin</th>
-                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Avg Discount</th>
+                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Rang/Name</th>
+                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Gesamtumsatz</th>
+                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Ø Marge</th>
+                                <th className="py-3 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Ø Rabatt</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -979,7 +979,7 @@ export default function InsightsTab() {
                                 </tr>
                             ))}
                             {analytics.salesmanData.length === 0 && (
-                                <tr><td colSpan="4" className="py-6 text-center text-sm text-slate-400">No sales data found.</td></tr>
+                                <tr><td colSpan="4" className="py-6 text-center text-sm text-slate-400">Keine Verkaufsdaten gefunden.</td></tr>
                             )}
                         </tbody>
                     </table>
@@ -993,8 +993,8 @@ export default function InsightsTab() {
                 <div className={`${CHART_CARD_CLASS} min-h-[360px] overflow-hidden`}>
                     <div className="flex items-center justify-between mb-4">
                         <div>
-                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Sales vs. Time</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Daily Performance & Trends</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Umsatz im Zeitverlauf</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tagesverlauf &amp; Trends</p>
                         </div>
                         <Calendar size={20} className="text-slate-300" />
                     </div>
@@ -1010,10 +1010,10 @@ export default function InsightsTab() {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                                 <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} interval={0} />
                                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
-                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value, name) => [name === 'trend' ? `€${(Number(value) || 0).toFixed(2)}` : priceTag(Number(value) || 0), name === 'trend' ? `${timeView === 'weekly' ? '4-Week' : '3-Month'} Trend` : 'Sales']} />
+                                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value, name) => [name === 'trend' ? `€${(Number(value) || 0).toFixed(2)}` : priceTag(Number(value) || 0), name === 'trend' ? `${timeView === 'weekly' ? '4-Wochen' : '3-Monats'}-Trend` : 'Umsatz']} />
                                 <Legend iconType="circle" />
-                                <Area type="monotone" dataKey="sales" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSales)" name="Sales" />
-                                <Line type="monotone" dataKey="trend" stroke="#fbbf24" strokeWidth={3} dot={false} name={timeView === 'weekly' ? '4-Week Trend' : '3-Month Trend'} />
+                                <Area type="monotone" dataKey="sales" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSales)" name="Umsatz" />
+                                <Line type="monotone" dataKey="trend" stroke="#fbbf24" strokeWidth={3} dot={false} name={timeView === 'weekly' ? '4-Wochen-Trend' : '3-Monats-Trend'} />
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>
@@ -1023,8 +1023,8 @@ export default function InsightsTab() {
                 <div className={`${CHART_CARD_CLASS} min-h-[360px] overflow-hidden`}>
                     <div className="flex items-center justify-between mb-4">
                         <div>
-                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Profit vs Expense</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{timeView === 'weekly' ? 'Weekly' : 'Monthly'} Comparison</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Gewinn vs. Ausgaben</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{timeView === 'weekly' ? 'Wöchentlicher' : 'Monatlicher'} Vergleich</p>
                         </div>
                         <Scale size={20} className="text-slate-300" />
                     </div>
@@ -1036,8 +1036,8 @@ export default function InsightsTab() {
                                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
                                 <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value) => priceTag(Number(value) || 0)} />
                                 <Legend iconType="circle" />
-                                <Bar dataKey="profit" name="Profit" fill="#22c55e" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="profit" name="Gewinn" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="expenses" name="Ausgaben" fill="#ef4444" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -1051,12 +1051,12 @@ export default function InsightsTab() {
                     <div className="flex items-start gap-3 mb-4">
                         <div className="p-3 bg-blue-50 rounded-xl text-blue-500"><BarChart3 size={20} /></div>
                         <div>
-                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Sales by Category</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Revenue breakdown per category</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Verkauf nach Kategorie</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Umsatz nach Kategorie</p>
                         </div>
                     </div>
                     {categorySalesData.length === 0 ? (
-                        <p className="text-xs text-slate-400 text-center py-8">No sales data available for this period.</p>
+                        <p className="text-xs text-slate-400 text-center py-8">Keine Verkaufsdaten verfügbar.</p>
                     ) : (
                         <div style={{ width: '100%', height: `${Math.max(280, categorySalesData.length * 42)}px` }}>
                             <ResponsiveContainer width="100%" height="100%">
@@ -1064,7 +1064,7 @@ export default function InsightsTab() {
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
                                     <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={130} axisLine={false} tickLine={false} />
-                                    <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Sales']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                                    <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Umsatz']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
                                     <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={22}>
                                         <LabelList dataKey="amount" position="right" formatter={(value) => `€${value.toFixed(0)}`} style={{ fontSize: '11px', fontWeight: '700', fill: '#334155' }} />
                                         {categorySalesData.map((entry, index) => (
@@ -1082,12 +1082,12 @@ export default function InsightsTab() {
                     <div className="flex items-start gap-3 mb-4">
                         <div className="p-3 bg-red-50 rounded-xl text-red-500"><DollarSign size={20} /></div>
                         <div>
-                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Expense by Category</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Purchase/expense breakdown per category</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Ausgaben nach Kategorie</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Einkauf nach Kategorie</p>
                         </div>
                     </div>
                     {categoryExpenseData.length === 0 ? (
-                        <p className="text-xs text-slate-400 text-center py-8">No expense data available for this period.</p>
+                        <p className="text-xs text-slate-400 text-center py-8">Keine Ausgabendaten verfügbar.</p>
                     ) : (
                         <div style={{ width: '100%', height: `${Math.max(280, categoryExpenseData.length * 42)}px` }}>
                             <ResponsiveContainer width="100%" height="100%">
@@ -1095,7 +1095,7 @@ export default function InsightsTab() {
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `€${v}`} axisLine={false} tickLine={false} />
                                     <YAxis type="category" dataKey="category" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} width={130} axisLine={false} tickLine={false} />
-                                    <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Expense']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                                    <Tooltip formatter={(value) => [`€${value.toFixed(2)}`, 'Ausgabe']} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
                                     <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={22}>
                                         <LabelList dataKey="amount" position="right" formatter={(value) => `€${value.toFixed(0)}`} style={{ fontSize: '11px', fontWeight: '700', fill: '#334155' }} />
                                         {categoryExpenseData.map((entry, index) => (
@@ -1115,21 +1115,21 @@ export default function InsightsTab() {
                 <div className={`${CHART_CARD_CLASS} min-h-[360px] flex flex-col overflow-hidden`}>
                     <div className="flex items-center justify-between mb-4">
                         <div>
-                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Peak Hours</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">When is the rush?</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Stoßzeiten</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Wann ist am meisten los?</p>
                         </div>
                         <div className="flex bg-slate-100 p-1 rounded-lg">
                             <button
                                 onClick={() => setPeakHourMode('today')}
                                 className={`px-3 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${peakHourMode === 'today' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}
                             >
-                                Today
+                                Heute
                             </button>
                             <button
                                 onClick={() => setPeakHourMode('7d')}
                                 className={`px-3 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${peakHourMode === '7d' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}
                             >
-                                7-Day Avg
+                                7-Tage-Schnitt
                             </button>
                         </div>
                     </div>
@@ -1142,7 +1142,7 @@ export default function InsightsTab() {
                                 <Tooltip
                                     cursor={{ fill: '#f1f5f9' }}
                                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                                    formatter={(val) => [val.toFixed(1), 'Transactions']}
+                                    formatter={(val) => [val.toFixed(1), 'Transaktionen']}
                                 />
                                 <Bar dataKey="count" radius={[4, 4, 4, 4]} maxBarSize={30}>
                                     {peakData.map((entry, index) => (
@@ -1156,8 +1156,8 @@ export default function InsightsTab() {
 
                 {/* Category Profitability (Pie Chart) */}
                 <div className={`${CHART_CARD_CLASS} min-h-[360px] flex flex-col overflow-hidden`}>
-                    <h3 className="text-sm font-black text-slate-800 mb-0.5">Category Profitability</h3>
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Which categories are Cash Cows?</p>
+                    <h3 className="text-sm font-black text-slate-800 mb-0.5">Kategorieprofitabilität</h3>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4">Welche Kategorien sind besonders profitabel?</p>
                     <div className="flex-1 w-full min-h-[250px]">
                         {analytics.categoryData.length > 0 ? (
                             <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
@@ -1173,7 +1173,7 @@ export default function InsightsTab() {
                             </ResponsiveContainer>
                         ) : (
                             <div className="h-full w-full flex items-center justify-center text-center">
-                                <p className="text-sm text-slate-400 font-medium">No profitable category data in this range.</p>
+                                <p className="text-sm text-slate-400 font-medium">Keine profitablen Kategoriedaten in diesem Zeitraum.</p>
                             </div>
                         )}
                     </div>
@@ -1190,8 +1190,8 @@ export default function InsightsTab() {
                     <div className="flex items-center gap-3 mb-4">
                         <div className="p-3 bg-amber-50 rounded-xl text-amber-500"><Zap size={20} /></div>
                         <div>
-                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Top 5 Best Sellers</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Fastest Moving Products</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Top 5 Bestseller</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Schnellstverkaufte Produkte</p>
                         </div>
                     </div>
                     <div className="space-y-4">
@@ -1201,13 +1201,13 @@ export default function InsightsTab() {
                                     <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${idx === 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>{idx + 1}</span>
                                     <div>
                                         <p className="text-sm font-bold text-slate-800 line-clamp-1">{product.name}</p>
-                                        <p className="text-[10px] text-slate-400">{product.qty} units sold</p>
+                                        <p className="text-[10px] text-slate-400">{product.qty} verkauft</p>
                                     </div>
                                 </div>
                                 <p className="text-sm font-bold text-emerald-600">{priceTag(product.profit)}</p>
                             </div>
                         ))}
-                        {analytics.bestSellers.length === 0 && <p className="text-slate-400 text-sm text-center py-4">No sales data yet.</p>}
+                        {analytics.bestSellers.length === 0 && <p className="text-slate-400 text-sm text-center py-4">Noch keine Verkaufsdaten.</p>}
                     </div>
                 </div>
 
@@ -1216,8 +1216,8 @@ export default function InsightsTab() {
                     <div className="flex items-center gap-3 mb-4">
                         <div className="p-3 bg-blue-50 rounded-xl text-blue-500"><Package size={20} /></div>
                         <div>
-                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Supplier Performance</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Profit Leaders (Domain vs Local)</p>
+                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Lieferantenleistung</h3>
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Profitführer (Domain vs. lokal)</p>
                         </div>
                     </div>
                     <div className="h-64 w-full">
@@ -1227,7 +1227,7 @@ export default function InsightsTab() {
                                 <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} interval={0} />
                                 <YAxis orientation="left" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
                                 <Tooltip contentStyle={{ borderRadius: '12px' }} formatter={(val) => priceTag(val)} />
-                                <Bar dataKey="profit" name="Net Profit" fill="#8b5cf6" radius={[4, 4, 4, 4]} maxBarSize={40} />
+                                <Bar dataKey="profit" name="Nettogewinn" fill="#8b5cf6" radius={[4, 4, 4, 4]} maxBarSize={40} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -1240,11 +1240,11 @@ export default function InsightsTab() {
                         <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                                 <RefreshCw size={18} className="text-blue-500" />
-                                <span className="text-sm font-bold text-slate-500 uppercase">Inventory Turnover</span>
+                                <span className="text-sm font-bold text-slate-500 uppercase">Lagerumschlag</span>
                             </div>
                             <span className="text-2xl font-black text-slate-800">{analytics.turnoverRatio.toFixed(2)}x</span>
                         </div>
-                        <p className="text-xs text-slate-400">Ratio of Sold Items Cost vs Avg Inventory Value. Higher is better.</p>
+                        <p className="text-xs text-slate-400">Verhältnis von Verkaufskosten zu durchschnittlichem Lagerwert. Höher ist besser.</p>
                     </div>
 
                     {/* Stock Aging Analysis */}
@@ -1252,19 +1252,19 @@ export default function InsightsTab() {
                         <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-red-50 rounded-xl text-red-500"><AlertCircle size={20} /></div>
                             <div>
-                                <h3 className="text-sm font-black text-slate-800 mb-0.5">Stock Aging</h3>
-                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Risk Analysis ({'>'}30 Days)</p>
+                                <h3 className="text-sm font-black text-slate-800 mb-0.5">Lageralterung</h3>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Risikoanalyse ({'>'}30 Tage)</p>
                             </div>
                         </div>
                         <div className="mt-4">
                             <div className="flex justify-between items-end mb-2">
-                                <span className="text-sm font-bold text-slate-600">Slow Moving Value</span>
+                                <span className="text-sm font-bold text-slate-600">Wert Langsamdreher</span>
                                 <span className="text-xl font-black text-red-600">{priceTag(analytics.slowMovingValue)}</span>
                             </div>
                             <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                                 <div className="bg-red-500 h-full rounded-full" style={{ width: '100%' }}></div> {/* Visual bar just for effect */}
                             </div>
-                            <p className="text-xs text-slate-400 mt-2">Capital tied up in items older than 30 days.</p>
+                            <p className="text-xs text-slate-400 mt-2">Kapital in Artikeln, die älter als 30 Tage sind.</p>
                         </div>
                     </div>
                 </div>
@@ -1279,12 +1279,12 @@ export default function InsightsTab() {
                         <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-emerald-50 rounded-xl text-emerald-500"><DollarSign size={20} /></div>
                             <div>
-                                <h3 className="text-sm font-black text-slate-800 mb-0.5">Salary Report</h3>
-                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Per-Salesman Breakdown</p>
+                                <h3 className="text-sm font-black text-slate-800 mb-0.5">Gehaltsbericht</h3>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Aufschlüsselung pro Mitarbeiter</p>
                             </div>
                         </div>
                         <div className="flex items-baseline justify-between mb-4 pb-4 border-b border-slate-100">
-                            <span className="text-sm font-bold text-slate-500">Total Salary Paid</span>
+                            <span className="text-sm font-bold text-slate-500">Gesamt gezahltes Gehalt</span>
                             <span className="text-2xl font-black text-emerald-600">{priceTag(salaryData.totalSalary)}</span>
                         </div>
                         <div className="space-y-3">
@@ -1296,13 +1296,13 @@ export default function InsightsTab() {
                                         </div>
                                         <div>
                                             <p className="text-sm font-bold text-slate-800">{s.name}</p>
-                                            <p className="text-[10px] text-slate-400">{s.sessions} session{s.sessions !== 1 ? 's' : ''}</p>
+                                            <p className="text-[10px] text-slate-400">{s.sessions} Sitzung{s.sessions !== 1 ? 'en' : ''}</p>
                                         </div>
                                     </div>
                                     <p className="text-sm font-black text-emerald-600 font-mono">{priceTag(s.totalPaid)}</p>
                                 </div>
                             ))}
-                            {salaryData.perSalesman.length === 0 && <p className="text-slate-400 text-sm text-center py-4">No salary data in this range.</p>}
+                            {salaryData.perSalesman.length === 0 && <p className="text-slate-400 text-sm text-center py-4">Keine Gehaltsdaten in diesem Zeitraum.</p>}
                         </div>
                     </div>
 
@@ -1311,12 +1311,12 @@ export default function InsightsTab() {
                         <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-red-50 rounded-xl text-red-500"><Activity size={20} /></div>
                             <div>
-                                <h3 className="text-sm font-black text-slate-800 mb-0.5">Expense Breakdown</h3>
-                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">By Category</p>
+                                <h3 className="text-sm font-black text-slate-800 mb-0.5">Ausgabenübersicht</h3>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Nach Kategorie</p>
                             </div>
                         </div>
                         <div className="flex items-baseline justify-between mb-4 pb-4 border-b border-slate-100">
-                            <span className="text-sm font-bold text-slate-500">Total Expenses</span>
+                            <span className="text-sm font-bold text-slate-500">Gesamtausgaben</span>
                             <span className="text-2xl font-black text-red-600">{priceTag(expenseData.total)}</span>
                         </div>
                         {expenseData.categories.length > 0 ? (
@@ -1348,7 +1348,7 @@ export default function InsightsTab() {
                                 </div>
                             </>
                         ) : (
-                            <p className="text-slate-400 text-sm text-center py-4">No expenses in this range.</p>
+                            <p className="text-slate-400 text-sm text-center py-4">Keine Ausgaben in diesem Zeitraum.</p>
                         )}
                     </div>
 
@@ -1358,8 +1358,8 @@ export default function InsightsTab() {
                             <div className="flex items-center gap-3">
                                 <div className="p-3 bg-purple-50 rounded-xl text-purple-500"><Wrench size={20} /></div>
                                 <div>
-                                    <h3 className="text-sm font-black text-slate-800 mb-0.5">Repairs Report</h3>
-                                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Service Performance</p>
+                                    <h3 className="text-sm font-black text-slate-800 mb-0.5">Reparaturbericht</h3>
+                                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Serviceleistung</p>
                                 </div>
                             </div>
                         </div>
@@ -1367,35 +1367,35 @@ export default function InsightsTab() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
                             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                                 <p className="text-2xl font-black text-slate-800">{repairsData.total}</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">Total Jobs</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Gesamtaufträge</p>
                             </div>
                             <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-center">
                                 <p className="text-2xl font-black text-emerald-600">{repairsData.completed}</p>
-                                <p className="text-[10px] font-bold text-emerald-500 uppercase">Completed</p>
+                                <p className="text-[10px] font-bold text-emerald-500 uppercase">Abgeschlossen</p>
                             </div>
                             <div className="p-3 rounded-xl bg-amber-50 border border-amber-100 text-center">
                                 <p className="text-2xl font-black text-amber-600">{repairsData.pending + repairsData.inProgress}</p>
-                                <p className="text-[10px] font-bold text-amber-500 uppercase">Pending</p>
+                                <p className="text-[10px] font-bold text-amber-500 uppercase">Ausstehend</p>
                             </div>
                             <div className="p-3 rounded-xl bg-blue-50 border border-blue-100 text-center">
                                 <p className="text-2xl font-black text-blue-600">{repairsData.avgTurnaround.toFixed(1)}d</p>
-                                <p className="text-[10px] font-bold text-blue-500 uppercase">Avg Turnaround</p>
+                                <p className="text-[10px] font-bold text-blue-500 uppercase">Ø Bearbeitungszeit</p>
                             </div>
                         </div>
                         {/* Revenue */}
                         <div className="space-y-3 pt-3 border-t border-slate-100">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm font-bold text-slate-500">Completed Revenue</span>
+                                <span className="text-sm font-bold text-slate-500">Umsatz abgeschlossen</span>
                                 <span className="text-lg font-black text-emerald-600 font-mono">{priceTag(repairsData.completedRevenue)}</span>
                             </div>
                             <div className="flex items-center justify-between">
-                                <span className="text-sm font-bold text-slate-500">Estimated Pipeline</span>
+                                <span className="text-sm font-bold text-slate-500">Geschätzte Pipeline</span>
                                 <span className="text-lg font-black text-blue-600 font-mono">{priceTag(repairsData.estimatedTotal)}</span>
                             </div>
                             {/* Completion Rate Bar */}
                             <div className="mt-2">
                                 <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
-                                    <span>Completion Rate</span>
+                                    <span>Abschlussquote</span>
                                     <span>{repairsData.total > 0 ? ((repairsData.completed / repairsData.total) * 100).toFixed(0) : 0}%</span>
                                 </div>
                                 <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">

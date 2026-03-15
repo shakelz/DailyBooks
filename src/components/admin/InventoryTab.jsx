@@ -1,8 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
-import { supabase } from '../../supabaseClient';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
 import SmartCategoryForm from '../SmartCategoryForm';
 import DateRangeFilter from './DateRangeFilter';
@@ -60,36 +58,6 @@ export default function InventoryTab() {
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [bulkCategory, setBulkCategory] = useState('');
     const [bulkPercentage, setBulkPercentage] = useState('');
-
-    const [chartView, setChartView] = useState('category');
-    const [purchaseTransactions, setPurchaseTransactions] = useState([]);
-
-    useEffect(() => {
-        if (!activeShopId) return;
-
-        const fetchPurchases = async () => {
-            const start = new Date(dateSelection[0].startDate);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(dateSelection[0].endDate);
-            end.setHours(23, 59, 59, 999);
-
-            const { data, error } = await supabase
-                .from('transactions')
-                .select('id, amount, category, sub_category, type, created_at')
-                .eq('shop_id', activeShopId)
-                .in('type', ['expense', 'purchase', 'Expense', 'Purchase'])
-                .gte('created_at', start.toISOString())
-                .lte('created_at', end.toISOString())
-                .order('created_at', { ascending: false })
-                .limit(1000);
-
-            if (!error && data) {
-                setPurchaseTransactions(data);
-            }
-        };
-
-        fetchPurchases();
-    }, [activeShopId, dateSelection]);
 
     const [showAuditMode, setShowAuditMode] = useState(false);
     const [auditScans, setAuditScans] = useState(new Set());
@@ -163,7 +131,7 @@ export default function InventoryTab() {
     const categoryAnalysis = useMemo(() => {
         const analysis = {};
         products.forEach(p => {
-            const cat = getProductCategoryL1(p) || 'Uncategorized';
+            const cat = getProductCategoryL1(p) || 'Ohne Kategorie';
             if (!analysis[cat]) analysis[cat] = { capital: 0, potentialProfit: 0 };
             analysis[cat].capital += p.purchasePrice * p.stock;
             const itemProfit = (p.sellingPrice - p.purchasePrice) * p.stock;
@@ -217,54 +185,13 @@ export default function InventoryTab() {
         return Object.entries(sources).sort((a, b) => b[1].totalBuy - a[1].totalBuy).slice(0, 5);
     }, [products]);
 
-    const categoryExpenseData = useMemo(() => {
-        const grouped = purchaseTransactions.reduce((acc, txn) => {
-            const category = String(
-                typeof txn.category === 'object' 
-                    ? (txn.category?.level1 || txn.category?.name || 'Other')
-                    : (txn.category || 'Other')
-            ).trim() || 'Other';
-            
-            acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
-            return acc;
-        }, {});
-
-        return Object.entries(grouped)
-            .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
-            .sort((a, b) => b.amount - a.amount)
-            .slice(0, 10);
-    }, [purchaseTransactions]);
-
-    const subCategoryExpenseData = useMemo(() => {
-        const grouped = purchaseTransactions.reduce((acc, txn) => {
-            const parent = String(
-                typeof txn.category === 'object'
-                    ? (txn.category?.level1 || 'Other')
-                    : (txn.category || 'Other')
-            ).trim();
-            const sub = String(txn.subCategory || txn.sub_category || '').trim();
-            const label = sub ? `${parent} / ${sub}` : parent;
-
-            acc[label] = (acc[label] || 0) + (parseFloat(txn.amount) || 0);
-            return acc;
-        }, {});
-
-        return Object.entries(grouped)
-            .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
-            .sort((a, b) => b.amount - a.amount)
-            .slice(0, 12);
-    }, [purchaseTransactions]);
-
-    const activeChartData = chartView === 'category' ? categoryExpenseData : subCategoryExpenseData;
-
-
     // ── Handlers ──
     const handleDownloadCSV = () => {
-        const headers = ['Barcode', 'Name', 'Category', 'Stock', 'Purchase Price', 'Selling Price', 'Margin %'];
+        const headers = ['Barcode', 'Name', 'Kategorie', 'Bestand', 'Einkaufspreis', 'Verkaufspreis', 'Marge %'];
         const rows = filteredProducts.map(p => [
             p.barcode || 'N/A',
             p.name,
-            getProductCategoryL1(p) || 'N/A',
+            getProductCategoryL1(p) || 'k. A.',
             p.stock,
             p.purchasePrice,
             p.sellingPrice,
@@ -298,7 +225,7 @@ export default function InventoryTab() {
 
     const handleBulkUpdate = () => {
         if (!bulkCategory || !bulkPercentage) return;
-        if (window.confirm(`Update ALL products in ${bulkCategory} by ${bulkPercentage}%? This cannot be undone.`)) {
+        if (window.confirm(`Alle Produkte in ${bulkCategory} um ${bulkPercentage}% aktualisieren? Das kann nicht rückgängig gemacht werden.`)) {
             bulkUpdateCategoryPricing(bulkCategory, parseFloat(bulkPercentage));
             setShowBulkModal(false);
             setBulkCategory('');
@@ -423,7 +350,7 @@ export default function InventoryTab() {
     }, []);
 
     const deleteImportantLink = useCallback(async (id) => {
-        if (!window.confirm('Delete this purchase link?')) return;
+        if (!window.confirm('Diesen Einkaufslink löschen?')) return;
         const { error } = await deleteLink(id);
         if (error) {
             alert(`Failed to delete link: ${error.message || 'Unknown error'}`);
@@ -442,8 +369,8 @@ export default function InventoryTab() {
             {/* ── Header with Date Filter ── */}
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Inventory Management</h1>
-                    <p className="text-slate-500 text-sm font-medium">Product catalog, stock levels, and supplier analytics.</p>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Inventar</h1>
+                    <p className="text-slate-500 text-sm font-medium">Produktkatalog, Lagerbestände und Lieferantenanalysen.</p>
                 </div>
                 <DateRangeFilter dateSelection={dateSelection} setDateSelection={setDateSelection} />
             </div>
@@ -455,7 +382,7 @@ export default function InventoryTab() {
                         <DollarSign size={24} />
                     </div>
                     <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Stock Value</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Gesamtwert Lagerbestand</p>
                         <p className="text-2xl font-black text-slate-800">{priceTag(stats.totalValue)}</p>
                     </div>
                 </div>
@@ -465,7 +392,7 @@ export default function InventoryTab() {
                         <Package size={24} />
                     </div>
                     <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Unique Items</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Einzigartige Artikel</p>
                         <p className="text-2xl font-black text-slate-800">{stats.uniqueItems}</p>
                     </div>
                 </div>
@@ -475,7 +402,7 @@ export default function InventoryTab() {
                         <AlertTriangle size={24} />
                     </div>
                     <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Low Stock Alerts</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Niedrigbestand</p>
                         <p className="text-2xl font-black text-slate-800">{stats.lowStockCount}</p>
                     </div>
                 </div>
@@ -488,8 +415,8 @@ export default function InventoryTab() {
                         <Scan size={24} />
                     </div>
                     <div>
-                        <p className={`text-xs font-bold uppercase tracking-wider ${showAuditMode ? 'text-slate-400' : 'text-slate-400'}`}>Stock Audit Mode</p>
-                        <p className="text-xl font-black">{showAuditMode ? 'ACTIVE' : 'Start Audit'}</p>
+                        <p className={`text-xs font-bold uppercase tracking-wider ${showAuditMode ? 'text-slate-400' : 'text-slate-400'}`}>Bestandsprüfung</p>
+                        <p className="text-xl font-black">{showAuditMode ? 'AKTIV' : 'Prüfung starten'}</p>
                     </div>
                 </div>
             </div>
@@ -499,95 +426,13 @@ export default function InventoryTab() {
 
                 {/* ── Left: Main Table ── */}
                 <div className="lg:col-span-3 space-y-4">
-                    {/* Category Purchase Insights Chart */}
-                    <div className="mb-6 bg-white rounded-3xl border border-slate-100 shadow-sm p-6 lg:col-span-3 mr-0">
-                      <div className="flex items-center justify-between mb-6">
-                        <div>
-                          <h3 className="text-sm font-black text-slate-800">Purchase Breakdown</h3>
-                          <p className="text-xs text-slate-500 mt-0.5">Top spending categories from expenses & purchases</p>
-                        </div>
-                        <div className="flex rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                          <button
-                            onClick={() => setChartView('category')}
-                            className={`px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition-all ${chartView === 'category' ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                          >
-                            Category
-                          </button>
-                          <button
-                            onClick={() => setChartView('subcategory')}
-                            className={`px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition-all ${chartView === 'subcategory' ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                          >
-                            Sub-Category
-                          </button>
-                        </div>
-                      </div>
-
-                      {activeChartData.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-10 opacity-50">
-                            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-3 text-2xl text-slate-400">📊</div>
-                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">No purchase data available</p>
-                        </div>
-                      ) : (
-                        <div style={{ width: '100%', height: Math.max(250, activeChartData.length * 44) }}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                              data={activeChartData}
-                              layout="vertical"
-                              margin={{ top: 0, right: 30, left: -20, bottom: 0 }}
-                            >
-                              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                              <XAxis
-                                type="number"
-                                tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }}
-                                tickFormatter={(v) => `€${v}`}
-                                axisLine={false}
-                                tickLine={false}
-                              />
-                              <YAxis
-                                type="category"
-                                dataKey="category"
-                                tick={{ fontSize: 11, fill: '#334155', fontWeight: 700 }}
-                                width={140}
-                                axisLine={false}
-                                tickLine={false}
-                              />
-                              <Tooltip
-                                formatter={(value) => [`€${Number(value).toFixed(2)}`, 'Amount']}
-                                contentStyle={{
-                                  borderRadius: '16px',
-                                  border: '1px solid #e2e8f0',
-                                  boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                                  fontSize: '12px',
-                                  fontWeight: 700,
-                                  padding: '8px 12px'
-                                }}
-                                itemStyle={{ color: '#0f172a' }}
-                              />
-                              <Bar dataKey="amount" radius={[0, 6, 6, 0]} maxBarSize={20} animationDuration={1000}>
-                                {activeChartData.map((entry, index) => (
-                                  <Cell
-                                    key={`cell-${index}`}
-                                    fill={[
-                                      '#f97316', '#ef4444', '#f43f5e', '#e11d48',
-                                      '#be123c', '#9f1239', '#881337', '#fcd34d',
-                                      '#fbbf24', '#f59e0b'
-                                    ][index % 10]}
-                                  />
-                                ))}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
-                    </div>
-
                     {/* Toolbar */}
                     <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-wrap gap-4 items-center justify-between">
                         <div className={`flex flex-1 min-w-[200px] items-center gap-3 px-4 py-2 rounded-2xl border transition-all ${showAuditMode ? 'bg-slate-50 border-emerald-400 ring-2 ring-emerald-100' : 'bg-slate-50 border-slate-100 focus-within:border-blue-300'}`}>
                             <Search size={18} className={showAuditMode ? "text-emerald-500" : "text-slate-400"} />
                             <input
                                 type="text"
-                                placeholder={showAuditMode ? "SCAN BARCODE TO VERIFY..." : "Search inventory..."}
+                                placeholder={showAuditMode ? "BARCODE ZUR PRÜFUNG SCANNEN..." : "Produkte suchen..."}
                                 className="bg-transparent border-none outline-none text-sm w-full font-medium"
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
@@ -601,7 +446,7 @@ export default function InventoryTab() {
                                 onChange={e => setFilterCategory(e.target.value)}
                                 className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/10"
                             >
-                                <option value="All">All Categories</option>
+                                <option value="All">Alle Kategorien</option>
                                 {getLevel1Categories('sales').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                             </select>
 
@@ -610,7 +455,7 @@ export default function InventoryTab() {
                                 className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-all"
                             >
                                 <Percent size={14} />
-                                Bulk Update
+                                Massenupdate
                             </button>
 
                             <button
@@ -618,7 +463,7 @@ export default function InventoryTab() {
                                 className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-700 transition-all shadow-md shadow-slate-200"
                             >
                                 <Download size={14} />
-                                Export
+                                Exportieren
                             </button>
                         </div>
                     </div>
@@ -628,7 +473,7 @@ export default function InventoryTab() {
                         <div className="md:hidden p-4 space-y-3">
                             {filteredProducts.length === 0 ? (
                                 <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-400 font-medium">
-                                    No products found for selected filters.
+                                    Keine Produkte für die ausgewählten Filter gefunden.
                                 </div>
                             ) : filteredProducts.map((product) => {
                                 const slowMoving = isSlowMoving(product.timestamp);
@@ -665,8 +510,8 @@ export default function InventoryTab() {
                                                         <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[9px] font-black uppercase tracking-tighter">Slow</span>
                                                     )}
                                                 </div>
-                                                <p className="text-[10px] font-mono text-slate-400 mt-1 truncate">{product.barcode || 'NO-BARCODE'}</p>
-                                                <p className="text-[10px] font-bold text-blue-500 mt-0.5">{getProductCategoryL1(product) || 'Uncategorized'}</p>
+                                                <p className="text-[10px] font-mono text-slate-400 mt-1 truncate">{product.barcode || 'KEIN-BARCODE'}</p>
+                                                <p className="text-[10px] font-bold text-blue-500 mt-0.5">{getProductCategoryL1(product) || 'Ohne Kategorie'}</p>
                                             </div>
                                         </div>
 
@@ -676,21 +521,21 @@ export default function InventoryTab() {
                                                     'bg-emerald-50 text-emerald-600 border border-emerald-100'
                                                 }`}>
                                                 <span className="text-lg font-black">{product.stock}</span>
-                                                <span className="text-[8px] font-bold uppercase tracking-widest -mt-1 opacity-60">Units</span>
+                                                <span className="text-[8px] font-bold uppercase tracking-widest -mt-1 opacity-60">Stk.</span>
                                             </div>
                                             <div className="flex-1 text-xs space-y-1">
                                                 <div className="flex justify-between">
-                                                    <span className="text-slate-400 font-bold">Buy</span>
+                                                    <span className="text-slate-400 font-bold">Einkauf</span>
                                                     <span className="text-slate-700 font-black">{priceTag(product.purchasePrice)}</span>
                                                 </div>
                                                 <div className="flex justify-between">
-                                                    <span className="text-slate-400 font-bold">Sell</span>
+                                                    <span className="text-slate-400 font-bold">Verkauf</span>
                                                     <span className="text-blue-600 font-black">{priceTag(product.sellingPrice)}</span>
                                                 </div>
                                                 <div className="flex justify-end">
                                                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
                                                         }`}>
-                                                        {margin}% MARGIN
+                                                        {margin}% MARGE
                                                     </span>
                                                 </div>
                                             </div>
@@ -711,7 +556,7 @@ export default function InventoryTab() {
                                             <button
                                                 onClick={() => printLabel(product)}
                                                 className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
-                                                title="Print QR Label"
+                                                title="QR-Etikett drucken"
                                             >
                                                 <Tags size={14} />
                                             </button>
@@ -721,7 +566,7 @@ export default function InventoryTab() {
                                                     target="_blank"
                                                     rel="noreferrer"
                                                     className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                    title="Supplier Link"
+                                                    title="Lieferantenlink"
                                                 >
                                                     <ExternalLink size={14} />
                                                 </a>
@@ -729,14 +574,14 @@ export default function InventoryTab() {
                                             <button
                                                 onClick={() => handleEditProduct(product)}
                                                 className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                title="Edit Product"
+                                                title="Produkt bearbeiten"
                                             >
                                                 <Edit2 size={14} />
                                             </button>
                                             <button
-                                                onClick={() => { if (window.confirm('Delete this product?')) deleteProduct(product.id); }}
+                                                onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
                                                 className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center"
-                                                title="Delete Product"
+                                                title="Produkt löschen"
                                             >
                                                 <Trash2 size={14} />
                                             </button>
@@ -750,10 +595,10 @@ export default function InventoryTab() {
                             <table className="w-full text-left border-collapse">
                                 <thead>
                                     <tr className="bg-slate-50/50 border-b border-slate-100">
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Product Info</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Stock</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Pricing & Margin</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Produktinfo</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Bestand</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Preis &amp; Marge</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Aktionen</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
@@ -791,7 +636,7 @@ export default function InventoryTab() {
                                                             <div className="flex items-center gap-2 mt-1">
                                                                 <p className="text-[10px] font-mono text-slate-400 font-bold">{product.barcode || 'NO-BARCODE'}</p>
                                                                 <span className="text-slate-300">•</span>
-                                                                <p className="text-[10px] font-bold text-blue-500">{getProductCategoryL1(product) || 'Uncategorized'}</p>
+                                                                <p className="text-[10px] font-bold text-blue-500">{getProductCategoryL1(product) || 'Ohne Kategorie'}</p>
                                                             </div>
                                                             {/* Attribute Chips */}
                                                             <div className="flex flex-wrap gap-1 mt-2">
@@ -836,17 +681,17 @@ export default function InventoryTab() {
                                                 <td className="px-6 py-4">
                                                     <div className="space-y-1">
                                                         <div className="flex justify-between items-center text-xs">
-                                                            <span className="text-slate-400 font-bold">Buy:</span>
+                                                            <span className="text-slate-400 font-bold">Einkauf:</span>
                                                             <span className="text-slate-600 font-black">{priceTag(product.purchasePrice)}</span>
                                                         </div>
                                                         <div className="flex justify-between items-center text-xs">
-                                                            <span className="text-slate-400 font-bold">Sell:</span>
+                                                            <span className="text-slate-400 font-bold">Verkauf:</span>
                                                             <span className="text-blue-600 font-black">{priceTag(product.sellingPrice)}</span>
                                                         </div>
                                                         <div className="pt-1 flex items-center justify-center">
                                                             <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
                                                                 }`}>
-                                                                {margin}% MARGIN
+                                                                {margin}% MARGE
                                                             </span>
                                                         </div>
                                                     </div>
@@ -856,14 +701,14 @@ export default function InventoryTab() {
                                                         <button
                                                             onClick={() => printLabel(product)}
                                                             className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
-                                                            title="Print QR Label"
+                                                            title="QR-Etikett drucken"
                                                         >
                                                             <Tags size={14} />
                                                         </button>
                                                         {product.productUrl && (
                                                             <a href={product.productUrl} target="_blank" rel="noreferrer"
                                                                 className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                                title="Supplier Link"
+                                                                title="Lieferantenlink"
                                                             >
                                                                 <ExternalLink size={14} />
                                                             </a>
@@ -875,7 +720,7 @@ export default function InventoryTab() {
                                                             <Edit2 size={14} />
                                                         </button>
                                                         <button
-                                                            onClick={() => { if (window.confirm('Delete this product?')) deleteProduct(product.id); }}
+                                                            onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
                                                             className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center"
                                                         >
                                                             <Trash2 size={14} />
@@ -896,8 +741,8 @@ export default function InventoryTab() {
                     <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
                         <div className="flex items-center justify-between gap-2 mb-4">
                             <div>
-                                <h3 className="font-bold text-slate-800">Important Purchase Links</h3>
-                                <p className="text-[11px] text-slate-400">Add supplier websites for quick stock purchases.</p>
+                                <h3 className="font-bold text-slate-800">Wichtige Einkaufslinks</h3>
+                                <p className="text-[11px] text-slate-400">Lieferanten-Websites für schnelle Einkäufe hinzufügen.</p>
                             </div>
                             <ExternalLink size={18} className="text-blue-500" />
                         </div>
@@ -906,7 +751,7 @@ export default function InventoryTab() {
                             <input
                                 value={linkName}
                                 onChange={(e) => setLinkName(e.target.value)}
-                                placeholder="Link title"
+                                placeholder="Linktitel"
                                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
                             />
                             <input
@@ -921,7 +766,7 @@ export default function InventoryTab() {
                                     onClick={handleSaveImportantLink}
                                     className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
                                 >
-                                    {editingLinkId ? 'Update Link' : 'Add Link'}
+                                    {editingLinkId ? 'Link aktualisieren' : 'Link hinzufügen'}
                                 </button>
                                 {editingLinkId && (
                                     <button
@@ -929,7 +774,7 @@ export default function InventoryTab() {
                                         onClick={() => { setEditingLinkId(''); setLinkName(''); setLinkUrl(''); }}
                                         className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
                                     >
-                                        Cancel Edit
+                                        Bearbeiten abbrechen
                                     </button>
                                 )}
                             </div>
@@ -937,9 +782,9 @@ export default function InventoryTab() {
 
                         <div className="space-y-2">
                             {linksLoading ? (
-                                <p className="text-xs text-slate-400 italic">Loading supplier links...</p>
+                                <p className="text-xs text-slate-400 italic">Lieferantenlinks werden geladen...</p>
                             ) : importantLinks.length === 0 ? (
-                                <p className="text-xs text-slate-400 italic">No links yet. Add your supplier URLs above.</p>
+                                <p className="text-xs text-slate-400 italic">Noch keine Links. Füge oben deine Lieferanten-URLs hinzu.</p>
                             ) : importantLinks.map((row) => (
                                 <div key={row.id} className="rounded-xl border border-slate-100 bg-slate-50 p-2.5">
                                     <div className="flex items-center justify-between gap-2">
@@ -952,7 +797,7 @@ export default function InventoryTab() {
                                                 type="button"
                                                 onClick={() => window.open(row.url, '_blank', 'noopener,noreferrer')}
                                                 className="rounded-md border border-blue-200 bg-blue-50 p-1.5 text-blue-600 hover:bg-blue-100"
-                                                title="Open link"
+                                                title="Link öffnen"
                                             >
                                                 <ExternalLink size={13} />
                                             </button>
@@ -960,7 +805,7 @@ export default function InventoryTab() {
                                                 type="button"
                                                 onClick={() => startEditImportantLink(row)}
                                                 className="rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 hover:bg-slate-100"
-                                                title="Edit link"
+                                                title="Link bearbeiten"
                                             >
                                                 <Edit2 size={13} />
                                             </button>
@@ -968,7 +813,7 @@ export default function InventoryTab() {
                                                 type="button"
                                                 onClick={() => deleteImportantLink(row.id)}
                                                 className="rounded-md border border-red-200 bg-red-50 p-1.5 text-red-600 hover:bg-red-100"
-                                                title="Delete link"
+                                                title="Link löschen"
                                             >
                                                 <Trash2 size={13} />
                                             </button>
@@ -983,7 +828,7 @@ export default function InventoryTab() {
                     <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
                         <div className="flex items-center gap-2 mb-4">
                             <Package size={20} className="text-purple-500" />
-                            <h3 className="font-bold text-slate-800">Top Suppliers</h3>
+                            <h3 className="font-bold text-slate-800">Top-Lieferanten</h3>
                         </div>
                         <div className="space-y-3">
                             {supplierInsights.map(([domain, data], idx) => (
@@ -992,14 +837,14 @@ export default function InventoryTab() {
                                         <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white text-[10px] font-bold text-slate-400 border border-slate-100 shadow-sm">{idx + 1}</span>
                                         <div>
                                             <p className="text-xs font-bold text-slate-700">{domain}</p>
-                                            <p className="text-[10px] text-slate-400">{data.count} Products</p>
+                                            <p className="text-[10px] text-slate-400">{data.count} Produkte</p>
                                         </div>
                                     </div>
                                     <span className="text-xs font-black text-purple-600">{priceTag(data.totalBuy)}</span>
                                 </div>
                             ))}
                             {supplierInsights.length === 0 && (
-                                <p className="text-xs text-slate-400 italic text-center py-4">Add product URLs to see supplier insights.</p>
+                                <p className="text-xs text-slate-400 italic text-center py-4">Produkt-URLs hinzufügen, um Lieferantenanalysen zu sehen.</p>
                             )}
                         </div>
                     </div>
@@ -1007,7 +852,7 @@ export default function InventoryTab() {
                     <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-[2rem] shadow-xl text-white">
                         <div className="flex items-center gap-2 mb-6">
                             <TrendingUp size={20} className="text-blue-400" />
-                            <h3 className="font-bold">Category Analysis</h3>
+                            <h3 className="font-bold">Kategorieanalyse</h3>
                         </div>
 
                         <div className="space-y-6">
@@ -1024,7 +869,7 @@ export default function InventoryTab() {
                                         />
                                     </div>
                                     <div className="flex justify-between items-center pt-1">
-                                        <span className="text-[10px] text-slate-500 font-bold italic">Exp. Profit</span>
+                                        <span className="text-[10px] text-slate-500 font-bold italic">Erw. Gewinn</span>
                                         <span className="text-xs font-black text-emerald-400">+{priceTag(cat.potentialProfit)}</span>
                                     </div>
                                 </div>
@@ -1032,7 +877,7 @@ export default function InventoryTab() {
 
                             <div className="pt-6 border-t border-slate-700 mt-6">
                                 <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Expected Return</p>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Gesamterwarteter Ertrag</p>
                                     <p className="text-2xl font-black text-emerald-400">
                                         {priceTag(categoryAnalysis.reduce((sum, c) => sum + c.potentialProfit, 0))}
                                     </p>
@@ -1043,8 +888,8 @@ export default function InventoryTab() {
 
                     <div className="bg-blue-600 p-6 rounded-[2rem] shadow-lg shadow-blue-200 text-white relative overflow-hidden group">
                         <div className="relative z-10">
-                            <h4 className="font-bold mb-2">Need to reorder?</h4>
-                            <p className="text-xs text-blue-100 mb-4 opacity-80">Check out the 'Source' links in the table to buy directly from suppliers.</p>
+                            <h4 className="font-bold mb-2">Nachbestellen?</h4>
+                            <p className="text-xs text-blue-100 mb-4 opacity-80">Nutze die „Quelle“-Links in der Tabelle, um direkt bei Lieferanten zu kaufen.</p>
                             <Calendar size={40} className="absolute -bottom-2 -right-2 opacity-20 group-hover:scale-110 transition-transform" />
                         </div>
                         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl" />
@@ -1065,44 +910,44 @@ export default function InventoryTab() {
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                         <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 animate-scale-in">
                             <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
-                                <Percent size={24} className="text-indigo-600" /> Bulk Pricing Update
+                                <Percent size={24} className="text-indigo-600" /> Preis-Massenupdate
                             </h3>
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Target Category</label>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Zielkategorie</label>
                                     <select
                                         value={bulkCategory}
                                         onChange={e => setBulkCategory(e.target.value)}
                                         className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
                                     >
-                                        <option value="">Select Category...</option>
+                                        <option value="">Kategorie wählen...</option>
                                         {getLevel1Categories('sales').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Price Increase (%)</label>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Preiserhöhung (%)</label>
                                     <input
                                         type="number"
-                                        placeholder="e.g. 10 for +10%"
+                                        placeholder="z. B. 10 für +10 %"
                                         value={bulkPercentage}
                                         onChange={e => setBulkPercentage(e.target.value)}
                                         className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
                                     />
-                                    <p className="text-[10px] text-slate-400 mt-2 italic">Use negative values to decrease prices (e.g. -5 for 5% off).</p>
+                                    <p className="text-[10px] text-slate-400 mt-2 italic">Negative Werte senken Preise (z. B. -5 für 5 % Rabatt).</p>
                                 </div>
                                 <div className="flex gap-3 pt-4">
                                     <button
                                         onClick={() => setShowBulkModal(false)}
                                         className="flex-1 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors"
                                     >
-                                        Cancel
+                                        Abbrechen
                                     </button>
                                     <button
                                         onClick={handleBulkUpdate}
                                         disabled={!bulkCategory || !bulkPercentage}
                                         className="flex-1 py-3 rounded-xl font-bold bg-indigo-600 text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Apply Update
+                                        Update anwenden
                                     </button>
                                 </div>
                             </div>
