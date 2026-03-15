@@ -333,7 +333,7 @@ function getAdminRedirectPath(role) {
 }
 
 function getSalesmanRedirectPath() {
-    return '/terminal-access-v1/latest-dashboard';
+    return '/terminal-access-v1/dashboard';
 }
 
 function redirectToSalesmanLogin() {

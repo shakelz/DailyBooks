@@ -9,7 +9,7 @@ import {
 
 const ADMIN_BASE_ROUTE = '/management-portal-v1';
 const SALESMAN_LOGIN_ROUTE = '/terminal-access-v1';
-const SALESMAN_DASHBOARD_ROUTE = '/terminal-access-v1/latest-dashboard';
+const SALESMAN_DASHBOARD_ROUTE = '/terminal-access-v1/dashboard';
 
 export default function AdminPanel() {
     const navigate = useNavigate();
