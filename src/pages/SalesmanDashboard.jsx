@@ -455,9 +455,9 @@ function buildReceiptHtml({
                 <style>
                     @media print {
                         @page { size: 72mm auto; margin: 0mm; }
-                        html, body { margin: 0; padding: 0; width: 72mm; }
+                        html, body { margin: 0; padding: 0; width: 72mm; display: flex; justify-content: center; }
+                        .receipt-wrapper { width: 72mm; margin: 0 auto; }
                         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                        .receipt-wrapper { width: 100%; margin: 0; }
                     }
                     body { font-family: 'Arial', 'Helvetica', sans-serif; width: 72mm; margin: 0 auto; padding: 8mm 5mm; line-height: 1.6; background: #fff; font-size: 16px; color: #111; font-weight: 700; }
                     .receipt-wrapper { width: 100%; max-width: 100%; }
@@ -503,9 +503,9 @@ function buildReceiptHtml({
 
                     <div class="line"></div>
                     ${rows.length > 1 ? `<div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>` : ''}
-                    <div class="row" style="border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 0;">
-                        <strong style="font-size: 22px; font-weight: 900; padding: 7px 2px;">Gesamtbetrag</strong>
-                        <strong style="font-size: 22px; font-weight: 900; padding: 7px 2px; text-align: right; white-space: nowrap;">${formatMoney(grossTotal)}</strong>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 2px; margin: 4px 0;">
+                        <strong style="font-size: 18px; font-weight: 900; white-space: nowrap;">GESAMTBETRAG</strong>
+                        <strong style="font-size: 18px; font-weight: 900; white-space: nowrap; text-align: right;">${formatMoney(grossTotal)}</strong>
                     </div>
 
                     ${showTax ? `
