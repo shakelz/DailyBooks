@@ -915,7 +915,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const map = result.data.reduce((acc, row) => {
                 const scope = normalizeKpiScope(row?.kpi_scope || row?.scope);
                 const categoryName = String(row?.category_name || row?.category || '').trim().toLowerCase();
-                const subCategoryName = String(row?.sub_category_name || row?.sub_category || '').trim().toLowerCase();
+                const rawSub = String(row?.sub_category_name || row?.sub_category || '').trim().toLowerCase();
+                // Normalize placeholder values ('empty', 'null', '-') to empty string
+                const EMPTY_PLACEHOLDERS = new Set(['empty', 'null', 'undefined', '-', 'none', '']);
+                const subCategoryName = EMPTY_PLACEHOLDERS.has(rawSub) ? '' : rawSub;
                 if (!categoryName) return acc;
                 const mode = normalizeKpiContributionMode(row?.contribution_mode ?? 'sales');
                 acc[makeScopedProfitCategoryKey(scope, categoryName, subCategoryName)] = mode;
