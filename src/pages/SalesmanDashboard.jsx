@@ -2688,6 +2688,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             type,
             tx_type: mode === 'sales' ? 'product_sale' : 'product_expense',
             category: entry.category,
+            sub_category: entry.subCategory || '',
             paymentMethod: entry.paymentMode || 'Cash',
             notes: entry.subCategory ? `SubCategory: ${entry.subCategory}` : '',
             source: type === 'expense' ? 'expense' : 'shop',
@@ -4180,6 +4181,29 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 )}
                                 {purchaseEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.category}</p>}
                             </div>
+
+                            {purchaseSubCategoryOptions.length > 0 && (
+                                <div>
+                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Sub Category</label>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {purchaseSubCategoryOptions.map((name) => (
+                                            <button
+                                                key={`purchase-subcat-chip-${name}`}
+                                                type="button"
+                                                onClick={() => {
+                                                    setPurchaseEntry((prev) => ({
+                                                        ...prev,
+                                                        subCategory: prev.subCategory === name ? '' : name,
+                                                    }));
+                                                }}
+                                                className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${purchaseEntry.subCategory === name ? 'bg-rose-400 text-white border-rose-400' : 'bg-white text-slate-600 border-slate-200 hover:border-rose-200'}`}
+                                            >
+                                                {name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex items-center justify-end">
