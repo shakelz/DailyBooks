@@ -3001,8 +3001,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const totalPrice = Number(order.totalCost ?? order.amount) || 0;
         const advanceAmount = Number(order.advanceAmount) || 0;
         const remainingAmount = Math.max(0, totalPrice - advanceAmount);
-        
-        const win = window.open('', 'online-order-bill', 'width=380,height=760');
+        const hasAdvance = advanceAmount > 0;
+
+        const win = window.open('', 'online-order-bill', 'width=380,height=600');
         if (!win) return;
 
         const toSafe = (value) => String(value || '')
@@ -3010,110 +3011,81 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             .replaceAll('<', '&lt;')
             .replaceAll('>', '&gt;')
             .replaceAll('"', '&quot;')
-            .replaceAll('\'', '&#39;');
+            .replaceAll("'", '&#39;');
 
-        const orderId = '#' + String(order.orderId || order.id || '').slice(0, 8).toUpperCase();
+        const rawId = String(order.orderId || order.id || '').trim();
+        const orderId = rawId.slice(0, 8).toUpperCase();
+        const zahlungText = (order.paymentStatus === 'Paid') ? 'Bezahlt' : 'Unbezahlt';
+
+        const fmtDate = (val) => val ? new Date(val).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+        const fmtMoney = (val) => `€ ${Number(val || 0).toFixed(2)}`;
 
         const row = (label, value) => {
             if (!value || value === '-' || value === '') return '';
-            return `
-    <tr>
-      <td style="padding: 7px 0; font-size: 16px; font-weight: 700; color: #222; width: 48%; vertical-align: top;">${label}</td>
-      <td style="padding: 7px 0; font-size: 16px; font-weight: 800; color: #000; text-align: right; vertical-align: top;">${toSafe(value)}</td>
-    </tr>`;
+            return `<tr>
+            <td style="padding:5px 0;font-size:15px;font-weight:800;color:#111;width:50%;vertical-align:top;">${label}</td>
+            <td style="padding:5px 0;font-size:15px;font-weight:800;color:#111;text-align:right;vertical-align:top;">${toSafe(String(value))}</td>
+        </tr>`;
         };
 
-        const html = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8"/>
-                <title>Online-Bestellung</title>
-                <style>
-                    @media print {
-                        @page { size: 72mm auto; margin: 0mm; }
-                        html, body { margin: 0; padding: 0; width: 72mm; }
-                        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                        .receipt-wrapper { width: 100%; margin: 0; }
-                    }
-                    body { font-family: 'Arial', 'Helvetica', sans-serif; width: 72mm; margin: 0 auto; padding: 8mm 5mm; line-height: 1.6; background: #fff; }
-                    .receipt-wrapper { width: 100%; max-width: 100%; }
-                    .divider { border: none; border-top: 1px dashed #999; margin: 10px 0; }
-                    .shop-name { font-size: 26px; font-weight: 900; text-align: center; letter-spacing: 1px; }
-                    .shop-sub { font-size: 15px; font-weight: 600; text-align: center; color: #333; margin-top: 3px; }
-                    .bill-title { font-size: 15px; font-weight: 900; text-align: center; letter-spacing: 2px; text-transform: uppercase; color: #555; margin-top: 6px; }
-                    .order-id span { background: #111; color: #fff; font-size: 17px; font-weight: 900; padding: 5px 14px; border-radius: 4px; letter-spacing: 2px; }
-                    .amount-row td { font-size: 16px; padding: 6px 0; font-weight: 700; }
-                    .total-label { font-size: 22px; font-weight: 900; }
-                    .total-value { font-size: 22px; font-weight: 900; text-align: right; }
-                    .footer { text-align: center; font-size: 14px; color: #555; font-weight: 600; margin-top: 14px; line-height: 1.6; }
-                </style>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-            </head>
-            <body>
-                <div class="receipt-wrapper">
-                <p class="shop-name">${toSafe(receiptShopName)}</p>
-                ${receiptShopAddress ? `<p class="shop-sub">${toSafe(receiptShopAddress)}</p>` : ''}
-                ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
-                
-                <p class="bill-title">Online-Bestellung</p>
-                
-                <hr class="divider"/>
-                
-                <table style="width:100%; margin: 8px 0;">
-                    <tr class="order-id">
-                        <td style="font-size: 15px; font-weight: 700; color: #111; width: 50%;">Abholung Nr.</td>
-                        <td style="text-align: right;">
-                            <span style="display: inline-block; -webkit-print-color-adjust: exact; print-color-adjust: exact;">${orderId}</span>
-                        </td>
-                    </tr>
-                </table>
-                
-                <hr class="divider"/>
-                
-                <table style="width: 100%; border-collapse: collapse;">
-                    ${row('Plattform', order.platform)}
-                    ${row('Artikel', order.itemName)}
-                    ${row('Kategorie', order.category)}
-                    ${row('Farbe / Variante', order.color)}
-                    ${row('Status', order.status || 'ordered')}
-                    ${row('Zahlung', order.paymentStatus || 'Paid')}
-                    ${row('Bestelldatum', order.orderDate ? new Date(order.orderDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '')}
-                    ${row('Lieferdatum', order.expectedDeliveryDate ? new Date(order.expectedDeliveryDate).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '')}
-                </table>
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Online-Bestellung</title>
+    <style>
+        @media print {
+            @page { size: 72mm auto; margin: 0mm; }
+            html, body { margin: 0; padding: 0; width: 72mm; }
+            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+        * { box-sizing: border-box; }
+        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 72mm; margin: 0 auto; padding: 6mm 4mm; background: #fff; color: #111; }
+        .shop-name { font-size: 18px; font-weight: 900; text-align: center; margin: 0 0 3px 0; }
+        .shop-sub { font-size: 13px; font-weight: 700; text-align: center; margin: 2px 0; }
+        .divider { border: none; border-top: 1px dashed #666; margin: 8px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        td { font-size: 15px; font-weight: 800; color: #111; }
+        .footer { text-align: center; font-size: 13px; font-weight: 700; color: #333; margin-top: 6px; }
+    </style>
+</head>
+<body>
+    <p class="shop-name">${toSafe(receiptShopName)}</p>
+    ${receiptShopAddress ? `<p class="shop-sub">${toSafe(receiptShopAddress)}</p>` : ''}
+    ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
 
-                <hr class="divider"/>
+    <hr class="divider"/>
 
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr class="amount-row">
-                        <td style="color: #333;">Kosten</td>
-                        <td style="text-align: right; color: #000;">€ ${totalPrice.toFixed(2)}</td>
-                    </tr>
-                    <tr class="amount-row">
-                        <td style="color: #333;">Anzahlung</td>
-                        <td style="text-align: right; color: #000;">€ ${advanceAmount.toFixed(2)}</td>
-                    </tr>
-                    <tr>
-                        <td class="total-label" style="padding-right: 8px;">Restbetrag</td>
-                        <td class="total-value" style="white-space: nowrap;">€ ${remainingAmount.toFixed(2)}</td>
-                    </tr>
-                </table>
+    <table>
+        <tr>
+            <td style="padding:5px 0;font-size:15px;font-weight:800;">Abholung Nr.</td>
+            <td style="padding:5px 0;font-size:15px;font-weight:800;text-align:right;">${toSafe(orderId)}</td>
+        </tr>
+    </table>
 
-                ${order.notes ? `
-                <hr class="divider"/>
-                <p style="font-size:14px; color:#333; font-weight:600">Notizen:</p>
-                <p style="font-size:14px; margin-top:4px">${toSafe(order.notes)}</p>
-                ` : ''}
+    <hr class="divider"/>
 
-                <hr class="divider"/>
-                <p class="footer">Bitte diesen Kundenbeleg zur Abholung der Online-Bestellung mitbringen.</p>
-                <p class="footer" style="margin-top: 4px;">Vielen Dank für Ihre Bestellung!</p>
-                <hr class="divider"/>
-                <p class="footer">Danke für Ihr Vertrauen!<br/>${toSafe(receiptShopName)}</p>
-                </div>
-            </body>
-            </html>
-        `;
+    <table>
+        ${row('Artikel', order.itemName)}
+        ${order.color ? row('Farbe', order.color) : ''}
+        ${row('Bestelldatum', fmtDate(order.orderDate))}
+        ${order.expectedDeliveryDate ? row('Lieferdatum', fmtDate(order.expectedDeliveryDate)) : ''}
+        ${row('Zahlung', zahlungText)}
+    </table>
+
+    <hr class="divider"/>
+
+    <table>
+        ${row('Kosten', fmtMoney(totalPrice))}
+        ${hasAdvance ? row('Anzahlung', fmtMoney(advanceAmount)) : ''}
+        ${hasAdvance ? row('Restbetrag', fmtMoney(remainingAmount)) : ''}
+    </table>
+
+    <hr class="divider"/>
+    <p class="footer">${toSafe(receiptShopName)}</p>
+</body>
+</html>`;
 
         win.document.write(html);
         win.document.close();
