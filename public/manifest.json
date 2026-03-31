@@ -1,7 +1,7 @@
 {
-  "name": "DailyBooks ERP",
-  "short_name": "DailyBooks",
-  "description": "DailyBooks ERP - Sales, Inventory, Repairs, and Insights",
+  "name": "Book",
+  "short_name": "Book",
+  "description": "Book - Sales, Inventory, Repairs, and Insights",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

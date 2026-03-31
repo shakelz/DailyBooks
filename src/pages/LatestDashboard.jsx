@@ -530,7 +530,7 @@ export default function LatestDashboard() {
             <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-sm">
                 <div>
                     <h1 className="text-2xl sm:text-3xl font-black tracking-tight bg-gradient-to-r from-blue-700 via-indigo-600 to-cyan-500 bg-clip-text text-transparent">
-                        DailyBooks
+                        Book
                     </h1>
                     <p className="text-sm sm:text-base text-slate-500 font-semibold">
                         Hello, <span className="text-slate-800 font-black">{user?.name || 'Salesman'}</span>

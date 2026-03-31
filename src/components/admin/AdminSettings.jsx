@@ -466,7 +466,7 @@ export default function AdminSettings() {
     };
 
     const handleForceRefreshAppData = async () => {
-        const confirmed = window.confirm('Dadurch wird der lokale DailyBooks-Cache gelöscht und die neuesten Daten aus der Datenbank neu geladen. Fortfahren?');
+        const confirmed = window.confirm('Dadurch wird der lokale Book-Cache gelöscht und die neuesten Daten aus der Datenbank neu geladen. Fortfahren?');
         if (!confirmed) return;
 
         setIsRefreshingAppData(true);
@@ -510,7 +510,7 @@ export default function AdminSettings() {
     };
 
     const handleClearLocalCacheOnly = async () => {
-        const confirmed = window.confirm('Lokalen DailyBooks-Cache auf diesem Gerät löschen?');
+        const confirmed = window.confirm('Lokalen Book-Cache auf diesem Gerät löschen?');
         if (!confirmed) return;
 
         setIsRefreshingAppData(true);
@@ -590,7 +590,7 @@ export default function AdminSettings() {
                                     value={shopName}
                                     onChange={(e) => setShopName(e.target.value)}
                                     className="w-full bg-transparent outline-none text-sm font-medium"
-                                    placeholder="z. B. DailyBooks Berlin"
+                                    placeholder="z. B. Book Berlin"
                                 />
                             </div>
                         </div>

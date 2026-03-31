@@ -6,7 +6,7 @@ const SUPPORTED_LANGUAGES = new Set(['en', 'de']);
 const DICTIONARY = {
     en: {
         'profile.fallbackName': 'Salesman',
-        'profile.roleSubtitle': 'Sales Executive • DailyBooks',
+        'profile.roleSubtitle': 'Sales Executive • Book',
         'profile.punchedInAt': 'Punched In at',
         'profile.currentlyOffline': 'Currently Offline',
         'profile.punchIn': 'Punch IN',
@@ -54,7 +54,7 @@ const DICTIONARY = {
     },
     de: {
         'profile.fallbackName': 'Verkaeufer',
-        'profile.roleSubtitle': 'Verkauf • DailyBooks',
+        'profile.roleSubtitle': 'Verkauf • Book',
         'profile.punchedInAt': 'Eingestempelt um',
         'profile.currentlyOffline': 'Aktuell offline',
         'profile.punchIn': 'Einstempeln',

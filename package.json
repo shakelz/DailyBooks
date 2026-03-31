@@ -1,5 +1,5 @@
 {
-  "name": "carefone-erp",
+  "name": "Book",
   "private": true,
   "version": "0.0.1",
   "main": "electron.main.js",
@@ -48,7 +48,7 @@
   },
   "build": {
     "appId": "com.carefone.erp",
-    "productName": "CareFone ERP",
+    "productName": "Book",
     "directories": {
       "output": "dist-electron"
     },

@@ -1154,7 +1154,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const handleClearLocalCache = useCallback(() => {
         if (!adminView) return;
-        const confirmed = window.confirm('Clear local DailyBooks cache on this browser/device?');
+        const confirmed = window.confirm('Clear local Book cache on this browser/device?');
         if (!confirmed) return;
 
         try {
