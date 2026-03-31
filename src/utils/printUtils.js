@@ -48,10 +48,13 @@ export const printRepairJobBill = (job, activeShop) => {
       * { margin: 0; padding: 0; box-sizing: border-box; }
       
       @media print {
+        @page { size: 72mm auto; margin: 0mm; }
         html, body {
           margin: 0;
           padding: 0;
+          width: 72mm;
         }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         
         .receipt-wrapper {
           width: 100%;
@@ -60,8 +63,8 @@ export const printRepairJobBill = (job, activeShop) => {
       }
 
       body {
-        font-family: 'Courier New', monospace;
-        width: 80mm;
+        font-family: 'Arial', 'Helvetica', sans-serif;
+        width: 72mm;
         margin: 0 auto;
         padding: 8mm 5mm;
         line-height: 1.6;
@@ -91,6 +94,7 @@ export const printRepairJobBill = (job, activeShop) => {
       .total-value { font-size: 22px; font-weight: 900; text-align: right; }
       .footer { text-align: center; font-size: 14px; color: #333; font-weight: 600; margin-top: 12px; line-height: 1.6; }
     </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   </head>
   <body>
     <div class="receipt-wrapper">
@@ -150,12 +154,12 @@ export const printRepairJobBill = (job, activeShop) => {
   </body>
   </html>`
 
-  const win = window.open('', '_blank', 'width=420,height=750')
+  const win = window.open('', '_blank', 'width=380,height=750')
   if(!win) return;
   win.document.write(html)
   win.document.close()
   win.focus()
-  setTimeout(() => { win.print(); win.close() }, 500)
+  setTimeout(() => { win.print(); win.close() }, 800)
 }
 
 function escapePrintHtml(value) {
@@ -264,12 +268,13 @@ function buildKundenbelegHtml({
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         @media print {
-          html, body { margin: 0; padding: 0; }
-          body { width: 80mm; }
+          @page { size: 72mm auto; margin: 0mm; }
+          html, body { margin: 0; padding: 0; width: 72mm; }
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         body {
-          font-family: 'Courier New', monospace;
-          width: 80mm;
+          font-family: 'Arial', 'Helvetica', sans-serif;
+          width: 72mm;
           margin: 0 auto;
           padding: 10mm 5mm;
           line-height: 1.6;
@@ -279,6 +284,7 @@ function buildKundenbelegHtml({
         .divider { border: none; border-top: 1px dashed #999; margin: 8px 0; }
         table { width: 100%; border-collapse: collapse; }
       </style>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     </head>
     <body>
       <div style="font-weight: 900; font-size: 24px; text-align: center;">${escapePrintHtml(shopName)}</div>
@@ -352,7 +358,7 @@ function buildKundenbelegHtml({
 }
 
 export function printKundenbeleg(items, transactionId, _paymentMethod, shopInfo, options = {}) {
-  const win = window.open('', '_blank', 'width=420,height=750')
+  const win = window.open('', '_blank', 'width=380,height=600')
   if (!win) return
 
   win.document.write(buildKundenbelegHtml({
@@ -364,5 +370,5 @@ export function printKundenbeleg(items, transactionId, _paymentMethod, shopInfo,
   }))
   win.document.close()
   win.focus()
-  setTimeout(() => { win.print(); win.close() }, 500)
+  setTimeout(() => { win.print(); win.close() }, 800)
 }

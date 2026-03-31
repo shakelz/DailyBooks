@@ -454,10 +454,12 @@ function buildReceiptHtml({
                 <title>Beleg</title>
                 <style>
                     @media print {
-                        html, body { margin: 0; padding: 0; }
+                        @page { size: 72mm auto; margin: 0mm; }
+                        html, body { margin: 0; padding: 0; width: 72mm; }
+                        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                         .receipt-wrapper { width: 100%; margin: 0; }
                     }
-                    body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 5mm; line-height: 1.6; background: #fff; font-size: 16px; color: #111; font-weight: 700; }
+                    body { font-family: 'Arial', 'Helvetica', sans-serif; width: 72mm; margin: 0 auto; padding: 8mm 5mm; line-height: 1.6; background: #fff; font-size: 16px; color: #111; font-weight: 700; }
                     .receipt-wrapper { width: 100%; max-width: 100%; }
                     .ticket { border: 1px solid #111; padding: 1.5mm; width: 100%; box-sizing: border-box; }
                     .center { text-align: center; }
@@ -476,6 +478,7 @@ function buildReceiptHtml({
                     .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
                     .footer { font-size: 14px; font-weight: 600; color: #333; line-height: 1.6; }
                 </style>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
             </head>
             <body>
                 <div class="receipt-wrapper">
@@ -2738,7 +2741,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             .replaceAll('"', '&quot;')
             .replaceAll('\'', '&#39;');
 
-        const printWindow = window.open('', 'mobile-label-print', 'width=600,height=400');
+        const printWindow = window.open('', 'mobile-label-print', 'width=380,height=360');
         if (!printWindow) return;
 
         printWindow.document.write(`
@@ -2746,12 +2749,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <head>
                     <style>
                         @media print {
-                            body { margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-                            @page { size: auto; margin: 0; }
+                            @page { size: 70mm auto; margin: 0; }
+                            html, body { margin: 0; padding: 0; width: 70mm; }
+                            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                            body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
                         }
-                        body { font-family: sans-serif; }
+                        body { font-family: 'Arial', 'Helvetica', sans-serif; }
                         .label {
-                            width: 78mm;
+                            width: 70mm;
                             border: 2px solid #000;
                             padding: 10px;
                             box-sizing: border-box;
@@ -2793,6 +2798,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             padding-top: 6px;
                         }
                     </style>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
                     <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet">
                 </head>
                 <body>
@@ -2992,7 +2998,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const advanceAmount = Number(order.advanceAmount) || 0;
         const remainingAmount = Math.max(0, totalPrice - advanceAmount);
         
-        const win = window.open('', 'online-order-bill', 'width=420,height=760');
+        const win = window.open('', 'online-order-bill', 'width=380,height=760');
         if (!win) return;
 
         const toSafe = (value) => String(value || '')
@@ -3021,10 +3027,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 <title>Online-Bestellung</title>
                 <style>
                     @media print {
-                        html, body { margin: 0; padding: 0; }
+                        @page { size: 72mm auto; margin: 0mm; }
+                        html, body { margin: 0; padding: 0; width: 72mm; }
+                        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                         .receipt-wrapper { width: 100%; margin: 0; }
                     }
-                    body { font-family: 'Courier New', monospace; width: 80mm; margin: 0 auto; padding: 8mm 5mm; line-height: 1.6; background: #fff; }
+                    body { font-family: 'Arial', 'Helvetica', sans-serif; width: 72mm; margin: 0 auto; padding: 8mm 5mm; line-height: 1.6; background: #fff; }
                     .receipt-wrapper { width: 100%; max-width: 100%; }
                     .divider { border: none; border-top: 1px dashed #999; margin: 10px 0; }
                     .shop-name { font-size: 26px; font-weight: 900; text-align: center; letter-spacing: 1px; }
@@ -3036,6 +3044,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     .total-value { font-size: 22px; font-weight: 900; text-align: right; }
                     .footer { text-align: center; font-size: 14px; color: #555; font-weight: 600; margin-top: 14px; line-height: 1.6; }
                 </style>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
             </head>
             <body>
                 <div class="receipt-wrapper">
@@ -3105,7 +3114,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         win.document.write(html);
         win.document.close();
         win.focus();
-        setTimeout(() => { win.print(); win.close(); }, 500);
+        setTimeout(() => { win.print(); win.close(); }, 800);
     };
 
     const completePendingRepair = async (job) => {
