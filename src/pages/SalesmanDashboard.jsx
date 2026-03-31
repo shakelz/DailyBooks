@@ -20,6 +20,9 @@ import { useTranslatedTextTree } from '../hooks/useTranslatedTextTree';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
+function generateAbholscheinNumber() {
+    return String(Math.floor(1000 + Math.random() * 9000));
+}
 const SALESMAN_LOCK_NAMESPACE = 'dailybooks_salesman_lock_v1';
 const KPI_MODE_SALES = 'sales';
 const KPI_MODE_PROFIT = 'profit';
@@ -219,7 +222,7 @@ function normalizeOnlinePartOrder(row = {}) {
     return {
         id: partOrderId,
         orderId: partOrderId,
-        abholscheinNumber: String(row?.abholschein_number || row?.ticket_number || row?.receipt_number || row?.job_number || '').trim(),
+        abholscheinNumber: String(row?.abholschein_number || '').trim(),
         platform: String(row?.ordered_from || '').trim(),
         itemName: String(row?.part_name || '').trim(),
         totalCost: Number(row?.cost ?? 0) || 0,
@@ -3508,6 +3511,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             advance_amount: Number(onlineOrderForm.advanceAmount) || 0,
             mobile_number: String(onlineOrderForm.mobileNumber || '').trim(),
             delivery_date: String(onlineOrderForm.expectedDeliveryDate || '').trim() || null,
+            abholschein_number: generateAbholscheinNumber(),
         };
 
         let inserted = null;
@@ -3690,13 +3694,26 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const confirmed = window.confirm('Are you sure you want to cancel and delete this order?');
         if (!confirmed) return;
 
-        const { error } = await supabase
-            .from('online_part_orders')
-            .delete()
-            .eq('id', String(id));
+        const idColumns = ['part_order_id', 'id', 'order_id'];
+        let deleted = false;
+        let lastError = null;
 
-        if (error) {
-            alert(error.message || 'Failed to delete order');
+        for (const col of idColumns) {
+            const { error } = await supabase
+                .from('online_part_orders')
+                .delete()
+                .eq(col, String(id));
+
+            if (!error) {
+                deleted = true;
+                break;
+            }
+            lastError = error;
+            if (!String(error?.message || '').toLowerCase().includes('column')) break;
+        }
+
+        if (!deleted) {
+            alert(lastError?.message || 'Failed to delete order');
             return;
         }
 
@@ -3770,7 +3787,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         ><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Inventory</span></button>
                         <button onClick={() => setShowMobileInventoryModal(true)} title="Mobile Inventory" className="fab-animated" style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobile Inventory</span></button>
                         <button onClick={() => setShowOtherInventoryModal(true)} title="Other Inventory" className="fab-animated" style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}><span className="fab-icon"><Scale size={14} /></span><span className="fab-title">Other Inventory</span></button>
-                        <button onClick={() => setShowPendingOrders(true)} title="Pending Jobs" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Pending Jobs</span></button>
+                        <button onClick={() => setShowPendingOrders(true)} title="Reparatur & Abholschein" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Reparatur & Abholschein</span></button>
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
                         <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
                         <button onClick={() => setShowExcludedCategoriesModal(true)} title="Excluded Categories" className="fab-animated" style={{ '--fab-i': '#f59e0b', '--fab-j': '#ea580c' }}><span className="fab-icon"><Tags size={14} /></span><span className="fab-title">Excluded Categories</span></button>
@@ -5272,13 +5289,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     onClick={() => setPendingTab('orders')}
                                     className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
                                 >
-                                    Pending Orders
+                                    Reparatur & Abholschein
                                 </button>
                                 <button
                                     onClick={() => setPendingTab('online')}
                                     className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'online' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
                                 >
-                                    Online Orders
+                                    Online Orders Abholschein
                                 </button>
                             </div>
                         </div>
