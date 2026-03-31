@@ -340,15 +340,6 @@ function buildKundenbelegHtml({
         </tbody>
       </table>
 
-      <table style="width: 100%; font-weight: 900; font-size: 22px; border-top: 2px solid #000; padding-top: 6px; margin-top: 6px;">
-        <tbody>
-          <tr>
-            <td>GESAMTBETRAG</td>
-            <td style="text-align: right;">&euro; ${formatReceiptMoney(grossTotal)}</td>
-          </tr>
-        </tbody>
-      </table>
-
       <div style="margin-top: 12px; font-size: 13px; line-height: 1.5; font-weight: 600; text-align: center;">
         R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.
         Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapePrintHtml(shopName)}

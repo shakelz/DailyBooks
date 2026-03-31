@@ -113,16 +113,6 @@ const ReceiptTemplate = forwardRef(({
                     )}
                 </tbody>
             </table>
-
-            <table style={{ width: '100%', fontWeight: '900', fontSize: '22px', borderTop: '2px solid #000', paddingTop: '6px', marginTop: '6px' }}>
-                <tbody>
-                    <tr>
-                        <td>GESAMTBETRAG</td>
-                        <td style={{ textAlign: 'right' }}>{priceTag(grossTotal)}</td>
-                    </tr>
-                </tbody>
-            </table>
-
             <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.5', fontWeight: '600', textAlign: 'center' }}>
                 Rueckgabe/Umtausch innerhalb 14 Tagen nur in unbeschaedigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. {receiptShopName}
             </div>

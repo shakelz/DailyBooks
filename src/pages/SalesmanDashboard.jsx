@@ -503,10 +503,6 @@ function buildReceiptHtml({
 
                     <div class="line"></div>
                     ${rows.length > 1 ? `<div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>` : ''}
-                    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 2px; margin: 4px 0;">
-                        <strong style="font-size: 18px; font-weight: 900; white-space: nowrap;">GESAMTBETRAG</strong>
-                        <strong style="font-size: 18px; font-weight: 900; white-space: nowrap; text-align: right;">${formatMoney(grossTotal)}</strong>
-                    </div>
 
                     ${showTax ? `
                         <table class="tax-table">

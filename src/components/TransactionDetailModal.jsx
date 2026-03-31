@@ -225,13 +225,6 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
 
                     ${taxRows}
 
-                    <table class="bold" style="font-size: 16px; font-weight: 900; border-top: 2px solid #000; border-bottom: 2px solid #000; margin-top: 4px;">
-                        <tr>
-                            <td style="padding: 6px 2px;">GESAMTBETRAG</td>
-                            <td class="text-right" style="white-space: nowrap; padding: 6px 2px;">${formatAmount(amount)}</td>
-                        </tr>
-                    </table>
-
                     <div class="divider"></div>
 
                     <div style="margin-top: 10px; font-size: 15px; font-weight: 700;">

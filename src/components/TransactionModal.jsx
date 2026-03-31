@@ -155,10 +155,6 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
                         <div class="row"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
                         <div class="row"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
                         <div class="line"></div>
-                        <div class="row" style="border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 0;">
-                            <strong style="font-size: 16px; font-weight: 900; padding: 6px 2px;">Gesamtbetrag</strong>
-                            <strong style="font-size: 16px; font-weight: 900; text-align: right; white-space: nowrap; padding: 6px 2px;">${formatMoney(grossTotal)}</strong>
-                        </div>
                         ${includeTax ? `<div class="row" style="font-size:13px; font-weight:700;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
                         <div class="row" style="font-size:13px; font-weight:700;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
                         <div class="line"></div>
