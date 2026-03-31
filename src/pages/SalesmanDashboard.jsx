@@ -219,6 +219,7 @@ function normalizeOnlinePartOrder(row = {}) {
     return {
         id: partOrderId,
         orderId: partOrderId,
+        abholscheinNumber: String(row?.abholschein_number || row?.ticket_number || row?.receipt_number || row?.job_number || '').trim(),
         platform: String(row?.ordered_from || '').trim(),
         itemName: String(row?.part_name || '').trim(),
         totalCost: Number(row?.cost ?? 0) || 0,
@@ -5383,8 +5384,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                 <div key={order.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                                                     <div className="flex items-start justify-between gap-2">
                                                         <div className="min-w-0">
-                                                            <p className="text-[10px] font-mono text-blue-500 bg-blue-50 border border-blue-200 rounded-lg px-2 py-0.5 inline-block max-w-[180px] truncate" title={order.orderId || order.id}>
-                                                                #{String(order.orderId || order.id || '').slice(0, 8).toUpperCase()}
+                                                            <p className="text-[10px] font-mono text-blue-500 bg-blue-50 border border-blue-200 rounded-lg px-2 py-0.5 inline-block max-w-[180px] truncate" title={order.abholscheinNumber || order.orderId || order.id}>
+                                                                {order.abholscheinNumber
+                                                                    ? `Abholschein #${order.abholscheinNumber}`
+                                                                    : `#${String(order.orderId || order.id || '').slice(0, 8).toUpperCase()}`}
                                                             </p>
                                                             <p className="text-sm font-bold text-slate-800 truncate">{order.itemName || 'Online Order'}</p>
                                                         </div>
