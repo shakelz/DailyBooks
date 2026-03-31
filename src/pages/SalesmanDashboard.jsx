@@ -2167,9 +2167,54 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return rows;
     }, [getLevel1Categories, getLevel2Categories]);
 
-    // Both tabs use the SAME rows — scope only affects how contribution_mode is read/saved
     const salesKpiContributionCategoryRows = kpiContributionCategoryRows;
-    const expenseKpiContributionCategoryRows = kpiContributionCategoryRows;
+
+    // Build expense rows from actual expense transactions so the Expense tab
+    // shows categories that match what computeUnifiedKpiSnapshot processes.
+    const expenseKpiContributionCategoryRows = useMemo(() => {
+        const rows = [];
+        const seenKeys = new Set();
+
+        (Array.isArray(debouncedTransactions) ? debouncedTransactions : []).forEach((txn) => {
+            const txType = normalizeTxnType(txn?.tx_type || txn?.type);
+            if (txType !== 'expense') return;
+
+            const resolved = resolveTxnCategoryParts(txn);
+            const categoryName = String(resolved?.categoryName || '').trim();
+            if (!categoryName || normalizeCategoryToken(categoryName) === 'uncategorized') return;
+
+            const subCategoryName = String(resolved?.subCategoryName || '').trim();
+
+            // Use the first-seen casing for display labels
+            const mainKey = makeProfitCategoryKey(categoryName, '');
+            if (!seenKeys.has(mainKey)) {
+                seenKeys.add(mainKey);
+                rows.push({
+                    key: mainKey,
+                    categoryName,
+                    subCategoryName: '',
+                    label: categoryName,
+                    depth: 0,
+                });
+            }
+
+            if (subCategoryName) {
+                const subKey = makeProfitCategoryKey(categoryName, subCategoryName);
+                if (!seenKeys.has(subKey)) {
+                    seenKeys.add(subKey);
+                    rows.push({
+                        key: subKey,
+                        categoryName,
+                        subCategoryName,
+                        label: `${categoryName} / ${subCategoryName}`,
+                        depth: 1,
+                    });
+                }
+            }
+        });
+
+        return rows.sort((a, b) => a.label.localeCompare(b.label));
+    }, [debouncedTransactions, resolveTxnCategoryParts]);
 
     const activeKpiContributionRows = activeKpiContributionTab === KPI_SCOPE_EXPENSE
         ? expenseKpiContributionCategoryRows
