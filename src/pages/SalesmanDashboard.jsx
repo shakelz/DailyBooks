@@ -2213,7 +2213,19 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
         });
 
-        return rows.sort((a, b) => a.label.localeCompare(b.label));
+        const nestedSubCategoryNames = new Set(
+            rows
+                .filter((row) => row.depth === 1 && String(row.subCategoryName || '').trim())
+                .map((row) => normalizeCategoryToken(row.subCategoryName))
+                .filter(Boolean)
+        );
+
+        const cleanedRows = rows.filter((row) => {
+            if (row.depth !== 0) return true;
+            return !nestedSubCategoryNames.has(normalizeCategoryToken(row.categoryName));
+        });
+
+        return cleanedRows.sort((a, b) => a.label.localeCompare(b.label));
     }, [debouncedTransactions, resolveTxnCategoryParts]);
 
     const activeKpiContributionRows = activeKpiContributionTab === KPI_SCOPE_EXPENSE
