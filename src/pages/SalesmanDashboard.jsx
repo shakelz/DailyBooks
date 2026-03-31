@@ -2220,6 +2220,30 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }
         });
 
+        // Also include categories from the expense category tree (not just transactions)
+        const expenseMainCats = getLevel1Categories('expense') || [];
+        expenseMainCats.forEach((catObj) => {
+            const categoryName = typeof catObj === 'object' ? (catObj?.name || '') : String(catObj || '');
+            if (!categoryName || normalizeCategoryToken(categoryName) === 'uncategorized') return;
+
+            const mainKey = makeProfitCategoryKey(categoryName, '');
+            if (!seenKeys.has(mainKey)) {
+                seenKeys.add(mainKey);
+                rows.push({ key: mainKey, categoryName, subCategoryName: '', label: categoryName, depth: 0 });
+            }
+
+            const expenseSubCats = getLevel2Categories(categoryName, 'expense') || [];
+            expenseSubCats.forEach((subObj) => {
+                const subCategoryName = typeof subObj === 'object' ? (subObj?.name || '') : String(subObj || '');
+                if (!subCategoryName) return;
+                const subKey = makeProfitCategoryKey(categoryName, subCategoryName);
+                if (!seenKeys.has(subKey)) {
+                    seenKeys.add(subKey);
+                    rows.push({ key: subKey, categoryName, subCategoryName, label: `${categoryName} / ${subCategoryName}`, depth: 1 });
+                }
+            });
+        });
+
         const nestedSubCategoryNames = new Set(
             rows
                 .filter((row) => row.depth === 1 && String(row.subCategoryName || '').trim())
@@ -2233,7 +2257,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         });
 
         return cleanedRows.sort((a, b) => a.label.localeCompare(b.label));
-    }, [debouncedTransactions, resolveTxnCategoryParts]);
+    }, [debouncedTransactions, getLevel1Categories, getLevel2Categories, resolveTxnCategoryParts]);
 
     const activeKpiContributionRows = activeKpiContributionTab === KPI_SCOPE_EXPENSE
         ? expenseKpiContributionCategoryRows
@@ -4307,7 +4331,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 {!activeKpiContributionRows.length ? (
                                     <p className="text-xs text-slate-400 text-center py-10">No categories found for this tab.</p>
                                 ) : activeKpiContributionRows.map((row) => {
-                                    const isHeaderRow = activeKpiContributionTab === KPI_SCOPE_SALES && Number(row?.depth) === 0;
+                                    const isHeaderRow = false;
                                     const activeMode = resolveCategoryRowMode(row, activeKpiContributionTab);
                                     const modeDescription = activeMode === KPI_MODE_EXCLUDED
                                         ? (activeKpiContributionTab === KPI_SCOPE_SALES
