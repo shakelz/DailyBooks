@@ -3685,6 +3685,23 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
     };
 
+    const deleteOnlineOrder = async (id) => {
+        const confirmed = window.confirm('Are you sure you want to cancel and delete this order?');
+        if (!confirmed) return;
+
+        const { error } = await supabase
+            .from('online_part_orders')
+            .delete()
+            .eq('id', String(id));
+
+        if (error) {
+            alert(error.message || 'Failed to delete order');
+            return;
+        }
+
+        setOnlineOrders((prev) => prev.filter((order) => String(order.id) !== String(id)));
+    };
+
     return (
         <div ref={translatedTreeRef} className="min-h-screen bg-slate-100 text-slate-800">
             <header className="relative z-40 border-b border-blue-300/40 bg-gradient-to-r from-slate-900 via-blue-900 to-blue-700 px-3 py-2 shadow-md">
@@ -5375,10 +5392,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                     </div>
 
                                                     <div className="grid grid-cols-2 gap-1 text-[11px]">
-                                                        <p className="text-slate-500"><span className="text-slate-400">Platform:</span> {order.platform || '-'}</p>
-                                                        <p className="text-slate-500"><span className="text-slate-400">Category:</span> {order.category || '-'}</p>
-                                                        <p className="text-slate-500"><span className="text-slate-400">Color:</span> {order.color || '-'}</p>
+                                                        <p className="text-slate-500"><span className="text-slate-400">Part:</span> {order.itemName || '-'}</p>
+                                                        <p className="text-slate-500"><span className="text-slate-400">Order From:</span> {order.platform || '-'}</p>
                                                         <p className="text-slate-500"><span className="text-slate-400">Order Date:</span> {formatDisplayDate(order.orderDate || order.createdAt || '')}</p>
+                                                        <p className="text-slate-500"><span className="text-slate-400">Deliver By:</span> {order.expectedDeliveryDate ? formatDisplayDate(order.expectedDeliveryDate) : '-'}</p>
                                                     </div>
 
                                                     <div className="grid grid-cols-3 gap-1 text-[10px]">
@@ -5400,6 +5417,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                             className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-emerald-700"
                                                         >
                                                             Mark Received
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => deleteOnlineOrder(order.id)}
+                                                            className="rounded-lg bg-rose-500 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-rose-600"
+                                                        >
+                                                            Cancel
                                                         </button>
                                                         <button
                                                             type="button"
@@ -5475,59 +5499,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs"
                                 />
                             </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div>
-                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Category</label>
-                                    <select
-                                        value={onlineOrderForm.category}
-                                        onChange={(e) => {
-                                            setOnlineOrderForm((prev) => ({ ...prev, category: e.target.value }));
-                                            setOnlineOrderErrors((prev) => ({ ...prev, category: '' }));
-                                        }}
-                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.category ? 'border-rose-300' : 'border-slate-200'}`}
-                                    >
-                                        <option value="">Select category</option>
-                                        {revenueL1Options.map((name) => <option key={`online-modal-${name}`} value={name}>{name}</option>)}
-                                    </select>
-                                    {onlineOrderErrors.category && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.category}</p>}
-                                </div>
-                                <div>
-                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Color</label>
-                                    <select
-                                        value={onlineOrderForm.color}
-                                        onChange={(e) => {
-                                            const nextColor = e.target.value;
-                                            setOnlineOrderForm((prev) => ({
-                                                ...prev,
-                                                color: nextColor,
-                                                customColor: nextColor === 'Custom' ? prev.customColor : ''
-                                            }));
-                                            setOnlineOrderErrors((prev) => ({ ...prev, color: '', customColor: '' }));
-                                        }}
-                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.color ? 'border-rose-300' : 'border-slate-200'}`}
-                                    >
-                                        <option value="">Select color</option>
-                                        {ONLINE_ORDER_COLORS.map((name) => <option key={`online-modal-color-${name}`} value={name}>{name}</option>)}
-                                    </select>
-                                    {onlineOrderErrors.color && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.color}</p>}
-                                </div>
-                            </div>
-
-                            {onlineOrderForm.color === 'Custom' && (
-                                <div>
-                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Custom Color</label>
-                                    <input
-                                        value={onlineOrderForm.customColor}
-                                        onChange={(e) => {
-                                            setOnlineOrderForm((prev) => ({ ...prev, customColor: e.target.value }));
-                                            setOnlineOrderErrors((prev) => ({ ...prev, customColor: '' }));
-                                        }}
-                                        className={`w-full rounded-lg border bg-white px-2.5 py-2 text-xs ${onlineOrderErrors.customColor ? 'border-rose-300' : 'border-slate-200'}`}
-                                    />
-                                    {onlineOrderErrors.customColor && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.customColor}</p>}
-                                </div>
-                            )}
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
