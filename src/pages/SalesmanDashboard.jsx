@@ -2122,7 +2122,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const kpiContributionCategoryRows = useMemo(() => {
         const rows = [];
         const seenKeys = new Set();
-        const allMainCats = getLevel1Categories('all') || [];
+        const allMainCats = getLevel1Categories('sales') || [];
         
         const sortedMainCats = [...allMainCats].sort((a, b) => {
             const nameA = typeof a === 'object' ? a?.name : String(a || '');
@@ -2146,7 +2146,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 });
             }
 
-            const allSubCats = getLevel2Categories(categoryName, 'all') || [];
+            const allSubCats = getLevel2Categories(categoryName, 'sales') || [];
             const sortedSubCats = [...allSubCats].sort((a, b) => {
                 const nameA = typeof a === 'object' ? a?.name : String(a || '');
                 const nameB = typeof b === 'object' ? b?.name : String(b || '');
