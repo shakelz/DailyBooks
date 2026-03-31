@@ -201,6 +201,7 @@ function newOnlineOrderForm() {
     return {
         platform: '',
         itemName: '',
+        mobileNumber: '',
         category: '',
         color: '',
         customColor: '',
@@ -220,6 +221,7 @@ function normalizeOnlinePartOrder(row = {}) {
         orderId: partOrderId,
         platform: String(row?.ordered_from || '').trim(),
         itemName: String(row?.part_name || '').trim(),
+        mobileNumber: String(row?.mobile_number || row?.customer_phone || '').trim(),
         totalCost: Number(row?.cost ?? 0) || 0,
         advanceAmount: 0,
         orderDate: String(row?.created_at || '').slice(0, 10),
@@ -3050,7 +3052,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             .replaceAll("'", '&#39;');
 
         const rawId = String(order.orderId || order.id || '').trim();
-        const orderId = rawId.slice(0, 8).toUpperCase();
+        const orderId = rawId.replace(/\D/g, '').slice(-6) || rawId.slice(0, 6).toUpperCase();
         const zahlungText = (order.paymentStatus === 'Paid') ? 'Bezahlt' : 'Unbezahlt';
 
         const fmtDate = (val) => val ? new Date(val).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
@@ -3092,14 +3094,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
 
     <hr class="divider"/>
-
-    <table>
-        <tr>
-            <td style="padding:5px 0;font-size:15px;font-weight:800;">Abholung Nr.</td>
-            <td style="padding:5px 0;font-size:15px;font-weight:800;text-align:right;">${toSafe(orderId)}</td>
-        </tr>
-    </table>
-
+    <div style="text-align:center; margin: 6px 0;">
+        <p style="font-size:13px;font-weight:800;color:#555;margin:0;">Abholung Nr.</p>
+        <p style="font-size:32px;font-weight:900;color:#111;margin:4px 0 0 0;letter-spacing:4px;">${toSafe(orderId)}</p>
+    </div>
     <hr class="divider"/>
 
     <table>
@@ -3108,6 +3106,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         ${row('Bestelldatum', fmtDate(order.orderDate))}
         ${order.expectedDeliveryDate ? row('Lieferdatum', fmtDate(order.expectedDeliveryDate)) : ''}
         ${row('Zahlung', zahlungText)}
+        ${order.mobileNumber ? row('Tel', order.mobileNumber) : ''}
     </table>
 
     <hr class="divider"/>
@@ -3506,6 +3505,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             shop_id: shopId,
             part_name: String(onlineOrderForm.itemName || '').trim(),
             ordered_from: String(onlineOrderForm.platform || '').trim(),
+            mobile_number: String(onlineOrderForm.mobileNumber || '').trim(),
             cost: totalCost,
             delivery_date: String(onlineOrderForm.expectedDeliveryDate || '').trim() || null,
         };
@@ -3548,18 +3548,20 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const row = normalizeOnlinePartOrder(inserted);
         setOnlineOrders((prev) => [row, ...prev]);
 
-        if (!hasOnlineOrderStageTransaction(row, 'ADVANCE')) {
+        const advanceAmount = Number(onlineOrderForm.advanceAmount) || 0;
+        if (advanceAmount > 0 && !hasOnlineOrderStageTransaction(row, 'ADVANCE')) {
             const marker = `OnlineOrderRef:${row.orderId || row.id}`;
             const bookedAt = buildSelectedDate(row.orderDate || todayIsoDate());
             try {
                 await addTransaction({
                     desc: `Online Order Advance: ${row.itemName}`,
-                    amount: totalCost,
+                    amount: advanceAmount,
                     quantity: 1,
-                    type: 'expense',
-                    category: 'Online Purchase',
-                    paymentMethod: 'Online',
-                    notes: `${marker} | Stage:ADVANCE | Platform: ${row.platform || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
+                    type: 'income',
+                    tx_type: 'product_sale',
+                    category: String(onlineOrderForm.category || 'Online Order').trim(),
+                    paymentMethod: String(onlineOrderForm.paymentMode || 'Cash'),
+                    notes: `${marker} | Stage:ADVANCE | Platform: ${row.platform || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'} | Mobile: ${String(onlineOrderForm.mobileNumber || '').trim() || '-'}`,
                     source: 'online-order',
                     salesmanName: user?.name,
                     salesmanNumber: user?.salesmanNumber || 0,
@@ -3648,6 +3650,33 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         const normalizedUpdated = normalizeOnlinePartOrder(updatedRow);
+        const orderTarget = { ...target, ...normalizedUpdated };
+        const finalAmount = Math.max(0, (orderTarget.totalCost || 0) - (orderTarget.advanceAmount || 0));
+        if (!hasOnlineOrderStageTransaction(orderTarget, 'FINAL')) {
+            const finalMarker = `OnlineOrderRef:${orderTarget.orderId || orderTarget.id}`;
+            const completedAt = new Date();
+            try {
+                await addTransaction({
+                    desc: `Online Order Final: ${orderTarget.itemName}`,
+                    amount: finalAmount,
+                    quantity: 1,
+                    type: 'income',
+                    tx_type: 'product_sale',
+                    category: String(orderTarget.category || 'Online Order').trim(),
+                    paymentMethod: 'Cash',
+                    notes: `${finalMarker} | Stage:FINAL | Platform: ${orderTarget.platform || '-'}`,
+                    source: 'online-order',
+                    salesmanName: user?.name,
+                    salesmanNumber: user?.salesmanNumber || 0,
+                    workerId: String(user?.id || ''),
+                    timestamp: completedAt.toISOString(),
+                    date: completedAt.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: completedAt.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                });
+            } catch (err) {
+                console.error('Online order final transaction failed:', err);
+            }
+        }
         setOnlineOrders((prev) => prev.map((order) => order.id === id
             ? { ...order, ...normalizedUpdated, receivedAt: new Date().toISOString() }
             : order));
@@ -5431,6 +5460,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     />
                                     {onlineOrderErrors.itemName && <p className="mt-1 text-[10px] text-rose-600">{onlineOrderErrors.itemName}</p>}
                                 </div>
+                            </div>
+
+                            <div>
+                                <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Customer Mobile Number</label>
+                                <input
+                                    type="tel"
+                                    value={onlineOrderForm.mobileNumber}
+                                    onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, mobileNumber: e.target.value }))}
+                                    placeholder="+49..."
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs"
+                                />
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
