@@ -798,6 +798,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             // Ignore storage issues; volatile cache still works for current session.
         }
     }, [lockStateKey]);
+    const writeLockStateRef = useRef(writeLockState);
+    useEffect(() => {
+        writeLockStateRef.current = writeLockState;
+    }, [writeLockState]);
+    const stableWriteLockState = useCallback((...args) => writeLockStateRef.current?.(...args), []);
     const canEditTransactions = adminView || Boolean(
         user?.canEditTransactions
         ?? user?.permissions?.canEditTransactions
@@ -1019,12 +1024,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 clearTimeout(timer);
                 timer = null;
             }
-            writeLockState(Date.now(), isLockedRef.current);
+            stableWriteLockState(Date.now(), isLockedRef.current);
             if (modalInteractionOpenRef.current) return;
             timer = setTimeout(() => {
                 if (!modalInteractionOpenRef.current) {
                     setIsLocked(true);
-                    writeLockState(Date.now(), true);
+                    stableWriteLockState(Date.now(), true);
                 }
             }, lockTimeoutMs);
         };
@@ -1049,7 +1054,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 window.removeEventListener(event, stableHandler);
             });
         };
-    }, [lockTimeoutMs, writeLockState]);
+    }, [lockTimeoutMs, stableWriteLockState]);
 
     useEffect(() => {
         let escCount = 0;
@@ -1114,9 +1119,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const result = await verifySalesmanUnlockPin(enteredPin);
             if (result?.success) {
                 setIsLocked(false);
+                isLockedRef.current = false;
                 setUnlockPin('');
                 setUnlockError(false);
                 writeLockState(Date.now(), false);
+                modalInteractionOpenRef.current = false;
+                resetTimerHandlerRef.current?.();
                 return;
             }
         } finally {
