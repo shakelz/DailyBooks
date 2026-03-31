@@ -2317,18 +2317,26 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 if (!categoryName) return Promise.resolve();
 
                 const mode = resolveCategoryRowMode(row, normalizedScope);
+                const now = new Date().toISOString();
+                const dbSubCategoryName = subCategoryName || 'EMPTY';
 
                 // UPDATE only — match by shop_id + kpi_scope + lowercase category names
                 return supabase
                     .from('kpi_profit_category_settings')
-                    .update({
-                        contribution_mode: mode,
-                        updated_at: new Date().toISOString(),
-                    })
-                    .eq('shop_id', settingsShopId)
-                    .eq('kpi_scope', normalizedScope)
-                    .ilike('category_name', categoryName)
-                    .ilike('sub_category_name', subCategoryName || '');
+                    .upsert(
+                        {
+                            shop_id: settingsShopId,
+                            kpi_scope: normalizedScope,
+                            category_name: categoryName,
+                            sub_category_name: dbSubCategoryName,
+                            contribution_mode: mode,
+                            updated_at: now,
+                        },
+                        {
+                            onConflict: 'shop_id,kpi_scope,category_name,sub_category_name',
+                            ignoreDuplicates: false,
+                        }
+                    );
             });
 
             const results = await Promise.all(updatePromises);
