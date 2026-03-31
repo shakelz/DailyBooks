@@ -221,9 +221,9 @@ function normalizeOnlinePartOrder(row = {}) {
         orderId: partOrderId,
         platform: String(row?.ordered_from || '').trim(),
         itemName: String(row?.part_name || '').trim(),
-        mobileNumber: String(row?.mobile_number || row?.customer_phone || '').trim(),
         totalCost: Number(row?.cost ?? 0) || 0,
-        advanceAmount: 0,
+        advanceAmount: Number(row?.advance_amount ?? 0) || 0,
+        mobileNumber: String(row?.mobile_number || '').trim(),
         orderDate: String(row?.created_at || '').slice(0, 10),
         expectedDeliveryDate: String(row?.delivery_date || '').trim(),
         status: String(row?.status || 'ordered').trim() || 'ordered',
@@ -3505,8 +3505,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             shop_id: shopId,
             part_name: String(onlineOrderForm.itemName || '').trim(),
             ordered_from: String(onlineOrderForm.platform || '').trim(),
-            mobile_number: String(onlineOrderForm.mobileNumber || '').trim(),
             cost: totalCost,
+            advance_amount: Number(onlineOrderForm.advanceAmount) || 0,
+            mobile_number: String(onlineOrderForm.mobileNumber || '').trim(),
             delivery_date: String(onlineOrderForm.expectedDeliveryDate || '').trim() || null,
         };
 
@@ -3548,7 +3549,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const row = normalizeOnlinePartOrder(inserted);
         setOnlineOrders((prev) => [row, ...prev]);
 
-        const advanceAmount = Number(onlineOrderForm.advanceAmount) || 0;
+        const advanceAmount = Number(row.advanceAmount) || 0;
         if (advanceAmount > 0 && !hasOnlineOrderStageTransaction(row, 'ADVANCE')) {
             const marker = `OnlineOrderRef:${row.orderId || row.id}`;
             const bookedAt = buildSelectedDate(row.orderDate || todayIsoDate());
