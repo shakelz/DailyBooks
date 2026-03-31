@@ -3053,7 +3053,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         const rawId = String(order.orderId || order.id || '').trim();
         const orderId = rawId.replace(/\D/g, '').slice(-6) || rawId.slice(0, 6).toUpperCase();
-        const zahlungText = (order.paymentStatus === 'Paid') ? 'Bezahlt' : 'Unbezahlt';
 
         const fmtDate = (val) => val ? new Date(val).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
         const fmtMoney = (val) => `€ ${Number(val || 0).toFixed(2)}`;
@@ -3081,7 +3080,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         * { box-sizing: border-box; }
         body { font-family: 'Arial', 'Helvetica', sans-serif; width: 72mm; margin: 0 auto; padding: 6mm 4mm; background: #fff; color: #111; }
         .shop-name { font-size: 18px; font-weight: 900; text-align: center; margin: 0 0 3px 0; }
-        .shop-sub { font-size: 13px; font-weight: 700; text-align: center; margin: 2px 0; }
+        .shop-sub { font-size: 13px; font-weight: 900; text-align: center; margin: 2px 0; }
         .divider { border: none; border-top: 1px dashed #666; margin: 8px 0; }
         table { width: 100%; border-collapse: collapse; }
         td { font-size: 15px; font-weight: 800; color: #111; }
@@ -3105,7 +3104,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         ${order.color ? row('Farbe', order.color) : ''}
         ${row('Bestelldatum', fmtDate(order.orderDate))}
         ${order.expectedDeliveryDate ? row('Lieferdatum', fmtDate(order.expectedDeliveryDate)) : ''}
-        ${row('Zahlung', zahlungText)}
         ${order.mobileNumber ? row('Tel', order.mobileNumber) : ''}
     </table>
 
@@ -3555,14 +3553,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const bookedAt = buildSelectedDate(row.orderDate || todayIsoDate());
             try {
                 await addTransaction({
-                    desc: `Online Order Advance: ${row.itemName}`,
+                    desc: `Advance: ${row.itemName}`,
                     amount: advanceAmount,
                     quantity: 1,
                     type: 'income',
                     tx_type: 'product_sale',
                     category: String(onlineOrderForm.category || 'Online Order').trim(),
-                    paymentMethod: String(onlineOrderForm.paymentMode || 'Cash'),
-                    notes: `${marker} | Stage:ADVANCE | Platform: ${row.platform || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'} | Mobile: ${String(onlineOrderForm.mobileNumber || '').trim() || '-'}`,
+                    paymentMethod: 'Cash',
+                    notes: `${marker} | Stage:ADVANCE | Mobile: ${String(row.mobileNumber || '').trim() || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
                     source: 'online-order',
                     salesmanName: user?.name,
                     salesmanNumber: user?.salesmanNumber || 0,
@@ -3651,21 +3649,28 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         const normalizedUpdated = normalizeOnlinePartOrder(updatedRow);
+        setOnlineOrders((prev) => prev.map((order) => order.id === id
+            ? { ...order, ...normalizedUpdated, receivedAt: new Date().toISOString() }
+            : order));
+
+        // Create final revenue transaction for remaining amount on completion date
         const orderTarget = { ...target, ...normalizedUpdated };
-        const finalAmount = Math.max(0, (orderTarget.totalCost || 0) - (orderTarget.advanceAmount || 0));
-        if (!hasOnlineOrderStageTransaction(orderTarget, 'FINAL')) {
+        const orderTotalCost = Number(orderTarget.totalCost) || 0;
+        const orderAdvance = Number(orderTarget.advanceAmount) || 0;
+        const finalAmount = Math.max(0, orderTotalCost - orderAdvance);
+        if (finalAmount > 0 && !hasOnlineOrderStageTransaction(orderTarget, 'FINAL')) {
             const finalMarker = `OnlineOrderRef:${orderTarget.orderId || orderTarget.id}`;
             const completedAt = new Date();
             try {
                 await addTransaction({
-                    desc: `Online Order Final: ${orderTarget.itemName}`,
+                    desc: `Final Payment: ${orderTarget.itemName}`,
                     amount: finalAmount,
                     quantity: 1,
                     type: 'income',
                     tx_type: 'product_sale',
                     category: String(orderTarget.category || 'Online Order').trim(),
                     paymentMethod: 'Cash',
-                    notes: `${finalMarker} | Stage:FINAL | Platform: ${orderTarget.platform || '-'}`,
+                    notes: `${finalMarker} | Stage:FINAL | Mobile: ${String(orderTarget.mobileNumber || '').trim() || '-'}`,
                     source: 'online-order',
                     salesmanName: user?.name,
                     salesmanNumber: user?.salesmanNumber || 0,
@@ -3678,9 +3683,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 console.error('Online order final transaction failed:', err);
             }
         }
-        setOnlineOrders((prev) => prev.map((order) => order.id === id
-            ? { ...order, ...normalizedUpdated, receivedAt: new Date().toISOString() }
-            : order));
     };
 
     return (
@@ -5585,24 +5587,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div>
-                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Payment</label>
-                                    <select value={onlineOrderForm.paymentStatus} onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, paymentStatus: e.target.value }))} className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs">
-                                        <option value="Paid">Paid</option>
-                                        <option value="Partial">Partial</option>
-                                        <option value="Credit">Credit</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Notes</label>
-                                    <textarea
-                                        value={onlineOrderForm.notes}
-                                        onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, notes: e.target.value }))}
-                                        rows={2}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs"
-                                    />
-                                </div>
+                            <div>
+                                <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-slate-500">Notes</label>
+                                <textarea
+                                    value={onlineOrderForm.notes}
+                                    onChange={(e) => setOnlineOrderForm((prev) => ({ ...prev, notes: e.target.value }))}
+                                    rows={2}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs"
+                                />
                             </div>
 
                             {Object.values(onlineOrderErrors).some(Boolean) && (
