@@ -1813,6 +1813,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return debouncedRevenueTransactions.reduce((sum, txn) => sum + resolveKpiRevenueContribution(txn), 0);
     }, [debouncedRevenueTransactions, resolveKpiRevenueContribution]);
 
+    const kpiExpenseAmount = useMemo(
+        () => kpiExpenseTransactions.reduce((sum, txn) => sum + (parseFloat(txn?.amount) || 0), 0),
+        [kpiExpenseTransactions]
+    );
+
     const unifiedKpiStats = useMemo(() => {
         return computeUnifiedKpiSnapshot({
             transactions: debouncedTransactions,
@@ -1826,29 +1831,68 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         });
     }, [debouncedTransactions, debouncedProducts, debouncedRepairJobs, dashboardRange, categoryContributionModeMap, kpiSettingsVersion]);
 
-    const fallbackStats = useMemo(() => {
-        const totalRevenue = unifiedKpiStats?.totals?.revenue || 0;
-        const totalExpenses = unifiedKpiStats?.totals?.expenses || 0;
-        return {
-            totals: {
-                revenue: totalRevenue,
-                expenses: totalExpenses,
-                income: totalRevenue - totalExpenses,
-            },
-        };
-    }, [unifiedKpiStats]);
+    const fallbackStats = useMemo(() => ({
+        totals: {
+            revenue: kpiRevenueAmount,
+            expenses: kpiExpenseAmount,
+            income: kpiRevenueAmount - kpiExpenseAmount,
+        },
+    }), [kpiRevenueAmount, kpiExpenseAmount]);
 
     const kpiRevenueCategoryBreakdown = useMemo(() => {
-        return Array.isArray(unifiedKpiStats?.revenueBreakdown) ? unifiedKpiStats.revenueBreakdown : [];
-    }, [unifiedKpiStats]);
+        const toTitle = (str) => String(str || '').replace(/\b\w/g, (c) => c.toUpperCase());
+        const categoryMap = {};
+        debouncedRevenueTransactions.forEach((txn) => {
+            const mode = resolveTxnContributionMode(txn, KPI_SCOPE_SALES);
+            if (mode === KPI_MODE_EXCLUDED) return;
+            const contribution = resolveKpiRevenueContribution(txn);
+            const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
+            const displayCat = toTitle(categoryName || 'Uncategorized');
+            const displaySub = toTitle(subCategoryName || '');
+            const label = displaySub ? `${displayCat} / ${displaySub}` : displayCat;
+            const key = label.toLowerCase();
+            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0 };
+            categoryMap[key].amount += contribution;
+            categoryMap[key].count += 1;
+        });
+        return Object.values(categoryMap)
+            .filter((row) => row.amount !== 0)
+            .sort((a, b) => b.amount - a.amount);
+    }, [debouncedRevenueTransactions, resolveKpiRevenueContribution, resolveTxnContributionMode, resolveTxnCategoryParts]);
 
     const kpiExpenseCategoryBreakdown = useMemo(() => {
-        return Array.isArray(unifiedKpiStats?.expenseBreakdown) ? unifiedKpiStats.expenseBreakdown : [];
-    }, [unifiedKpiStats]);
+        const toTitle = (str) => String(str || '').replace(/\b\w/g, (c) => c.toUpperCase());
+        const categoryMap = {};
+        kpiExpenseTransactions.forEach((txn) => {
+            const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
+            const displayCat = toTitle(categoryName || 'Uncategorized');
+            const displaySub = toTitle(subCategoryName || '');
+            const label = displaySub ? `${displayCat} / ${displaySub}` : displayCat;
+            const key = label.toLowerCase();
+            const amount = parseFloat(txn?.amount) || 0;
+            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0 };
+            categoryMap[key].amount += amount;
+            categoryMap[key].count += 1;
+        });
+        return Object.values(categoryMap)
+            .filter((row) => row.amount > 0)
+            .sort((a, b) => b.amount - a.amount);
+    }, [kpiExpenseTransactions, resolveTxnCategoryParts]);
 
     const kpiIncomeCategoryBreakdown = useMemo(() => {
-        return Array.isArray(unifiedKpiStats?.incomeBreakdown) ? unifiedKpiStats.incomeBreakdown : [];
-    }, [unifiedKpiStats]);
+        const combinedMap = {};
+        kpiRevenueCategoryBreakdown.forEach((row) => {
+            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0 };
+            combinedMap[row.key].amount += row.amount;
+            combinedMap[row.key].count += row.count;
+        });
+        kpiExpenseCategoryBreakdown.forEach((row) => {
+            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0 };
+            combinedMap[row.key].amount -= row.amount;
+            combinedMap[row.key].count += row.count;
+        });
+        return Object.values(combinedMap).sort((a, b) => b.amount - a.amount);
+    }, [kpiRevenueCategoryBreakdown, kpiExpenseCategoryBreakdown]);
 
     const revenueBreakdown = useMemo(() => buildPaymentBreakdown(debouncedRevenueTransactions), [debouncedRevenueTransactions]);
     const purchaseBreakdown = useMemo(() => buildPaymentBreakdown(debouncedKpiExpenseTransactions), [debouncedKpiExpenseTransactions]);
