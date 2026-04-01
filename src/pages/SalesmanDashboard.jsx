@@ -1605,6 +1605,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const isRepairHistoryTransaction = (txn = {}) => {
         const source = String(txn?.source || '').toLowerCase();
+        if (source === 'online-order') return false;
         if (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_')) {
             const notes = String(txn?.notes || '').toLowerCase();
             const desc = String(txn?.desc || '').toLowerCase();
@@ -3693,6 +3694,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!confirmed) return;
 
         const targetOrder = onlineOrders.find((o) => String(o.id) === String(id));
+        const abholscheinNumber = String(targetOrder?.abholscheinNumber || '').trim();
         const orderRef = targetOrder
             ? `OnlineOrderRef:${targetOrder.orderId || targetOrder.id}`
             : null;
@@ -3720,15 +3722,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return;
         }
 
-        if (orderRef) {
+        if (targetOrder) {
             const { data: relatedTxns, error: fetchErr } = await supabase
                 .from('transactions')
-                .select('id, notes')
-                .eq('source', 'online-order')
-                .ilike('notes', `%${orderRef}%`);
+                .select('id, notes, desc')
+                .eq('source', 'online-order');
 
             if (!fetchErr && Array.isArray(relatedTxns) && relatedTxns.length > 0) {
-                for (const txn of relatedTxns) {
+                const matchingTxns = relatedTxns.filter((txn) => {
+                    const notes = String(txn?.notes || '').toLowerCase();
+                    const desc = String(txn?.desc || '').toLowerCase();
+                    if (abholscheinNumber) {
+                        return notes.includes(`abholschein:${abholscheinNumber}`.toLowerCase())
+                            || desc.includes(`abholschein #${abholscheinNumber}`.toLowerCase());
+                    }
+                    return orderRef ? notes.includes(String(orderRef || '').toLowerCase()) : false;
+                });
+
+                for (const txn of matchingTxns) {
                     try {
                         await deleteTransaction(txn.id);
                     } catch (txnErr) {
