@@ -390,14 +390,16 @@ export default function SmartCategoryForm({
             // Call parent prop if provided
             if (onSubmit) await Promise.resolve(onSubmit(productData));
 
-            // Save Custom Categories or Update Images
+            // Save only newly added categories to avoid re-creating existing KPI rows
+            const trimmedCustomL1 = customL1.trim();
+            const trimmedCustomL2 = customL2.trim();
             let resolvedParentCategoryId = '';
-            if (level1 || customL1) {
-                const parentResult = await addLevel1Category(customL1 || level1, null, 'sales');
+            if (trimmedCustomL1) {
+                const parentResult = await addLevel1Category(trimmedCustomL1, null, 'sales');
                 resolvedParentCategoryId = String(parentResult?.categoryId || '').trim();
             }
-            if (level2 || customL2) {
-                await addLevel2Category(level1 || customL1, customL2 || level2, null, 'sales', resolvedParentCategoryId);
+            if (trimmedCustomL2) {
+                await addLevel2Category(level1 || trimmedCustomL1, trimmedCustomL2, null, 'sales', resolvedParentCategoryId);
             }
 
             if (typeof onSaveSuccess === 'function') {
