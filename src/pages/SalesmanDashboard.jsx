@@ -2182,23 +2182,21 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const salesKpiContributionCategoryRows = kpiContributionCategoryRows;
 
-    // Build expense rows from actual expense transactions so the Expense tab
-    // shows categories that match what computeUnifiedKpiSnapshot processes.
     const expenseKpiContributionCategoryRows = useMemo(() => {
         const rows = [];
         const seenKeys = new Set();
+        const allMainCats = getLevel1Categories('expense') || [];
 
-        (Array.isArray(debouncedTransactions) ? debouncedTransactions : []).forEach((txn) => {
-            const txType = normalizeTxnType(txn?.tx_type || txn?.type);
-            if (txType !== 'expense') return;
+        const sortedMainCats = [...allMainCats].sort((a, b) => {
+            const nameA = typeof a === 'object' ? a?.name : String(a || '');
+            const nameB = typeof b === 'object' ? b?.name : String(b || '');
+            return String(nameA || '').localeCompare(String(nameB || ''));
+        });
 
-            const resolved = resolveTxnCategoryParts(txn);
-            const categoryName = String(resolved?.categoryName || '').trim();
-            if (!categoryName || normalizeCategoryToken(categoryName) === 'uncategorized') return;
+        sortedMainCats.forEach((catObj) => {
+            const categoryName = typeof catObj === 'object' ? (catObj?.name || '') : String(catObj || '');
+            if (!categoryName) return;
 
-            const subCategoryName = String(resolved?.subCategoryName || '').trim();
-
-            // Use the first-seen casing for display labels
             const mainKey = makeProfitCategoryKey(categoryName, '');
             if (!seenKeys.has(mainKey)) {
                 seenKeys.add(mainKey);
@@ -2211,7 +2209,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 });
             }
 
-            if (subCategoryName) {
+            const allSubCats = getLevel2Categories(categoryName, 'expense') || [];
+            const sortedSubCats = [...allSubCats].sort((a, b) => {
+                const nameA = typeof a === 'object' ? a?.name : String(a || '');
+                const nameB = typeof b === 'object' ? b?.name : String(b || '');
+                return String(nameA || '').localeCompare(String(nameB || ''));
+            });
+
+            sortedSubCats.forEach((subObj) => {
+                const subCategoryName = typeof subObj === 'object' ? (subObj?.name || '') : String(subObj || '');
+                if (!subCategoryName) return;
+
                 const subKey = makeProfitCategoryKey(categoryName, subCategoryName);
                 if (!seenKeys.has(subKey)) {
                     seenKeys.add(subKey);
@@ -2223,56 +2231,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         depth: 1,
                     });
                 }
-            }
-        });
-
-        // Also include categories from the expense category tree (not just transactions)
-        const expenseMainCats = getLevel1Categories('expense') || [];
-        expenseMainCats.forEach((catObj) => {
-            const categoryName = typeof catObj === 'object' ? (catObj?.name || '') : String(catObj || '');
-            if (!categoryName || normalizeCategoryToken(categoryName) === 'uncategorized') return;
-
-            const mainKey = makeProfitCategoryKey(categoryName, '');
-            if (!seenKeys.has(mainKey)) {
-                seenKeys.add(mainKey);
-                rows.push({ key: mainKey, categoryName, subCategoryName: '', label: categoryName, depth: 0 });
-            }
-
-            const expenseSubCats = getLevel2Categories(categoryName, 'expense') || [];
-            expenseSubCats.forEach((subObj) => {
-                const subCategoryName = typeof subObj === 'object' ? (subObj?.name || '') : String(subObj || '');
-                if (!subCategoryName) return;
-                const subKey = makeProfitCategoryKey(categoryName, subCategoryName);
-                if (!seenKeys.has(subKey)) {
-                    seenKeys.add(subKey);
-                    rows.push({ key: subKey, categoryName, subCategoryName, label: `${categoryName} / ${subCategoryName}`, depth: 1 });
-                }
             });
         });
 
-        const nestedSubCategoryNames = new Set(
-            rows
-                .filter((row) => row.depth === 1 && String(row.subCategoryName || '').trim())
-                .map((row) => normalizeCategoryToken(row.subCategoryName))
-                .filter(Boolean)
-        );
-
-        const cleanedRows = rows.filter((row) => {
-            // Remove depth=0 rows whose categoryName is already used as a subCategory elsewhere
-            if (row.depth === 0) {
-                return !nestedSubCategoryNames.has(normalizeCategoryToken(row.categoryName));
-            }
-            // Remove depth=1 rows where categoryName === subCategoryName (e.g. "iphone / iphone")
-            if (row.depth === 1) {
-                const cat = normalizeCategoryToken(row.categoryName);
-                const sub = normalizeCategoryToken(row.subCategoryName);
-                if (cat === sub) return false;
-            }
-            return true;
-        });
-
-        return cleanedRows.sort((a, b) => a.label.localeCompare(b.label));
-    }, [debouncedTransactions, getLevel1Categories, getLevel2Categories, resolveTxnCategoryParts]);
+        return rows;
+    }, [getLevel1Categories, getLevel2Categories]);
 
     const activeKpiContributionRows = activeKpiContributionTab === KPI_SCOPE_EXPENSE
         ? expenseKpiContributionCategoryRows
