@@ -1677,6 +1677,9 @@ export function AuthProvider({ children }) {
     const [shops, setShops] = useState([]);
     const [authLoading, setAuthLoading] = useState(true);
     const activeShopIdRef = useRef(initialAuthState.activeShopId);
+    const authLoadingTimeoutRef = useRef(null);
+    const cachedPinRef = useRef(null);
+    const cachedPinUserIdRef = useRef('');
     const refreshShopsRequestIdRef = useRef(0);
     const salesmenLoadRequestIdRef = useRef(0);
 
@@ -1763,6 +1766,25 @@ export function AuthProvider({ children }) {
     useEffect(() => {
         activeShopIdRef.current = activeShopId;
     }, [activeShopId]);
+
+    useEffect(() => {
+        const currentUserId = asString(user?.id);
+        const currentPin = asString(user?.pin);
+        if (!currentUserId) {
+            cachedPinRef.current = null;
+            cachedPinUserIdRef.current = '';
+            return;
+        }
+        if (currentPin) {
+            cachedPinRef.current = currentPin;
+            cachedPinUserIdRef.current = currentUserId;
+            return;
+        }
+        if (cachedPinUserIdRef.current !== currentUserId) {
+            cachedPinRef.current = null;
+            cachedPinUserIdRef.current = currentUserId;
+        }
+    }, [user?.id, user?.pin]);
 
     useEffect(() => {
         writeStorage(SLOW_MOVING_DAYS_KEY, String(slowMovingDays));
@@ -2633,10 +2655,26 @@ export function AuthProvider({ children }) {
         }
 
         let cancelled = false;
+        const clearAuthLoadingTimeout = () => {
+            if (authLoadingTimeoutRef.current) {
+                clearTimeout(authLoadingTimeoutRef.current);
+                authLoadingTimeoutRef.current = null;
+            }
+        };
+        const startAuthLoadingTimeout = () => {
+            clearAuthLoadingTimeout();
+            authLoadingTimeoutRef.current = setTimeout(() => {
+                if (!cancelled) {
+                    setAuthLoading(false);
+                }
+                authLoadingTimeoutRef.current = null;
+            }, 3000);
+        };
 
         const syncSession = async (session) => {
             if (!session?.user) {
                 resetAuthState({ redirect: true });
+                clearAuthLoadingTimeout();
                 if (!cancelled) {
                     setAuthLoading(false);
                 }
@@ -2644,6 +2682,7 @@ export function AuthProvider({ children }) {
             }
 
             await hydrateAuthStateFromSession(session);
+            clearAuthLoadingTimeout();
             if (!cancelled) {
                 setAuthLoading(false);
             }
@@ -2651,6 +2690,7 @@ export function AuthProvider({ children }) {
 
         const initialize = async () => {
             setAuthLoading(true);
+            startAuthLoadingTimeout();
             const { data, error } = await supabase.auth.getSession();
             if (error) {
                 console.error('Failed to restore Supabase session:', error);
@@ -2665,12 +2705,14 @@ export function AuthProvider({ children }) {
             window.setTimeout(() => {
                 if (cancelled) return;
                 setAuthLoading(true);
+                startAuthLoadingTimeout();
                 void syncSession(session);
             }, 0);
         });
 
         return () => {
             cancelled = true;
+            clearAuthLoadingTimeout();
             data?.subscription?.unsubscribe();
         };
     }, [hydrateAuthStateFromSession, resetAuthState]);
@@ -3146,6 +3188,8 @@ export function AuthProvider({ children }) {
                     return { success: false, message: 'Authentication failed. Please contact admin.' };
                 }
 
+                cachedPinRef.current = pin;
+                cachedPinUserIdRef.current = asString(salesmanProfile?.user_id || matchedSession?.user?.id);
                 clearRateLimit('salesman');
                 await hydrateAuthStateFromSession(matchedSession);
                 return { success: true, role: 'salesman', redirectTo: getSalesmanRedirectPath() };
@@ -3181,6 +3225,15 @@ export function AuthProvider({ children }) {
             return { success: false, message: 'PIN required.' };
         }
 
+        if (cachedPinRef.current !== null && cachedPinUserIdRef.current === uid) {
+            if (cachedPinRef.current === enteredPin) {
+                clearRateLimit(scope);
+                return { success: true };
+            }
+            bumpRateLimit(scope);
+            return { success: false, message: 'Invalid PIN.' };
+        }
+
         const { profile, error } = await verifySalesmanPin(enteredPin, sid);
         const matchedId = asString(profile?.user_id);
         if (error || !profile || matchedId !== uid) {
@@ -3188,6 +3241,8 @@ export function AuthProvider({ children }) {
             return { success: false, message: 'Invalid PIN.' };
         }
 
+        cachedPinRef.current = enteredPin;
+        cachedPinUserIdRef.current = uid;
         clearRateLimit(scope);
         return { success: true };
     }, [activeShopId, user?.id, user?.shop_id]);

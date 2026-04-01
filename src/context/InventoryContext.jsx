@@ -1386,6 +1386,27 @@ export function InventoryProvider({ children }) {
         throw new Error('Selected shop is invalid or outdated. Please refresh and select a valid shop.');
     }, [resolveShopIdCandidates]);
 
+    const refreshProducts = useCallback(async (shopRef = activeShopId) => {
+        const sid = cleanText(shopRef || activeShopId);
+        if (!sid) {
+            setProducts([]);
+            return [];
+        }
+
+        const shopCandidates = await resolveShopIdCandidates(sid);
+        const filterCandidates = shopCandidates.length > 0 ? shopCandidates : [sid];
+        const invResult = await selectRowsByShopCandidates('inventory', (query) => query.select('*'), filterCandidates);
+
+        if (invResult.error || !Array.isArray(invResult.data)) {
+            setProducts([]);
+            return [];
+        }
+
+        const normalizedProducts = invResult.data.map((row) => normalizeInventoryRecord(row, categoryLookupsRef.current));
+        setProducts(normalizedProducts);
+        return normalizedProducts;
+    }, [activeShopId, resolveShopIdCandidates]);
+
     // ── Preload Data from Supabase ──
     useEffect(() => {
         const sid = cleanText(activeShopId);
@@ -2825,6 +2846,7 @@ export function InventoryProvider({ children }) {
         sanitizeBarcode,
         getStockSeverity,
         updateProduct,
+        refreshProducts,
         getLevel1Categories: getL1Categories,
         getLevel2Categories: getL2Categories,
         addLevel1Category: addL1Category,

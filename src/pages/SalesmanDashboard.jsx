@@ -670,6 +670,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         getStockSeverity,
         getLevel1Categories,
         getLevel2Categories,
+        refreshProducts,
     } = useInventory();
     const { repairJobs, repairsLoaded, updateRepairStatus } = useRepairs();
     const { addToCart, cart, editingCartItem, setEditingCartItem } = useCart();
@@ -2456,12 +2457,21 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     function isMobileLikeSnapshot(snapshot = {}) {
         const categoryText = `${snapshot.category || ''} ${snapshot.subCategory || ''}`.toLowerCase();
         const nameText = String(snapshot.name || '').toLowerCase();
-        return categoryText.includes('mobile')
-            || categoryText.includes('phone')
-            || categoryText.includes('smart')
-            || nameText.includes('mobile')
-            || nameText.includes('iphone')
-            || nameText.includes('samsung');
+        const combinedText = `${categoryText} ${nameText}`;
+        return combinedText.includes('mobile')
+            || combinedText.includes('phone')
+            || combinedText.includes('smart')
+            || combinedText.includes('handy')
+            || combinedText.includes('iphone')
+            || combinedText.includes('samsung')
+            || combinedText.includes('xiaomi')
+            || combinedText.includes('oneplus')
+            || combinedText.includes('huawei')
+            || combinedText.includes('oppo')
+            || combinedText.includes('vivo')
+            || combinedText.includes('realme')
+            || combinedText.includes('nokia')
+            || combinedText.includes('motorola');
     }
 
     const mobileInventoryProducts = useMemo(() => {
@@ -2553,7 +2563,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const handleInventoryFormSaveSuccess = useCallback(() => {
         setToast('Product added successfully');
         setTimeout(() => setToast(''), 1800);
-    }, []);
+        // Refresh products list immediately so new item appears without page reload
+        if (typeof refreshProducts === 'function') refreshProducts();
+    }, [refreshProducts]);
 
     const handleInventoryFormSaveError = useCallback((error) => {
         setToast(error?.message || 'Failed to add product');
