@@ -2284,48 +2284,56 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 ...((expenseKpiContributionCategoryRows || []).map((row) => ({ row, scope: KPI_SCOPE_EXPENSE }))),
             ];
 
-            // Build update promises — one UPDATE per unique category+scope combination
-            const updatePromises = allScopedRows.map(({ row, scope }) => {
-                const normalizedScope = normalizeKpiScope(scope);
-                const categoryName = String(row?.categoryName || '').trim().toLowerCase();
-                const subCategoryName = String(row?.subCategoryName || '').trim().toLowerCase();
-                if (!categoryName) return Promise.resolve();
+            // Step 1: Delete ALL existing rows for this shop to avoid duplicate entries
+            // upsert onConflict is unreliable without a guaranteed unique DB constraint
+            const deleteResult = await supabase
+                .from('kpi_profit_category_settings')
+                .delete()
+                .eq('shop_id', settingsShopId);
+            if (deleteResult.error && !isMissingDbObjectError(deleteResult.error)) {
+                throw new Error(deleteResult.error.message || 'Failed to clear old KPI settings.');
+            }
 
-                const mode = resolveCategoryRowMode(row, normalizedScope);
-                const now = new Date().toISOString();
-                const dbSubCategoryName = subCategoryName || 'EMPTY';
+            // Step 2: Build fresh insert rows
+            const now = new Date().toISOString();
+            const insertRows = allScopedRows
+                .map(({ row, scope }) => {
+                    const normalizedScope = normalizeKpiScope(scope);
+                    const categoryName = String(row?.categoryName || '').trim().toLowerCase();
+                    const subCategoryName = String(row?.subCategoryName || '').trim().toLowerCase();
+                    if (!categoryName) return null;
+                    const mode = resolveCategoryRowMode(row, normalizedScope);
+                    const dbSubCategoryName = subCategoryName || 'EMPTY';
+                    return {
+                        shop_id: settingsShopId,
+                        kpi_scope: normalizedScope,
+                        category_name: categoryName,
+                        sub_category_name: dbSubCategoryName,
+                        contribution_mode: mode,
+                        created_at: now,
+                        updated_at: now,
+                    };
+                })
+                .filter(Boolean);
 
-                // UPDATE only — match by shop_id + kpi_scope + lowercase category names
-                return supabase
+            // Step 3: Insert all rows fresh
+            if (insertRows.length > 0) {
+                const insertResult = await supabase
                     .from('kpi_profit_category_settings')
-                    .upsert(
-                        {
-                            shop_id: settingsShopId,
-                            kpi_scope: normalizedScope,
-                            category_name: categoryName,
-                            sub_category_name: dbSubCategoryName,
-                            contribution_mode: mode,
-                            updated_at: now,
-                        },
-                        {
-                            onConflict: 'shop_id,kpi_scope,category_name,sub_category_name',
-                            ignoreDuplicates: false,
-                        }
-                    );
-            });
+                    .insert(insertRows);
 
-            const results = await Promise.all(updatePromises);
-            const failed = results.find((r) => r?.error);
-            if (failed?.error) {
-                if (isMissingDbObjectError(failed.error)) {
-                    setContributionModeConfigStatus('DB table/column missing. Could not save.');
+                if (insertResult.error) {
+                    if (isMissingDbObjectError(insertResult.error)) {
+                        setContributionModeConfigStatus('DB table/column missing. Could not save.');
+                    } else {
+                        throw new Error(insertResult.error.message || 'Failed to save KPI settings.');
+                    }
                 } else {
-                    throw new Error(failed.error.message || 'Failed to save KPI settings.');
+                    setContributionModeConfigStatus('Saved.');
                 }
             } else {
                 setContributionModeConfigStatus('Saved.');
             }
-
             // Map is already correct in memory from user's live selections
             setKpiSettingsVersion((prev) => prev + 1);
         } catch (error) {

@@ -22,6 +22,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const [editingCategory, setEditingCategory] = useState(null);
     const [updateName, setUpdateName] = useState('');
     const [updateImagePreview, setUpdateImagePreview] = useState(null);
+    const [isSaving, setIsSaving] = useState(false);
     const updateFileInputRef = useRef(null);
 
     const addL1Categories = getLevel1Categories(addScope);
@@ -163,6 +164,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
 
     const handleAddSubmit = async (e) => {
         e.preventDefault();
+        setIsSaving(true);
         try {
 
         let finalMainCat = mainCatSelect;
@@ -201,6 +203,8 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
             handleClose();
         } catch (error) {
             alert(error?.message || 'Failed to save category in database.');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -362,8 +366,20 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                 )}
                             </div>
 
-                            <button type="submit" className="w-full py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/30">
-                                Save Category
+                            <button
+                                type="submit"
+                                disabled={isSaving}
+                                className="w-full py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                {isSaving ? (
+                                    <span className="flex items-center justify-center gap-2">
+                                        <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                                        </svg>
+                                        Saving...
+                                    </span>
+                                ) : 'Save Category'}
                             </button>
                         </form>
                     )}
