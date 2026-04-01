@@ -3055,8 +3055,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             .replaceAll('"', '&quot;')
             .replaceAll("'", '&#39;');
 
-        const rawId = String(order.orderId || order.id || '').trim();
-        const orderId = rawId.replace(/\D/g, '').slice(-6) || rawId.slice(0, 6).toUpperCase();
+        const orderId = String(order.abholscheinNumber || '').trim()
+            || String(order.orderId || order.id || '').replace(/\D/g, '').slice(-6)
+            || String(order.orderId || order.id || '').slice(0, 6).toUpperCase();
 
         const fmtDate = (val) => val ? new Date(val).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
         const fmtMoney = (val) => `€ ${Number(val || 0).toFixed(2)}`;
@@ -3558,14 +3559,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const bookedAt = buildSelectedDate(row.orderDate || todayIsoDate());
             try {
                 await addTransaction({
-                    desc: `Advance: ${row.itemName}`,
+                    desc: `Advance: ${row.itemName} (Abholschein #${row.abholscheinNumber || row.orderId})`,
                     amount: advanceAmount,
                     quantity: 1,
                     type: 'income',
                     tx_type: 'product_sale',
                     category: String(onlineOrderForm.category || 'Online Order').trim(),
                     paymentMethod: 'Cash',
-                    notes: `${marker} | Stage:ADVANCE | Mobile: ${String(row.mobileNumber || '').trim() || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
+                    notes: `${marker} | Stage:ADVANCE | Abholschein:${row.abholscheinNumber || ''} | Mobile: ${String(row.mobileNumber || '').trim() || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
                     source: 'online-order',
                     salesmanName: user?.name,
                     salesmanNumber: user?.salesmanNumber || 0,
@@ -3668,14 +3669,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const completedAt = new Date();
             try {
                 await addTransaction({
-                    desc: `Final Payment: ${orderTarget.itemName}`,
+                    desc: `Final Payment: ${orderTarget.itemName} (Abholschein #${orderTarget.abholscheinNumber || orderTarget.orderId})`,
                     amount: finalAmount,
                     quantity: 1,
                     type: 'income',
                     tx_type: 'product_sale',
                     category: String(orderTarget.category || 'Online Order').trim(),
                     paymentMethod: 'Cash',
-                    notes: `${finalMarker} | Stage:FINAL | Mobile: ${String(orderTarget.mobileNumber || '').trim() || '-'}`,
+                    notes: `${finalMarker} | Stage:FINAL | Abholschein:${orderTarget.abholscheinNumber || ''} | Mobile: ${String(orderTarget.mobileNumber || '').trim() || '-'}`,
                     source: 'online-order',
                     salesmanName: user?.name,
                     salesmanNumber: user?.salesmanNumber || 0,
@@ -3693,6 +3694,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const deleteOnlineOrder = async (id) => {
         const confirmed = window.confirm('Are you sure you want to cancel and delete this order?');
         if (!confirmed) return;
+
+        const targetOrder = onlineOrders.find((o) => String(o.id) === String(id));
+        const orderRef = targetOrder
+            ? `OnlineOrderRef:${targetOrder.orderId || targetOrder.id}`
+            : null;
 
         const idColumns = ['part_order_id', 'id', 'order_id'];
         let deleted = false;
@@ -3715,6 +3721,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!deleted) {
             alert(lastError?.message || 'Failed to delete order');
             return;
+        }
+
+        if (orderRef) {
+            const { data: relatedTxns, error: fetchErr } = await supabase
+                .from('transactions')
+                .select('id, notes')
+                .eq('source', 'online-order')
+                .ilike('notes', `%${orderRef}%`);
+
+            if (!fetchErr && Array.isArray(relatedTxns) && relatedTxns.length > 0) {
+                for (const txn of relatedTxns) {
+                    try {
+                        await deleteTransaction(txn.id);
+                    } catch (txnErr) {
+                        console.error('Failed to delete transaction for cancelled order:', txnErr);
+                    }
+                }
+            }
         }
 
         setOnlineOrders((prev) => prev.filter((order) => String(order.id) !== String(id)));
