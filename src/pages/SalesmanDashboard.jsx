@@ -1721,7 +1721,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const categoryName = (String(
             resolvedCategoryName
             || linkedSnapshot?.category
-            || subCategoryName
             || fallbackDescription
             || rawDescription
             || getTransactionInvoiceNumber(txn)
@@ -2259,8 +2258,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         );
 
         const cleanedRows = rows.filter((row) => {
-            if (row.depth !== 0) return true;
-            return !nestedSubCategoryNames.has(normalizeCategoryToken(row.categoryName));
+            // Remove depth=0 rows whose categoryName is already used as a subCategory elsewhere
+            if (row.depth === 0) {
+                return !nestedSubCategoryNames.has(normalizeCategoryToken(row.categoryName));
+            }
+            // Remove depth=1 rows where categoryName === subCategoryName (e.g. "iphone / iphone")
+            if (row.depth === 1) {
+                const cat = normalizeCategoryToken(row.categoryName);
+                const sub = normalizeCategoryToken(row.subCategoryName);
+                if (cat === sub) return false;
+            }
+            return true;
         });
 
         return cleanedRows.sort((a, b) => a.label.localeCompare(b.label));
