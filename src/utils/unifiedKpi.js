@@ -727,28 +727,6 @@ export function computeUnifiedKpiSnapshot({
     }
   });
 
-  (Array.isArray(repairJobs) ? repairJobs : []).forEach((job) => {
-    const date = parseRepairDate(job);
-    if (!date || date < start || date > end) return;
-
-    const mode = resolveConfiguredMode(categoryContributionModeMap, KPI_SCOPE_SALES, 'Repair Job', '', String(job?.category_id || job?.categoryId || '').trim());
-    if (mode === KPI_MODE_EXCLUDED) return;
-
-    const estimatedCost = safeNumber(job?.estimatedCost ?? job?.estimated_cost, 0);
-    const computedProfit = calculateRepairProfit(job);
-    const contribution = mode === KPI_MODE_PROFIT ? computedProfit : estimatedCost;
-
-    repairProfit += contribution;
-    revenue += contribution;
-
-    const period = ensurePeriod(periodMap, date, periodType);
-    period.repairProfit += contribution;
-    period.revenue += contribution;
-    period.profit += contribution;
-    serviceProfit += contribution;
-    pushBreakdown(revenueBreakdownMap, 'Repair Job', '', contribution, 'Repair Job');
-  });
-
   const expenses = fixedExpenses + smallExpenses + purchases;
   const income = revenue - expenses;
   const finalProfit = (productProfit + serviceProfit) - (inventoryPurchases + fixedExpenses);
