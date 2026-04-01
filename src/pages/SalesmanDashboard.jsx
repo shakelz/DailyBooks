@@ -345,7 +345,16 @@ function resolveProductSnapshot(product = {}) {
         name: String(product.product_name || product.name || product.productName || product.title || product.desc || '').trim(),
         barcode: String(product.barcode || product.barCode || product.sku || product.code || '').trim(),
         category: extractCategoryName(categoryRaw) || String(product.categoryName || 'General'),
-        subCategory: typeof categoryRaw === 'object' ? String(categoryRaw.level2 || '') : '',
+        subCategory: typeof categoryRaw === 'object'
+            ? String(categoryRaw.level2 || '')
+            : String(
+                product.subCategory
+                || product.sub_category
+                || product.sub_category_name
+                || product.subCategoryName
+                || product.level2
+                || ''
+            ).trim(),
         stock: Number(product.stock ?? product.qty ?? product.quantity ?? 0) || 0,
         sellingPrice,
         purchasePrice,
@@ -3133,6 +3142,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             productId: productWithQty.productId || productWithQty.id || '',
             name: productWithQty.desc || productWithQty.name || '',
             category: productWithQty.category || 'General',
+            subCategory: productWithQty.subCategory || productWithQty.sub_category || '',
             quantity: parseInt(productWithQty.quantity || 1, 10) || 1,
             amount: parseFloat(productWithQty.amount) || 0,
             unitPrice: parseFloat(productWithQty.unitPrice || productWithQty.amount) || 0,
