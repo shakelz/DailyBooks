@@ -1293,18 +1293,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         () => rangeTransactions.filter((txn) => {
             const txType = String(txn.tx_type || txn.type || '').trim().toLowerCase();
             const source = String(txn.source || txn.tx_source || '').trim().toLowerCase();
-
             const isStrictProductSale = txType === 'product_sale' && source === 'shop';
-
+            const isOnlineOrderRevenue = source === 'online-order';
             // Covers submitSimpleEntry: type='income', source='shop'
             const isGeneralSale = (txType === 'income' || txType === 'sale')
                 && (source === 'shop' || source === '');
-
             const isRepairJobRevenue =
                 (txType === 'repair_job' || txType === 'reparing_job' || txType === 'repair_amount' || txType === 'income')
                 && (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_'));
-
-            if (!isStrictProductSale && !isGeneralSale && !isRepairJobRevenue) return false;
+            if (!isStrictProductSale && !isOnlineOrderRevenue && !isGeneralSale && !isRepairJobRevenue) return false;
             if (isCashbookTransaction(txn)) return false;
             return true;
         }),
