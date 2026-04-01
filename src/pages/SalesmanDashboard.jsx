@@ -809,7 +809,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         writeLockStateRef.current = writeLockState;
     }, [writeLockState]);
     const stableWriteLockState = useCallback((...args) => writeLockStateRef.current?.(...args), []);
-    const canEditTransactions = adminView || Boolean(
+    const canEditTransactions = true || adminView || Boolean(
         user?.canEditTransactions
         ?? user?.permissions?.canEditTransactions
         ?? false
@@ -2896,7 +2896,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const handleDeleteHistoryTransaction = async (txn, event) => {
         event?.stopPropagation?.();
-        if (!adminView || !txn?.id) return;
+        if (!txn?.id) return;
         const confirmed = window.confirm('Delete this transaction from history?');
         if (!confirmed) return;
         try {
@@ -4325,16 +4325,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-emerald-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
-                                    {adminView ? (
-                                        <button
-                                            type="button"
-                                            onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
-                                            className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
-                                            title="Delete transaction"
-                                        >
-                                            <Trash2 size={13} />
-                                        </button>
-                                    ) : <span />}
+                                    <button
+                                        type="button"
+                                        onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
+                                        className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
+                                        title="Delete transaction"
+                                    >
+                                        <Trash2 size={13} />
+                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -4360,16 +4358,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     </div>
                                     <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
                                     <p className="text-sm font-black text-rose-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
-                                    {adminView ? (
-                                        <button
-                                            type="button"
-                                            onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
-                                            className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
-                                            title="Delete transaction"
-                                        >
-                                            <Trash2 size={13} />
-                                        </button>
-                                    ) : <span />}
+                                    <button
+                                        type="button"
+                                        onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
+                                        className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
+                                        title="Delete transaction"
+                                    >
+                                        <Trash2 size={13} />
+                                    </button>
                                 </div>
                             ))}
                         </div>
