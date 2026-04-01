@@ -1293,6 +1293,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         () => rangeTransactions.filter((txn) => {
             const txType = String(txn.tx_type || txn.type || '').trim().toLowerCase();
             const source = String(txn.source || txn.tx_source || '').trim().toLowerCase();
+            const notes = String(txn.notes || '').trim().toLowerCase();
+            const desc = String(txn.desc || txn.description || '').trim().toLowerCase();
             const isStrictProductSale = txType === 'product_sale' && source === 'shop';
             const isOnlineOrderRevenue = source === 'online-order';
             // Covers submitSimpleEntry: type='income', source='shop'
@@ -1301,7 +1303,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const isRepairJobRevenue =
                 (txType === 'repair_job' || txType === 'reparing_job' || txType === 'repair_amount' || txType === 'income')
                 && (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_'));
+            const isRepairAdvance = isRepairJobRevenue && (
+                notes.includes('repair_payment_stage=advance')
+                || notes.includes('stage:advance')
+                || notes.includes('stage=advance')
+                || desc.includes('advance for repair')
+                || desc.includes('repair advance')
+            );
             if (!isStrictProductSale && !isOnlineOrderRevenue && !isGeneralSale && !isRepairJobRevenue) return false;
+            if (isRepairAdvance) return false;
             if (isCashbookTransaction(txn)) return false;
             return true;
         }),
