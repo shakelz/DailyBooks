@@ -2418,7 +2418,7 @@ export function InventoryProvider({ children }) {
 
         const deleteResult = await executeByColumnCandidates(
             (column) => supabase.from('transactions').delete().eq(column, strId).eq('shop_id', sid),
-            ['id', 'transaction_id', 'transactionId']
+            ['transaction_id', 'id', 'transactionId']
         );
         if (deleteResult.error) {
             throw new Error(deleteResult.error.message || 'Failed to delete transaction.');

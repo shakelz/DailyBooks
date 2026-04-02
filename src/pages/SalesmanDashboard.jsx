@@ -1752,14 +1752,40 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const resolveConfiguredContributionMode = useCallback((categoryName = '', subCategoryName = '', scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
+
+        // 1. Exact match: scope::category::subcategory
         const exactKey = makeScopedProfitCategoryKey(normalizedScope, categoryName, subCategoryName);
         if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, exactKey)) {
             return normalizeKpiContributionMode(categoryContributionModeMap[exactKey]);
         }
 
+        // 2. Parent-only match: scope::category:: (empty subcategory)
         const categoryOnlyKey = makeScopedProfitCategoryKey(normalizedScope, categoryName, '');
         if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, categoryOnlyKey)) {
             return normalizeKpiContributionMode(categoryContributionModeMap[categoryOnlyKey]);
+        }
+
+        // 3. Fallback scan: if no parent key exists, scan ALL subcategory-level entries under
+        //    this category and return the most restrictive mode found.
+        //    Priority: excluded > profit > sales
+        //    This handles transactions that have no subcategory but the category has sub-level rules.
+        if (categoryName) {
+            const normalizedCategoryName = normalizeCategoryToken(categoryName);
+            const categoryPrefix = `${normalizedScope}::${normalizedCategoryName}::`;
+            const modesFound = [];
+            const mapKeys = Object.keys(categoryContributionModeMap);
+            for (let i = 0; i < mapKeys.length; i++) {
+                const key = mapKeys[i];
+                // Only include keys with a non-empty subcategory part (longer than the prefix)
+                if (key.startsWith(categoryPrefix) && key.length > categoryPrefix.length) {
+                    modesFound.push(normalizeKpiContributionMode(categoryContributionModeMap[key]));
+                }
+            }
+            if (modesFound.length > 0) {
+                if (modesFound.includes(KPI_MODE_EXCLUDED)) return KPI_MODE_EXCLUDED;
+                if (modesFound.includes(KPI_MODE_PROFIT)) return KPI_MODE_PROFIT;
+                return KPI_MODE_SALES;
+            }
         }
 
         return '';
@@ -1768,14 +1794,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const resolveTxnContributionMode = useCallback((txn = {}, scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
         const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
-        if (!hasExplicitContributionModeConfig) {
-            return KPI_MODE_SALES;
-        }
-
+        // No early-exit on hasExplicitContributionModeConfig — the map lookup already
+        // returns '' (-> SALES default) when the map is empty or the key is not found.
+        // Removing the flag check prevents a React state timing race where the map is
+        // already populated but the flag hasn't flipped yet, causing wrong SALES fallback.
         const configuredMode = resolveConfiguredContributionMode(categoryName, subCategoryName, normalizedScope);
         if (configuredMode) return configuredMode;
         return KPI_MODE_SALES;
-    }, [hasExplicitContributionModeConfig, resolveConfiguredContributionMode, resolveTxnCategoryParts]);
+    }, [resolveConfiguredContributionMode, resolveTxnCategoryParts]);
 
     const isExcludedCategoryTransaction = useCallback((txn = {}, scope = KPI_SCOPE_SALES) => {
         return resolveTxnContributionMode(txn, scope) === KPI_MODE_EXCLUDED;
@@ -3348,6 +3374,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         for (const line of lines) {
+            const subCatForCart = String(line.subCategory || line.sub_category || '').trim();
             await addTransaction({
                 desc: line.name,
                 amount: line.total,
@@ -3355,8 +3382,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 type: 'income',
                 tx_type: 'product_sale',
                 category: line.category || 'General',
+                sub_category: subCatForCart,
                 paymentMethod: line.paymentMode || 'Cash',
-                notes: line.notes || '',
+                notes: subCatForCart
+                    ? (line.notes ? `SubCategory: ${subCatForCart} | ${line.notes}` : `SubCategory: ${subCatForCart}`)
+                    : (line.notes || ''),
                 source: 'shop',
                 salesmanName: user?.name,
                 salesmanNumber: user?.salesmanNumber || 0,
