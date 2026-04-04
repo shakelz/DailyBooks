@@ -52,7 +52,7 @@ export const printRepairJobBill = (job, activeShop) => {
         html, body {
           margin: 0;
           padding: 0;
-          width: 58mm;
+          width: 48mm;
         }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         
@@ -64,9 +64,9 @@ export const printRepairJobBill = (job, activeShop) => {
 
       body {
         font-family: 'Arial', 'Helvetica', sans-serif;
-        width: 58mm;
-        margin: 0 auto;
-        padding: 3mm 2.5mm;
+        width: 48mm;
+        margin: 0;
+        padding: 2mm 0;
         background: #fff;
         color: #000;
         font-weight: 900;
@@ -88,12 +88,12 @@ export const printRepairJobBill = (job, activeShop) => {
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
       td { font-size: 11px; padding: 2px 0; vertical-align: top; }
       .label { font-weight: 900; color: #000; width: 52%; word-break: break-word; }
-      .value { font-weight: 900; color: #000; text-align: right; width: 48%; word-break: break-word; }
+      .value { font-weight: 900; color: #000; text-align: right; width: 45%; word-break: break-all; }
       .issue-box { border: 2px solid #000; padding: 3px; margin: 4px 0; font-size: 11px; font-weight: 900; }
       .amount-label { font-size: 11px; font-weight: 900; color: #000; width: 52%; word-break: break-word; }
-      .amount-value { font-size: 11px; font-weight: 900; text-align: right; width: 48%; word-break: break-word; }
+      .amount-value { font-size: 11px; font-weight: 900; text-align: right; width: 45%; word-break: break-all; }
       .total-label { font-size: 14px; font-weight: 900; width: 52%; word-break: break-word; }
-      .total-value { font-size: 14px; font-weight: 900; text-align: right; width: 48%; word-break: break-word; }
+      .total-value { font-size: 14px; font-weight: 900; text-align: right; width: 45%; word-break: break-all; }
       .footer { text-align: center; font-size: 10px; color: #333; font-weight: 900; margin-top: 4px; line-height: 1.4; }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -255,7 +255,7 @@ function buildKundenbelegHtml({
           <div>${escapePrintHtml(resolveReceiptItemLabel(item))}</div>
           ${imei ? `<div style="font-size: 10px; color: #333; margin-top: 2px;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
         </td>
-        <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900; text-align: right;">
+        <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900; text-align: right; width: 45%; word-break: break-all;">
           &euro; ${formatReceiptMoney(resolveReceiptItemTotal(item))}
         </td>
       </tr>
@@ -271,20 +271,20 @@ function buildKundenbelegHtml({
         * { margin: 0; padding: 0; box-sizing: border-box; }
         @media print {
           @page { size: 58mm auto; margin: 0mm; }
-          html, body { margin: 0; padding: 0; width: 58mm; }
+          html, body { margin: 0; padding: 0; width: 48mm; }
           * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         body {
           font-family: 'Arial', 'Helvetica', sans-serif;
-          width: 58mm;
-          margin: 0 auto;
-          padding: 10mm 5mm;
+          width: 48mm;
+          margin: 0;
+          padding: 2mm 0;
           line-height: 1.6;
           color: #000;
           background: #fff;
         }
         .divider { border: none; border-top: 1px dashed #999; margin: 8px 0; }
-        table { width: 100%; border-collapse: collapse; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
       </style>
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     </head>
@@ -315,7 +315,7 @@ function buildKundenbelegHtml({
             <tr>
               <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900;">1x</td>
               <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900;">Artikel</td>
-              <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900; text-align: right;">&euro; 0,00</td>
+              <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900; text-align: right; width: 45%; word-break: break-all;">&euro; 0,00</td>
             </tr>
           `}
         </tbody>
@@ -327,16 +327,16 @@ function buildKundenbelegHtml({
         <tbody>
           <tr>
             <td style="font-size: 12px; font-weight: 900;">Zwischensumme</td>
-            <td style="text-align: right; font-size: 12px; font-weight: 900;">&euro; ${formatReceiptMoney(grossTotal)}</td>
+            <td style="text-align: right; font-size: 12px; font-weight: 900; width: 45%; word-break: break-all;">&euro; ${formatReceiptMoney(grossTotal)}</td>
           </tr>
           ${shouldShowTax ? `
             <tr>
               <td style="font-size: 11px; font-weight: 900;">Netto (19%)</td>
-              <td style="text-align: right; font-size: 11px; font-weight: 900;">&euro; ${formatReceiptMoney(netTotal)}</td>
+              <td style="text-align: right; font-size: 11px; font-weight: 900; width: 45%; word-break: break-all;">&euro; ${formatReceiptMoney(netTotal)}</td>
             </tr>
             <tr>
               <td style="font-size: 11px; font-weight: 900;">USt. (19%)</td>
-              <td style="text-align: right; font-size: 11px; font-weight: 900;">&euro; ${formatReceiptMoney(taxTotal)}</td>
+              <td style="text-align: right; font-size: 11px; font-weight: 900; width: 45%; word-break: break-all;">&euro; ${formatReceiptMoney(taxTotal)}</td>
             </tr>
           ` : ''}
         </tbody>

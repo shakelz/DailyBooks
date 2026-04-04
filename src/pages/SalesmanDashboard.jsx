@@ -470,14 +470,14 @@ function buildReceiptHtml({
                 <style>
                     * { box-sizing: border-box; }
                     @media print {
-                        @page { size: 58mm auto; margin: 0mm; }
-                        html, body { margin: 0; padding: 0; width: 58mm; display: flex; justify-content: center; }
-                        .receipt-wrapper { width: 58mm; margin: 0 auto; }
+                        @page { size: 58mm auto; margin: 0; }
+                        html, body { margin: 0; padding: 0; width: 48mm; }
+                        .receipt-wrapper { width: 48mm; }
                         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                     }
-                    body { font-family: 'Arial', 'Helvetica', sans-serif; width: 58mm; margin: 0 auto; padding: 6mm 4mm; line-height: 1.5; background: #fff; font-size: 13px; color: #000; font-weight: 900; }
-                    .receipt-wrapper { width: 100%; max-width: 100%; }
-                    .ticket { border: 1px solid #111; padding: 1.5mm; width: 100%; }
+                    body { font-family: 'Arial', 'Helvetica', sans-serif; width: 48mm; margin: 0; padding: 2mm 0 2mm 0; line-height: 1.4; background: #fff; font-size: 12px; color: #000; font-weight: 900; }
+                    .receipt-wrapper { width: 100%; }
+                    .ticket { padding: 0; width: 100%; }
                     .center { text-align: center; }
                     .shop { font-size: 20px; font-weight: 900; margin-bottom: 3px; }
                     .line { border-top: 1px solid #111; margin: 6px 0; }
@@ -490,7 +490,7 @@ function buildReceiptHtml({
                     .small { font-size: 11px; line-height: 1.5; font-weight: 800; }
                     .tax-table { width: 100%; margin-top: 4px; font-size: 11px; border-collapse: collapse; font-weight: 900; table-layout: fixed; }
                     .tax-table td { font-size: 11px; font-weight: 900; padding: 4px 2px; }
-                    .tax-table td:last-child { text-align: right; width: 30%; word-break: break-word; }
+                    .tax-table td:last-child { text-align: right; }
                     .tax-table td:first-child { width: 15%; }
                     .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
                     .footer { font-size: 11px; font-weight: 800; color: #000; line-height: 1.5; }
@@ -3157,8 +3157,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const row = (label, value) => {
             if (!value || value === '-' || value === '') return '';
             return `<tr>
-            <td style="padding:2px 0;font-size:11px;font-weight:900;color:#000;width:52%;vertical-align:top;word-break:break-word;">${label}</td>
-            <td style="padding:2px 0;font-size:11px;font-weight:900;color:#000;text-align:right;vertical-align:top;word-break:break-word;width:48%;">${toSafe(String(value))}</td>
+            <td style="padding:2px 0;font-size:11px;font-weight:900;color:#000;width:55%;vertical-align:top;">${label}</td>
+            <td style="padding:2px 0;font-size:11px;font-weight:900;color:#000;text-align:right;vertical-align:top;width:45%;word-break:break-all;">${toSafe(String(value))}</td>
         </tr>`;
         };
 
@@ -3170,15 +3170,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     <title>Online-Bestellung</title>
     <style>
         @media print {
-            @page { size: 58mm auto; margin: 0mm; }
-            html, body { margin: 0; padding: 0; width: 58mm; }
+            @page { size: 58mm auto; margin: 0; }
+            html, body { margin: 0; padding: 0; width: 48mm; }
             * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         * { box-sizing: border-box; }
-        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 58mm; margin: 0 auto; padding: 3mm 2.5mm; background: #fff; color: #000; font-weight: 900; }
+        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 48mm; margin: 0; padding: 2mm 0; background: #fff; color: #000; font-weight: 900; }
         .shop-name { font-size: 13px; font-weight: 900; text-align: center; margin: 0 0 1px 0; }
         .shop-sub { font-size: 10px; font-weight: 900; text-align: center; margin: 1px 0; }
-        .divider { border: none; border-top: 1px dashed #555; margin: 4px 0; }
+        .divider { border: none; border-top: 1px dashed #555; margin: 3px 0; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         td { font-size: 11px; font-weight: 900; color: #000; word-break: break-word; }
         .footer { text-align: center; font-size: 10px; font-weight: 900; color: #000; margin-top: 3px; }
@@ -3190,9 +3190,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
 
     <hr class="divider"/>
-    <div style="text-align:center; margin: 3px 0;">
+    <div style="text-align:center; margin:2px 0;">
         <p style="font-size:10px;font-weight:900;color:#000;margin:0;">Abholung Nr.</p>
-        <p style="font-size:22px;font-weight:900;color:#000;margin:2px 0 0 0;letter-spacing:2px;">${toSafe(orderId)}</p>
+        <p style="font-size:20px;font-weight:900;color:#000;margin:1px 0 0 0;letter-spacing:2px;">${toSafe(orderId)}</p>
     </div>
     <hr class="divider"/>
 
