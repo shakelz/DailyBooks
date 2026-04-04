@@ -71,6 +71,8 @@ export const printRepairJobBill = (job, activeShop) => {
         color: #000;
         font-weight: 900;
         line-height: 1.4;
+        position: relative;
+        left: -1mm;
       }
 
       .receipt-wrapper {
@@ -80,7 +82,7 @@ export const printRepairJobBill = (job, activeShop) => {
 
       .center { text-align: center; }
       .shop-name { font-size: 13px; font-weight: 900; text-align: center; }
-      .shop-sub { font-size: 10px; font-weight: 900; text-align: center; color: #333; margin-top: 1px; }
+      .shop-sub { font-size: 10px; font-weight: 900; text-align: center; color: #000; margin-top: 1px; }
       .bill-title { font-size: 13px; font-weight: 900; text-align: center; letter-spacing: 2px; border: 2px solid #000; padding: 3px 0; margin: 4px 0; }
       .job-number { font-size: 22px; font-weight: 900; text-align: center; letter-spacing: 2px; margin: 4px 0; }
       .divider { border: none; border-top: 1px dashed #999; margin: 4px 0; }
@@ -94,7 +96,7 @@ export const printRepairJobBill = (job, activeShop) => {
       .amount-value { font-size: 11px; font-weight: 900; text-align: right; width: 45%; word-break: break-all; }
       .total-label { font-size: 14px; font-weight: 900; width: 52%; word-break: break-word; }
       .total-value { font-size: 14px; font-weight: 900; text-align: right; width: 45%; word-break: break-all; }
-      .footer { text-align: center; font-size: 10px; color: #333; font-weight: 900; margin-top: 4px; line-height: 1.4; }
+      .footer { text-align: center; font-size: 10px; color: #000; font-weight: 900; margin-top: 4px; line-height: 1.4; }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   </head>
@@ -282,6 +284,9 @@ function buildKundenbelegHtml({
           line-height: 1.6;
           color: #000;
           background: #fff;
+          font-weight: 900;
+          position: relative;
+          left: -1mm;
         }
         .divider { border: none; border-top: 1px dashed #999; margin: 8px 0; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -290,8 +295,8 @@ function buildKundenbelegHtml({
     </head>
     <body>
       <div style="font-weight: 900; font-size: 24px; text-align: center;">${escapePrintHtml(shopName)}</div>
-      ${shopAddress ? `<div style="font-size: 11px; font-weight: 800; text-align: center; margin-top: 3px;">${escapePrintHtml(shopAddress)}</div>` : ''}
-      ${shopPhone ? `<div style="font-size: 11px; font-weight: 800; text-align: center; margin-top: 2px;">Tel: ${escapePrintHtml(shopPhone)}</div>` : ''}
+      ${shopAddress ? `<div style="font-size: 11px; font-weight: 900; text-align: center; margin-top: 3px; color: #000;">${escapePrintHtml(shopAddress)}</div>` : ''}
+      ${shopPhone ? `<div style="font-size: 11px; font-weight: 900; text-align: center; margin-top: 2px; color: #000;">Tel: ${escapePrintHtml(shopPhone)}</div>` : ''}
 
       <hr class="divider"/>
 
@@ -342,7 +347,7 @@ function buildKundenbelegHtml({
         </tbody>
       </table>
 
-      <div style="margin-top: 12px; font-size: 13px; line-height: 1.5; font-weight: 800; text-align: center;">
+      <div style="margin-top: 12px; font-size: 13px; line-height: 1.5; font-weight: 900; text-align: center; color: #000;">
         R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.
         Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapePrintHtml(shopName)}
       </div>

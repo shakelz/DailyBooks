@@ -476,7 +476,7 @@ function buildReceiptHtml({
                         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                     }
                     body { font-family: 'Arial', 'Helvetica', sans-serif; width: 48mm; margin: 0; padding: 2mm 0 2mm 0; line-height: 1.4; background: #fff; font-size: 12px; color: #000; font-weight: 900; }
-                    .receipt-wrapper { width: 100%; }
+                    .receipt-wrapper { width: 100%; margin-left: -1mm; }
                     .ticket { padding: 0; width: 100%; }
                     .center { text-align: center; }
                     .shop { font-size: 20px; font-weight: 900; margin-bottom: 3px; }
@@ -503,8 +503,8 @@ function buildReceiptHtml({
                     <div class="center">
                         <div style="font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:2px;">KUNDENBELEG</div>
                         <div class="shop">${escapeHtml(shopName || 'Shop')}</div>
-                        ${shopAddress ? `<div class="small" style="font-size: 11px; color: #000; font-weight: 800;">${escapeHtml(shopAddress)}</div>` : ''}
-                        ${shopPhone ? `<div class="small" style="font-size: 11px; color: #000; font-weight: 800;">Tel: ${escapeHtml(shopPhone)}</div>` : ''}
+                        ${shopAddress ? `<div class="small" style="font-size: 11px; color: #000; font-weight: 900;">${escapeHtml(shopAddress)}</div>` : ''}
+                        ${shopPhone ? `<div class="small" style="font-size: 11px; color: #000; font-weight: 900;">Tel: ${escapeHtml(shopPhone)}</div>` : ''}
                     </div>
 
                     <div class="line"></div>
@@ -539,7 +539,7 @@ function buildReceiptHtml({
                     <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
                     <div class="line"></div>
                     <div class="footer center">
-                        Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName || 'Shop')}
+                        R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName || 'Shop')}
                     </div>
                 </div>
                 </div>
@@ -3175,9 +3175,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         * { box-sizing: border-box; }
-        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 48mm; margin: 0; padding: 2mm 0; background: #fff; color: #000; font-weight: 900; }
+        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 48mm; margin: 0; padding: 2mm 0; background: #fff; color: #000; font-weight: 900; position: relative; left: -1mm; }
         .shop-name { font-size: 13px; font-weight: 900; text-align: center; margin: 0 0 1px 0; }
-        .shop-sub { font-size: 10px; font-weight: 900; text-align: center; margin: 1px 0; }
+        .shop-sub { font-size: 10px; font-weight: 900; text-align: center; margin: 1px 0; color: #000; }
         .divider { border: none; border-top: 1px dashed #555; margin: 3px 0; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         td { font-size: 11px; font-weight: 900; color: #000; word-break: break-word; }
