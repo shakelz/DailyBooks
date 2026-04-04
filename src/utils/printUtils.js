@@ -52,7 +52,7 @@ export const printRepairJobBill = (job, activeShop) => {
         html, body {
           margin: 0;
           padding: 0;
-          width: 47mm;
+          width: 46mm;
         }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         
@@ -64,7 +64,7 @@ export const printRepairJobBill = (job, activeShop) => {
 
       body {
         font-family: 'Arial', 'Helvetica', sans-serif;
-        width: 47mm;
+        width: 46mm;
         margin: 0;
         padding: 2mm 0.5mm;
         background: #fff;
@@ -271,12 +271,12 @@ function buildKundenbelegHtml({
         * { margin: 0; padding: 0; box-sizing: border-box; }
         @media print {
           @page { size: 58mm auto; margin: 0mm; }
-          html, body { margin: 0; padding: 0; width: 47mm; }
+          html, body { margin: 0; padding: 0; width: 46mm; }
           * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         body {
           font-family: 'Arial', 'Helvetica', sans-serif;
-          width: 47mm;
+          width: 46mm;
           margin: 0;
           padding: 2mm 0.5mm;
           line-height: 1.6;

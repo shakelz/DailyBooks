@@ -471,11 +471,11 @@ function buildReceiptHtml({
                     * { box-sizing: border-box; }
                     @media print {
                         @page { size: 58mm auto; margin: 0; }
-                        html, body { margin: 0; padding: 0; width: 47mm; }
-                        .receipt-wrapper { width: 47mm; }
+                        html, body { margin: 0; padding: 0; width: 46mm; }
+                        .receipt-wrapper { width: 46mm; }
                         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                     }
-                    body { font-family: 'Arial', 'Helvetica', sans-serif; width: 47mm; margin: 0; padding: 2mm 0.5mm; line-height: 1.4; background: #fff; font-size: 12px; color: #000; font-weight: 900; }
+                    body { font-family: 'Arial', 'Helvetica', sans-serif; width: 46mm; margin: 0; padding: 2mm 0.5mm; line-height: 1.4; background: #fff; font-size: 12px; color: #000; font-weight: 900; }
                     .receipt-wrapper { width: 100%; }
                     .ticket { padding: 0; width: 100%; }
                     .center { text-align: center; }
@@ -3171,11 +3171,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     <style>
         @media print {
             @page { size: 58mm auto; margin: 0; }
-            html, body { margin: 0; padding: 0; width: 47mm; }
+            html, body { margin: 0; padding: 0; width: 46mm; }
             * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         * { box-sizing: border-box; }
-        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 47mm; margin: 0; padding: 2mm 0.5mm; background: #fff; color: #000; font-weight: 900; }
+        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 46mm; margin: 0; padding: 2mm 0.5mm; background: #fff; color: #000; font-weight: 900; }
         .shop-name { font-size: 13px; font-weight: 900; text-align: center; margin: 0 0 1px 0; }
         .shop-sub { font-size: 10px; font-weight: 900; text-align: center; margin: 1px 0; color: #000; }
         .divider { border: none; border-top: 1px dashed #555; margin: 3px 0; }
