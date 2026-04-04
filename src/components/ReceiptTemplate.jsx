@@ -26,6 +26,7 @@ const ReceiptTemplate = forwardRef(({
     const receiptShopName = String(shopName || activeShop?.name || 'Shop').trim() || 'Shop';
     const receiptShopAddress = String(shopAddress || activeShop?.address || '').trim();
     const receiptShopTelephone = String(shopTelephone || activeShop?.telephone || activeShop?.phone || '').trim();
+    const dividerStyle = { borderTop: '2px dotted #000', margin: '8px 0' };
 
     const renderIMEI = (item) => {
         const category = typeof item?.category === 'object' ? item.category?.level1 : item?.category;
@@ -58,20 +59,20 @@ const ReceiptTemplate = forwardRef(({
                 {receiptShopTelephone && <div style={{ fontSize: '14px', fontWeight: '600', textAlign: 'center', marginTop: '2px' }}>Tel: {receiptShopTelephone}</div>}
             </div>
 
-            <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
+            <div style={dividerStyle} />
 
             <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>
                 <div><strong>Datum:</strong> {date || new Date().toLocaleDateString('de-DE')} {time || new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
                 <div><strong>Beleg-Nr:</strong> {transactionId || 'N/A'}</div>
             </div>
 
-            <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
+            <div style={dividerStyle} />
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', marginBottom: '8px' }}>
                 <thead>
                     <tr style={{ fontWeight: '900', borderBottom: '1px solid #000', fontSize: '15px' }}>
-                        <td style={{ paddingBottom: '6px', width: '15%' }}>Menge</td>
-                        <td style={{ paddingBottom: '6px', width: '55%' }}>Artikel</td>
+                        <td style={{ paddingBottom: '6px', width: '18%', paddingRight: '6px' }}>Menge</td>
+                        <td style={{ paddingBottom: '6px', width: '52%', paddingRight: '6px' }}>Artikel</td>
                         <td style={{ paddingBottom: '6px', width: '30%', textAlign: 'right' }}>Betrag</td>
                     </tr>
                 </thead>
@@ -91,9 +92,9 @@ const ReceiptTemplate = forwardRef(({
                 </tbody>
             </table>
 
-            <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }} />
+            <div style={dividerStyle} />
 
-            <table style={{ width: '100%', marginBottom: '8px' }}>
+            <table style={{ width: '100%', marginBottom: '8px', tableLayout: 'fixed' }}>
                 <tbody>
                     <tr>
                         <td style={{ fontSize: '15px', fontWeight: '700' }}>Zwischensumme</td>
@@ -109,11 +110,16 @@ const ReceiptTemplate = forwardRef(({
                                 <td style={{ fontSize: '14px', fontWeight: '700' }}>USt. (19%)</td>
                                 <td style={{ textAlign: 'right', fontSize: '14px', fontWeight: '700' }}>{priceTag(taxTotal)}</td>
                             </tr>
+                            <tr>
+                                <td colSpan={2} style={{ paddingTop: '6px' }}>
+                                    <div style={dividerStyle} />
+                                </td>
+                            </tr>
                         </>
                     )}
                 </tbody>
             </table>
-            <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.5', fontWeight: '600', textAlign: 'center' }}>
+            <div style={{ marginTop: '12px', fontSize: '11px', lineHeight: '1.5', fontWeight: '600', textAlign: 'center', width: '100%' }}>
                 Rueckgabe/Umtausch innerhalb 14 Tagen nur in unbeschaedigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. {receiptShopName}
             </div>
         </div>

@@ -201,7 +201,10 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
     const normalizedDesc = cleanText(txn?.desc || txn?.description || txn?.name || '');
     const normalizedCategory = cleanText(txn?.category || txn?.category_name || '');
     const normalizedPaymentMethod = resolveTransactionPaymentMethod(txn);
-    const normalizedInvoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
+    const normalizedInvoiceNumber = normalizeInvoiceNumberValue(
+        cleanText(txn?.invoice_number || txn?.invoiceNumber),
+        resolvedTimestamp || cleanText(txn?.created_at)
+    );
     const normalizedCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID || '');
     const fallbackInlineItems = (linkedItems.length > 0
         ? linkedItems
@@ -861,16 +864,23 @@ function mapTxSource(value) {
     return raw;
 }
 
-function generateInvoiceNumber(seedTimestamp = '', shopId = '') {
-    const parsed = seedTimestamp ? new Date(seedTimestamp) : new Date();
+function normalizeInvoiceNumberValue(value = '', fallbackTimestamp = '') {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.length === 6) return digits;
+    if (digits.length > 6) return digits.slice(-6);
+
+    const parsed = fallbackTimestamp ? new Date(fallbackTimestamp) : new Date();
     const dateObj = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-    void shopId;
-    const pad2 = (value) => String(value).padStart(2, '0');
+    const pad2 = (part) => String(part).padStart(2, '0');
     const y = String(dateObj.getFullYear()).slice(-2);
     const m = pad2(dateObj.getMonth() + 1);
     const d = pad2(dateObj.getDate());
-    const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
-    return `INV-${y}${m}${d}-${rand}`;
+    return `${y}${m}${d}`;
+}
+
+function generateInvoiceNumber(seedTimestamp = '', shopId = '') {
+    void shopId;
+    return normalizeInvoiceNumberValue('', seedTimestamp);
 }
 
 function extractTransactionReferenceKey(notes = '') {
@@ -1061,7 +1071,10 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
         isFixedExpense ? 'shop_expense' : (txn?.tx_type || txn?.type),
         mappedSource
     );
-    const invoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
+    const invoiceNumber = normalizeInvoiceNumberValue(
+        cleanText(txn?.invoice_number || txn?.invoiceNumber),
+        occurredAt
+    );
     const description = cleanText(txn?.desc || txn?.description || txn?.name);
     const category = cleanText(txn?.category || txn?.category_name);
     const directCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID);

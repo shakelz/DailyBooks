@@ -29,7 +29,9 @@ create table if not exists public.profiles (
     active boolean not null default true,
     is_online boolean not null default false,
     avatar_url text,
+    salary_type text default 'hourly' check (salary_type in ('hourly', 'monthly')),
     hourly_rate numeric default 12.5,
+    monthly_salary numeric default 0,
     salesman_number integer,
     can_edit_transactions boolean not null default false,
     can_bulk_edit boolean not null default false,
@@ -261,6 +263,27 @@ on public.transactions(shop_id, occurred_at desc);
 
 create index if not exists idx_transactions_shop_category_id
 on public.transactions(shop_id, category_id);
+
+alter table if exists public.transactions
+    add column if not exists invoice_number text;
+
+update public.transactions
+set invoice_number = case
+    when regexp_replace(coalesce(invoice_number, ''), '\D', '', 'g') ~ '^\d{6}$'
+        then regexp_replace(coalesce(invoice_number, ''), '\D', '', 'g')
+    when regexp_replace(coalesce(invoice_number, ''), '\D', '', 'g') ~ '^\d{7,}$'
+        then right(regexp_replace(coalesce(invoice_number, ''), '\D', '', 'g'), 6)
+    else to_char(coalesce(occurred_at, created_at, now()), 'YYMMDD')
+end
+where invoice_number is null
+   or invoice_number !~ '^\d{6}$';
+
+alter table if exists public.transactions
+    drop constraint if exists chk_transactions_invoice_number_six_digits;
+
+alter table if exists public.transactions
+    add constraint chk_transactions_invoice_number_six_digits
+    check (invoice_number is null or invoice_number ~ '^\d{6}$');
 
 -- Add FK for worker -> profiles (without forcing immediate validation).
 do $$
