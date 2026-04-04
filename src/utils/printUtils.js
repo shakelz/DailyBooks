@@ -200,6 +200,18 @@ function resolveReceiptItemQuantity(item = {}) {
   return Math.max(1, parseInt(item?.quantity || '1', 10) || 1)
 }
 
+function resolveReceiptItemUnitPrice(item = {}) {
+  const total = resolveReceiptItemTotal(item)
+  const quantity = resolveReceiptItemQuantity(item)
+  const parsed = Number(
+    item?.unitPrice
+    ?? item?.unit_price
+    ?? item?.price
+    ?? (quantity > 0 ? total / quantity : total)
+  )
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 function resolveReceiptItemCategory(item = {}) {
   const category = item?.categorySnapshot || item?.category || item?.productSnapshot?.category || ''
   if (!category) return ''
@@ -252,14 +264,16 @@ function buildKundenbelegHtml({
     const imei = resolveReceiptItemImei(item)
     const label = escapePrintHtml(resolveReceiptItemLabel(item))
     const labelSize = label.length > 34 ? '8px' : label.length > 26 ? '9px' : label.length > 20 ? '10px' : '11px'
+    const unitPrice = resolveReceiptItemUnitPrice(item)
     return `
       <tr>
-        <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900;">${qty}x</td>
-        <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900;">
+        <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">${qty}x</td>
+        <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">
           <div style="font-size: ${labelSize}; white-space: nowrap; overflow: hidden; line-height: 1.2;">${label}</div>
+          ${unitPrice > 0 ? `<div style="font-size: 9px; color: #000; margin-top: 1px;">Einzelpreis: &euro; ${formatReceiptMoney(unitPrice)}</div>` : ''}
           ${imei ? `<div style="font-size: 10px; color: #333; margin-top: 2px;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
         </td>
-        <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900; text-align: right; width: 45%; word-break: break-all;">
+        <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900; text-align: right; width: 30%; word-break: break-all;">
           &euro; ${formatReceiptMoney(resolveReceiptItemTotal(item))}
         </td>
       </tr>
@@ -308,19 +322,24 @@ function buildKundenbelegHtml({
       <hr class="divider"/>
 
       <table style="margin-bottom: 8px;">
+        <colgroup>
+          <col style="width: 20%;"/>
+          <col style="width: 50%;"/>
+          <col style="width: 30%;"/>
+        </colgroup>
         <thead>
-          <tr style="font-weight: 900; border-bottom: 1px solid #000; font-size: 12px;">
-            <td style="padding-bottom: 6px; width: 15%;">Menge</td>
-            <td style="padding-bottom: 6px; width: 55%;">Artikel</td>
+          <tr style="font-weight: 900; border-bottom: 1px solid #000; font-size: 11px;">
+            <td style="padding-bottom: 6px; padding-right: 4px;">Menge</td>
+            <td style="padding-bottom: 6px; padding-right: 4px;">Artikel</td>
             <td style="padding-bottom: 6px; width: 30%; text-align: right;">Betrag</td>
           </tr>
         </thead>
         <tbody>
           ${itemRows || `
             <tr>
-              <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900;">1x</td>
-              <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900;">Artikel</td>
-              <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900; text-align: right; width: 45%; word-break: break-all;">&euro; 0,00</td>
+              <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">1x</td>
+              <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">Artikel</td>
+              <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900; text-align: right; width: 30%; word-break: break-all;">&euro; 0,00</td>
             </tr>
           `}
         </tbody>

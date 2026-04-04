@@ -755,7 +755,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [editingActivityId, setEditingActivityId] = useState('');
     const [editingActivityTime, setEditingActivityTime] = useState('');
     const [savingActivity, setSavingActivity] = useState(false);
+    const [revenueHistoryInvoiceQuery, setRevenueHistoryInvoiceQuery] = useState('');
     const [pendingConfirmAction, setPendingConfirmAction] = useState(null);
+    const [salesSuggestionIndex, setSalesSuggestionIndex] = useState(0);
+    const [purchaseSuggestionIndex, setPurchaseSuggestionIndex] = useState(0);
     // pendingConfirmAction shape: { message: string, onConfirm: () => void }
     const deletingZeroMobileIdsRef = useRef(new Set());
     const zeroStockCleanupDoneRef = useRef(false);
@@ -770,10 +773,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const purchaseAmountInputRef = useRef(null);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
+    const salesSuggestionBoxRef = useRef(null);
+    const purchaseSuggestionBoxRef = useRef(null);
     const translatedTreeRef = useRef(null);
     const resetTimerHandlerRef = useRef(null);
     const calcKeyboardHandlerRef = useRef(null);
     const lockStateKey = `${SALESMAN_LOCK_NAMESPACE}:${String(user?.id || '')}:${String(user?.shop_id || '')}`;
+    const debouncedSalesProductQuery = useDebouncedValue(salesEntry.productName, 300);
+    const debouncedPurchaseProductQuery = useDebouncedValue(purchaseEntry.productName, 300);
+    const debouncedRevenueHistoryInvoiceQuery = useDebouncedValue(revenueHistoryInvoiceQuery, 180);
 
     useTranslatedTextTree(translatedTreeRef);
 
@@ -1685,6 +1693,21 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             });
     }, [historyRevenueSource]);
 
+    const filteredRevenueHistoryTransactions = useMemo(() => {
+        const query = String(debouncedRevenueHistoryInvoiceQuery || '').trim().toLowerCase();
+        if (!query) return revenueHistoryTransactions;
+        return revenueHistoryTransactions.filter((txn) => {
+            const invoiceLike = String(
+                getTransactionInvoiceNumber(txn)
+                || txn?.transactionId
+                || txn?.transaction_id
+                || txn?.id
+                || ''
+            ).trim().toLowerCase();
+            return invoiceLike.includes(query);
+        });
+    }, [debouncedRevenueHistoryInvoiceQuery, revenueHistoryTransactions]);
+
     const purchaseHistoryTransactions = useMemo(() => {
         return [...historyPurchaseSource]
             .sort((a, b) => {
@@ -2541,13 +2564,103 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     const salesProductSuggestions = useMemo(
-        () => resolveProductSuggestions(salesEntry.productName, salesEntry.category, salesEntry.subCategory),
-        [salesEntry.productName, salesEntry.category, salesEntry.subCategory, searchProducts]
+        () => resolveProductSuggestions(debouncedSalesProductQuery, salesEntry.category, salesEntry.subCategory),
+        [debouncedSalesProductQuery, salesEntry.category, salesEntry.subCategory, searchProducts]
     );
     const purchaseProductSuggestions = useMemo(
-        () => resolveProductSuggestions(purchaseEntry.productName, purchaseEntry.category, purchaseEntry.subCategory),
-        [purchaseEntry.productName, purchaseEntry.category, purchaseEntry.subCategory, searchProducts]
+        () => {
+            const query = String(debouncedPurchaseProductQuery || '').trim();
+            if (!query) return [];
+
+            const normalizedQuery = query.toLowerCase();
+            const suggestions = [];
+            const seenKeys = new Set();
+            const pushSuggestion = (suggestion) => {
+                const key = String(suggestion?.key || '').trim();
+                if (!key || seenKeys.has(key)) return;
+                seenKeys.add(key);
+                suggestions.push(suggestion);
+            };
+
+            resolveProductSuggestions(query, purchaseEntry.category, purchaseEntry.subCategory).forEach(({ raw, snapshot }) => {
+                const secondary = [
+                    snapshot.category || '',
+                    snapshot.subCategory || '',
+                    priceTag(snapshot.purchasePrice || snapshot.sellingPrice || 0),
+                ].filter(Boolean).join(' | ');
+
+                pushSuggestion({
+                    key: `product:${snapshot.id || snapshot.barcode || snapshot.name}`,
+                    kind: 'product',
+                    label: snapshot.name || 'Unnamed item',
+                    secondary,
+                    raw,
+                });
+            });
+
+            const expenseCategoryNames = (getLevel1Categories('expense') || [])
+                .map((row) => (typeof row === 'object' ? row?.name : row))
+                .map((value) => String(value || '').trim())
+                .filter(Boolean);
+
+            expenseCategoryNames
+                .filter((name) => name.toLowerCase().includes(normalizedQuery))
+                .slice(0, 5)
+                .forEach((categoryName) => {
+                    pushSuggestion({
+                        key: `category:${categoryName}`,
+                        kind: 'category',
+                        label: categoryName,
+                        secondary: 'Expense category',
+                        categoryName,
+                        subCategoryName: '',
+                    });
+                });
+
+            expenseCategoryNames.forEach((categoryName) => {
+                (getLevel2Categories(categoryName, 'expense') || [])
+                    .map((row) => (typeof row === 'object' ? row?.name : row))
+                    .map((value) => String(value || '').trim())
+                    .filter(Boolean)
+                    .filter((subCategoryName) => subCategoryName.toLowerCase().includes(normalizedQuery))
+                    .slice(0, 5)
+                    .forEach((subCategoryName) => {
+                        pushSuggestion({
+                            key: `subcategory:${categoryName}:${subCategoryName}`,
+                            kind: 'subcategory',
+                            label: subCategoryName,
+                            secondary: `${categoryName} / Sub Category`,
+                            categoryName,
+                            subCategoryName,
+                        });
+                    });
+            });
+
+            dedupeCategoryNameList((debouncedTransactions || [])
+                .filter((txn) => normalizeTxnType(txn?.tx_type || txn?.type) === 'expense')
+                .map((txn) => {
+                    const displayName = resolveTransactionDisplayName(txn);
+                    return stripTransactionPrefix(displayName || txn?.desc || txn?.description || '');
+                }))
+                .filter((value) => String(value || '').toLowerCase().includes(normalizedQuery))
+                .slice(0, 5)
+                .forEach((name) => {
+                    pushSuggestion({
+                        key: `expense-name:${name}`,
+                        kind: 'expense-name',
+                        label: name,
+                        secondary: 'Recent expense entry',
+                    });
+                });
+
+            return suggestions.slice(0, 8);
+        },
+        [debouncedPurchaseProductQuery, purchaseEntry.category, purchaseEntry.subCategory, searchProducts, getLevel1Categories, getLevel2Categories, debouncedTransactions, resolveTransactionDisplayName]
     );
+    const isSalesProductSuggestionsLoading = Boolean(String(salesEntry.productName || '').trim())
+        && String(salesEntry.productName || '').trim() !== String(debouncedSalesProductQuery || '').trim();
+    const isPurchaseProductSuggestionsLoading = Boolean(String(purchaseEntry.productName || '').trim())
+        && String(purchaseEntry.productName || '').trim() !== String(debouncedPurchaseProductQuery || '').trim();
 
     function isMobileLikeSnapshot(snapshot = {}) {
         const categoryText = `${snapshot.category || ''} ${snapshot.subCategory || ''}`.toLowerCase();
@@ -2735,6 +2848,122 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
     };
 
+    const applyPurchaseSuggestion = useCallback((suggestion) => {
+        if (!suggestion) return;
+        if (suggestion.kind === 'product' && suggestion.raw) {
+            applyEntryProduct('purchase', suggestion.raw);
+            setPurchaseSuggestionIndex(0);
+            return;
+        }
+
+        setPurchaseEntry((prev) => ({
+            ...prev,
+            productId: '',
+            productName: suggestion.label || prev.productName,
+            category: suggestion.categoryName || prev.category,
+            subCategory: suggestion.subCategoryName || '',
+        }));
+        setPurchaseEntryErrors((prev) => ({ ...prev, category: '' }));
+        setPurchaseSuggestionIndex(0);
+        setShowPurchaseProductSuggestions(false);
+    }, [applyEntryProduct]);
+
+    useEffect(() => {
+        setSalesSuggestionIndex(0);
+    }, [salesProductSuggestions]);
+
+    useEffect(() => {
+        setPurchaseSuggestionIndex(0);
+    }, [purchaseProductSuggestions]);
+
+    useEffect(() => {
+        const handlePointerDown = (event) => {
+            const target = event.target;
+            if (salesSuggestionBoxRef.current && !salesSuggestionBoxRef.current.contains(target)) {
+                setShowSalesProductSuggestions(false);
+            }
+            if (purchaseSuggestionBoxRef.current && !purchaseSuggestionBoxRef.current.contains(target)) {
+                setShowPurchaseProductSuggestions(false);
+            }
+        };
+
+        const handleEscape = (event) => {
+            if (event.key !== 'Escape') return;
+            setShowSalesProductSuggestions(false);
+            setShowPurchaseProductSuggestions(false);
+        };
+
+        document.addEventListener('mousedown', handlePointerDown);
+        window.addEventListener('keydown', handleEscape);
+        return () => {
+            document.removeEventListener('mousedown', handlePointerDown);
+            window.removeEventListener('keydown', handleEscape);
+        };
+    }, []);
+
+    const handleSalesSuggestionKeyDown = useCallback((event) => {
+        if (event.key === 'Escape') {
+            setShowSalesProductSuggestions(false);
+            return;
+        }
+
+        if (!showSalesProductSuggestions || !salesProductSuggestions.length) return;
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            event.stopPropagation();
+            setSalesSuggestionIndex((prev) => Math.min(prev + 1, salesProductSuggestions.length - 1));
+            return;
+        }
+
+        if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            event.stopPropagation();
+            setSalesSuggestionIndex((prev) => Math.max(prev - 1, 0));
+            return;
+        }
+
+        if (event.key === 'Tab' || event.key === 'Enter') {
+            event.preventDefault();
+            event.stopPropagation();
+            const nextSuggestion = salesProductSuggestions[Math.min(salesSuggestionIndex, salesProductSuggestions.length - 1)] || salesProductSuggestions[0];
+            if (nextSuggestion?.raw) {
+                applyEntryProduct('sales', nextSuggestion.raw);
+                setSalesSuggestionIndex(0);
+            }
+        }
+    }, [applyEntryProduct, salesProductSuggestions, salesSuggestionIndex, showSalesProductSuggestions]);
+
+    const handlePurchaseSuggestionKeyDown = useCallback((event) => {
+        if (event.key === 'Escape') {
+            setShowPurchaseProductSuggestions(false);
+            return;
+        }
+
+        if (!showPurchaseProductSuggestions || !purchaseProductSuggestions.length) return;
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            event.stopPropagation();
+            setPurchaseSuggestionIndex((prev) => Math.min(prev + 1, purchaseProductSuggestions.length - 1));
+            return;
+        }
+
+        if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            event.stopPropagation();
+            setPurchaseSuggestionIndex((prev) => Math.max(prev - 1, 0));
+            return;
+        }
+
+        if (event.key === 'Tab' || event.key === 'Enter') {
+            event.preventDefault();
+            event.stopPropagation();
+            const nextSuggestion = purchaseProductSuggestions[Math.min(purchaseSuggestionIndex, purchaseProductSuggestions.length - 1)] || purchaseProductSuggestions[0];
+            applyPurchaseSuggestion(nextSuggestion);
+        }
+    }, [applyPurchaseSuggestion, purchaseProductSuggestions, purchaseSuggestionIndex, showPurchaseProductSuggestions]);
+
     const validateSimpleEntry = (entry, mode = 'sales') => {
         const nextErrors = {};
         const parsedDate = new Date(`${entry?.date || ''}T00:00:00`);
@@ -2838,15 +3067,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             : (Array.isArray(txn?.transactionItems) && txn.transactionItems.length > 0
                 ? txn.transactionItems
                 : [txn]);
+        const fallbackDisplayName = resolveTransactionDisplayName(txn);
 
         return sourceItems.map((item) => {
             const quantity = Math.max(1, parseInt(item?.quantity || txn?.quantity || '1', 10) || 1);
             const total = Number(item?.total ?? item?.amount ?? txn?.amount ?? 0) || 0;
+            const unitPrice = Number(
+                item?.unitPrice
+                ?? item?.unit_price
+                ?? txn?.unitPrice
+                ?? txn?.unit_price
+                ?? (quantity > 0 ? total / quantity : total)
+            ) || 0;
             return {
-                name: item?.name || item?.productName || item?.product_name || item?.desc || txn?.desc || txn?.description || 'Artikel',
+                name: item?.name || item?.productName || item?.product_name || item?.desc || fallbackDisplayName || txn?.desc || txn?.description || 'Artikel',
                 quantity,
                 amount: total,
                 total,
+                unitPrice,
                 category: item?.categorySnapshot || item?.category || txn?.categorySnapshot || txn?.category || null,
                 verifiedAttributes: item?.verifiedAttributes || item?.productSnapshot?.verifiedAttributes || {},
                 productSnapshot: item?.productSnapshot || null,
@@ -3097,12 +3335,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const printTransactionDraft = () => {
         if (!selectedTransaction || !transactionDraft) return;
-
-        if (selectedTransaction.repairJob || selectedTransaction.linkedRepairJob) {
-            const job = selectedTransaction.repairJob || selectedTransaction.linkedRepairJob;
-            printRepairJobBill({ ...job, status: 'completed' }, activeShop);
-            return;
-        }
 
         printRecentTransaction({
             ...selectedTransaction,
@@ -4242,39 +4474,44 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
                         <div className="space-y-2">
                             <div className="grid grid-cols-[1fr_88px] gap-1.5 items-end">
-                                <div className="relative">
+                                <div ref={salesSuggestionBoxRef} className="relative">
                                     <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
                                     <input
                                         value={salesEntry.productName}
-                                        onFocus={() => setShowSalesProductSuggestions(true)}
-                                        onBlur={() => setTimeout(() => setShowSalesProductSuggestions(false), 160)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter' && salesProductSuggestions.length > 0) {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                applyEntryProduct('sales', salesProductSuggestions[0].raw);
+                                        onFocus={() => {
+                                            if (String(salesEntry.productName || '').trim()) {
+                                                setShowSalesProductSuggestions(true);
                                             }
                                         }}
+                                        onBlur={() => setTimeout(() => setShowSalesProductSuggestions(false), 160)}
+                                        onKeyDown={handleSalesSuggestionKeyDown}
                                         onChange={(e) => handleEntryProductQueryChange('sales', e.target.value)}
                                         placeholder="Type product / scan barcode"
                                         className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
                                     />
-                                    {showSalesProductSuggestions && salesProductSuggestions.length > 0 && (
+                                    {showSalesProductSuggestions && String(salesEntry.productName || '').trim() && (
                                         <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-36 overflow-y-auto">
-                                            {salesProductSuggestions.map((row) => (
-                                                <button
-                                                    key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
-                                                    type="button"
-                                                    onMouseDown={(e) => {
-                                                        e.preventDefault();
-                                                        applyEntryProduct('sales', row.raw);
-                                                    }}
-                                                    className="w-full text-left px-2 py-1.5 hover:bg-emerald-50 border-b border-slate-100 last:border-b-0"
-                                                >
-                                                    <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
-                                                    <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.sellingPrice || 0)}</p>
-                                                </button>
-                                            ))}
+                                            {isSalesProductSuggestionsLoading ? (
+                                                <p className="px-2 py-2 text-[11px] text-slate-500">Loading suggestions...</p>
+                                            ) : salesProductSuggestions.length > 0 ? (
+                                                salesProductSuggestions.map((row, index) => (
+                                                    <button
+                                                        key={row.snapshot.id || `${row.snapshot.barcode}-${row.snapshot.name}`}
+                                                        type="button"
+                                                        onMouseDown={(e) => {
+                                                            e.preventDefault();
+                                                            applyEntryProduct('sales', row.raw);
+                                                            setSalesSuggestionIndex(0);
+                                                        }}
+                                                        className={`w-full text-left px-2 py-1.5 border-b border-slate-100 last:border-b-0 ${index === salesSuggestionIndex ? 'bg-emerald-50' : 'hover:bg-emerald-50'}`}
+                                                    >
+                                                        <p className="text-xs font-semibold text-slate-700">{row.snapshot.name || 'Unnamed product'}</p>
+                                                        <p className="text-[10px] text-slate-500">{row.snapshot.barcode || 'No barcode'} | Stock {row.snapshot.stock} | {priceTag(row.snapshot.sellingPrice || 0)}</p>
+                                                    </button>
+                                                ))
+                                            ) : (
+                                                <p className="px-2 py-2 text-[11px] text-slate-400">No matching products found.</p>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -4420,17 +4657,48 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             </div>
                         </div>
 
-                        <div>
+                        <div ref={purchaseSuggestionBoxRef} className="relative">
                             <label className="block text-[11px] font-semibold text-slate-600 mb-1">Expense Name</label>
                             <input
                                 type="text"
                                 value={purchaseEntry.productName}
+                                onFocus={() => {
+                                    if (String(purchaseEntry.productName || '').trim()) {
+                                        setShowPurchaseProductSuggestions(true);
+                                    }
+                                }}
+                                onBlur={() => setTimeout(() => setShowPurchaseProductSuggestions(false), 160)}
+                                onKeyDown={handlePurchaseSuggestionKeyDown}
                                 onChange={(e) => {
-                                    setPurchaseEntry((prev) => ({ ...prev, productName: e.target.value, productId: '' }));
+                                    handleEntryProductQueryChange('purchase', e.target.value);
                                 }}
                                 placeholder="Enter expense name"
                                 className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
                             />
+                            {showPurchaseProductSuggestions && String(purchaseEntry.productName || '').trim() && (
+                                <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-40 overflow-y-auto">
+                                    {isPurchaseProductSuggestionsLoading ? (
+                                        <p className="px-2 py-2 text-[11px] text-slate-500">Loading suggestions...</p>
+                                    ) : purchaseProductSuggestions.length > 0 ? (
+                                        purchaseProductSuggestions.map((suggestion, index) => (
+                                            <button
+                                                key={suggestion.key}
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    applyPurchaseSuggestion(suggestion);
+                                                }}
+                                                className={`w-full text-left px-2 py-1.5 border-b border-slate-100 last:border-b-0 ${index === purchaseSuggestionIndex ? 'bg-rose-50' : 'hover:bg-rose-50'}`}
+                                            >
+                                                <p className="text-xs font-semibold text-slate-700">{suggestion.label}</p>
+                                                {suggestion.secondary && <p className="text-[10px] text-slate-500">{suggestion.secondary}</p>}
+                                            </button>
+                                        ))
+                                    ) : (
+                                        <p className="px-2 py-2 text-[11px] text-slate-400">No matching expense suggestions found.</p>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="space-y-2">
@@ -4493,8 +4761,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     <div className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm">
                         <h3 className="text-sm font-black text-emerald-700 mb-1">Revenue Transactions</h3>
                         <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
+                        <div className="relative mb-2">
+                            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                type="text"
+                                value={revenueHistoryInvoiceQuery}
+                                onChange={(e) => setRevenueHistoryInvoiceQuery(e.target.value)}
+                                placeholder="Search by invoice number..."
+                                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-700"
+                            />
+                        </div>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                            {revenueHistoryTransactions.length === 0 ? <p className="text-xs text-slate-400">No revenue entries for selected period</p> : revenueHistoryTransactions.map((txn) => (
+                            {filteredRevenueHistoryTransactions.length === 0 ? (
+                                <p className="text-xs text-slate-400">
+                                    {String(revenueHistoryInvoiceQuery || '').trim()
+                                        ? 'No revenue transactions match that invoice number.'
+                                        : 'No revenue entries for selected period'}
+                                </p>
+                            ) : filteredRevenueHistoryTransactions.map((txn) => (
                                 <div
                                     key={getTransactionIdentityKey(txn) || `revenue-${txn.time || ''}-${txn.amount || ''}-${txn.desc || ''}`}
                                     onClick={() => openTransactionDetailModal(txn)}

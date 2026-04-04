@@ -7,6 +7,13 @@ function asNumber(value) {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function resolveUnitPrice(item = {}) {
+    const total = asNumber(item?.total ?? item?.amount);
+    const quantity = Math.max(1, parseInt(item?.quantity || 1, 10) || 1);
+    const parsed = asNumber(item?.unitPrice ?? item?.unit_price ?? (quantity > 0 ? total / quantity : total));
+    return parsed;
+}
+
 const ReceiptTemplate = forwardRef(({
     items,
     transactionId,
@@ -69,22 +76,32 @@ const ReceiptTemplate = forwardRef(({
             <div style={dividerStyle} />
 
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', marginBottom: '8px' }}>
+                <colgroup>
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '50%' }} />
+                    <col style={{ width: '30%' }} />
+                </colgroup>
                 <thead>
-                    <tr style={{ fontWeight: '900', borderBottom: '1px solid #000', fontSize: '15px' }}>
-                        <td style={{ paddingBottom: '6px', width: '18%', paddingRight: '6px' }}>Menge</td>
-                        <td style={{ paddingBottom: '6px', width: '52%', paddingRight: '6px' }}>Artikel</td>
-                        <td style={{ paddingBottom: '6px', width: '30%', textAlign: 'right' }}>Betrag</td>
+                    <tr style={{ fontWeight: '900', borderBottom: '1px solid #000', fontSize: '13px' }}>
+                        <td style={{ paddingBottom: '6px', paddingRight: '4px' }}>Menge</td>
+                        <td style={{ paddingBottom: '6px', paddingRight: '4px' }}>Artikel</td>
+                        <td style={{ paddingBottom: '6px', textAlign: 'right' }}>Betrag</td>
                     </tr>
                 </thead>
                 <tbody>
                     {lineItems.map((item, idx) => (
                         <tr key={idx}>
-                            <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '15px', fontWeight: '700' }}>{item?.quantity || 1}x</td>
-                            <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '15px', fontWeight: '700' }}>
+                            <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '13px', fontWeight: '700' }}>{item?.quantity || 1}x</td>
+                            <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '13px', fontWeight: '700' }}>
                                 <div>{item?.name || item?.productName || 'Artikel'}</div>
+                                {resolveUnitPrice(item) > 0 && (
+                                    <div style={{ fontSize: '10px', color: '#111', marginTop: '1px' }}>
+                                        Einzelpreis: {priceTag(resolveUnitPrice(item))}
+                                    </div>
+                                )}
                                 {renderIMEI(item)}
                             </td>
-                            <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '15px', fontWeight: '700', textAlign: 'right' }}>
+                            <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '13px', fontWeight: '700', textAlign: 'right' }}>
                                 {priceTag(asNumber(item?.amount))}
                             </td>
                         </tr>
