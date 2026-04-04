@@ -450,14 +450,20 @@ function buildReceiptHtml({
     const grossTotal = rows.reduce((sum, row) => sum + (Number(row?.total) || 0), 0);
     const netTotal = grossTotal / 1.19;
     const taxTotal = grossTotal - netTotal;
-    const formatMoney = (value) => `${Number(value || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+    const formatMoney = (value) => {
+        const amount = Number(value || 0);
+        const hasDecimals = Math.abs(amount % 1) > 0.0001;
+        return `${amount.toLocaleString('de-DE', { minimumFractionDigits: hasDecimals ? 2 : 0, maximumFractionDigits: 2 })} €`;
+    };
     const dt = issuedAt instanceof Date && !Number.isNaN(issuedAt.getTime()) ? issuedAt : new Date();
     const safeRows = rows.map((row) => {
         const qty = Math.max(1, parseInt(row?.quantity || '1', 10) || 1);
         const lineTotal = Number(row?.total) || 0;
+        const lineName = escapeHtml(row?.name || 'Artikel');
+        const lineNameSize = lineName.length > 34 ? '8px' : lineName.length > 26 ? '9px' : lineName.length > 20 ? '10px' : '11px';
         return `
             <div class="line-item">
-                <div class="line-name">${qty}x ${escapeHtml(row?.name || 'Artikel')}</div>
+                <div class="line-name" style="font-size:${lineNameSize};">${qty}x ${lineName}</div>
                 <div class="line-price">${formatMoney(lineTotal)}</div>
             </div>
         `;
@@ -485,7 +491,7 @@ function buildReceiptHtml({
                     .row > span:last-child, .row > strong:last-child { white-space: nowrap; text-align: right; flex-shrink: 0; }
                     .head { font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 3px; font-size: 13px; }
                     .line-item { display: flex; justify-content: space-between; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
-                    .line-name { flex: 1; }
+                    .line-name { flex: 1; white-space: nowrap; overflow: hidden; line-height: 1.2; }
                     .line-price { text-align: right; font-weight: 900; white-space: nowrap; flex-shrink: 0; }
                     .small { font-size: 11px; line-height: 1.5; font-weight: 800; }
                     .tax-table { width: 100%; margin-top: 4px; font-size: 11px; border-collapse: collapse; font-weight: 900; table-layout: fixed; }
@@ -539,7 +545,9 @@ function buildReceiptHtml({
                     <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
                     <div class="line"></div>
                     <div class="footer center">
-                        R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName || 'Shop')}
+                        R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.<br/>
+                        Bei Defekt/Mangel erfolgt Erstattung oder Reparatur.<br/>
+                        Vielen Dank. ${escapeHtml(shopName || 'Shop')}
                     </div>
                 </div>
                 </div>
@@ -3152,7 +3160,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || String(order.orderId || order.id || '').slice(0, 6).toUpperCase();
 
         const fmtDate = (val) => val ? new Date(val).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
-        const fmtMoney = (val) => `€ ${Number(val || 0).toFixed(2)}`;
+        const fmtMoney = (val) => {
+            const amount = Number(val || 0);
+            const hasDecimals = Math.abs(amount % 1) > 0.0001;
+            return `€ ${amount.toLocaleString('de-DE', { minimumFractionDigits: hasDecimals ? 2 : 0, maximumFractionDigits: 2 })}`;
+        };
 
         const row = (label, value) => {
             if (!value || value === '-' || value === '') return '';
@@ -3213,7 +3225,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     </table>
 
     <hr class="divider"/>
-    <p class="footer">${toSafe(receiptShopName)}</p>
+    <p class="footer">Vielen Dank. ${toSafe(receiptShopName)}</p>
 </body>
 </html>`;
 

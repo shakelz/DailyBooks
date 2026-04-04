@@ -24,7 +24,7 @@ export const printRepairJobBill = (job, activeShop) => {
     job?.advance_amount ?? job?.deposit ?? 0
   ) || 0
 
-  const remaining = Math.max(0, totalCost - advance).toFixed(2)
+  const remaining = Math.max(0, totalCost - advance)
   const isCompleted = String(job?.status || '').toLowerCase() === 'completed'
   
   const customerName = String(job?.customerName || job?.customer_name || job?.name || '-')
@@ -129,11 +129,11 @@ export const printRepairJobBill = (job, activeShop) => {
     <table>
       <tr>
         <td class="amount-label">Kosten</td>
-        <td class="amount-value">€ ${totalCost.toFixed(2)}</td>
+        <td class="amount-value">€ ${formatReceiptMoney(totalCost)}</td>
       </tr>
       <tr>
         <td class="amount-label">Anzahlung</td>
-        <td class="amount-value">€ ${advance.toFixed(2)}</td>
+        <td class="amount-value">€ ${formatReceiptMoney(advance)}</td>
       </tr>
     </table>
     <hr class="divider-solid"/>
@@ -142,14 +142,14 @@ export const printRepairJobBill = (job, activeShop) => {
     <table>
       <tr>
         <td class="total-label">${isCompleted ? 'Gesamt' : 'Restbetrag'}</td>
-        <td class="total-value">€ ${isCompleted ? totalCost.toFixed(2) : remaining}</td>
+        <td class="total-value">€ ${isCompleted ? formatReceiptMoney(totalCost) : formatReceiptMoney(remaining)}</td>
       </tr>
     </table>
 
     <hr class="divider"/>
     
     <p class="footer">
-      ${isCompleted ? 'Vielen Dank für Ihren Auftrag!' : 'Bitte diesen Kundenbeleg zur Abholung mitbringen.'}<br/>
+      ${isCompleted ? 'Vielen Dank.' : 'Bitte diesen Kundenbeleg zur Abholung mitbringen.'}<br/>
       ${shopName}
     </p>
     </div>
@@ -174,8 +174,10 @@ function escapePrintHtml(value) {
 }
 
 function formatReceiptMoney(value) {
-  return Number(value || 0).toLocaleString('de-DE', {
-    minimumFractionDigits: 2,
+  const amount = Number(value || 0)
+  const hasDecimals = Math.abs(amount % 1) > 0.0001
+  return amount.toLocaleString('de-DE', {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
     maximumFractionDigits: 2,
   })
 }
@@ -248,11 +250,13 @@ function buildKundenbelegHtml({
   const itemRows = lineItems.map((item) => {
     const qty = resolveReceiptItemQuantity(item)
     const imei = resolveReceiptItemImei(item)
+    const label = escapePrintHtml(resolveReceiptItemLabel(item))
+    const labelSize = label.length > 34 ? '8px' : label.length > 26 ? '9px' : label.length > 20 ? '10px' : '11px'
     return `
       <tr>
         <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900;">${qty}x</td>
         <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900;">
-          <div>${escapePrintHtml(resolveReceiptItemLabel(item))}</div>
+          <div style="font-size: ${labelSize}; white-space: nowrap; overflow: hidden; line-height: 1.2;">${label}</div>
           ${imei ? `<div style="font-size: 10px; color: #333; margin-top: 2px;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
         </td>
         <td style="vertical-align: top; padding-top: 7px; font-size: 12px; font-weight: 900; text-align: right; width: 45%; word-break: break-all;">
@@ -344,8 +348,9 @@ function buildKundenbelegHtml({
       </table>
 
       <div style="margin-top: 12px; font-size: 13px; line-height: 1.5; font-weight: 900; text-align: center; color: #000;">
-        R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.
-        Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapePrintHtml(shopName)}
+        R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.<br/>
+        Bei Defekt/Mangel erfolgt Erstattung oder Reparatur.<br/>
+        Vielen Dank. ${escapePrintHtml(shopName)}
       </div>
     </body>
   </html>`
