@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, u
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 import { buildProductJSON, generateId, getStockSeverity } from '../data/inventoryStore';
+import { reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
 
 const InventoryContext = createContext(null);
 const CATEGORY_HIERARCHY_KEY = '__categoryHierarchy';
@@ -887,23 +888,6 @@ function normalizeInvoiceNumberValue(value = '') {
     return cleanText(value);
 }
 
-function generateInvoiceNumber(seedTimestamp = '', shopId = '') {
-    const parsed = seedTimestamp ? new Date(seedTimestamp) : new Date();
-    const dateObj = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-    const stamp = [
-        String(dateObj.getFullYear()).slice(-2),
-        String(dateObj.getMonth() + 1).padStart(2, '0'),
-        String(dateObj.getDate()).padStart(2, '0'),
-        String(dateObj.getHours()).padStart(2, '0'),
-        String(dateObj.getMinutes()).padStart(2, '0'),
-        String(dateObj.getSeconds()).padStart(2, '0'),
-        String(dateObj.getMilliseconds()).padStart(3, '0'),
-    ].join('');
-    const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
-    const shopSuffix = cleanText(shopId).replace(/[^A-Za-z0-9]/g, '').slice(-4).toUpperCase();
-    return `INV-${stamp}${shopSuffix ? `-${shopSuffix}` : ''}-${randomSuffix}`;
-}
-
 function extractTransactionReferenceKey(notes = '') {
     const normalized = cleanText(notes).toLowerCase().replace(/\s+/g, ' ').trim();
     if (!normalized) return '';
@@ -1094,7 +1078,7 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
     );
     const invoiceNumber = normalizeInvoiceNumberValue(
         cleanText(txn?.invoice_number || txn?.invoiceNumber)
-    ) || generateInvoiceNumber(occurredAt, shopId);
+    );
     const description = cleanText(txn?.desc || txn?.description || txn?.name);
     const category = cleanText(txn?.category || txn?.category_name);
     const directCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID);
@@ -2171,7 +2155,7 @@ export function InventoryProvider({ children }) {
         if (!sid) throw new Error('No active shop selected.');
         const resolvedTimestamp = resolveTransactionTimestamp(txn) || new Date().toISOString();
         const providedInvoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
-        const ensuredInvoiceNumber = providedInvoiceNumber || generateInvoiceNumber(resolvedTimestamp, sid);
+        const ensuredInvoiceNumber = providedInvoiceNumber || await reserveNextInvoiceNumber();
         const txnWithInvoice = {
             ...(txn || {}),
             timestamp: cleanText(txn?.timestamp) || resolvedTimestamp,
@@ -2280,7 +2264,7 @@ export function InventoryProvider({ children }) {
                 };
 
                 if (isInvoiceNumberDuplicateError(insertResult.error)) {
-                    fallbackPayload.invoice_number = generateInvoiceNumber(resolvedTimestamp, sid);
+                    fallbackPayload.invoice_number = await reserveNextInvoiceNumber();
                 }
 
                 if (isUuidSyntaxError(insertResult.error, 'product_id')) fallbackPayload.product_id = null;
@@ -2300,6 +2284,13 @@ export function InventoryProvider({ children }) {
                 );
 
                 let finalRetryResult = retryResult;
+                for (let invoiceRetry = 0; invoiceRetry < 3 && finalRetryResult.error && isInvoiceNumberDuplicateError(finalRetryResult.error); invoiceRetry += 1) {
+                    fallbackPayload.invoice_number = await reserveNextInvoiceNumber();
+                    finalRetryResult = await executeWithPrunedColumns(
+                        (candidate) => supabase.from('transactions').insert([candidate]).select('*').maybeSingle(),
+                        fallbackPayload
+                    );
+                }
                 if (finalRetryResult.error && isEnumError(finalRetryResult.error, 'tx_type')) {
                     const typeCandidates = shouldBeExpense
                         ? ['product_purchase', 'shop_expense']

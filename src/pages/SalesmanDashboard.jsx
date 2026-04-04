@@ -17,12 +17,10 @@ import { useCart } from '../context/CartContext';
 import CartSidebar from '../components/CartSidebar';
 import { supabase } from '../supabaseClient';
 import { useTranslatedTextTree } from '../hooks/useTranslatedTextTree';
+import { reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
-function generateAbholscheinNumber() {
-    return String(Math.floor(1000 + Math.random() * 9000));
-}
 const SALESMAN_LOCK_NAMESPACE = 'dailybooks_salesman_lock_v1';
 const KPI_MODE_SALES = 'sales';
 const KPI_MODE_PROFIT = 'profit';
@@ -3685,7 +3683,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             advance_amount: Number(onlineOrderForm.advanceAmount) || 0,
             mobile_number: String(onlineOrderForm.mobileNumber || '').trim(),
             delivery_date: String(onlineOrderForm.expectedDeliveryDate || '').trim() || null,
-            abholschein_number: generateAbholscheinNumber(),
+            abholschein_number: await reserveNextInvoiceNumber(),
         };
 
         let inserted = null;

@@ -267,16 +267,172 @@ on public.transactions(shop_id, category_id);
 alter table if exists public.transactions
     add column if not exists invoice_number text;
 
+create sequence if not exists public.global_invoice_number_seq
+    start with 120010
+    increment by 1
+    minvalue 120010;
+
+do $$
+declare
+    max_existing bigint := 120009;
+    candidate bigint := 120009;
+begin
+    if to_regclass('public.transactions') is not null then
+        select coalesce(max(invoice_number::bigint), 120009)
+        into candidate
+        from public.transactions
+        where coalesce(trim(invoice_number), '') ~ '^\d{6}$';
+        max_existing := greatest(max_existing, candidate);
+    end if;
+
+    if to_regclass('public.repairs') is not null
+        and exists (
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'repairs'
+              and column_name = 'invoice_number'
+        ) then
+        execute $sql$
+            select coalesce(max(invoice_number::bigint), 120009)
+            from public.repairs
+            where coalesce(trim(invoice_number), '') ~ '^\d{6}$'
+        $sql$
+        into candidate;
+        max_existing := greatest(max_existing, candidate);
+    end if;
+
+    if to_regclass('public.online_part_orders') is not null
+        and exists (
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'online_part_orders'
+              and column_name = 'abholschein_number'
+        ) then
+        execute $sql$
+            select coalesce(max(abholschein_number::bigint), 120009)
+            from public.online_part_orders
+            where coalesce(trim(abholschein_number), '') ~ '^\d{6}$'
+        $sql$
+        into candidate;
+        max_existing := greatest(max_existing, candidate);
+    end if;
+
+    perform setval('public.global_invoice_number_seq', max_existing, true);
+end
+$$;
+
+create or replace function public.next_global_invoice_number()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    next_value bigint;
+begin
+    next_value := nextval('public.global_invoice_number_seq');
+    return lpad(next_value::text, 6, '0');
+end;
+$$;
+
+grant execute on function public.next_global_invoice_number() to anon, authenticated, service_role;
+
 update public.transactions
-set invoice_number = 'INV-'
-    || to_char(coalesce(occurred_at, created_at, now()), 'YYMMDDHH24MISS')
-    || '-'
-    || upper(right(md5(coalesce(id, gen_random_uuid()::text)), 4))
+set invoice_number = public.next_global_invoice_number()
 where invoice_number is null
    or trim(invoice_number) = '';
 
-alter table if exists public.transactions
-    drop constraint if exists chk_transactions_invoice_number_six_digits;
+do $$
+begin
+    if to_regclass('public.repairs') is not null
+        and exists (
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'repairs'
+              and column_name = 'invoice_number'
+        ) then
+        execute $sql$
+            update public.repairs
+            set invoice_number = public.next_global_invoice_number()
+            where invoice_number is null
+               or trim(invoice_number) = ''
+        $sql$;
+    end if;
+
+    if to_regclass('public.repairs') is not null
+        and exists (
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'repairs'
+              and column_name = 'ref_id'
+        ) then
+        execute $sql$
+            update public.repairs
+            set ref_id = invoice_number
+            where coalesce(trim(ref_id), '') = ''
+              and coalesce(trim(invoice_number), '') <> ''
+        $sql$;
+    end if;
+
+    if to_regclass('public.online_part_orders') is not null
+        and exists (
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'online_part_orders'
+              and column_name = 'abholschein_number'
+        ) then
+        execute $sql$
+            update public.online_part_orders
+            set abholschein_number = public.next_global_invoice_number()
+            where abholschein_number is null
+               or trim(abholschein_number) = ''
+        $sql$;
+    end if;
+end
+$$;
+
+create unique index if not exists uq_transactions_invoice_number
+on public.transactions(invoice_number)
+where invoice_number is not null and trim(invoice_number) <> '';
+
+do $$
+begin
+    if to_regclass('public.repairs') is not null
+        and exists (
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'repairs'
+              and column_name = 'invoice_number'
+        ) then
+        execute $sql$
+            create unique index if not exists uq_repairs_invoice_number
+            on public.repairs(invoice_number)
+            where invoice_number is not null and trim(invoice_number) <> ''
+        $sql$;
+    end if;
+
+    if to_regclass('public.online_part_orders') is not null
+        and exists (
+            select 1
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'online_part_orders'
+              and column_name = 'abholschein_number'
+        ) then
+        execute $sql$
+            create unique index if not exists uq_online_part_orders_abholschein_number
+            on public.online_part_orders(abholschein_number)
+            where abholschein_number is not null and trim(abholschein_number) <> ''
+        $sql$;
+    end if;
+end
+$$;
 
 -- Add FK for worker -> profiles (without forcing immediate validation).
 do $$

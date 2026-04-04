@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
+import { reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
 
 const RepairsContext = createContext(null);
 
@@ -65,15 +66,6 @@ function toDateOnly(value) {
     const parsed = new Date(raw);
     if (Number.isNaN(parsed.getTime())) return '';
     return parsed.toISOString().slice(0, 10);
-}
-
-function formatShortInvoiceNumber(value = new Date()) {
-    const parsed = value instanceof Date ? value : new Date(value);
-    const safeDate = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-    const year = String(safeDate.getFullYear()).slice(-2);
-    const month = String(safeDate.getMonth() + 1).padStart(2, '0');
-    const day = String(safeDate.getDate()).padStart(2, '0');
-    return `${year}${month}${day}`;
 }
 
 function isUuidLike(value) {
@@ -219,8 +211,10 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
         shop_id: sid,
     };
 
-    const referenceValue = formatShortInvoiceNumber(createdAt);
-    payload.invoice_number = referenceValue;
+    const referenceValue = cleanText(repair?.invoiceNumber || repair?.invoice_number || repair?.refId || repair?.ref_id);
+    payload.invoice_number = referenceValue || null;
+    payload.ref_id = referenceValue || null;
+    payload.refId = referenceValue || null;
 
     if (isUuidLike(providedRepairId)) {
         payload.repair_id = providedRepairId;
@@ -348,7 +342,7 @@ export function RepairsProvider({ children }) {
         };
     }, [activeShopId]);
 
-    const generateRefId = useCallback(() => formatShortInvoiceNumber(new Date()), []);
+    const generateRefId = useCallback(async () => reserveNextInvoiceNumber(), []);
 
     const syncRepairParts = useCallback(async (repairId, partsUsed = [], shopIdOverride = '') => {
         void repairId;
@@ -360,7 +354,7 @@ export function RepairsProvider({ children }) {
         const sid = cleanText(activeShopId);
         if (!sid) throw new Error('No active shop selected.');
 
-        const refId = generateRefId();
+        const refId = await generateRefId();
         const createdAt = new Date().toISOString();
         const deliveryAt = toDateOnly(repairData?.delivery_at || repairData?.deliveryDate);
         const newJob = normalizeRepairRecord({
@@ -392,8 +386,13 @@ export function RepairsProvider({ children }) {
         );
 
         if (insertResult.error && isInvoiceNumberUniqueConstraintError(insertResult.error)) {
-            const duplicateFallbackPayload = { ...insertPayload };
-            delete duplicateFallbackPayload.invoice_number;
+            const duplicateRefId = await reserveNextInvoiceNumber();
+            const duplicateFallbackPayload = {
+                ...insertPayload,
+                invoice_number: duplicateRefId,
+                ref_id: duplicateRefId,
+                refId: duplicateRefId,
+            };
             insertResult = await executeWithPrunedColumns(
                 (candidate) => supabase.from('repairs').insert([candidate]).select('*').single(),
                 duplicateFallbackPayload
