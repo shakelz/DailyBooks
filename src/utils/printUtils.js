@@ -52,7 +52,7 @@ export const printRepairJobBill = (job, activeShop) => {
         html, body {
           margin: 0;
           padding: 0;
-          width: 48mm;
+          width: 47mm;
         }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         
@@ -64,15 +64,13 @@ export const printRepairJobBill = (job, activeShop) => {
 
       body {
         font-family: 'Arial', 'Helvetica', sans-serif;
-        width: 48mm;
+        width: 47mm;
         margin: 0;
-        padding: 2mm 0;
+        padding: 2mm 0.5mm;
         background: #fff;
         color: #000;
         font-weight: 900;
         line-height: 1.4;
-        position: relative;
-        left: -1mm;
       }
 
       .receipt-wrapper {
@@ -273,20 +271,18 @@ function buildKundenbelegHtml({
         * { margin: 0; padding: 0; box-sizing: border-box; }
         @media print {
           @page { size: 58mm auto; margin: 0mm; }
-          html, body { margin: 0; padding: 0; width: 48mm; }
+          html, body { margin: 0; padding: 0; width: 47mm; }
           * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         body {
           font-family: 'Arial', 'Helvetica', sans-serif;
-          width: 48mm;
+          width: 47mm;
           margin: 0;
-          padding: 2mm 0;
+          padding: 2mm 0.5mm;
           line-height: 1.6;
           color: #000;
           background: #fff;
           font-weight: 900;
-          position: relative;
-          left: -1mm;
         }
         .divider { border: none; border-top: 1px dashed #999; margin: 8px 0; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
