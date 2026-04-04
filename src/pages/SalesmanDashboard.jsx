@@ -2782,28 +2782,34 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             ? `${mode === 'sales' ? 'Sale' : 'Expense'} - ${productLabel}`
             : `${mode === 'sales' ? 'Sale' : 'Expense'} - ${entry.category}`;
 
-        await addTransaction({
-            desc: descLabel,
-            amount: amountValue,
-            quantity: quantityValue,
-            type,
-            tx_type: mode === 'sales' ? 'product_sale' : 'product_expense',
-            category: entry.category,
-            sub_category: entry.subCategory || '',
-            paymentMethod: entry.paymentMode || 'Cash',
-            notes: entry.subCategory ? `SubCategory: ${entry.subCategory}` : '',
-            source: type === 'expense' ? 'expense' : 'shop',
-            salesmanName: user?.name,
-            salesmanNumber: user?.salesmanNumber || 0,
-            workerId: String(user?.id || ''),
-            productId: entry.productId || undefined,
-            timestamp: selectedDate.toISOString(),
-            date: selectedDate.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-            time: selectedDate.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-        });
+        try {
+            await addTransaction({
+                desc: descLabel,
+                amount: amountValue,
+                quantity: quantityValue,
+                type,
+                tx_type: mode === 'sales' ? 'product_sale' : 'product_expense',
+                category: entry.category,
+                sub_category: entry.subCategory || '',
+                paymentMethod: entry.paymentMode || 'Cash',
+                notes: entry.subCategory ? `SubCategory: ${entry.subCategory}` : '',
+                source: type === 'expense' ? 'expense' : 'shop',
+                salesmanName: user?.name,
+                salesmanNumber: user?.salesmanNumber || 0,
+                workerId: String(user?.id || ''),
+                productId: entry.productId || undefined,
+                timestamp: selectedDate.toISOString(),
+                date: selectedDate.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: selectedDate.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+            });
 
-        if (type === 'income' && entry.productId) {
-            await adjustStock(entry.productId, -quantityValue);
+            if (type === 'income' && entry.productId) {
+                await adjustStock(entry.productId, -quantityValue);
+            }
+        } catch (error) {
+            console.error(`${mode} entry transaction save failed:`, error);
+            showInlineError(error?.message || `Failed to save ${mode === 'sales' ? 'sales' : 'expense'} entry.`);
+            return;
         }
 
         setToast(`${mode === 'sales' ? 'Sales' : 'Expense'} saved`);
@@ -3294,36 +3300,41 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             ? (existingNotes ? `SubCategory: ${subCategoryName} | ${existingNotes}` : `SubCategory: ${subCategoryName}`)
             : existingNotes;
 
-        const insertedTxn = await addTransaction({
-            ...productWithQty,
-            desc: productWithQty?.desc || productWithQty?.name || 'Sale',
-            amount: parseFloat(productWithQty?.amount || 0) || 0,
-            quantity: quantityValue,
-            type: 'income',
-            tx_type: 'product_sale',
-            source: 'shop',
-            category: productWithQty?.category || 'General',
-            sub_category: subCategoryName,
-            paymentMethod: productWithQty?.paymentMethod || productWithQty?.paymentMode || 'Cash',
-            notes: finalNotes,
-            salesmanName: user?.name,
-            salesmanNumber: user?.salesmanNumber || 0,
-            workerId: String(user?.id || ''),
-            timestamp: productWithQty?.timestamp || new Date().toISOString(),
-        });
+        try {
+            const insertedTxn = await addTransaction({
+                ...productWithQty,
+                desc: productWithQty?.desc || productWithQty?.name || 'Sale',
+                amount: parseFloat(productWithQty?.amount || 0) || 0,
+                quantity: quantityValue,
+                type: 'income',
+                tx_type: 'product_sale',
+                source: 'shop',
+                category: productWithQty?.category || 'General',
+                sub_category: subCategoryName,
+                paymentMethod: productWithQty?.paymentMethod || productWithQty?.paymentMode || 'Cash',
+                notes: finalNotes,
+                salesmanName: user?.name,
+                salesmanNumber: user?.salesmanNumber || 0,
+                workerId: String(user?.id || ''),
+                timestamp: productWithQty?.timestamp || new Date().toISOString(),
+            });
 
-        if (productId) {
-            await adjustStock(productId, -quantityValue);
+            if (productId) {
+                await adjustStock(productId, -quantityValue);
+            }
+
+            console.info('Complete sale inserted transaction:', insertedTxn?.id || insertedTxn?.transactionId || '(pending)');
+            setShowSuccess(true);
+            setTimeout(() => setShowSuccess(false), 1800);
+            setToast('Sale completed');
+            setTimeout(() => setToast(''), 1800);
+            setShowTransactionModal(false);
+            setSelectedProduct(null);
+            setShowMobileInventoryModal(false);
+        } catch (error) {
+            console.error('Complete sale failed:', error);
+            showInlineError(error?.message || 'Failed to complete sale.');
         }
-
-        console.info('Complete sale inserted transaction:', insertedTxn?.id || insertedTxn?.transactionId || '(pending)');
-        setShowSuccess(true);
-        setTimeout(() => setShowSuccess(false), 1800);
-        setToast('Sale completed');
-        setTimeout(() => setToast(''), 1800);
-        setShowTransactionModal(false);
-        setSelectedProduct(null);
-        setShowMobileInventoryModal(false);
     };
 
     const handleEditCartItem = (cartItem) => {
@@ -3456,32 +3467,38 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return;
         }
 
-        for (const line of lines) {
-            const subCatForCart = String(line.subCategory || line.sub_category || '').trim();
-            await addTransaction({
-                desc: line.name,
-                amount: line.total,
-                quantity: line.quantity,
-                type: 'income',
-                tx_type: 'product_sale',
-                category: line.category || 'General',
-                sub_category: subCatForCart,
-                paymentMethod: line.paymentMode || 'Cash',
-                notes: subCatForCart
-                    ? (line.notes ? `SubCategory: ${subCatForCart} | ${line.notes}` : `SubCategory: ${subCatForCart}`)
-                    : (line.notes || ''),
-                source: 'shop',
-                salesmanName: user?.name,
-                salesmanNumber: user?.salesmanNumber || 0,
-                workerId: String(user?.id || ''),
-                timestamp: new Date().toISOString(),
-                date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
-                time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
-            });
+        try {
+            for (const line of lines) {
+                const subCatForCart = String(line.subCategory || line.sub_category || '').trim();
+                await addTransaction({
+                    desc: line.name,
+                    amount: line.total,
+                    quantity: line.quantity,
+                    type: 'income',
+                    tx_type: 'product_sale',
+                    category: line.category || 'General',
+                    sub_category: subCatForCart,
+                    paymentMethod: line.paymentMode || 'Cash',
+                    notes: subCatForCart
+                        ? (line.notes ? `SubCategory: ${subCatForCart} | ${line.notes}` : `SubCategory: ${subCatForCart}`)
+                        : (line.notes || ''),
+                    source: 'shop',
+                    salesmanName: user?.name,
+                    salesmanNumber: user?.salesmanNumber || 0,
+                    workerId: String(user?.id || ''),
+                    timestamp: new Date().toISOString(),
+                    date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
+                });
 
-            if (line.productId) {
-                await adjustStock(line.productId, -line.quantity);
+                if (line.productId) {
+                    await adjustStock(line.productId, -line.quantity);
+                }
             }
+        } catch (error) {
+            console.error('Quick sale failed:', error);
+            showInlineError(error?.message || 'Failed to complete quick sale.');
+            return;
         }
 
         setToast('Sale completed');

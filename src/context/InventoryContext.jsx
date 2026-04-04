@@ -202,8 +202,7 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
     const normalizedCategory = cleanText(txn?.category || txn?.category_name || '');
     const normalizedPaymentMethod = resolveTransactionPaymentMethod(txn);
     const normalizedInvoiceNumber = normalizeInvoiceNumberValue(
-        cleanText(txn?.invoice_number || txn?.invoiceNumber),
-        resolvedTimestamp || cleanText(txn?.created_at)
+        cleanText(txn?.invoice_number || txn?.invoiceNumber)
     );
     const normalizedCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID || '');
     const fallbackInlineItems = (linkedItems.length > 0
@@ -884,23 +883,25 @@ function mapTxSource(value) {
     return raw;
 }
 
-function normalizeInvoiceNumberValue(value = '', fallbackTimestamp = '') {
-    const digits = String(value || '').replace(/\D/g, '');
-    if (digits.length === 6) return digits;
-    if (digits.length > 6) return digits.slice(-6);
-
-    const parsed = fallbackTimestamp ? new Date(fallbackTimestamp) : new Date();
-    const dateObj = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-    const pad2 = (part) => String(part).padStart(2, '0');
-    const y = String(dateObj.getFullYear()).slice(-2);
-    const m = pad2(dateObj.getMonth() + 1);
-    const d = pad2(dateObj.getDate());
-    return `${y}${m}${d}`;
+function normalizeInvoiceNumberValue(value = '') {
+    return cleanText(value);
 }
 
 function generateInvoiceNumber(seedTimestamp = '', shopId = '') {
-    void shopId;
-    return normalizeInvoiceNumberValue('', seedTimestamp);
+    const parsed = seedTimestamp ? new Date(seedTimestamp) : new Date();
+    const dateObj = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    const stamp = [
+        String(dateObj.getFullYear()).slice(-2),
+        String(dateObj.getMonth() + 1).padStart(2, '0'),
+        String(dateObj.getDate()).padStart(2, '0'),
+        String(dateObj.getHours()).padStart(2, '0'),
+        String(dateObj.getMinutes()).padStart(2, '0'),
+        String(dateObj.getSeconds()).padStart(2, '0'),
+        String(dateObj.getMilliseconds()).padStart(3, '0'),
+    ].join('');
+    const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+    const shopSuffix = cleanText(shopId).replace(/[^A-Za-z0-9]/g, '').slice(-4).toUpperCase();
+    return `INV-${stamp}${shopSuffix ? `-${shopSuffix}` : ''}-${randomSuffix}`;
 }
 
 function extractTransactionReferenceKey(notes = '') {
@@ -1092,9 +1093,8 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
         mappedSource
     );
     const invoiceNumber = normalizeInvoiceNumberValue(
-        cleanText(txn?.invoice_number || txn?.invoiceNumber),
-        occurredAt
-    );
+        cleanText(txn?.invoice_number || txn?.invoiceNumber)
+    ) || generateInvoiceNumber(occurredAt, shopId);
     const description = cleanText(txn?.desc || txn?.description || txn?.name);
     const category = cleanText(txn?.category || txn?.category_name);
     const directCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID);
@@ -1138,6 +1138,12 @@ function isUuidSyntaxError(error = null, fieldName = '') {
     if (!message.includes('invalid input syntax for type uuid')) return false;
     if (!fieldName) return true;
     return message.includes(String(fieldName).toLowerCase()) || message.includes('uuid');
+}
+
+function isInvoiceNumberDuplicateError(error = null) {
+    const message = cleanText(error?.message || error || '').toLowerCase();
+    return message.includes('duplicate key value')
+        && message.includes('invoice_number');
 }
 
 function isMissingColumnError(error = null) {
@@ -2219,6 +2225,17 @@ export function InventoryProvider({ children }) {
         );
         try {
             const formattedTxn = buildTransactionDBPayload(txnWithInvoice, false, sid, categoryNameToId);
+            console.info('addTransaction insert attempt:', {
+                shop_id: sid,
+                invoice_number: formattedTxn?.invoice_number,
+                tx_type: formattedTxn?.tx_type,
+                source: formattedTxn?.source,
+                amount: formattedTxn?.amount,
+                quantity: formattedTxn?.quantity,
+                category_id: formattedTxn?.category_id,
+                product_id: formattedTxn?.product_id,
+                created_by: formattedTxn?.created_by,
+            });
             const normalizedTxn = normalizeTransactionRecord(
                 {
                     ...txnWithInvoice,
@@ -2244,6 +2261,7 @@ export function InventoryProvider({ children }) {
             let finalWriteResult = insertResult;
 
             if (insertResult.error) {
+                console.error('addTransaction initial insert failed:', insertResult.error, formattedTxn);
                 const rawFallbackSource = cleanText(formattedTxn?.source || '').toLowerCase();
                 const normalizedSource = rawFallbackSource || 'cash';
                 const fallbackLegacyType = String(txnWithInvoice?.type || '').toLowerCase();
@@ -2260,6 +2278,10 @@ export function InventoryProvider({ children }) {
                     tx_type: fallbackType || 'product_sale',
                     source: normalizedSource,
                 };
+
+                if (isInvoiceNumberDuplicateError(insertResult.error)) {
+                    fallbackPayload.invoice_number = generateInvoiceNumber(resolvedTimestamp, sid);
+                }
 
                 if (isUuidSyntaxError(insertResult.error, 'product_id')) fallbackPayload.product_id = null;
                 if (isUuidSyntaxError(insertResult.error, 'repair_id')) fallbackPayload.repair_id = null;
@@ -2302,6 +2324,7 @@ export function InventoryProvider({ children }) {
                 }
 
                 if (finalRetryResult.error) {
+                    console.error('addTransaction final insert failed:', finalRetryResult.error, fallbackPayload);
                     setTransactions((prev) => removeTransactionByIdentity(prev, {
                         id: optimisticTxnId,
                         transaction_id: optimisticTxnId,
@@ -2350,6 +2373,12 @@ export function InventoryProvider({ children }) {
                     transactionId: optimisticTxnId,
                 });
                 return upsertTransactionByIdentity(withoutOptimistic, hydratedPersistedTxn);
+            });
+
+            console.info('addTransaction insert success:', {
+                shop_id: sid,
+                id: persistedTxnId,
+                invoice_number: hydratedPersistedTxn?.invoice_number || hydratedPersistedTxn?.invoiceNumber,
             });
 
             supabase.channel(`public:unified_sync:${sid}`).send({

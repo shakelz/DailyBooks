@@ -268,22 +268,15 @@ alter table if exists public.transactions
     add column if not exists invoice_number text;
 
 update public.transactions
-set invoice_number = case
-    when regexp_replace(coalesce(invoice_number, ''), '\D', '', 'g') ~ '^\d{6}$'
-        then regexp_replace(coalesce(invoice_number, ''), '\D', '', 'g')
-    when regexp_replace(coalesce(invoice_number, ''), '\D', '', 'g') ~ '^\d{7,}$'
-        then right(regexp_replace(coalesce(invoice_number, ''), '\D', '', 'g'), 6)
-    else to_char(coalesce(occurred_at, created_at, now()), 'YYMMDD')
-end
+set invoice_number = 'INV-'
+    || to_char(coalesce(occurred_at, created_at, now()), 'YYMMDDHH24MISS')
+    || '-'
+    || upper(right(md5(coalesce(id, gen_random_uuid()::text)), 4))
 where invoice_number is null
-   or invoice_number !~ '^\d{6}$';
+   or trim(invoice_number) = '';
 
 alter table if exists public.transactions
     drop constraint if exists chk_transactions_invoice_number_six_digits;
-
-alter table if exists public.transactions
-    add constraint chk_transactions_invoice_number_six_digits
-    check (invoice_number is null or invoice_number ~ '^\d{6}$');
 
 -- Add FK for worker -> profiles (without forcing immediate validation).
 do $$
