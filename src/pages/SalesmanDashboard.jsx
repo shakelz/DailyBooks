@@ -468,6 +468,7 @@ function buildReceiptHtml({
             <head>
                 <title>Beleg</title>
                 <style>
+                    * { box-sizing: border-box; }
                     @media print {
                         @page { size: 58mm auto; margin: 0mm; }
                         html, body { margin: 0; padding: 0; width: 58mm; display: flex; justify-content: center; }
@@ -476,20 +477,21 @@ function buildReceiptHtml({
                     }
                     body { font-family: 'Arial', 'Helvetica', sans-serif; width: 58mm; margin: 0 auto; padding: 6mm 4mm; line-height: 1.5; background: #fff; font-size: 13px; color: #000; font-weight: 900; }
                     .receipt-wrapper { width: 100%; max-width: 100%; }
-                    .ticket { border: 1px solid #111; padding: 1.5mm; width: 100%; box-sizing: border-box; }
+                    .ticket { border: 1px solid #111; padding: 1.5mm; width: 100%; }
                     .center { text-align: center; }
                     .shop { font-size: 20px; font-weight: 900; margin-bottom: 3px; }
                     .line { border-top: 1px solid #111; margin: 6px 0; }
                     .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
-                    .row > span:last-child, .row > strong:last-child { white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+                    .row > span:last-child, .row > strong:last-child { white-space: nowrap; text-align: right; flex-shrink: 0; }
                     .head { font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 3px; font-size: 13px; }
                     .line-item { display: flex; justify-content: space-between; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
                     .line-name { flex: 1; }
-                    .line-price { text-align: right; min-width: 65px; font-weight: 900; white-space: nowrap; }
+                    .line-price { text-align: right; font-weight: 900; white-space: nowrap; flex-shrink: 0; }
                     .small { font-size: 11px; line-height: 1.5; font-weight: 800; }
-                    .tax-table { width: 100%; margin-top: 4px; font-size: 11px; border-collapse: collapse; font-weight: 900; }
+                    .tax-table { width: 100%; margin-top: 4px; font-size: 11px; border-collapse: collapse; font-weight: 900; table-layout: fixed; }
                     .tax-table td { font-size: 11px; font-weight: 900; padding: 4px 2px; }
-                    .tax-table td:last-child { text-align: right; white-space: nowrap; }
+                    .tax-table td:last-child { text-align: right; width: 30%; word-break: break-word; }
+                    .tax-table td:first-child { width: 15%; }
                     .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
                     .footer { font-size: 11px; font-weight: 800; color: #000; line-height: 1.5; }
                 </style>
@@ -3155,8 +3157,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const row = (label, value) => {
             if (!value || value === '-' || value === '') return '';
             return `<tr>
-            <td style="padding:3px 0;font-size:12px;font-weight:900;color:#000;width:50%;vertical-align:top;">${label}</td>
-            <td style="padding:3px 0;font-size:12px;font-weight:900;color:#000;text-align:right;vertical-align:top;">${toSafe(String(value))}</td>
+            <td style="padding:2px 0;font-size:11px;font-weight:900;color:#000;width:52%;vertical-align:top;word-break:break-word;">${label}</td>
+            <td style="padding:2px 0;font-size:11px;font-weight:900;color:#000;text-align:right;vertical-align:top;word-break:break-word;width:48%;">${toSafe(String(value))}</td>
         </tr>`;
         };
 
@@ -3173,13 +3175,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         * { box-sizing: border-box; }
-        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 58mm; margin: 0 auto; padding: 5mm 3mm; background: #fff; color: #000; font-weight: 900; }
-        .shop-name { font-size: 15px; font-weight: 900; text-align: center; margin: 0 0 2px 0; }
-        .shop-sub { font-size: 11px; font-weight: 900; text-align: center; margin: 2px 0; }
-        .divider { border: none; border-top: 1px dashed #666; margin: 8px 0; }
-        table { width: 100%; border-collapse: collapse; }
-        td { font-size: 12px; font-weight: 900; color: #000; }
-        .footer { text-align: center; font-size: 11px; font-weight: 900; color: #000; margin-top: 5px; }
+        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 58mm; margin: 0 auto; padding: 3mm 2.5mm; background: #fff; color: #000; font-weight: 900; }
+        .shop-name { font-size: 13px; font-weight: 900; text-align: center; margin: 0 0 1px 0; }
+        .shop-sub { font-size: 10px; font-weight: 900; text-align: center; margin: 1px 0; }
+        .divider { border: none; border-top: 1px dashed #555; margin: 4px 0; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        td { font-size: 11px; font-weight: 900; color: #000; word-break: break-word; }
+        .footer { text-align: center; font-size: 10px; font-weight: 900; color: #000; margin-top: 3px; }
     </style>
 </head>
 <body>
@@ -3188,9 +3190,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
 
     <hr class="divider"/>
-    <div style="text-align:center; margin: 6px 0;">
-        <p style="font-size:11px;font-weight:900;color:#000;margin:0;">Abholung Nr.</p>
-        <p style="font-size:26px;font-weight:900;color:#000;margin:3px 0 0 0;letter-spacing:3px;">${toSafe(orderId)}</p>
+    <div style="text-align:center; margin: 3px 0;">
+        <p style="font-size:10px;font-weight:900;color:#000;margin:0;">Abholung Nr.</p>
+        <p style="font-size:22px;font-weight:900;color:#000;margin:2px 0 0 0;letter-spacing:2px;">${toSafe(orderId)}</p>
     </div>
     <hr class="divider"/>
 

@@ -66,9 +66,11 @@ export const printRepairJobBill = (job, activeShop) => {
         font-family: 'Arial', 'Helvetica', sans-serif;
         width: 58mm;
         margin: 0 auto;
-        padding: 8mm 5mm;
-        line-height: 1.6;
+        padding: 3mm 2.5mm;
         background: #fff;
+        color: #000;
+        font-weight: 900;
+        line-height: 1.4;
       }
 
       .receipt-wrapper {
@@ -77,22 +79,22 @@ export const printRepairJobBill = (job, activeShop) => {
       }
 
       .center { text-align: center; }
-      .shop-name { font-size: 20px; font-weight: 900; text-align: center; }
-      .shop-sub { font-size: 12px; font-weight: 800; text-align: center; color: #333; margin-top: 3px; }
-      .bill-title { font-size: 17px; font-weight: 900; text-align: center; letter-spacing: 3px; border: 2px solid #000; padding: 5px 0; margin: 8px 0; }
-      .job-number { font-size: 36px; font-weight: 900; text-align: center; letter-spacing: 4px; margin: 10px 0; }
-      .divider { border: none; border-top: 1px dashed #999; margin: 8px 0; }
-      .divider-solid { border: none; border-top: 2px solid #000; margin: 8px 0; }
-      table { width: 100%; border-collapse: collapse; }
-      td { font-size: 13px; padding: 7px 2px; vertical-align: top; }
-      .label { font-weight: 900; color: #222; width: 42%; }
-      .value { font-weight: 900; color: #000; text-align: right; }
-      .issue-box { border: 2px solid #000; padding: 7px 8px; margin: 8px 0; font-size: 13px; font-weight: 900; }
-      .amount-label { font-size: 13px; font-weight: 900; color: #222; }
-      .amount-value { font-size: 13px; font-weight: 900; text-align: right; }
-      .total-label { font-size: 22px; font-weight: 900; }
-      .total-value { font-size: 22px; font-weight: 900; text-align: right; }
-      .footer { text-align: center; font-size: 11px; color: #333; font-weight: 800; margin-top: 12px; line-height: 1.6; }
+      .shop-name { font-size: 13px; font-weight: 900; text-align: center; }
+      .shop-sub { font-size: 10px; font-weight: 900; text-align: center; color: #333; margin-top: 1px; }
+      .bill-title { font-size: 13px; font-weight: 900; text-align: center; letter-spacing: 2px; border: 2px solid #000; padding: 3px 0; margin: 4px 0; }
+      .job-number { font-size: 22px; font-weight: 900; text-align: center; letter-spacing: 2px; margin: 4px 0; }
+      .divider { border: none; border-top: 1px dashed #999; margin: 4px 0; }
+      .divider-solid { border: none; border-top: 2px solid #000; margin: 4px 0; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      td { font-size: 11px; padding: 2px 0; vertical-align: top; }
+      .label { font-weight: 900; color: #000; width: 52%; word-break: break-word; }
+      .value { font-weight: 900; color: #000; text-align: right; width: 48%; word-break: break-word; }
+      .issue-box { border: 2px solid #000; padding: 3px; margin: 4px 0; font-size: 11px; font-weight: 900; }
+      .amount-label { font-size: 11px; font-weight: 900; color: #000; width: 52%; word-break: break-word; }
+      .amount-value { font-size: 11px; font-weight: 900; text-align: right; width: 48%; word-break: break-word; }
+      .total-label { font-size: 14px; font-weight: 900; width: 52%; word-break: break-word; }
+      .total-value { font-size: 14px; font-weight: 900; text-align: right; width: 48%; word-break: break-word; }
+      .footer { text-align: center; font-size: 10px; color: #333; font-weight: 900; margin-top: 4px; line-height: 1.4; }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   </head>
@@ -154,7 +156,7 @@ export const printRepairJobBill = (job, activeShop) => {
   </body>
   </html>`
 
-  const win = window.open('', '_blank', 'width=300,height=750')
+  const win = window.open('', 'repair-bill', 'width=300,height=500')
   if(!win) return;
   win.document.write(html)
   win.document.close()
