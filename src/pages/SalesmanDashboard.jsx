@@ -3279,6 +3279,53 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setShowMobileInventoryModal(false);
     };
 
+    const handleCompleteTransactionSale = async (productWithQty) => {
+        const quantityValue = Math.max(1, parseInt(productWithQty?.quantity || 1, 10) || 1);
+        const productId = String(productWithQty?.productId || productWithQty?.id || '').trim();
+        const subCategoryName = String(
+            productWithQty?.subCategory
+            || productWithQty?.sub_category
+            || productWithQty?.categorySnapshot?.level2
+            || productWithQty?.productSnapshot?.category?.level2
+            || ''
+        ).trim();
+        const existingNotes = String(productWithQty?.notes || '').trim();
+        const finalNotes = subCategoryName
+            ? (existingNotes ? `SubCategory: ${subCategoryName} | ${existingNotes}` : `SubCategory: ${subCategoryName}`)
+            : existingNotes;
+
+        const insertedTxn = await addTransaction({
+            ...productWithQty,
+            desc: productWithQty?.desc || productWithQty?.name || 'Sale',
+            amount: parseFloat(productWithQty?.amount || 0) || 0,
+            quantity: quantityValue,
+            type: 'income',
+            tx_type: 'product_sale',
+            source: 'shop',
+            category: productWithQty?.category || 'General',
+            sub_category: subCategoryName,
+            paymentMethod: productWithQty?.paymentMethod || productWithQty?.paymentMode || 'Cash',
+            notes: finalNotes,
+            salesmanName: user?.name,
+            salesmanNumber: user?.salesmanNumber || 0,
+            workerId: String(user?.id || ''),
+            timestamp: productWithQty?.timestamp || new Date().toISOString(),
+        });
+
+        if (productId) {
+            await adjustStock(productId, -quantityValue);
+        }
+
+        console.info('Complete sale inserted transaction:', insertedTxn?.id || insertedTxn?.transactionId || '(pending)');
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 1800);
+        setToast('Sale completed');
+        setTimeout(() => setToast(''), 1800);
+        setShowTransactionModal(false);
+        setSelectedProduct(null);
+        setShowMobileInventoryModal(false);
+    };
+
     const handleEditCartItem = (cartItem) => {
         setEditingCartItem(cartItem.cartItemId);
         setSelectedProduct({
@@ -4909,6 +4956,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     setSelectedProduct(null);
                 }}
                 onAddToBill={handleAddToBill}
+                onCompleteSale={handleCompleteTransactionSale}
                 initialProduct={selectedProduct}
             />
 

@@ -7,7 +7,7 @@ import { printKundenbeleg } from '../utils/printUtils';
 
 // Dynamic Attributes, Discount Logic, German Tax Breakdown
 
-export default function TransactionModal({ isOpen, onClose, onAddToBill, initialProduct, editingItem }) {
+export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompleteSale, initialProduct, editingItem }) {
     const { user, activeShop, billShowTax } = useAuth();
     const { addToCart, updateCartItem, setEditingCartItem } = useCart();
     const [status, setStatus] = useState('idle'); // idle, success
@@ -273,7 +273,11 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, initial
         };
 
         try {
-            await onAddToBill(transactionData);
+            if (typeof onCompleteSale === 'function') {
+                await onCompleteSale(transactionData);
+            } else {
+                await onAddToBill(transactionData);
+            }
         } catch (error) {
             alert(error?.message || 'Failed to complete sale');
             return;

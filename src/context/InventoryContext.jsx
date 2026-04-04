@@ -552,26 +552,46 @@ async function upsertKpiCategorySetting(shopId, kpiScope, categoryName, subCateg
     const scope = normalizeCategoryScope(kpiScope); // 'sales' or 'expense'
     const catName = cleanText(categoryName).toLowerCase().replace(/\s+/g, ' ');
     const subName = cleanText(subCategoryName).toLowerCase().replace(/\s+/g, ' ');
+    const dbSubCategoryName = subName || 'EMPTY';
     if (!sid || !catName) return;
 
     try {
         // Use upsert with ignoreDuplicates — do NOT overwrite contribution_mode if row exists
+        let lookup = supabase
+            .from('kpi_profit_category_settings')
+            .select('category_name')
+            .eq('shop_id', sid)
+            .eq('kpi_scope', scope)
+            .eq('category_name', catName);
+
+        lookup = dbSubCategoryName === 'EMPTY'
+            ? lookup.in('sub_category_name', ['EMPTY', ''])
+            : lookup.eq('sub_category_name', dbSubCategoryName);
+
+        const { data: existingRows, error: lookupError } = await lookup.limit(1);
+        if (lookupError) {
+            const msg = String(lookupError.message || '').toLowerCase();
+            if (!msg.includes('does not exist')) {
+                console.warn('upsertKpiCategorySetting lookup error:', lookupError.message);
+            }
+            return;
+        }
+
+        if (Array.isArray(existingRows) && existingRows.length > 0) {
+            return;
+        }
+
         const { error } = await supabase
             .from('kpi_profit_category_settings')
-            .upsert(
-                {
-                    shop_id: sid,
-                    kpi_scope: scope,
-                    category_name: catName,
-                    sub_category_name: subName || '',
-                    contribution_mode: 'sales',
-                    updated_at: new Date().toISOString(),
-                },
-                {
-                    onConflict: 'shop_id,kpi_scope,category_name,sub_category_name',
-                    ignoreDuplicates: true,
-                }
-            );
+            .insert({
+                shop_id: sid,
+                kpi_scope: scope,
+                category_name: catName,
+                sub_category_name: dbSubCategoryName,
+                contribution_mode: 'sales',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            });
 
         if (error) {
             const msg = String(error.message || '').toLowerCase();
@@ -1955,7 +1975,15 @@ export function InventoryProvider({ children }) {
                 ? { ...entry, ...insertResult.data, id: String(insertResult.data.product_id || insertResult.data.id || entry.id) }
                 : entry
         );
-        // Do NOT update local state here — the realtime subscription will handle it
+        // Update local state immediately so inventory-backed sales selectors refresh without a full page reload.
+
+        setProducts((prev) => {
+            const current = Array.isArray(prev) ? prev : [];
+            const savedId = String(savedEntry?.id || '');
+            const existingIndex = current.findIndex((item) => String(item?.id || '') === savedId);
+            if (existingIndex === -1) return [savedEntry, ...current];
+            return current.map((item, index) => (index === existingIndex ? savedEntry : item));
+        });
 
         supabase.channel(`public:unified_sync:${sid}`).send({
             type: 'broadcast',
