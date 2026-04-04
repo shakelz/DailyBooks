@@ -683,6 +683,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [showCategoryModal, setShowCategoryModal] = useState(false);
     const [showRepairModal, setShowRepairModal] = useState(false);
     const [toast, setToast] = useState('');
+    const [inlineError, setInlineError] = useState('');
+    const showInlineError = useCallback((message = '', durationMs = 3000) => {
+        setInlineError(String(message || ''));
+        if (durationMs > 0) {
+            setTimeout(() => setInlineError(''), durationMs);
+        }
+    }, []);
     const paymentModes = DEFAULT_PAYMENT_MODES;
     const [salesEntry, setSalesEntry] = useState(newSimpleEntryForm());
     const [purchaseEntry, setPurchaseEntry] = useState(newSimpleEntryForm());
@@ -740,6 +747,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [editingActivityId, setEditingActivityId] = useState('');
     const [editingActivityTime, setEditingActivityTime] = useState('');
     const [savingActivity, setSavingActivity] = useState(false);
+    const [pendingConfirmAction, setPendingConfirmAction] = useState(null);
+    // pendingConfirmAction shape: { message: string, onConfirm: () => void }
     const deletingZeroMobileIdsRef = useRef(new Set());
     const zeroStockCleanupDoneRef = useRef(false);
     const deleteUndoTimeoutRef = useRef(null);
@@ -749,6 +758,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const loadKpiSettingsRef = useRef(async () => {});
     const unlockPendingRef = useRef(false);
     const transactionDetailRequestRef = useRef(0);
+    const salesAmountInputRef = useRef(null);
+    const purchaseAmountInputRef = useRef(null);
     const salesDateInputRef = useRef(null);
     const purchaseDateInputRef = useRef(null);
     const translatedTreeRef = useRef(null);
@@ -1173,30 +1184,32 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const handleClearLocalCache = useCallback(() => {
         if (!adminView) return;
-        const confirmed = window.confirm('Clear local Book cache on this browser/device?');
-        if (!confirmed) return;
-
-        try {
-            Object.keys(localStorage || {}).forEach((key) => {
-                if (String(key).startsWith('dailybooks_')) {
-                    localStorage.removeItem(key);
+        setPendingConfirmAction({
+            message: 'Clear local Book cache on this browser/device?',
+            onConfirm: () => {
+                try {
+                    Object.keys(localStorage || {}).forEach((key) => {
+                        if (String(key).startsWith('dailybooks_')) {
+                            localStorage.removeItem(key);
+                        }
+                    });
+                    Object.keys(sessionStorage || {}).forEach((key) => {
+                        if (String(key).startsWith('dailybooks_')) {
+                            sessionStorage.removeItem(key);
+                        }
+                    });
+                } catch {
+                    // Ignore browser storage clear issues.
                 }
-            });
-            Object.keys(sessionStorage || {}).forEach((key) => {
-                if (String(key).startsWith('dailybooks_')) {
-                    sessionStorage.removeItem(key);
+
+                if (typeof clearLocalInventoryCache === 'function') {
+                    clearLocalInventoryCache();
                 }
-            });
-        } catch {
-            // Ignore browser storage clear issues.
-        }
 
-        if (typeof clearLocalInventoryCache === 'function') {
-            clearLocalInventoryCache();
-        }
-
-        setToast('Local cache cleared for this device.');
-        setTimeout(() => setToast(''), 1800);
+                setToast('Local cache cleared for this device.');
+                setTimeout(() => setToast(''), 1800);
+            },
+        });
     }, [adminView, clearLocalInventoryCache]);
 
 
@@ -2128,7 +2141,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!eventId) return;
         const next = new Date(editingActivityTime);
         if (Number.isNaN(next.getTime())) {
-            alert('Please select a valid date/time.');
+            showInlineError('Please select a valid date/time.');
             return;
         }
 
@@ -2138,7 +2151,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             setEditingActivityId('');
             setEditingActivityTime('');
         } catch (error) {
-            alert(error?.message || 'Failed to update activity log.');
+            showInlineError(error?.message || 'Failed to update activity log.');
         } finally {
             setSavingActivity(false);
         }
@@ -2147,19 +2160,23 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const removeActivityLog = async (log) => {
         const eventId = String(log?.id || '');
         if (!eventId) return;
-        if (!window.confirm('Delete this activity log?')) return;
-        setSavingActivity(true);
-        try {
-            await deleteAttendanceLog(eventId);
-            if (editingActivityId === eventId) {
-                setEditingActivityId('');
-                setEditingActivityTime('');
-            }
-        } catch (error) {
-            alert(error?.message || 'Failed to delete activity log.');
-        } finally {
-            setSavingActivity(false);
-        }
+        setPendingConfirmAction({
+            message: 'Delete this activity log?',
+            onConfirm: async () => {
+                setSavingActivity(true);
+                try {
+                    await deleteAttendanceLog(eventId);
+                    if (editingActivityId === eventId) {
+                        setEditingActivityId('');
+                        setEditingActivityTime('');
+                    }
+                } catch (error) {
+                    showInlineError(error?.message || 'Failed to delete activity log.');
+                } finally {
+                    setSavingActivity(false);
+                }
+            },
+        });
     };
 
     useEffect(() => {
@@ -2728,7 +2745,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const submitSimpleEntry = async (mode = 'sales') => {
         if (requiresPunch && !isPunchedIn) {
-            alert('Please punch in first');
+            showInlineError('Please punch in first.');
             setShowProfileModal(true);
             return;
         }
@@ -2738,7 +2755,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (Object.keys(nextErrors).length > 0) {
             if (mode === 'sales') setSalesEntryErrors(nextErrors);
             else setPurchaseEntryErrors(nextErrors);
-            alert('Please fix form errors');
+            showInlineError('Please fix the highlighted fields above.');
             return;
         }
         if (mode === 'sales') setSalesEntryErrors({});
@@ -2784,9 +2801,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (mode === 'sales') {
             setSalesEntry(newSimpleEntryForm());
             setSalesEntryErrors({});
+            setTimeout(() => salesAmountInputRef.current?.focus(), 50);
         } else {
             setPurchaseEntry(newSimpleEntryForm());
             setPurchaseEntryErrors({});
+            setTimeout(() => purchaseAmountInputRef.current?.focus(), 50);
         }
     };
 
@@ -2965,25 +2984,28 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const handleDeleteHistoryTransaction = async (txn, event) => {
         event?.stopPropagation?.();
         if (!txn?.id) return;
-        const confirmed = window.confirm('Delete this transaction from history?');
-        if (!confirmed) return;
-        try {
-            await deleteTransaction(txn.id);
-            if (deleteUndoTimeoutRef.current) {
-                clearTimeout(deleteUndoTimeoutRef.current);
-                deleteUndoTimeoutRef.current = null;
-            }
-            setRecentlyDeletedTxn({ ...txn });
-            deleteUndoTimeoutRef.current = setTimeout(() => {
-                setRecentlyDeletedTxn(null);
-                deleteUndoTimeoutRef.current = null;
-            }, 8000);
+        setPendingConfirmAction({
+            message: 'Delete this transaction from history?',
+            onConfirm: async () => {
+                try {
+                    await deleteTransaction(txn.id);
+                    if (deleteUndoTimeoutRef.current) {
+                        clearTimeout(deleteUndoTimeoutRef.current);
+                        deleteUndoTimeoutRef.current = null;
+                    }
+                    setRecentlyDeletedTxn({ ...txn });
+                    deleteUndoTimeoutRef.current = setTimeout(() => {
+                        setRecentlyDeletedTxn(null);
+                        deleteUndoTimeoutRef.current = null;
+                    }, 8000);
 
-            setToast('Transaction deleted (Undo available)');
-            setTimeout(() => setToast(''), 1800);
-        } catch (error) {
-            alert(error?.message || 'Failed to delete transaction');
-        }
+                    setToast('Transaction deleted (Undo available)');
+                    setTimeout(() => setToast(''), 1800);
+                } catch (error) {
+                    showInlineError(error?.message || 'Failed to delete transaction');
+                }
+            },
+        });
     };
 
     const handleUndoDeleteTransaction = async () => {
@@ -3007,7 +3029,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             setToast('Transaction restored');
             setTimeout(() => setToast(''), 1800);
         } catch (error) {
-            alert(error?.message || 'Failed to restore transaction');
+            showInlineError(error?.message || 'Failed to restore transaction');
         }
     };
 
@@ -3208,7 +3230,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             setToast(`Repair ${getRepairInvoiceNumber(job) || ''} marked completed`);
             setTimeout(() => setToast(''), 1800);
         } catch (error) {
-            alert(error?.message || 'Failed to update repair status');
+            showInlineError(error?.message || 'Failed to update repair status');
         }
     };
 
@@ -3288,7 +3310,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const qty = Math.max(1, parseInt(quickSaleForm.quantity || '1', 10) || 1);
         const unit = parseFloat(quickSaleForm.amount || '0') || 0;
         if (!quickSaleForm.name.trim() || unit <= 0) {
-            alert('Product name and amount are required');
+            showInlineError('Product name and amount are required.');
             return;
         }
 
@@ -3320,7 +3342,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             })();
 
         if (!lines.length) {
-            alert('No sale item to print');
+            showInlineError('No sale item to print.');
             return;
         }
 
@@ -3344,7 +3366,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const completeQuickSale = async () => {
         if (requiresPunch && !isPunchedIn) {
-            alert('Please punch in first');
+            showInlineError('Please punch in first.');
             setShowProfileModal(true);
             return;
         }
@@ -3369,7 +3391,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         const lines = quickSaleCart.length ? quickSaleCart : (fallbackLine ? [fallbackLine] : []);
         if (!lines.length) {
-            alert('Add at least one item to complete sale');
+            showInlineError('Add at least one item to complete sale.');
             return;
         }
 
@@ -3573,7 +3595,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const totalCost = Number(onlineOrderForm.totalCost) || 0;
         const shopId = String(activeShop?.id || '');
         if (!shopId) {
-            alert('No active shop selected');
+            showInlineError('No active shop selected.');
             return;
         }
 
@@ -3619,7 +3641,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         if (insertError || !inserted) {
-            alert(insertError?.message || 'Failed to save online order');
+            showInlineError(insertError?.message || 'Failed to save online order.');
             return;
         }
 
@@ -3723,7 +3745,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         if (updateError || !updatedRow) {
-            alert(updateError?.message || 'Failed to update order status');
+            showInlineError(updateError?.message || 'Failed to update order status.');
             return;
         }
 
@@ -3765,66 +3787,68 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     const deleteOnlineOrder = async (id) => {
-        const confirmed = window.confirm('Are you sure you want to cancel and delete this order?');
-        if (!confirmed) return;
+        setPendingConfirmAction({
+            message: 'Are you sure you want to cancel and delete this order?',
+            onConfirm: async () => {
+                const targetOrder = onlineOrders.find((o) => String(o.id) === String(id));
+                const abholscheinNumber = String(targetOrder?.abholscheinNumber || '').trim();
+                const orderRef = targetOrder
+                    ? `OnlineOrderRef:${targetOrder.orderId || targetOrder.id}`
+                    : null;
 
-        const targetOrder = onlineOrders.find((o) => String(o.id) === String(id));
-        const abholscheinNumber = String(targetOrder?.abholscheinNumber || '').trim();
-        const orderRef = targetOrder
-            ? `OnlineOrderRef:${targetOrder.orderId || targetOrder.id}`
-            : null;
+                const idColumns = ['part_order_id', 'id', 'order_id'];
+                let deleted = false;
+                let lastError = null;
 
-        const idColumns = ['part_order_id', 'id', 'order_id'];
-        let deleted = false;
-        let lastError = null;
+                for (const col of idColumns) {
+                    const { error } = await supabase
+                        .from('online_part_orders')
+                        .delete()
+                        .eq(col, String(id));
 
-        for (const col of idColumns) {
-            const { error } = await supabase
-                .from('online_part_orders')
-                .delete()
-                .eq(col, String(id));
-
-            if (!error) {
-                deleted = true;
-                break;
-            }
-            lastError = error;
-            if (!String(error?.message || '').toLowerCase().includes('column')) break;
-        }
-
-        if (!deleted) {
-            alert(lastError?.message || 'Failed to delete order');
-            return;
-        }
-
-        if (targetOrder) {
-            const { data: relatedTxns, error: fetchErr } = await supabase
-                .from('transactions')
-                .select('id, notes, desc')
-                .eq('source', 'online-order');
-
-            if (!fetchErr && Array.isArray(relatedTxns) && relatedTxns.length > 0) {
-                const matchingTxns = relatedTxns.filter((txn) => {
-                    const notes = String(txn?.notes || '').toLowerCase();
-                    const desc = String(txn?.desc || '').toLowerCase();
-                    if (abholscheinNumber) {
-                        return notes.includes(`abholschein:${abholscheinNumber}`.toLowerCase())
-                            || desc.includes(`abholschein #${abholscheinNumber}`.toLowerCase());
+                    if (!error) {
+                        deleted = true;
+                        break;
                     }
-                    return orderRef ? notes.includes(String(orderRef || '').toLowerCase()) : false;
-                });
+                    lastError = error;
+                    if (!String(error?.message || '').toLowerCase().includes('column')) break;
+                }
 
-                for (const txn of matchingTxns) {
-                    try {
-                        await deleteTransaction(txn.id);
-                    } catch (txnErr) {
-                        console.error('Failed to delete transaction for cancelled order:', txnErr);
+                if (!deleted) {
+                    showInlineError(lastError?.message || 'Failed to delete order.');
+                    return;
+                }
+
+                if (targetOrder) {
+                    const { data: relatedTxns, error: fetchErr } = await supabase
+                        .from('transactions')
+                        .select('id, notes, desc')
+                        .eq('source', 'online-order');
+
+                    if (!fetchErr && Array.isArray(relatedTxns) && relatedTxns.length > 0) {
+                        const matchingTxns = relatedTxns.filter((txn) => {
+                            const notes = String(txn?.notes || '').toLowerCase();
+                            const desc = String(txn?.desc || '').toLowerCase();
+                            if (abholscheinNumber) {
+                                return notes.includes(`abholschein:${abholscheinNumber}`.toLowerCase())
+                                    || desc.includes(`abholschein #${abholscheinNumber}`.toLowerCase());
+                            }
+                            return orderRef ? notes.includes(String(orderRef || '').toLowerCase()) : false;
+                        });
+
+                        for (const txn of matchingTxns) {
+                            try {
+                                await deleteTransaction(txn.id);
+                            } catch (txnErr) {
+                                console.error('Failed to delete transaction for cancelled order:', txnErr);
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        setOnlineOrders((prev) => prev.filter((order) => String(order.id) !== String(id)));
+                setOnlineOrders((prev) => prev.filter((order) => String(order.id) !== String(id)));
+            },
+        });
     };
 
     return (
@@ -4122,6 +4146,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             <div>
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Amount</label>
                                 <input
+                                    ref={salesAmountInputRef}
                                     type="number"
                                     step="0.01"
                                     min="0"
@@ -4301,6 +4326,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             <div>
                                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Amount</label>
                                 <input
+                                    ref={purchaseAmountInputRef}
                                     type="number"
                                     step="0.01"
                                     min="0"
@@ -4631,6 +4657,42 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             {toast && (
                 <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-xl bg-slate-900 text-white px-3 py-2 text-xs font-semibold z-50">
                     {toast}
+                </div>
+            )}
+
+            {/* Inline error toast — replaces alert dialogs for Electron compatibility */}
+            {inlineError && (
+                <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-[300] rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xl">
+                    {inlineError}
+                </div>
+            )}
+
+            {/* Inline confirm dialog — replaces confirm dialogs for Electron compatibility */}
+            {pendingConfirmAction && (
+                <div className="fixed inset-0 z-[290] flex items-center justify-center bg-black/40 backdrop-blur-[1px]">
+                    <div className="mx-4 w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+                        <p className="text-sm font-semibold text-slate-800 mb-4">{pendingConfirmAction.message}</p>
+                        <div className="flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setPendingConfirmAction(null)}
+                                className="flex-1 rounded-xl border border-slate-300 bg-white py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    const action = pendingConfirmAction;
+                                    setPendingConfirmAction(null);
+                                    await action.onConfirm?.();
+                                }}
+                                className="flex-1 rounded-xl bg-rose-600 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+                            >
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
