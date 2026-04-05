@@ -679,6 +679,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         getLevel1Categories,
         getLevel2Categories,
         refreshProducts,
+        refreshCategoryCatalog,
     } = useInventory();
     const { repairJobs, repairsLoaded, updateRepairStatus } = useRepairs();
     const { addToCart, cart, editingCartItem, setEditingCartItem } = useCart();
@@ -2773,7 +2774,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setTimeout(() => setToast(''), 1800);
         // Refresh products list immediately so new item appears without page reload
         if (typeof refreshProducts === 'function') refreshProducts();
-    }, [refreshProducts]);
+        if (typeof refreshCategoryCatalog === 'function') refreshCategoryCatalog();
+    }, [refreshCategoryCatalog, refreshProducts]);
 
     const handleInventoryFormSaveError = useCallback((error) => {
         setToast(error?.message || 'Failed to add product');
@@ -3061,6 +3063,85 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         submitSimpleEntry('sales');
     };
 
+    const extractOnlineOrderReferenceFromTransaction = (txn = {}) => {
+        const combined = `${txn?.notes || ''} ${txn?.desc || txn?.description || ''}`;
+        const markerMatch = combined.match(/OnlineOrderRef:([^|\s]+)/i);
+        return markerMatch && markerMatch[1] ? String(markerMatch[1]).trim() : '';
+    };
+
+    const fetchRepairReceiptRow = async (txn = {}) => {
+        const shopId = String(user?.shop_id || '').trim();
+        const repairId = String(txn?.repair_id || txn?.repairId || '').trim();
+        if (!repairId) return null;
+
+        const scopeModes = shopId ? [true, false] : [false];
+        const idColumns = ['repair_id', 'id'];
+        for (const useShopScope of scopeModes) {
+            for (const column of idColumns) {
+                let query = supabase.from('repairs').select('*');
+                if (useShopScope) query = query.eq('shop_id', shopId);
+                const result = await query.eq(column, repairId).limit(1).maybeSingle();
+                if (!result.error && result.data) return result.data;
+            }
+        }
+        return null;
+    };
+
+    const fetchOnlineOrderReceiptRow = async (txn = {}) => {
+        const shopId = String(user?.shop_id || '').trim();
+        const orderRef = extractOnlineOrderReferenceFromTransaction(txn)
+            || String(txn?.orderId || txn?.order_id || '').trim();
+        if (!orderRef) return null;
+
+        const scopeModes = shopId ? [true, false] : [false];
+        const idColumns = ['part_order_id', 'id', 'order_id'];
+        for (const useShopScope of scopeModes) {
+            for (const column of idColumns) {
+                let query = supabase.from('online_part_orders').select('*');
+                if (useShopScope) query = query.eq('shop_id', shopId);
+                const result = await query.eq(column, orderRef).limit(1).maybeSingle();
+                if (!result.error && result.data) return result.data;
+            }
+        }
+        return null;
+    };
+
+    const buildRepairReceiptItems = (repairRow = {}, txn = {}) => {
+        const rawDevice = String(repairRow?.device_model || repairRow?.deviceModel || '').trim();
+        const rawProblem = String(repairRow?.problem || repairRow?.issueType || '').trim();
+        const itemName = stripTransactionPrefix([rawDevice, rawProblem].filter(Boolean).join(' - ') || 'Repair Job');
+        const total = Number(
+            repairRow?.estimated_cost
+            ?? repairRow?.estimatedCost
+            ?? repairRow?.total_cost
+            ?? repairRow?.totalCost
+            ?? txn?.amount
+            ?? 0
+        ) || 0;
+        return [{
+            name: itemName,
+            quantity: 1,
+            amount: total,
+            total,
+            category: 'Repair',
+        }];
+    };
+
+    const buildOnlineOrderReceiptItems = (orderRow = {}, txn = {}) => {
+        const itemName = stripTransactionPrefix(
+            String(orderRow?.part_name || orderRow?.itemName || txn?.desc || txn?.description || 'Online Part Order').trim()
+        ) || 'Online Part Order';
+        const quantity = Math.max(1, parseInt(orderRow?.quantity ?? txn?.quantity ?? '1', 10) || 1);
+        const total = Number(orderRow?.cost ?? orderRow?.totalCost ?? txn?.amount ?? 0) || 0;
+        return [{
+            name: itemName,
+            quantity,
+            amount: total,
+            total,
+            category: String(orderRow?.category || 'Online Order').trim() || 'Online Order',
+        }];
+    };
+
     const buildKundenbelegItemsFromTransaction = (txn = {}) => {
         const sourceItems = Array.isArray(txn?.groupedItems) && txn.groupedItems.length > 0
             ? txn.groupedItems
@@ -3079,8 +3160,18 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 ?? txn?.unit_price
                 ?? (quantity > 0 ? total / quantity : total)
             ) || 0;
+            const resolvedLabel = String(
+                item?.name
+                || item?.productName
+                || item?.product_name
+                || item?.desc
+                || fallbackDisplayName
+                || txn?.desc
+                || txn?.description
+                || 'Artikel'
+            ).trim();
             return {
-                name: item?.name || item?.productName || item?.product_name || item?.desc || fallbackDisplayName || txn?.desc || txn?.description || 'Artikel',
+                name: stripTransactionPrefix(resolvedLabel) || 'Artikel',
                 quantity,
                 amount: total,
                 total,
@@ -3092,13 +3183,38 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         });
     };
 
-    const printRecentTransaction = (txn) => {
+    const printRecentTransaction = async (txn) => {
         if (!txn) return;
 
-        const txnDate = txn.timestamp ? new Date(txn.timestamp) : new Date();
+        const source = String(txn?.source || txn?.tx_source || '').trim().toLowerCase();
+        let receiptItems = buildKundenbelegItemsFromTransaction(txn);
+        let receiptNo = getTransactionInvoiceNumber(txn) || txn.transactionId || txn.id || '-';
+        let issuedAt = txn.timestamp ? new Date(txn.timestamp) : new Date();
+
+        try {
+            if (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_') || txn?.repair_id || txn?.repairId) {
+                const repairRow = await fetchRepairReceiptRow(txn) || txn?.linkedRepairJob || txn?.repairJob || null;
+                if (repairRow) {
+                    receiptItems = buildRepairReceiptItems(repairRow, txn);
+                    receiptNo = String(repairRow?.invoice_number || repairRow?.invoiceNumber || repairRow?.ref_id || repairRow?.refId || receiptNo).trim() || receiptNo;
+                    issuedAt = new Date(repairRow?.completed_at || repairRow?.completedAt || txn?.timestamp || repairRow?.created_at || Date.now());
+                }
+            } else if (source === 'online-order') {
+                const orderRow = await fetchOnlineOrderReceiptRow(txn);
+                if (orderRow) {
+                    receiptItems = buildOnlineOrderReceiptItems(orderRow, txn);
+                    receiptNo = String(txn?.invoice_number || txn?.invoiceNumber || orderRow?.abholschein_number || receiptNo).trim() || receiptNo;
+                    issuedAt = new Date(txn?.timestamp || orderRow?.updated_at || orderRow?.created_at || Date.now());
+                }
+            }
+        } catch (error) {
+            console.error('Failed to hydrate linked receipt data:', error);
+        }
+
+        const txnDate = issuedAt instanceof Date && !Number.isNaN(issuedAt.getTime()) ? issuedAt : new Date();
         printKundenbeleg(
-            buildKundenbelegItemsFromTransaction(txn),
-            getTransactionInvoiceNumber(txn) || txn.transactionId || txn.id || '-',
+            receiptItems,
+            receiptNo,
             txn.paymentMethod || 'Cash',
             activeShop,
             {
@@ -3333,10 +3449,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
     };
 
-    const printTransactionDraft = () => {
+    const printTransactionDraft = async () => {
         if (!selectedTransaction || !transactionDraft) return;
 
-        printRecentTransaction({
+        await printRecentTransaction({
             ...selectedTransaction,
             desc: transactionDraft.desc,
             category: transactionDraft.category,
@@ -4759,17 +4875,21 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 </section>
                 <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm">
-                        <h3 className="text-sm font-black text-emerald-700 mb-1">Revenue Transactions</h3>
-                        <p className="text-[10px] text-slate-400 mb-2">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
-                        <div className="relative mb-2">
-                            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                                type="text"
-                                value={revenueHistoryInvoiceQuery}
-                                onChange={(e) => setRevenueHistoryInvoiceQuery(e.target.value)}
-                                placeholder="Search by invoice number..."
-                                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-700"
-                            />
+                        <div className="mb-2">
+                            <div className="flex items-center justify-between gap-3">
+                                <h3 className="text-sm font-black text-emerald-700">Revenue Transactions</h3>
+                                <div className="relative w-full max-w-[220px]">
+                                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        value={revenueHistoryInvoiceQuery}
+                                        onChange={(e) => setRevenueHistoryInvoiceQuery(e.target.value)}
+                                        placeholder="Search by invoice number..."
+                                        className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-700"
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1">Tap a row to view details{canEditTransactions ? ' and edit' : ''}</p>
                         </div>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {filteredRevenueHistoryTransactions.length === 0 ? (

@@ -7,11 +7,10 @@ function asNumber(value) {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function resolveUnitPrice(item = {}) {
-    const total = asNumber(item?.total ?? item?.amount);
-    const quantity = Math.max(1, parseInt(item?.quantity || 1, 10) || 1);
-    const parsed = asNumber(item?.unitPrice ?? item?.unit_price ?? (quantity > 0 ? total / quantity : total));
-    return parsed;
+function stripReceiptItemPrefix(value = '') {
+    return String(value || '')
+        .replace(/^(sale|expense|purchase|revenue|income)\s*-\s*/i, '')
+        .trim();
 }
 
 const ReceiptTemplate = forwardRef(({
@@ -77,14 +76,14 @@ const ReceiptTemplate = forwardRef(({
 
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', marginBottom: '8px' }}>
                 <colgroup>
-                    <col style={{ width: '20%' }} />
-                    <col style={{ width: '50%' }} />
+                    <col style={{ width: '22%' }} />
+                    <col style={{ width: '48%' }} />
                     <col style={{ width: '30%' }} />
                 </colgroup>
                 <thead>
                     <tr style={{ fontWeight: '900', borderBottom: '1px solid #000', fontSize: '13px' }}>
-                        <td style={{ paddingBottom: '6px', paddingRight: '4px' }}>Menge</td>
-                        <td style={{ paddingBottom: '6px', paddingRight: '4px' }}>Artikel</td>
+                        <td style={{ paddingBottom: '6px', paddingRight: '8px', whiteSpace: 'nowrap' }}>Menge</td>
+                        <td style={{ paddingBottom: '6px', paddingRight: '6px', whiteSpace: 'nowrap' }}>Artikel</td>
                         <td style={{ paddingBottom: '6px', textAlign: 'right' }}>Betrag</td>
                     </tr>
                 </thead>
@@ -93,12 +92,7 @@ const ReceiptTemplate = forwardRef(({
                         <tr key={idx}>
                             <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '13px', fontWeight: '700' }}>{item?.quantity || 1}x</td>
                             <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '13px', fontWeight: '700' }}>
-                                <div>{item?.name || item?.productName || 'Artikel'}</div>
-                                {resolveUnitPrice(item) > 0 && (
-                                    <div style={{ fontSize: '10px', color: '#111', marginTop: '1px' }}>
-                                        Einzelpreis: {priceTag(resolveUnitPrice(item))}
-                                    </div>
-                                )}
+                                <div>{stripReceiptItemPrefix(item?.name || item?.productName || 'Artikel') || 'Artikel'}</div>
                                 {renderIMEI(item)}
                             </td>
                             <td style={{ verticalAlign: 'top', paddingTop: '7px', fontSize: '13px', fontWeight: '700', textAlign: 'right' }}>

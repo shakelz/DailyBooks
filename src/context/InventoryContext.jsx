@@ -1430,6 +1430,48 @@ export function InventoryProvider({ children }) {
         return normalizedProducts;
     }, [activeShopId, resolveShopIdCandidates]);
 
+    const refreshCategoryCatalog = useCallback(async (shopRef = activeShopId) => {
+        const sid = cleanText(shopRef || activeShopId);
+        if (!sid) {
+            setL1Categories([]);
+            setL2Map({});
+            return { level1: [], level2Map: {} };
+        }
+
+        const shopCandidates = await resolveShopIdCandidates(sid);
+        const filterCandidates = shopCandidates.length > 0 ? shopCandidates : [sid];
+        const catResult = await selectRowsByShopCandidates('categories', (query) => query.select('*'), filterCandidates);
+
+        if (catResult.error || !Array.isArray(catResult.data)) {
+            setL1Categories([]);
+            setL2Map({});
+            return { level1: [], level2Map: {} };
+        }
+
+        const categoryRows = catResult.data;
+        const categoryLookups = buildCategoryLookups(categoryRows);
+        const scopeMap = readCategoryScopeMap(sid);
+        const normalizedCategories = categoryRows.map((row) => normalizeCategoryRecord(row, categoryLookups.byId));
+        const level1Rows = normalizedCategories.filter((row) => Number(row.level) === 1) || [];
+        const level2Rows = normalizedCategories.filter((row) => Number(row.level) === 2) || [];
+        const nextLevel1 = dedupeCategoryObjectsByName(applyScopeToCategoryList(level1Rows, scopeMap));
+        const nextLevel2Map = {};
+
+        level2Rows.forEach((row) => {
+            const parentName = resolveCategoryParentName(row, categoryLookups.byId);
+            if (!parentName) return;
+            if (!nextLevel2Map[parentName]) nextLevel2Map[parentName] = [];
+            nextLevel2Map[parentName].push(withCategoryScope({ ...row, parent: parentName }, scopeMap));
+        });
+        Object.keys(nextLevel2Map).forEach((parentName) => {
+            nextLevel2Map[parentName] = dedupeCategoryObjectsByName(nextLevel2Map[parentName]);
+        });
+
+        setL1Categories(nextLevel1);
+        setL2Map(nextLevel2Map);
+        return { level1: nextLevel1, level2Map: nextLevel2Map };
+    }, [activeShopId, resolveShopIdCandidates]);
+
     // ── Preload Data from Supabase ──
     useEffect(() => {
         const sid = cleanText(activeShopId);
@@ -1803,10 +1845,20 @@ export function InventoryProvider({ children }) {
         }
 
         setL1Categories((prev) => {
-            const existingLocal = (prev || []).find((c) => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(resolvedLevel1Name));
+            const existingLocal = (prev || []).find((c) => {
+                const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(resolvedLevel1Name);
+                const sameScope = typeof c === 'object'
+                    ? normalizeCategoryScope(c?.scope || c?.category_purpose) === normalizedScope
+                    : normalizedScope === CATEGORY_SCOPE_SALES;
+                return sameName && sameScope;
+            });
             if (existingLocal) {
                 return prev.map((c) => {
-                    if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(resolvedLevel1Name)) return c;
+                    const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(resolvedLevel1Name);
+                    const sameScope = typeof c === 'object'
+                        ? normalizeCategoryScope(c?.scope || c?.category_purpose) === normalizedScope
+                        : normalizedScope === CATEGORY_SCOPE_SALES;
+                    if (!(sameName && sameScope)) return c;
                     if (typeof c === 'object') {
                         return {
                             ...c,
@@ -1865,12 +1917,22 @@ export function InventoryProvider({ children }) {
 
             setL2Map((prev) => {
                 const currentList = prev[resolvedLevel1Name] || [];
-                const existingLocal = currentList.find((c) => normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(resolvedLevel2Name));
+                const existingLocal = currentList.find((c) => {
+                    const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(resolvedLevel2Name);
+                    const sameScope = typeof c === 'object'
+                        ? normalizeCategoryScope(c?.scope || c?.category_purpose) === normalizedScope
+                        : normalizedScope === CATEGORY_SCOPE_SALES;
+                    return sameName && sameScope;
+                });
                 if (existingLocal) {
                     return {
                         ...prev,
                         [resolvedLevel1Name]: currentList.map((c) => {
-                            if (normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) !== normalizeCategoryNameForMatch(resolvedLevel2Name)) return c;
+                            const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(resolvedLevel2Name);
+                            const sameScope = typeof c === 'object'
+                                ? normalizeCategoryScope(c?.scope || c?.category_purpose) === normalizedScope
+                                : normalizedScope === CATEGORY_SCOPE_SALES;
+                            if (!(sameName && sameScope)) return c;
                             if (typeof c === 'object') {
                                 return {
                                     ...c,
@@ -2908,6 +2970,7 @@ export function InventoryProvider({ children }) {
         getStockSeverity,
         updateProduct,
         refreshProducts,
+        refreshCategoryCatalog,
         getLevel1Categories: getL1Categories,
         getLevel2Categories: getL2Categories,
         addLevel1Category: addL1Category,

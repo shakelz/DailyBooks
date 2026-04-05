@@ -173,6 +173,12 @@ function escapePrintHtml(value) {
     .replaceAll('\'', '&#39;')
 }
 
+function stripReceiptItemPrefix(value = '') {
+  return String(value || '')
+    .replace(/^(sale|expense|purchase|revenue|income)\s*-\s*/i, '')
+    .trim()
+}
+
 function formatReceiptMoney(value) {
   const amount = Number(value || 0)
   const hasDecimals = Math.abs(amount % 1) > 0.0001
@@ -183,13 +189,13 @@ function formatReceiptMoney(value) {
 }
 
 function resolveReceiptItemLabel(item = {}) {
-  return String(
+  return stripReceiptItemPrefix(String(
     item?.name
     || item?.productName
     || item?.product_name
     || item?.desc
     || 'Artikel'
-  ).trim() || 'Artikel'
+  ).trim()) || 'Artikel'
 }
 
 function resolveReceiptItemTotal(item = {}) {
@@ -198,18 +204,6 @@ function resolveReceiptItemTotal(item = {}) {
 
 function resolveReceiptItemQuantity(item = {}) {
   return Math.max(1, parseInt(item?.quantity || '1', 10) || 1)
-}
-
-function resolveReceiptItemUnitPrice(item = {}) {
-  const total = resolveReceiptItemTotal(item)
-  const quantity = resolveReceiptItemQuantity(item)
-  const parsed = Number(
-    item?.unitPrice
-    ?? item?.unit_price
-    ?? item?.price
-    ?? (quantity > 0 ? total / quantity : total)
-  )
-  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function resolveReceiptItemCategory(item = {}) {
@@ -264,13 +258,11 @@ function buildKundenbelegHtml({
     const imei = resolveReceiptItemImei(item)
     const label = escapePrintHtml(resolveReceiptItemLabel(item))
     const labelSize = label.length > 34 ? '8px' : label.length > 26 ? '9px' : label.length > 20 ? '10px' : '11px'
-    const unitPrice = resolveReceiptItemUnitPrice(item)
     return `
       <tr>
         <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">${qty}x</td>
         <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">
           <div style="font-size: ${labelSize}; white-space: nowrap; overflow: hidden; line-height: 1.2;">${label}</div>
-          ${unitPrice > 0 ? `<div style="font-size: 9px; color: #000; margin-top: 1px;">Einzelpreis: &euro; ${formatReceiptMoney(unitPrice)}</div>` : ''}
           ${imei ? `<div style="font-size: 10px; color: #333; margin-top: 2px;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
         </td>
         <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900; text-align: right; width: 30%; word-break: break-all;">
@@ -323,14 +315,14 @@ function buildKundenbelegHtml({
 
       <table style="margin-bottom: 8px;">
         <colgroup>
-          <col style="width: 20%;"/>
-          <col style="width: 50%;"/>
+          <col style="width: 22%;"/>
+          <col style="width: 48%;"/>
           <col style="width: 30%;"/>
         </colgroup>
         <thead>
           <tr style="font-weight: 900; border-bottom: 1px solid #000; font-size: 11px;">
-            <td style="padding-bottom: 6px; padding-right: 4px;">Menge</td>
-            <td style="padding-bottom: 6px; padding-right: 4px;">Artikel</td>
+            <td style="padding-bottom: 6px; padding-right: 8px; white-space: nowrap;">Menge</td>
+            <td style="padding-bottom: 6px; padding-right: 6px; white-space: nowrap;">Artikel</td>
             <td style="padding-bottom: 6px; width: 30%; text-align: right;">Betrag</td>
           </tr>
         </thead>
