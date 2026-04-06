@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, u
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 import { buildProductJSON, generateId, getStockSeverity } from '../data/inventoryStore';
-import { reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
+import { getCleanTransactionInvoiceNumber, reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
 
 const InventoryContext = createContext(null);
 const CATEGORY_HIERARCHY_KEY = '__categoryHierarchy';
@@ -202,9 +202,7 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
     const normalizedDesc = cleanText(txn?.desc || txn?.description || txn?.name || '');
     const normalizedCategory = cleanText(txn?.category || txn?.category_name || '');
     const normalizedPaymentMethod = resolveTransactionPaymentMethod(txn);
-    const normalizedInvoiceNumber = normalizeInvoiceNumberValue(
-        cleanText(txn?.invoice_number || txn?.invoiceNumber)
-    );
+    const normalizedInvoiceNumber = normalizeInvoiceNumberValue(txn);
     const normalizedCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID || '');
     const fallbackInlineItems = (linkedItems.length > 0
         ? linkedItems
@@ -884,8 +882,8 @@ function mapTxSource(value) {
     return raw;
 }
 
-function normalizeInvoiceNumberValue(value = '') {
-    return cleanText(value);
+function normalizeInvoiceNumberValue(txn = {}) {
+    return cleanText(getCleanTransactionInvoiceNumber(txn));
 }
 
 function extractTransactionReferenceKey(notes = '') {
@@ -1076,9 +1074,7 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
         isFixedExpense ? 'shop_expense' : (txn?.tx_type || txn?.type),
         mappedSource
     );
-    const invoiceNumber = normalizeInvoiceNumberValue(
-        cleanText(txn?.invoice_number || txn?.invoiceNumber)
-    );
+    const invoiceNumber = normalizeInvoiceNumberValue(txn);
     const description = cleanText(txn?.desc || txn?.description || txn?.name);
     const category = cleanText(txn?.category || txn?.category_name);
     const directCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID);
@@ -1240,6 +1236,7 @@ export function InventoryProvider({ children }) {
     const transactionsRef = useRef(transactions);
     const pendingTransactionDedupeRef = useRef(new Set());
     const addTransactionRef = useRef(null);
+    const syncChannelRef = useRef(null);
     useEffect(() => {
         workerLookupRef.current = workerLookup;
     }, [workerLookup]);
@@ -1271,6 +1268,15 @@ export function InventoryProvider({ children }) {
     useEffect(() => {
         categoryLookupsRef.current = categoryLookups;
     }, [categoryLookups]);
+    const broadcastUnifiedSync = useCallback((event, payload) => {
+        const channel = syncChannelRef.current;
+        if (!channel) return Promise.resolve(null);
+        return channel.send({
+            type: 'broadcast',
+            event,
+            payload,
+        });
+    }, []);
 
     const resolveShopIdCandidates = useCallback(async (shopRef = '') => {
         const base = cleanText(shopRef);
@@ -1744,6 +1750,7 @@ export function InventoryProvider({ children }) {
                     }
                 })
                 .subscribe();
+            syncChannelRef.current = syncSubscription;
         };
 
         attachRealtimeSubscription().catch((error) => {
@@ -1753,6 +1760,9 @@ export function InventoryProvider({ children }) {
         return () => {
             cancelled = true;
             window.removeEventListener('update-inventory-stock', handleStockUpdate);
+            if (syncChannelRef.current === syncSubscription) {
+                syncChannelRef.current = null;
+            }
             if (syncSubscription) {
                 supabase.removeChannel(syncSubscription);
             }
@@ -2037,11 +2047,7 @@ export function InventoryProvider({ children }) {
             return current.map((item, index) => (index === existingIndex ? savedEntry : item));
         });
 
-        supabase.channel(`public:unified_sync:${sid}`).send({
-            type: 'broadcast',
-            event: 'inventory_sync',
-            payload: { action: 'INSERT', data: { ...savedEntry, shop_id: sid } }
-        }).catch(e => console.error(e));
+        broadcastUnifiedSync('inventory_sync', { action: 'INSERT', data: { ...savedEntry, shop_id: sid } }).catch(e => console.error(e));
 
         const savedQty = Math.max(0, parseInt(savedEntry?.stock ?? 0, 10) || 0);
         const entryQty = Math.max(0, parseInt(entry?.stock ?? 0, 10) || 0);
@@ -2094,7 +2100,7 @@ export function InventoryProvider({ children }) {
         }
 
         return savedEntry;
-    }, [activeShopId, categoryNameToId, ensureExpenseCategoriesForInventoryProduct, user]);
+    }, [activeShopId, broadcastUnifiedSync, categoryNameToId, ensureExpenseCategoriesForInventoryProduct, user]);
 
     const deleteProduct = useCallback(async (id) => {
         const sid = cleanText(activeShopId);
@@ -2103,14 +2109,10 @@ export function InventoryProvider({ children }) {
         const strId = String(id);
         setProducts(prev => prev.filter(p => String(p.id) !== strId));
 
-        supabase.channel(`public:unified_sync:${sid}`).send({
-            type: 'broadcast',
-            event: 'inventory_sync',
-            payload: { action: 'DELETE', data: { id: strId, shop_id: sid } }
-        }).catch(e => console.error(e));
+        broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
 
         await supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid);
-    }, [activeShopId]);
+    }, [activeShopId, broadcastUnifiedSync]);
 
     const updateProduct = useCallback(async (id, updatedData) => {
         const sid = cleanText(activeShopId);
@@ -2140,14 +2142,10 @@ export function InventoryProvider({ children }) {
         );
         setProducts(prev => prev.map(p => String(p.id) === strId ? savedProduct : p));
 
-        supabase.channel(`public:unified_sync:${sid}`).send({
-            type: 'broadcast',
-            event: 'inventory_sync',
-            payload: { action: 'UPDATE', data: { ...savedProduct, shop_id: sid } }
-        }).catch(e => console.error(e));
+        broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { ...savedProduct, shop_id: sid } }).catch(e => console.error(e));
 
         return savedProduct;
-    }, [products, activeShopId, categoryNameToId]);
+    }, [products, activeShopId, broadcastUnifiedSync, categoryNameToId]);
 
     const updateStock = useCallback(async (productRef, newStock) => {
         const sid = cleanText(activeShopId);
@@ -2171,14 +2169,10 @@ export function InventoryProvider({ children }) {
             throw new Error(error.message || 'Failed to update stock.');
         }
 
-        supabase.channel(`public:unified_sync:${sid}`).send({
-            type: 'broadcast',
-            event: 'inventory_sync',
-            payload: { action: 'UPDATE', data: { id: strId, stock: nextStock, shop_id: sid } }
-        }).catch(e => console.error(e));
+        broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: nextStock, shop_id: sid } }).catch(e => console.error(e));
 
         return { ...matchedProduct, stock: nextStock };
-    }, [products, activeShopId]);
+    }, [products, activeShopId, broadcastUnifiedSync]);
 
     const adjustStock = useCallback(async (productId, delta) => {
         const sid = cleanText(activeShopId);
@@ -2195,15 +2189,11 @@ export function InventoryProvider({ children }) {
             // Fire off Supabase and Broadcast asynchronously
             supabase.from('inventory').update({ stock: updatedStockVal }).eq('product_id', strId).eq('shop_id', sid).then();
 
-            supabase.channel(`public:unified_sync:${sid}`).send({
-                type: 'broadcast',
-                event: 'inventory_sync',
-                payload: { action: 'UPDATE', data: { id: strId, stock: updatedStockVal, shop_id: sid } }
-            }).catch(e => console.error(e));
+            broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: updatedStockVal, shop_id: sid } }).catch(e => console.error(e));
 
             return prev.map(p => String(p.id) === strId ? { ...p, stock: updatedStockVal } : p);
         });
-    }, [activeShopId]);
+    }, [activeShopId, broadcastUnifiedSync]);
 
     // ── Transactions ──
 
@@ -2216,7 +2206,7 @@ export function InventoryProvider({ children }) {
         const sid = cleanText(activeShopId);
         if (!sid) throw new Error('No active shop selected.');
         const resolvedTimestamp = resolveTransactionTimestamp(txn) || new Date().toISOString();
-        const providedInvoiceNumber = cleanText(txn?.invoice_number || txn?.invoiceNumber);
+        const providedInvoiceNumber = normalizeInvoiceNumberValue(txn);
         const ensuredInvoiceNumber = providedInvoiceNumber || await reserveNextInvoiceNumber();
         const txnWithInvoice = {
             ...(txn || {}),
@@ -2434,11 +2424,7 @@ export function InventoryProvider({ children }) {
                 invoice_number: hydratedPersistedTxn?.invoice_number || hydratedPersistedTxn?.invoiceNumber,
             });
 
-            supabase.channel(`public:unified_sync:${sid}`).send({
-                type: 'broadcast',
-                event: 'transaction_sync',
-                payload: { action: 'INSERT', data: { ...hydratedPersistedTxn, shop_id: sid } }
-            }).catch(e => console.error(e));
+            broadcastUnifiedSync('transaction_sync', { action: 'INSERT', data: { ...hydratedPersistedTxn, shop_id: sid } }).catch(e => console.error(e));
 
             try {
                 await syncTransactionItems(
@@ -2458,7 +2444,7 @@ export function InventoryProvider({ children }) {
         } finally {
             dedupeKeys.forEach((key) => pendingTransactionDedupeRef.current.delete(key));
         }
-    }, [activeShopId, workerLookup, syncTransactionItems, categoryNameToId]);
+    }, [activeShopId, broadcastUnifiedSync, workerLookup, syncTransactionItems, categoryNameToId]);
 
     addTransactionRef.current = addTransaction;
 
@@ -2484,11 +2470,7 @@ export function InventoryProvider({ children }) {
         const hydratedTxn = mergeTransactionWithSnapshot(normalizedNextTxn, { [strId]: nextSnapshot });
         setTransactions((prev) => upsertTransactionByIdentity(prev, hydratedTxn));
 
-        supabase.channel(`public:unified_sync:${sid}`).send({
-            type: 'broadcast',
-            event: 'transaction_sync',
-            payload: { action: 'UPDATE', data: { ...hydratedTxn, shop_id: sid } }
-        }).catch(e => console.error(e));
+        broadcastUnifiedSync('transaction_sync', { action: 'UPDATE', data: { ...hydratedTxn, shop_id: sid } }).catch(e => console.error(e));
 
         const dbUpdate = buildTransactionDBPayload(nextTxn, false, sid, categoryNameToId);
         const updateResult = await executeWithPrunedColumns(
@@ -2515,7 +2497,7 @@ export function InventoryProvider({ children }) {
         }
 
         return hydratedTxn;
-    }, [transactions, activeShopId, workerLookup, syncTransactionItems, categoryNameToId]);
+    }, [transactions, activeShopId, broadcastUnifiedSync, workerLookup, syncTransactionItems, categoryNameToId]);
 
     const deleteTransaction = useCallback(async (id) => {
         const sid = cleanText(activeShopId);

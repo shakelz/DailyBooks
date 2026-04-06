@@ -17,7 +17,7 @@ import { useCart } from '../context/CartContext';
 import CartSidebar from '../components/CartSidebar';
 import { supabase } from '../supabaseClient';
 import { useTranslatedTextTree } from '../hooks/useTranslatedTextTree';
-import { reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
+import { buildStageInvoiceNumber, extractInvoiceNumberBase, getCleanTransactionInvoiceNumber, reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
@@ -272,7 +272,7 @@ function isGenericTransactionLabel(value = '') {
 }
 
 function getTransactionInvoiceNumber(txn = {}) {
-    return String(txn?.invoiceNumber || txn?.invoice_number || '').trim();
+    return getCleanTransactionInvoiceNumber(txn);
 }
 
 function getTransactionIdentityKey(txn = {}) {
@@ -294,7 +294,7 @@ function extractRepairReferenceFromTransaction(txn = {}) {
     const combined = `${notes} ${desc}`;
     const markerMatch = combined.match(/RepairRef:([^|\s]+)/i);
     if (markerMatch && markerMatch[1]) return String(markerMatch[1]).trim();
-    return String(txn?.invoice_number || txn?.invoiceNumber || '').trim();
+    return extractInvoiceNumberBase(txn?.invoice_number || txn?.invoiceNumber);
 }
 
 function buildTransactionDraft(txn = {}, defaultShowTax = true) {
@@ -880,35 +880,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         || Boolean(selectedMobileInventoryItem)
         || Boolean(activeKpiBreakdownType)
     );
-
-    useEffect(() => {
-        if (!import.meta.env.DEV || typeof window === 'undefined') return undefined;
-
-        const originalAdd = window.addEventListener.bind(window);
-        const originalRemove = window.removeEventListener.bind(window);
-        let listenerCount = 0;
-
-        const patchedAdd = (type, ...args) => {
-            listenerCount += 1;
-            if (listenerCount > 100) {
-                console.warn(`WARNING: ${listenerCount} event listeners registered! Possible leak.`);
-            }
-            return originalAdd(type, ...args);
-        };
-
-        const patchedRemove = (type, ...args) => {
-            listenerCount = Math.max(0, listenerCount - 1);
-            return originalRemove(type, ...args);
-        };
-
-        window.addEventListener = patchedAdd;
-        window.removeEventListener = patchedRemove;
-
-        return () => {
-            window.addEventListener = originalAdd;
-            window.removeEventListener = originalRemove;
-        };
-    }, []);
 
     useEffect(() => {
         isLockedRef.current = isLocked;
@@ -1552,6 +1523,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const parsedTs = dbTimestamp ? new Date(dbTimestamp) : null;
         const hasValidTs = parsedTs && !Number.isNaN(parsedTs.getTime());
         const normalizedType = normalizeTxnType(dbTxn?.tx_type || dbTxn?.type || txn?.type);
+        const normalizedInvoiceNumber = getCleanTransactionInvoiceNumber({ ...txn, ...dbTxn });
         const mergedSnapshot = {
             ...(txn?.productSnapshot && typeof txn.productSnapshot === 'object' ? txn.productSnapshot : {}),
             ...(fetchedProductRow ? resolveProductSnapshot(fetchedProductRow) : {}),
@@ -1574,8 +1546,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             paymentMethod: String(dbTxn?.paymentMethod || dbTxn?.payment_method || txn?.paymentMethod || 'Cash').trim() || 'Cash',
             repair_id: String(dbTxn?.repair_id || txn?.repair_id || txn?.repairId || '').trim() || null,
             repairId: String(dbTxn?.repair_id || txn?.repair_id || txn?.repairId || '').trim() || null,
-            invoice_number: String(dbTxn?.invoice_number || dbTxn?.invoiceNumber || txn?.invoice_number || txn?.invoiceNumber || '').trim(),
-            invoiceNumber: String(dbTxn?.invoice_number || dbTxn?.invoiceNumber || txn?.invoice_number || txn?.invoiceNumber || '').trim(),
+            invoice_number: normalizedInvoiceNumber,
+            invoiceNumber: normalizedInvoiceNumber,
             timestamp: dbTimestamp,
             date: String(dbTxn?.date || txn?.date || (hasValidTs ? parsedTs.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }) : '')).trim(),
             time: String(dbTxn?.time || txn?.time || (hasValidTs ? parsedTs.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '')).trim(),
@@ -2219,7 +2191,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         let cancelled = false;
-        const pull = async () => {
+        let inFlight = false;
+        let resumeTimer = null;
+        const pull = async (forceVisible = false) => {
+            if (cancelled || inFlight) return;
+            if (!forceVisible && typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+
+            inFlight = true;
             try {
                 const res = await fetch(endpoint, { cache: 'no-store' });
                 if (!res.ok) return;
@@ -2228,14 +2206,40 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 setRealtimeStats(data);
             } catch {
                 setRealtimeStats(null);
+            } finally {
+                inFlight = false;
             }
         };
 
-        pull();
-        const id = setInterval(pull, 15000);
+        const scheduleResumePull = () => {
+            if (cancelled) return;
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+            if (resumeTimer) clearTimeout(resumeTimer);
+            resumeTimer = setTimeout(() => {
+                pull(true);
+            }, 180);
+        };
+
+        pull(true);
+        const id = setInterval(() => {
+            pull(false);
+        }, 15000);
+        if (typeof window !== 'undefined') {
+            window.addEventListener('focus', scheduleResumePull);
+        }
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', scheduleResumePull);
+        }
         return () => {
             cancelled = true;
+            if (resumeTimer) clearTimeout(resumeTimer);
             clearInterval(id);
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('focus', scheduleResumePull);
+            }
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', scheduleResumePull);
+            }
         };
     }, []);
 
@@ -3196,14 +3200,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 const repairRow = await fetchRepairReceiptRow(txn) || txn?.linkedRepairJob || txn?.repairJob || null;
                 if (repairRow) {
                     receiptItems = buildRepairReceiptItems(repairRow, txn);
-                    receiptNo = String(repairRow?.invoice_number || repairRow?.invoiceNumber || repairRow?.ref_id || repairRow?.refId || receiptNo).trim() || receiptNo;
+                    receiptNo = extractInvoiceNumberBase(repairRow?.invoice_number || repairRow?.invoiceNumber || repairRow?.ref_id || repairRow?.refId) || receiptNo;
                     issuedAt = new Date(repairRow?.completed_at || repairRow?.completedAt || txn?.timestamp || repairRow?.created_at || Date.now());
                 }
             } else if (source === 'online-order') {
                 const orderRow = await fetchOnlineOrderReceiptRow(txn);
                 if (orderRow) {
                     receiptItems = buildOnlineOrderReceiptItems(orderRow, txn);
-                    receiptNo = String(txn?.invoice_number || txn?.invoiceNumber || orderRow?.abholschein_number || receiptNo).trim() || receiptNo;
+                    receiptNo = getTransactionInvoiceNumber(txn) || String(orderRow?.abholschein_number || receiptNo).trim() || receiptNo;
                     issuedAt = new Date(txn?.timestamp || orderRow?.updated_at || orderRow?.created_at || Date.now());
                 }
             }
@@ -3471,7 +3475,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return dt.toLocaleString('de-DE');
     };
 
-    const getRepairInvoiceNumber = useCallback((job = {}) => String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim(), []);
+    const getRepairInvoiceNumber = useCallback((job = {}) => (
+        extractInvoiceNumberBase(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id)
+        || String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim()
+    ), []);
     const filteredPendingOrders = useMemo(() => {
         const query = String(repairSearchQuery || '').trim().toLowerCase();
         if (!query) return pendingOrders;
@@ -4076,6 +4083,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (advanceAmount > 0 && !hasOnlineOrderStageTransaction(row, 'ADVANCE')) {
             const marker = `OnlineOrderRef:${row.orderId || row.id}`;
             const bookedAt = buildSelectedDate(row.orderDate || todayIsoDate());
+            const transactionInvoiceNumber = buildStageInvoiceNumber(row.abholscheinNumber || row.orderId, 'advance');
             try {
                 await addTransaction({
                     desc: `Advance: ${row.itemName} (Abholschein #${row.abholscheinNumber || row.orderId})`,
@@ -4087,6 +4095,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     paymentMethod: 'Cash',
                     notes: `${marker} | Stage:ADVANCE | Abholschein:${row.abholscheinNumber || ''} | Mobile: ${String(row.mobileNumber || '').trim() || '-'} | Expected Delivery: ${row.expectedDeliveryDate || '-'}`,
                     source: 'online-order',
+                    invoice_number: transactionInvoiceNumber,
+                    invoiceNumber: transactionInvoiceNumber,
                     salesmanName: user?.name,
                     salesmanNumber: user?.salesmanNumber || 0,
                     workerId: String(user?.id || ''),
@@ -4186,6 +4196,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (finalAmount > 0 && !hasOnlineOrderStageTransaction(orderTarget, 'FINAL')) {
             const finalMarker = `OnlineOrderRef:${orderTarget.orderId || orderTarget.id}`;
             const completedAt = new Date();
+            const transactionInvoiceNumber = buildStageInvoiceNumber(orderTarget.abholscheinNumber || orderTarget.orderId, 'final');
             try {
                 await addTransaction({
                     desc: `Final Payment: ${orderTarget.itemName} (Abholschein #${orderTarget.abholscheinNumber || orderTarget.orderId})`,
@@ -4197,6 +4208,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     paymentMethod: 'Cash',
                     notes: `${finalMarker} | Stage:FINAL | Abholschein:${orderTarget.abholscheinNumber || ''} | Mobile: ${String(orderTarget.mobileNumber || '').trim() || '-'}`,
                     source: 'online-order',
+                    invoice_number: transactionInvoiceNumber,
+                    invoiceNumber: transactionInvoiceNumber,
                     salesmanName: user?.name,
                     salesmanNumber: user?.salesmanNumber || 0,
                     workerId: String(user?.id || ''),

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 import { reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
@@ -268,6 +268,16 @@ export function RepairsProvider({ children }) {
     const { activeShopId, user } = useAuth();
     const [repairJobs, setRepairJobs] = useState([]);
     const [repairsLoaded, setRepairsLoaded] = useState(false);
+    const repairChannelRef = useRef(null);
+    const broadcastRepairSync = useCallback((payload) => {
+        const channel = repairChannelRef.current;
+        if (!channel) return Promise.resolve(null);
+        return channel.send({
+            type: 'broadcast',
+            event: 'repair_sync',
+            payload,
+        });
+    }, []);
 
     useEffect(() => {
         const sid = cleanText(activeShopId);
@@ -335,9 +345,13 @@ export function RepairsProvider({ children }) {
                 }
             })
             .subscribe();
+        repairChannelRef.current = repairsSub;
 
         return () => {
             cancelled = true;
+            if (repairChannelRef.current === repairsSub) {
+                repairChannelRef.current = null;
+            }
             supabase.removeChannel(repairsSub);
         };
     }, [activeShopId]);
@@ -427,11 +441,7 @@ export function RepairsProvider({ children }) {
                 console.error(partsError);
             }
 
-            supabase.channel(`public:repairs:${sid}`).send({
-                type: 'broadcast',
-                event: 'repair_sync',
-                payload: { action: 'INSERT', data: savedJob }
-            }).catch((error) => console.error(error));
+            broadcastRepairSync({ action: 'INSERT', data: savedJob }).catch((error) => console.error(error));
 
             return savedJob;
         } else if (insertResult.error) {
@@ -456,14 +466,10 @@ export function RepairsProvider({ children }) {
             console.error(partsError);
         }
 
-        supabase.channel(`public:repairs:${sid}`).send({
-            type: 'broadcast',
-            event: 'repair_sync',
-            payload: { action: 'INSERT', data: savedJob }
-        }).catch((error) => console.error(error));
+        broadcastRepairSync({ action: 'INSERT', data: savedJob }).catch((error) => console.error(error));
 
         return savedJob;
-    }, [activeShopId, generateRefId, syncRepairParts, user?.id]);
+    }, [activeShopId, broadcastRepairSync, generateRefId, syncRepairParts, user?.id]);
 
     const updateRepairStatus = useCallback(async (id, status, extras = {}) => {
         const sid = cleanText(activeShopId);
@@ -513,12 +519,8 @@ export function RepairsProvider({ children }) {
             }
         }
 
-        supabase.channel(`public:repairs:${sid}`).send({
-            type: 'broadcast',
-            event: 'repair_sync',
-            payload: { action: 'UPDATE', data: { id: strId, shop_id: sid, ...mergedLocal } }
-        }).catch((error) => console.error(error));
-    }, [activeShopId, repairJobs, syncRepairParts]);
+        broadcastRepairSync({ action: 'UPDATE', data: { id: strId, shop_id: sid, ...mergedLocal } }).catch((error) => console.error(error));
+    }, [activeShopId, broadcastRepairSync, repairJobs, syncRepairParts]);
 
     const deleteRepair = useCallback(async (id) => {
         const sid = cleanText(activeShopId);
@@ -531,12 +533,8 @@ export function RepairsProvider({ children }) {
 
         await supabase.from('repairs').delete().eq('repair_id', strId).eq('shop_id', sid);
 
-        supabase.channel(`public:repairs:${sid}`).send({
-            type: 'broadcast',
-            event: 'repair_sync',
-            payload: { action: 'DELETE', data: { id: strId, shop_id: sid } }
-        }).catch((error) => console.error(error));
-    }, [activeShopId]);
+        broadcastRepairSync({ action: 'DELETE', data: { id: strId, shop_id: sid } }).catch((error) => console.error(error));
+    }, [activeShopId, broadcastRepairSync]);
 
     const value = {
         repairJobs,

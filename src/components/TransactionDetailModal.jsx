@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
+import { getCleanTransactionInvoiceNumber } from '../utils/invoiceNumbers';
 
 // ══════════════════════════════════════════════════════════
 // TransactionDetailModal — v5 Detail View
@@ -267,7 +268,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
 
         printKundenbeleg(
             receiptItems,
-            txn?.invoiceNumber || txn?.invoice_number || txn?.transactionId || txn?.id,
+            getCleanTransactionInvoiceNumber(txn) || txn?.transactionId || txn?.id,
             txn?.paymentMethod || 'Cash',
             activeShop,
             {

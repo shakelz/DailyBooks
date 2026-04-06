@@ -4,6 +4,7 @@ import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
 import { priceTag } from '../../utils/currency';
+import { getCleanTransactionInvoiceNumber } from '../../utils/invoiceNumbers';
 import AdminTabToolbar from './AdminTabToolbar';
 
 const EXPENSE_CATEGORY_OPTIONS = [
@@ -111,7 +112,7 @@ function isCashbookEntry(txn) {
 }
 
 function getTxnInvoiceNumber(txn) {
-    return String(txn?.invoiceNumber || txn?.invoice_number || '').trim();
+    return getCleanTransactionInvoiceNumber(txn);
 }
 
 export default function ExpensesTab() {

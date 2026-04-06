@@ -1682,6 +1682,7 @@ export function AuthProvider({ children }) {
     const cachedPinUserIdRef = useRef('');
     const refreshShopsRequestIdRef = useRef(0);
     const salesmenLoadRequestIdRef = useRef(0);
+    const settingsChannelRef = useRef(null);
 
     const [lowStockAlerts, setLowStockAlerts] = useState([]);
     const [salesmanMetaMap, setSalesmanMetaMap] = useState(() => readLocalJSON(SALESMAN_META_STORAGE_KEY, {}));
@@ -1808,7 +1809,9 @@ export function AuthProvider({ children }) {
 
     // ── Live Broadcasting for Settings ──
     const broadcastSetting = useCallback(async (key, value) => {
-        await supabase.channel('public:settings').send({
+        const channel = settingsChannelRef.current;
+        if (!channel) return;
+        await channel.send({
             type: 'broadcast',
             event: 'settings_sync',
             payload: { key, value }
@@ -1825,7 +1828,13 @@ export function AuthProvider({ children }) {
                 else if (key === 'autoLockTimeout') setAutoLockTimeout(value);
             })
             .subscribe();
-        return () => supabase.removeChannel(channel);
+        settingsChannelRef.current = channel;
+        return () => {
+            if (settingsChannelRef.current === channel) {
+                settingsChannelRef.current = null;
+            }
+            supabase.removeChannel(channel);
+        };
     }, []);
 
     const syncShopTelephoneColumn = useCallback(async (shopRows = []) => {
