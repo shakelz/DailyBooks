@@ -28,3 +28,14 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+# Local build artifacts and temp outputs
+.eslint-errors.txt
+carefone_software.zip
+dist-electron-fresh/
+dist-electron-v001/
+dist-electron-v003/
+dist-electron-v2/
+dist-electron-*.zip
+eslint.json
+supabase/.temp/

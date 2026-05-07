@@ -687,6 +687,21 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const debouncedTransactions = useDebouncedValue(transactions, 140);
     const debouncedProducts = useDebouncedValue(products, 140);
     const debouncedRepairJobs = useDebouncedValue(repairJobs, 140);
+    const loggedTxnSampleRef = useRef(false);
+
+    useEffect(() => {
+        if (loggedTxnSampleRef.current) return;
+        if (!Array.isArray(transactions) || transactions.length === 0) return;
+        loggedTxnSampleRef.current = true;
+        console.log('Dashboard transaction sample (date fields):', transactions.slice(0, 3).map((txn) => ({
+            id: txn?.id || txn?.transaction_id || txn?.transactionId,
+            created_at: txn?.created_at,
+            timestamp: txn?.timestamp,
+            occurred_at: txn?.occurred_at,
+            date: txn?.date,
+            time: txn?.time,
+        })));
+    }, [transactions]);
 
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -1201,17 +1216,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [adminView, clearLocalInventoryCache]);
 
 
-    const todayStart = useMemo(() => {
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        return start;
+    const [todayAnchor, setTodayAnchor] = useState(() => new Date());
+
+    useEffect(() => {
+        const interval = setInterval(() => setTodayAnchor(new Date()), 60 * 1000);
+        return () => clearInterval(interval);
     }, []);
 
+    const todayStart = useMemo(() => {
+        const start = new Date(todayAnchor);
+        start.setHours(0, 0, 0, 0);
+        return start;
+    }, [todayAnchor]);
+
     const todayEnd = useMemo(() => {
-        const end = new Date();
+        const end = new Date(todayAnchor);
         end.setHours(23, 59, 59, 999);
         return end;
-    }, []);
+    }, [todayAnchor]);
 
     const formatRangeLabel = (start, end) => {
         const fmt = (d) => d.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' });
