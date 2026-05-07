@@ -1508,7 +1508,7 @@ export function InventoryProvider({ children }) {
             filterCandidates.forEach((candidate) => addKnownShopId(candidate));
             const [invResult, txnResult, catResult, profileResult] = await Promise.all([
                 selectRowsByShopCandidates('inventory', (query) => query.select('*'), filterCandidates),
-                selectRowsByShopCandidates('transactions', (query) => query.select('*'), filterCandidates),
+                selectRowsByShopCandidates('transactions', (query) => query.select('*').order('created_at', { ascending: false }), filterCandidates),
                 selectRowsByShopCandidates('categories', (query) => query.select('*'), filterCandidates),
                 selectRowsByShopCandidates('profiles', (query) => query.select('user_id,full_name'), filterCandidates),
             ]);
