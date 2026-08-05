@@ -1336,16 +1336,36 @@ export function InventoryProvider({ children }) {
         let lastError = null;
         const aggregatedRows = [];
         const seenRowKeys = new Set();
+        const PAGE_SIZE = 1000;
 
         for (const candidate of candidates) {
-            let query = supabase.from(tableName);
-            query = typeof buildQuery === 'function' ? buildQuery(query) : query.select('*');
-            const result = await query.eq('shop_id', candidate);
+            let offset = 0;
+            let candidateRows = [];
+            let candidateError = null;
 
-            if (!result.error) {
+            while (true) {
+                let query = supabase.from(tableName);
+                query = typeof buildQuery === 'function' ? buildQuery(query) : query.select('*');
+                const result = await query.eq('shop_id', candidate).range(offset, offset + PAGE_SIZE - 1);
+
+                if (result.error) {
+                    candidateError = result.error;
+                    break;
+                }
+
+                const batch = Array.isArray(result.data) ? result.data : [];
+                candidateRows.push(...batch);
+
+                if (batch.length < PAGE_SIZE) {
+                    break;
+                }
+                offset += PAGE_SIZE;
+            }
+
+            if (!candidateError) {
                 hadSuccess = true;
-                if (Array.isArray(result.data) && result.data.length > 0) {
-                    result.data.forEach((row, index) => {
+                if (candidateRows.length > 0) {
+                    candidateRows.forEach((row, index) => {
                         const identityKey = getShopScopedRowIdentityKey(tableName, row, index);
                         if (seenRowKeys.has(identityKey)) return;
                         seenRowKeys.add(identityKey);
@@ -1355,11 +1375,11 @@ export function InventoryProvider({ children }) {
                 continue;
             }
 
-            lastError = result.error;
-            if (isUuidSyntaxError(result.error, 'shop_id')) continue;
-            const message = cleanText(result.error?.message).toLowerCase();
+            lastError = candidateError;
+            if (isUuidSyntaxError(candidateError, 'shop_id')) continue;
+            const message = cleanText(candidateError?.message).toLowerCase();
             if (message.includes('invalid input syntax for type uuid')) continue;
-            return result;
+            return { data: null, error: candidateError };
         }
 
         if (aggregatedRows.length > 0) {

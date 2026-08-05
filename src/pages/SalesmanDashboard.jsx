@@ -572,8 +572,7 @@ function CompactTrendCard({ label, value, colorClass, onClick = null, hint = '' 
                 {iconMap[label] || <BarChart3 size={16} />}
                 <p className="text-[11px] font-semibold">{label}</p>
             </div>
-            <p className={`text-lg font-black mt-1 ${
-                label === 'Total Revenue' ? 'text-emerald-700' :
+            <p className={`text-lg font-black mt-1 ${label === 'Total Revenue' ? 'text-emerald-700' :
                     label === 'Total Expenses' ? 'text-rose-700' :
                         'text-blue-800'
                 }`}>{priceTag(value)}</p>
@@ -782,7 +781,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const isLockedRef = useRef(isLocked);
     const modalInteractionOpenRef = useRef(false);
     const pendingKpiSettingsReloadRef = useRef(false);
-    const loadKpiSettingsRef = useRef(async () => {});
+    const loadKpiSettingsRef = useRef(async () => { });
     const unlockPendingRef = useRef(false);
     const transactionDetailRequestRef = useRef(0);
     const salesAmountInputRef = useRef(null);
@@ -985,7 +984,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return () => {
             cancelled = true;
             if (reloadTimer) clearTimeout(reloadTimer);
-            loadKpiSettingsRef.current = async () => {};
+            loadKpiSettingsRef.current = async () => { };
             supabase.removeChannel(settingsSubscription);
         };
     }, [settingsShopId]);
@@ -2284,7 +2283,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const rows = [];
         const seenKeys = new Set();
         const allMainCats = getLevel1Categories('sales') || [];
-        
+
         const sortedMainCats = [...allMainCats].sort((a, b) => {
             const nameA = typeof a === 'object' ? a?.name : String(a || '');
             const nameB = typeof b === 'object' ? b?.name : String(b || '');
@@ -2294,7 +2293,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         sortedMainCats.forEach((catObj) => {
             const categoryName = typeof catObj === 'object' ? (catObj?.name || '') : String(catObj || '');
             if (!categoryName) return;
-            
+
             const mainKey = makeProfitCategoryKey(categoryName, '');
             if (!seenKeys.has(mainKey)) {
                 seenKeys.add(mainKey);
@@ -4345,19 +4344,19 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 {topBarcodeMatches.map((product) => {
                                     const resolved = resolveProductSnapshot(product);
                                     return (
-                                    <button
-                                        type="button"
-                                        key={resolved.id || `${resolved.barcode}-${resolved.name}`}
-                                        onMouseDown={(e) => {
-                                            e.preventDefault();
-                                            openSalesFormWithProduct(product);
-                                            setTopBarcodeQuery('');
-                                        }}
-                                        className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
-                                    >
-                                        <p className="text-xs font-bold text-slate-700">{resolved.name || 'Unnamed product'}</p>
-                                        <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} | Stock {resolved.stock} | {priceTag(resolved.sellingPrice || 0)}</p>
-                                    </button>
+                                        <button
+                                            type="button"
+                                            key={resolved.id || `${resolved.barcode}-${resolved.name}`}
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                openSalesFormWithProduct(product);
+                                                setTopBarcodeQuery('');
+                                            }}
+                                            className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
+                                        >
+                                            <p className="text-xs font-bold text-slate-700">{resolved.name || 'Unnamed product'}</p>
+                                            <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} | Stock {resolved.stock} | {priceTag(resolved.sellingPrice || 0)}</p>
+                                        </button>
                                     );
                                 })}
                             </div>
@@ -5070,7 +5069,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     ? `Custom mode active. Sales: ${categoryContributionModeCounts[KPI_MODE_SALES]} | Profit: ${categoryContributionModeCounts[KPI_MODE_PROFIT]} | Excluded: ${categoryContributionModeCounts[KPI_MODE_EXCLUDED]}`
                                     : (activeKpiContributionTab === KPI_SCOPE_SALES
                                         ? 'Default mode active: mobile/laptop/tab-like categories use Profit mode, other categories use Sales mode.'
-                                        : 'Default mode active: expense/purchase categories are included in KPI expenses unless excluded.')} 
+                                        : 'Default mode active: expense/purchase categories are included in KPI expenses unless excluded.')}
                             </div>
 
                             <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 space-y-2">
@@ -5461,149 +5460,149 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 </div>
 
                                 <div className="space-y-1.5 p-2">
-                                {filteredMobileInventoryProducts.length === 0 ? (
-                                    <p className="text-xs text-slate-400 p-2">No mobile products found in inventory.</p>
-                                ) : filteredMobileInventoryProducts.map((item) => (
-                                    <div
-                                        key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}
-                                        className={`rounded-lg border px-3 py-2.5 transition-colors hover:bg-blue-50/30 ${(() => {
-                                            const stockValue = Number(item.snapshot.stock) || 0;
-                                            const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
-                                            const redThreshold = Number(alertCfg.red);
-                                            const yellowThreshold = Number(alertCfg.yellow);
-                                            const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
-                                            const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
-                                            const severity = stockValue <= 0
-                                                ? 'red'
-                                                : hasRed && stockValue <= redThreshold
+                                    {filteredMobileInventoryProducts.length === 0 ? (
+                                        <p className="text-xs text-slate-400 p-2">No mobile products found in inventory.</p>
+                                    ) : filteredMobileInventoryProducts.map((item) => (
+                                        <div
+                                            key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}
+                                            className={`rounded-lg border px-3 py-2.5 transition-colors hover:bg-blue-50/30 ${(() => {
+                                                const stockValue = Number(item.snapshot.stock) || 0;
+                                                const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                                const redThreshold = Number(alertCfg.red);
+                                                const yellowThreshold = Number(alertCfg.yellow);
+                                                const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                                const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                                const severity = stockValue <= 0
                                                     ? 'red'
-                                                    : hasYellow && stockValue <= yellowThreshold
-                                                        ? 'yellow'
-                                                        : getStockSeverity(stockValue);
-                                            return severity === 'red'
-                                                ? 'border-red-200 bg-red-50/30'
-                                                : severity === 'yellow'
-                                                    ? 'border-amber-200 bg-amber-50/30'
-                                                    : 'border-slate-200 bg-white';
-                                        })()}`}
-                                    >
-                                        <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-center w-full">
-                                            <div className="md:col-span-6 min-w-0">
-                                                <div className="flex items-center gap-3 min-w-0">
-                                                    <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                        {item.snapshot.image ? (
-                                                            <img src={item.snapshot.image} alt={item.snapshot.name || 'Mobile'} className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <span className="text-lg">🛠️</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <p className="text-sm font-bold text-slate-800 truncate">{item.snapshot.name || 'Mobile'}</p>
-                                                        <div className="flex items-center gap-2 mt-1">
-                                                            <p className="text-[10px] font-mono text-slate-400 font-bold truncate">{item.snapshot.barcode || 'NO-BARCODE'}</p>
-                                                            <span className="text-slate-300">•</span>
-                                                            <p className="text-[10px] font-bold text-blue-500 truncate">{item.snapshot.subCategory || item.snapshot.category || 'Uncategorized'}</p>
+                                                    : hasRed && stockValue <= redThreshold
+                                                        ? 'red'
+                                                        : hasYellow && stockValue <= yellowThreshold
+                                                            ? 'yellow'
+                                                            : getStockSeverity(stockValue);
+                                                return severity === 'red'
+                                                    ? 'border-red-200 bg-red-50/30'
+                                                    : severity === 'yellow'
+                                                        ? 'border-amber-200 bg-amber-50/30'
+                                                        : 'border-slate-200 bg-white';
+                                            })()}`}
+                                        >
+                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-center w-full">
+                                                <div className="md:col-span-6 min-w-0">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                                            {item.snapshot.image ? (
+                                                                <img src={item.snapshot.image} alt={item.snapshot.name || 'Mobile'} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <span className="text-lg">🛠️</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <p className="text-sm font-bold text-slate-800 truncate">{item.snapshot.name || 'Mobile'}</p>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                <p className="text-[10px] font-mono text-slate-400 font-bold truncate">{item.snapshot.barcode || 'NO-BARCODE'}</p>
+                                                                <span className="text-slate-300">•</span>
+                                                                <p className="text-[10px] font-bold text-blue-500 truncate">{item.snapshot.subCategory || item.snapshot.category || 'Uncategorized'}</p>
+                                                            </div>
                                                         </div>
                                                     </div>
+                                                    <div className="flex flex-wrap gap-1 mt-2">
+                                                        {Object.entries(item.raw?.attributes && typeof item.raw.attributes === 'object' ? item.raw.attributes : {})
+                                                            .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
+                                                            .slice(0, 8)
+                                                            .map(([key, value]) => (
+                                                                <span key={`${item.snapshot.id || item.snapshot.barcode || item.snapshot.name}-${key}`} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
+                                                                    {String(key).toUpperCase()}: {String(value)}
+                                                                </span>
+                                                            ))}
+                                                    </div>
                                                 </div>
-                                                <div className="flex flex-wrap gap-1 mt-2">
-                                                    {Object.entries(item.raw?.attributes && typeof item.raw.attributes === 'object' ? item.raw.attributes : {})
-                                                        .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
-                                                        .slice(0, 8)
-                                                        .map(([key, value]) => (
-                                                            <span key={`${item.snapshot.id || item.snapshot.barcode || item.snapshot.name}-${key}`} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
-                                                                {String(key).toUpperCase()}: {String(value)}
-                                                            </span>
-                                                        ))}
-                                                </div>
-                                            </div>
 
-                                            <div className="md:col-span-2 md:text-center">
-                                                <div className={`inline-flex flex-col items-center rounded-2xl border px-3 py-1 ${(() => {
-                                                    const stockValue = Number(item.snapshot.stock) || 0;
-                                                    const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
-                                                    const redThreshold = Number(alertCfg.red);
-                                                    const yellowThreshold = Number(alertCfg.yellow);
-                                                    const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
-                                                    const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
-                                                    const severity = stockValue <= 0
-                                                        ? 'red'
-                                                        : hasRed && stockValue <= redThreshold
+                                                <div className="md:col-span-2 md:text-center">
+                                                    <div className={`inline-flex flex-col items-center rounded-2xl border px-3 py-1 ${(() => {
+                                                        const stockValue = Number(item.snapshot.stock) || 0;
+                                                        const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                                        const redThreshold = Number(alertCfg.red);
+                                                        const yellowThreshold = Number(alertCfg.yellow);
+                                                        const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                                        const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                                        const severity = stockValue <= 0
                                                             ? 'red'
-                                                            : hasYellow && stockValue <= yellowThreshold
-                                                                ? 'yellow'
-                                                                : getStockSeverity(stockValue);
-                                                    return severity === 'red'
-                                                        ? 'bg-red-50 text-red-600 border-red-100'
-                                                        : severity === 'yellow'
-                                                            ? 'bg-amber-50 text-amber-600 border-amber-100'
-                                                            : 'bg-emerald-50 text-emerald-600 border-emerald-100';
-                                                })()}`}>
-                                                    <span className="text-2xl leading-none font-black">{item.snapshot.stock}</span>
-                                                    <span className="text-[8px] -mt-0.5 font-bold uppercase tracking-widest opacity-70">Units</span>
+                                                            : hasRed && stockValue <= redThreshold
+                                                                ? 'red'
+                                                                : hasYellow && stockValue <= yellowThreshold
+                                                                    ? 'yellow'
+                                                                    : getStockSeverity(stockValue);
+                                                        return severity === 'red'
+                                                            ? 'bg-red-50 text-red-600 border-red-100'
+                                                            : severity === 'yellow'
+                                                                ? 'bg-amber-50 text-amber-600 border-amber-100'
+                                                                : 'bg-emerald-50 text-emerald-600 border-emerald-100';
+                                                    })()}`}>
+                                                        <span className="text-2xl leading-none font-black">{item.snapshot.stock}</span>
+                                                        <span className="text-[8px] -mt-0.5 font-bold uppercase tracking-widest opacity-70">Units</span>
+                                                    </div>
                                                 </div>
-                                            </div>
 
-                                            <div className="md:col-span-2">
-                                                <div className="space-y-1 text-xs">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <span className="text-slate-400 font-bold">Buy:</span>
-                                                        <span className="text-slate-600 font-black">{priceTag(item.snapshot.purchasePrice || 0)}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <span className="text-slate-400 font-bold">Sell:</span>
-                                                        <span className="text-blue-600 font-black">{priceTag(item.snapshot.sellingPrice || 0)}</span>
-                                                    </div>
-                                                    <div className="pt-1 flex items-center md:justify-center">
-                                                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${(() => {
-                                                            const sell = Number(item.snapshot.sellingPrice) || 0;
-                                                            const buy = Number(item.snapshot.purchasePrice) || 0;
-                                                            const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
-                                                            return margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600';
-                                                        })()}`}>
-                                                            {(() => {
+                                                <div className="md:col-span-2">
+                                                    <div className="space-y-1 text-xs">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-slate-400 font-bold">Buy:</span>
+                                                            <span className="text-slate-600 font-black">{priceTag(item.snapshot.purchasePrice || 0)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-slate-400 font-bold">Sell:</span>
+                                                            <span className="text-blue-600 font-black">{priceTag(item.snapshot.sellingPrice || 0)}</span>
+                                                        </div>
+                                                        <div className="pt-1 flex items-center md:justify-center">
+                                                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${(() => {
                                                                 const sell = Number(item.snapshot.sellingPrice) || 0;
                                                                 const buy = Number(item.snapshot.purchasePrice) || 0;
                                                                 const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
-                                                                return `${margin.toFixed(1)}% MARGIN`;
-                                                            })()}
-                                                        </span>
+                                                                return margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600';
+                                                            })()}`}>
+                                                                {(() => {
+                                                                    const sell = Number(item.snapshot.sellingPrice) || 0;
+                                                                    const buy = Number(item.snapshot.purchasePrice) || 0;
+                                                                    const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
+                                                                    return `${margin.toFixed(1)}% MARGIN`;
+                                                                })()}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="md:col-span-2">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => printMobileLabel(item.raw)}
+                                                            title="Print Label"
+                                                            className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <Tags size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSelectedMobileInventoryItem(item)}
+                                                            title="Details"
+                                                            className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <Eye size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => sellMobileFromInventory(item.raw)}
+                                                            title="Sell"
+                                                            className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <ShoppingCart size={14} />
+                                                        </button>
                                                     </div>
                                                 </div>
                                             </div>
-
-                                            <div className="md:col-span-2">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => printMobileLabel(item.raw)}
-                                                        title="Print Label"
-                                                        className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <Tags size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedMobileInventoryItem(item)}
-                                                        title="Details"
-                                                        className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <Eye size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => sellMobileFromInventory(item.raw)}
-                                                        title="Sell"
-                                                        className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <ShoppingCart size={14} />
-                                                    </button>
-                                                </div>
-                                            </div>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -5833,8 +5832,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         : severity === 'yellow'
                                             ? 'text-amber-600'
                                             : 'text-emerald-600';
-                                        })()}`}>{selectedMobileInventoryItem.snapshot.stock}</p></div>
-                                        <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Selling Price</p><p className="font-black text-emerald-700 text-base">{priceTag(selectedMobileInventoryItem.snapshot.sellingPrice || 0)}</p></div>
+                                })()}`}>{selectedMobileInventoryItem.snapshot.stock}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Selling Price</p><p className="font-black text-emerald-700 text-base">{priceTag(selectedMobileInventoryItem.snapshot.sellingPrice || 0)}</p></div>
                             </div>
 
                             <div className="flex justify-end gap-2">
@@ -5984,79 +5983,79 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
                             {pendingTab === 'orders' ? (
                                 <>
-                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                                    <input
-                                        value={repairSearchQuery}
-                                        onChange={(e) => setRepairSearchQuery(e.target.value)}
-                                        placeholder="Search invoice, customer, phone, device..."
-                                        className="w-full text-xs text-slate-700 placeholder:text-slate-400 bg-transparent outline-none"
-                                    />
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        setShowPendingOrders(false);
-                                        setShowRepairModal(true);
-                                    }}
-                                    className="w-full rounded-xl bg-amber-600 text-white py-2 text-sm font-semibold hover:bg-amber-700 transition-colors"
-                                >
-                                    + Add Repair Job
-                                </button>
-                                {filteredPendingOrders.length === 0 ? (
-                                    <div className="text-center py-12">
-                                        <p className="text-4xl">OK</p>
-                                        <p className="text-sm text-slate-500 mt-2">No pending orders</p>
+                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                        <input
+                                            value={repairSearchQuery}
+                                            onChange={(e) => setRepairSearchQuery(e.target.value)}
+                                            placeholder="Search invoice, customer, phone, device..."
+                                            className="w-full text-xs text-slate-700 placeholder:text-slate-400 bg-transparent outline-none"
+                                        />
                                     </div>
-                                ) : filteredPendingOrders.map((job) => (
-                                    <div key={job.id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm ring-1 ring-slate-100/70 space-y-3">
-                                        <div className="flex items-start justify-between gap-2">
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-extrabold tracking-wide text-blue-700">#{getRepairInvoiceNumber(job) || '-'}</p>
-                                                <p className="text-sm font-bold text-slate-900 truncate">{job.customerName || 'Customer'}</p>
+                                    <button
+                                        onClick={() => {
+                                            setShowPendingOrders(false);
+                                            setShowRepairModal(true);
+                                        }}
+                                        className="w-full rounded-xl bg-amber-600 text-white py-2 text-sm font-semibold hover:bg-amber-700 transition-colors"
+                                    >
+                                        + Add Repair Job
+                                    </button>
+                                    {filteredPendingOrders.length === 0 ? (
+                                        <div className="text-center py-12">
+                                            <p className="text-4xl">OK</p>
+                                            <p className="text-sm text-slate-500 mt-2">No pending orders</p>
+                                        </div>
+                                    ) : filteredPendingOrders.map((job) => (
+                                        <div key={job.id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm ring-1 ring-slate-100/70 space-y-3">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-extrabold tracking-wide text-blue-700">#{getRepairInvoiceNumber(job) || '-'}</p>
+                                                    <p className="text-sm font-bold text-slate-900 truncate">{job.customerName || 'Customer'}</p>
+                                                </div>
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold capitalize">{job.status || 'pending'}</span>
                                             </div>
-                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold capitalize">{job.status || 'pending'}</span>
-                                        </div>
 
-                                        <div className="grid grid-cols-2 gap-1 text-[11px]">
-                                            <p className="text-slate-500"><span className="text-slate-400">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
-                                            <p className="text-slate-500"><span className="text-slate-400">IMEI:</span> {job.imei || '-'}</p>
-                                            <p className="text-slate-500"><span className="text-slate-400">Device:</span> {job.deviceModel || '-'}</p>
-                                            <p className="text-slate-500"><span className="text-slate-400">Delivery:</span> {job.deliveryDate || job.delivery_at || '-'}</p>
-                                            <p className="text-slate-500"><span className="text-slate-400">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
-                                            <p className="text-slate-500"><span className="text-slate-400">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
-                                        </div>
+                                            <div className="grid grid-cols-2 gap-1 text-[11px]">
+                                                <p className="text-slate-500"><span className="text-slate-400">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">IMEI:</span> {job.imei || '-'}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">Device:</span> {job.deviceModel || '-'}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">Delivery:</span> {job.deliveryDate || job.delivery_at || '-'}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
+                                                <p className="text-slate-500"><span className="text-slate-400">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
+                                            </div>
 
-                                        <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
-                                            <span className="text-slate-400">Issue:</span> {job.problem || job.issueType || '-'}
-                                        </p>
-                                        {job.notes ? (
                                             <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
-                                                <span className="text-slate-400">Notes:</span> {job.notes}
+                                                <span className="text-slate-400">Issue:</span> {job.problem || job.issueType || '-'}
                                             </p>
-                                        ) : null}
+                                            {job.notes ? (
+                                                <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                                    <span className="text-slate-400">Notes:</span> {job.notes}
+                                                </p>
+                                            ) : null}
 
-                                        <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                            <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 text-emerald-700 font-semibold">Cost: {priceTag(job.estimatedCost || 0)}</span>
-                                            <span className="rounded-lg bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
-                                        </div>
+                                            <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                                <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 text-emerald-700 font-semibold">Cost: {priceTag(job.estimatedCost || 0)}</span>
+                                                <span className="rounded-lg bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
+                                            </div>
 
-                                        <div className="flex justify-end gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => completePendingRepair(job)}
-                                                className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-emerald-700"
-                                            >
-                                                Complete
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => printRepairJobBill(job, activeShop)}
-                                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                                            >
-                                                Print
-                                            </button>
+                                            <div className="flex justify-end gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => completePendingRepair(job)}
+                                                    className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-emerald-700"
+                                                >
+                                                    Complete
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => printRepairJobBill(job, activeShop)}
+                                                    className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                                >
+                                                    Print
+                                                </button>
+                                            </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    ))}
                                 </>
                             ) : (
                                 <>

@@ -291,12 +291,34 @@ export function RepairsProvider({ children }) {
         setRepairsLoaded(false);
 
         const fetchRepairs = async () => {
-            const repairsResult = await supabase.from('repairs').select('*').eq('shop_id', sid);
+            let allRepairs = [];
+            let offset = 0;
+            const PAGE_SIZE = 1000;
+            let lastError = null;
+
+            while (true) {
+                const repairsResult = await supabase
+                    .from('repairs')
+                    .select('*')
+                    .eq('shop_id', sid)
+                    .range(offset, offset + PAGE_SIZE - 1);
+
+                if (repairsResult.error) {
+                    lastError = repairsResult.error;
+                    break;
+                }
+
+                const batch = Array.isArray(repairsResult.data) ? repairsResult.data : [];
+                allRepairs.push(...batch);
+
+                if (batch.length < PAGE_SIZE) break;
+                offset += PAGE_SIZE;
+            }
 
             if (cancelled) return;
 
-            if (!repairsResult.error && Array.isArray(repairsResult.data)) {
-                const normalized = repairsResult.data.map((row) => normalizeRepairRecord(row));
+            if (!lastError && allRepairs.length >= 0) {
+                const normalized = allRepairs.map((row) => normalizeRepairRecord(row));
                 setRepairJobs(sortRepairsByCreatedAt(normalized));
             } else {
                 setRepairJobs([]);
