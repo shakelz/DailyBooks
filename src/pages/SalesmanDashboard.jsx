@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, Edit3, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers } from 'lucide-react';
 
 import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
 import { useAuth } from '../context/AuthContext';
@@ -826,9 +826,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [showTransactionModal, setShowTransactionModal] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [showSuccess, setShowSuccess] = useState(false);
-    const [showMobileInventoryModal, setShowMobileInventoryModal] = useState(false);
-    const [showOtherInventoryModal, setShowOtherInventoryModal] = useState(false);
-    const [inventoryViewMode, setInventoryViewMode] = useState('all'); // 'all' | 'mobile' | 'other'
+    const [showInventoryModal, setShowInventoryModal] = useState(false);
+    const [editingProduct, setEditingProduct] = useState(null);
+    const [deletingProductId, setDeletingProductId] = useState(null);
     const [inventorySearch, setInventorySearch] = useState('');
     const [inventoryCategory, setInventoryCategory] = useState('all');
     const [inventorySubCategory, setInventorySubCategory] = useState('all');
@@ -837,10 +837,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [editingStockId, setEditingStockId] = useState(null);
     const [editingStockVal, setEditingStockVal] = useState('');
     const [savingStockId, setSavingStockId] = useState(null);
-    const [mobileInventorySearch, setMobileInventorySearch] = useState('');
-    const [mobileInventoryTab, setMobileInventoryTab] = useState('iphone');
-    const [otherInventorySearch, setOtherInventorySearch] = useState('');
-    const [selectedMobileInventoryItem, setSelectedMobileInventoryItem] = useState(null);
+    const [selectedInventoryItem, setSelectedInventoryItem] = useState(null);
+    // Legacy aliases
+    const showMobileInventoryModal = showInventoryModal;
+    const setShowMobileInventoryModal = setShowInventoryModal;
+    const showOtherInventoryModal = false;
+    const setShowOtherInventoryModal = setShowInventoryModal;
+    const selectedMobileInventoryItem = selectedInventoryItem;
+    const setSelectedMobileInventoryItem = setSelectedInventoryItem;
     const [showSalesProductSuggestions, setShowSalesProductSuggestions] = useState(false);
     const [showPurchaseProductSuggestions, setShowPurchaseProductSuggestions] = useState(false);
     const [showTransactionDetailModal, setShowTransactionDetailModal] = useState(false);
@@ -2839,7 +2843,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || combinedText.includes('motorola');
     }
 
-    // ── Unified Inventory Memos & Stock Management ──
+    // ── Unified Inventory Memos & Product Management ──
     const allInventoryItems = useMemo(() => {
         return (products || []).map((product) => {
             const snapshot = resolveProductSnapshot(product);
@@ -2848,27 +2852,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         });
     }, [products]);
 
-    const inventoryScopeCounts = useMemo(() => {
-        let total = 0;
-        let mobile = 0;
-        let other = 0;
-        allInventoryItems.forEach((item) => {
-            total += 1;
-            if (item.isMobile) mobile += 1;
-            else other += 1;
-        });
-        return { total, mobile, other };
-    }, [allInventoryItems]);
-
-    const typeScopedInventoryItems = useMemo(() => {
-        if (inventoryViewMode === 'mobile') {
-            return allInventoryItems.filter((item) => item.isMobile);
-        }
-        if (inventoryViewMode === 'other') {
-            return allInventoryItems.filter((item) => !item.isMobile);
-        }
-        return allInventoryItems;
-    }, [allInventoryItems, inventoryViewMode]);
+    const typeScopedInventoryItems = allInventoryItems;
 
     const inventoryCategoryOptions = useMemo(() => {
         const categoryCounts = {};
@@ -3005,7 +2989,43 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             });
     }, [typeScopedInventoryItems, inventorySearch, inventoryCategory, inventorySubCategory, inventoryStockFilter, inventorySort]);
 
-    // Stock Management Handlers for Salesman
+    // Product & Stock Management Handlers for Salesman
+    const handleEditProduct = useCallback((productOrItem) => {
+        const rawProduct = productOrItem?.raw || productOrItem;
+        if (!rawProduct) return;
+        setEditingProduct(rawProduct);
+        setShowInventoryForm(true);
+    }, []);
+
+    const handleDeleteProduct = useCallback(async (productOrItem) => {
+        const rawProduct = productOrItem?.raw || productOrItem;
+        const snapshot = productOrItem?.snapshot || resolveProductSnapshot(rawProduct);
+        const productId = String(rawProduct?.id || snapshot?.id || '').trim();
+        if (!productId) return;
+
+        const productName = snapshot?.name || rawProduct?.name || 'Produkt';
+        if (!window.confirm(`Möchtest du "${productName}" wirklich aus dem Inventar löschen?`)) {
+            return;
+        }
+
+        setDeletingProductId(productId);
+        try {
+            if (typeof deleteProduct === 'function') {
+                await deleteProduct(productId);
+            }
+            setToast(`"${productName}" erfolgreich gelöscht`);
+            setTimeout(() => setToast(''), 2000);
+            if (selectedInventoryItem?.snapshot?.id === productId || selectedInventoryItem?.raw?.id === productId) {
+                setSelectedInventoryItem(null);
+            }
+            if (typeof refreshProducts === 'function') refreshProducts();
+        } catch (err) {
+            showInlineError(err?.message || 'Fehler beim Löschen des Produkts');
+        } finally {
+            setDeletingProductId(null);
+        }
+    }, [deleteProduct, refreshProducts, selectedInventoryItem, showInlineError]);
+
     const handleSaveStock = useCallback(async (productId, newStockValue) => {
         const parsedStock = Math.max(0, parseInt(newStockValue, 10) || 0);
         const strId = String(productId);
@@ -3060,20 +3080,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, []);
 
     // Fallbacks for legacy props
-    const mobileInventoryProducts = useMemo(() => allInventoryItems.filter((i) => i.isMobile), [allInventoryItems]);
-    const otherInventoryProducts = useMemo(() => allInventoryItems.filter((i) => !i.isMobile), [allInventoryItems]);
+    const mobileInventoryProducts = allInventoryItems;
+    const otherInventoryProducts = allInventoryItems;
     const filteredMobileInventoryProducts = filteredInventoryItems;
 
     const handleInventoryFormSaveSuccess = useCallback(() => {
-        setToast('Product added successfully');
+        setToast(editingProduct ? 'Produkt erfolgreich aktualisiert' : 'Produkt erfolgreich hinzugefügt');
         setTimeout(() => setToast(''), 1800);
-        // Refresh products list immediately so new item appears without page reload
+        setEditingProduct(null);
+        setShowInventoryForm(false);
+        // Refresh products list immediately so new/updated item appears without page reload
         if (typeof refreshProducts === 'function') refreshProducts();
         if (typeof refreshCategoryCatalog === 'function') refreshCategoryCatalog();
-    }, [refreshCategoryCatalog, refreshProducts]);
+    }, [editingProduct, refreshCategoryCatalog, refreshProducts]);
 
     const handleInventoryFormSaveError = useCallback((error) => {
-        setToast(error?.message || 'Failed to add product');
+        setToast(error?.message || 'Fehler beim Speichern des Produkts');
         setTimeout(() => setToast(''), 2200);
     }, []);
 
@@ -4637,6 +4659,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <button
                             onClick={() => {
                                 if (isInventoryFormSubmitting) return;
+                                setEditingProduct(null);
                                 setShowInventoryForm(true);
                             }}
                             title="Add Inventory"
@@ -4646,28 +4669,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         ><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Inventory</span></button>
                         <button
                             onClick={() => {
-                                setInventoryViewMode('mobile');
                                 setInventoryCategory('all');
                                 setInventorySubCategory('all');
                                 setInventorySearch('');
-                                setShowMobileInventoryModal(true);
+                                setShowInventoryModal(true);
                             }}
-                            title="Mobile Inventory"
+                            title="Inventory"
                             className="fab-animated"
                             style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}
-                        ><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobile Inventory</span></button>
-                        <button
-                            onClick={() => {
-                                setInventoryViewMode('other');
-                                setInventoryCategory('all');
-                                setInventorySubCategory('all');
-                                setInventorySearch('');
-                                setShowOtherInventoryModal(true);
-                            }}
-                            title="Other Inventory"
-                            className="fab-animated"
-                            style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}
-                        ><span className="fab-icon"><Scale size={14} /></span><span className="fab-title">Other Inventory</span></button>
+                        ><span className="fab-icon"><Boxes size={14} /></span><span className="fab-title">Inventory</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Reparatur & Abholschein" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Reparatur & Abholschein</span></button>
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
                         <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
@@ -5812,7 +5822,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
             <SmartCategoryForm
                 isOpen={showInventoryForm}
-                onClose={() => setShowInventoryForm(false)}
+                initialData={editingProduct}
+                onClose={() => {
+                    setShowInventoryForm(false);
+                    setEditingProduct(null);
+                }}
                 onProcessingChange={setIsInventoryFormSubmitting}
                 onSaveSuccess={handleInventoryFormSaveSuccess}
                 onSaveError={handleInventoryFormSaveError}
@@ -5829,13 +5843,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 initialProduct={selectedProduct}
             />
 
-            {(showMobileInventoryModal || showOtherInventoryModal) && (
+            {showInventoryModal && (
                 <div
                     className="fixed inset-0 z-[86] flex items-center justify-center p-2 sm:p-4 md:p-6"
                     onClick={() => {
-                        setShowMobileInventoryModal(false);
-                        setShowOtherInventoryModal(false);
-                        setSelectedMobileInventoryItem(null);
+                        setShowInventoryModal(false);
+                        setSelectedInventoryItem(null);
                         setEditingStockId(null);
                     }}
                 >
@@ -5853,80 +5866,41 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 <div>
                                     <div className="flex items-center gap-2">
                                         <h3 className="text-base font-black text-slate-800 tracking-tight">
-                                            Lagerbestand &amp; Inventar
+                                            Inventory
                                         </h3>
-                                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-mono">
+                                        <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-mono">
                                             {filteredInventoryItems.length} {filteredInventoryItems.length === 1 ? 'Artikel' : 'Artikel'}
                                         </span>
                                     </div>
                                     <p className="text-[11px] font-medium text-slate-500">
-                                        Bestände prüfen, filtern &amp; direkt bearbeiten
+                                        Lagerbestände einsehen, filtern, bearbeiten &amp; verwalten
                                     </p>
                                 </div>
                             </div>
 
-                            {/* View Mode Tabs (All / Mobile / Other) */}
-                            <div className="flex items-center bg-slate-200/80 p-1 rounded-xl gap-1">
+                            <div className="flex items-center gap-2">
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setInventoryViewMode('all');
-                                        setInventoryCategory('all');
-                                        setInventorySubCategory('all');
+                                        setEditingProduct(null);
+                                        setShowInventoryForm(true);
                                     }}
-                                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-                                        inventoryViewMode === 'all'
-                                            ? 'bg-white text-blue-700 shadow-xs'
-                                            : 'text-slate-600 hover:text-slate-900'
-                                    }`}
+                                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
                                 >
-                                    Alle ({inventoryScopeCounts.total})
+                                    <Plus size={14} />
+                                    <span>Artikel hinzufügen</span>
                                 </button>
                                 <button
-                                    type="button"
                                     onClick={() => {
-                                        setInventoryViewMode('mobile');
-                                        setInventoryCategory('all');
-                                        setInventorySubCategory('all');
+                                        setShowInventoryModal(false);
+                                        setSelectedInventoryItem(null);
+                                        setEditingStockId(null);
                                     }}
-                                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                                        inventoryViewMode === 'mobile'
-                                            ? 'bg-white text-blue-700 shadow-xs'
-                                            : 'text-slate-600 hover:text-slate-900'
-                                    }`}
+                                    className="w-8 h-8 rounded-lg bg-slate-200/60 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors font-bold"
                                 >
-                                    <Smartphone size={13} />
-                                    <span>Mobile ({inventoryScopeCounts.mobile})</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setInventoryViewMode('other');
-                                        setInventoryCategory('all');
-                                        setInventorySubCategory('all');
-                                    }}
-                                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                                        inventoryViewMode === 'other'
-                                            ? 'bg-white text-blue-700 shadow-xs'
-                                            : 'text-slate-600 hover:text-slate-900'
-                                    }`}
-                                >
-                                    <Scale size={13} />
-                                    <span>Other ({inventoryScopeCounts.other})</span>
+                                    <X size={16} />
                                 </button>
                             </div>
-
-                            <button
-                                onClick={() => {
-                                    setShowMobileInventoryModal(false);
-                                    setShowOtherInventoryModal(false);
-                                    setSelectedMobileInventoryItem(null);
-                                    setEditingStockId(null);
-                                }}
-                                className="w-8 h-8 rounded-lg bg-slate-200/60 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors font-bold"
-                            >
-                                <X size={16} />
-                            </button>
                         </div>
 
                         {/* ── Filter Controls on Top ── */}
@@ -5939,7 +5913,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     <input
                                         value={inventorySearch}
                                         onChange={(e) => setInventorySearch(e.target.value)}
-                                        placeholder="Suche nach Name, Barcode/IMEI, Marke, Specs..."
+                                        placeholder="Suche nach Name, Barcode/IMEI, Kategorie, Specs..."
                                         className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium text-slate-800 placeholder-slate-400 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all outline-none"
                                     />
                                     {inventorySearch && (
@@ -6095,7 +6069,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             </div>
                         </div>
 
-                        {/* ── Product List with Stock Edit Access ── */}
+                        {/* ── Product List with Stock Edit, Full Edit & Delete ── */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/40">
                             {filteredInventoryItems.length === 0 ? (
                                 <div className="text-center py-12 px-4 rounded-xl border border-dashed border-slate-200 bg-white">
@@ -6135,6 +6109,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
                                     const isEditingThis = editingStockId === String(item.snapshot.id);
                                     const isSavingThis = savingStockId === String(item.snapshot.id);
+                                    const isDeletingThis = deletingProductId === String(item.snapshot.id);
 
                                     return (
                                         <div
@@ -6148,8 +6123,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             }`}
                                         >
                                             <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                                                {/* 1. Product Info & Thumbnail (col-span-5) */}
-                                                <div className="md:col-span-5 min-w-0">
+                                                {/* 1. Product Info & Thumbnail (col-span-4) */}
+                                                <div className="md:col-span-4 min-w-0">
                                                     <div className="flex items-center gap-3">
                                                         <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
                                                             {item.snapshot.image ? (
@@ -6328,8 +6303,25 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                     })()}
                                                 </div>
 
-                                                {/* 4. Actions (col-span-2) */}
-                                                <div className="md:col-span-2 flex items-center justify-end gap-1.5">
+                                                {/* 4. Actions: Edit Details, Delete, Label, View, Sell (col-span-3) */}
+                                                <div className="md:col-span-3 flex items-center justify-end gap-1 flex-wrap">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleEditProduct(item)}
+                                                        title="Alle Details bearbeiten"
+                                                        className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center"
+                                                    >
+                                                        <Edit3 size={14} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={isDeletingThis}
+                                                        onClick={() => handleDeleteProduct(item)}
+                                                        title="Produkt löschen"
+                                                        className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all flex items-center justify-center disabled:opacity-40"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => printMobileLabel(item.raw)}
@@ -6340,13 +6332,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        onClick={() => {
-                                                            if (item.isMobile) {
-                                                                setSelectedMobileInventoryItem(item);
-                                                            } else {
-                                                                openSalesFormWithProduct(item.raw);
-                                                            }
-                                                        }}
+                                                        onClick={() => setSelectedInventoryItem(item)}
                                                         title="Details anzeigen"
                                                         className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
                                                     >
@@ -6354,13 +6340,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        onClick={() => {
-                                                            if (item.isMobile) {
-                                                                sellMobileFromInventory(item.raw);
-                                                            } else {
-                                                                openSalesFormWithProduct(item.raw);
-                                                            }
-                                                        }}
+                                                        onClick={() => sellMobileFromInventory(item.raw)}
                                                         title="Verkaufen"
                                                         className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
                                                     >
@@ -6377,74 +6357,62 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 </div>
             )}
 
-            {selectedMobileInventoryItem && (
-                <div className="fixed inset-0 z-[90]" onClick={() => setSelectedMobileInventoryItem(null)}>
-                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
-                    <div className="absolute inset-x-3 top-16 mx-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-                            <h3 className="text-sm font-black text-slate-800">Mobile Details</h3>
-                            <button onClick={() => setSelectedMobileInventoryItem(null)} className="text-slate-500 hover:text-slate-700">x</button>
+            {selectedInventoryItem && (
+                <div className="fixed inset-0 z-[90] flex items-center justify-center p-3" onClick={() => setSelectedInventoryItem(null)}>
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-[1px]" />
+                    <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Boxes size={18} className="text-blue-600" />
+                                <h3 className="text-sm font-black text-slate-800">Artikeldetails (Product Details)</h3>
+                            </div>
+                            <button onClick={() => setSelectedInventoryItem(null)} className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 flex items-center justify-center">
+                                <X size={16} />
+                            </button>
                         </div>
-                        <div className="p-4 space-y-3">
-                            <div className="flex items-center gap-3">
-                                {selectedMobileInventoryItem.snapshot.image ? (
-                                    <img src={selectedMobileInventoryItem.snapshot.image} alt={selectedMobileInventoryItem.snapshot.name || 'Mobile'} className="w-16 h-16 rounded-lg border border-slate-200 object-cover" />
+                        <div className="p-4 space-y-3.5 max-h-[78vh] overflow-y-auto">
+                            <div className="flex items-center gap-3.5">
+                                {selectedInventoryItem.snapshot.image ? (
+                                    <img src={selectedInventoryItem.snapshot.image} alt={selectedInventoryItem.snapshot.name || 'Produkt'} className="w-16 h-16 rounded-xl border border-slate-200 object-cover flex-shrink-0" />
                                 ) : (
-                                    <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-100 text-slate-400 text-xs flex items-center justify-center">No Image</div>
+                                    <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 text-xs flex items-center justify-center flex-shrink-0">Kein Bild</div>
                                 )}
-                                <div className="min-w-0">
-                                    <p className="text-sm font-black text-slate-800 truncate">{selectedMobileInventoryItem.snapshot.name || 'Mobile'}</p>
-                                    <p className="text-xs text-slate-500 truncate">{selectedMobileInventoryItem.snapshot.barcode || 'No barcode'}</p>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-base font-black text-slate-800 truncate">{selectedInventoryItem.snapshot.name || 'Unbenannt'}</p>
+                                    <p className="text-xs font-mono font-bold text-slate-400 truncate">{selectedInventoryItem.snapshot.barcode || 'Kein Barcode'}</p>
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Category</p><p className="font-bold text-slate-700">{selectedMobileInventoryItem.snapshot.category || '-'}</p></div>
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Sub Category</p><p className="font-bold text-slate-700">{selectedMobileInventoryItem.snapshot.subCategory || '-'}</p></div>
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2">
-                                    <p className="text-[11px] text-slate-400 font-medium">Stock (Bestand)</p>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5"><p className="text-[10px] font-bold text-slate-400 uppercase">Kategorie</p><p className="font-bold text-slate-800 mt-0.5">{selectedInventoryItem.snapshot.category || '-'}</p></div>
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5"><p className="text-[10px] font-bold text-slate-400 uppercase">Unterkategorie</p><p className="font-bold text-slate-800 mt-0.5">{selectedInventoryItem.snapshot.subCategory || '-'}</p></div>
+                                
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Bestand (Stock)</p>
                                     <div className="flex items-center gap-2 mt-1">
                                         <button
                                             type="button"
-                                            disabled={savingStockId === String(selectedMobileInventoryItem.snapshot.id) || (Number(selectedMobileInventoryItem.snapshot.stock) || 0) <= 0}
+                                            disabled={savingStockId === String(selectedInventoryItem.snapshot.id) || (Number(selectedInventoryItem.snapshot.stock) || 0) <= 0}
                                             onClick={async () => {
-                                                await handleQuickStockStep(selectedMobileInventoryItem.snapshot, -1);
-                                                setSelectedMobileInventoryItem((prev) => prev ? { ...prev, snapshot: { ...prev.snapshot, stock: Math.max(0, (Number(prev.snapshot.stock) || 0) - 1) } } : null);
+                                                await handleQuickStockStep(selectedInventoryItem.snapshot, -1);
+                                                setSelectedInventoryItem((prev) => prev ? { ...prev, snapshot: { ...prev.snapshot, stock: Math.max(0, (Number(prev.snapshot.stock) || 0) - 1) } } : null);
                                             }}
                                             className="w-6 h-6 rounded bg-slate-200 hover:bg-rose-100 text-slate-700 hover:text-rose-700 font-black text-xs flex items-center justify-center disabled:opacity-40 transition-colors"
                                         >
                                             -
                                         </button>
                                         <span className={`font-black text-base font-mono ${(() => {
-                                            const stockValue = Number(selectedMobileInventoryItem.snapshot.stock) || 0;
-                                            const alertCfg = selectedMobileInventoryItem.raw?.stockAlert && typeof selectedMobileInventoryItem.raw.stockAlert === 'object'
-                                                ? selectedMobileInventoryItem.raw.stockAlert
-                                                : {};
-                                            const redThreshold = Number(alertCfg.red);
-                                            const yellowThreshold = Number(alertCfg.yellow);
-                                            const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
-                                            const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
-                                            const severity = stockValue <= 0
-                                                ? 'red'
-                                                : hasRed && stockValue <= redThreshold
-                                                    ? 'red'
-                                                    : hasYellow && stockValue <= yellowThreshold
-                                                        ? 'yellow'
-                                                        : getStockSeverity(stockValue);
-                                            return severity === 'red'
-                                                ? 'text-red-600'
-                                                : severity === 'yellow'
-                                                    ? 'text-amber-600'
-                                                    : 'text-emerald-600';
+                                            const stockValue = Number(selectedInventoryItem.snapshot.stock) || 0;
+                                            return stockValue <= 0 ? 'text-red-600' : 'text-emerald-600';
                                         })()}`}>
-                                            {selectedMobileInventoryItem.snapshot.stock}
+                                            {selectedInventoryItem.snapshot.stock}
                                         </span>
                                         <button
                                             type="button"
-                                            disabled={savingStockId === String(selectedMobileInventoryItem.snapshot.id)}
+                                            disabled={savingStockId === String(selectedInventoryItem.snapshot.id)}
                                             onClick={async () => {
-                                                await handleQuickStockStep(selectedMobileInventoryItem.snapshot, 1);
-                                                setSelectedMobileInventoryItem((prev) => prev ? { ...prev, snapshot: { ...prev.snapshot, stock: (Number(prev.snapshot.stock) || 0) + 1 } } : null);
+                                                await handleQuickStockStep(selectedInventoryItem.snapshot, 1);
+                                                setSelectedInventoryItem((prev) => prev ? { ...prev, snapshot: { ...prev.snapshot, stock: (Number(prev.snapshot.stock) || 0) + 1 } } : null);
                                             }}
                                             className="w-6 h-6 rounded bg-slate-200 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 font-black text-xs flex items-center justify-center disabled:opacity-40 transition-colors"
                                         >
@@ -6452,31 +6420,104 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         </button>
                                     </div>
                                 </div>
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Selling Price</p><p className="font-black text-emerald-700 text-base">{priceTag(selectedMobileInventoryItem.snapshot.sellingPrice || 0)}</p></div>
+
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Verkaufspreis (VK)</p>
+                                    <p className="font-black text-emerald-700 text-base font-mono mt-0.5">{priceTag(selectedInventoryItem.snapshot.sellingPrice || 0)}</p>
+                                </div>
+
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Einkaufspreis (EK)</p>
+                                    <p className="font-bold text-slate-700 font-mono mt-0.5">{priceTag(selectedInventoryItem.snapshot.purchasePrice || 0)}</p>
+                                </div>
+
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Marge</p>
+                                    <p className="font-bold text-blue-600 font-mono mt-0.5">
+                                        {(() => {
+                                            const sell = Number(selectedInventoryItem.snapshot.sellingPrice) || 0;
+                                            const buy = Number(selectedInventoryItem.snapshot.purchasePrice) || 0;
+                                            const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
+                                            return `${margin.toFixed(1)}%`;
+                                        })()}
+                                    </p>
+                                </div>
                             </div>
 
-                            <div className="flex justify-end gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => printMobileLabel(selectedMobileInventoryItem.raw)}
-                                    className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
-                                >
-                                    Print Label
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setSelectedMobileInventoryItem(null)}
-                                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                                >
-                                    Close
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => sellMobileFromInventory(selectedMobileInventoryItem.raw)}
-                                    className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-emerald-700"
-                                >
-                                    Sell
-                                </button>
+                            {/* Attributes */}
+                            {selectedInventoryItem.raw?.attributes && Object.keys(selectedInventoryItem.raw.attributes).length > 0 && (
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1.5">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Eigenschaften &amp; Spezifikationen</p>
+                                    <div className="flex flex-wrap gap-1">
+                                        {Object.entries(selectedInventoryItem.raw.attributes)
+                                            .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
+                                            .map(([key, value]) => (
+                                                <span key={`attr-detail-${key}`} className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600 text-[10px] font-bold">
+                                                    {String(key).toUpperCase()}: {String(value)}
+                                                </span>
+                                            ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Notes */}
+                            {selectedInventoryItem.raw?.notes && (
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Notizen</p>
+                                    <p className="text-xs text-slate-600 mt-0.5">{selectedInventoryItem.raw.notes}</p>
+                                </div>
+                            )}
+
+                            {/* Action Footer */}
+                            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 flex-wrap">
+                                <div className="flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleDeleteProduct(selectedInventoryItem)}
+                                        className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 flex items-center gap-1 transition-colors"
+                                    >
+                                        <Trash2 size={13} />
+                                        <span>Löschen</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const itm = selectedInventoryItem;
+                                            setSelectedInventoryItem(null);
+                                            handleEditProduct(itm);
+                                        }}
+                                        className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 flex items-center gap-1 transition-colors"
+                                    >
+                                        <Edit3 size={13} />
+                                        <span>Bearbeiten</span>
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => printMobileLabel(selectedInventoryItem.raw)}
+                                        className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 flex items-center gap-1 transition-colors"
+                                    >
+                                        <Tags size={13} />
+                                        <span>Etikett</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedInventoryItem(null)}
+                                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                                    >
+                                        Schließen
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => sellMobileFromInventory(selectedInventoryItem.raw)}
+                                        className="rounded-xl bg-emerald-600 text-white px-3.5 py-1.5 text-xs font-bold hover:bg-emerald-700 flex items-center gap-1 transition-colors"
+                                    >
+                                        <ShoppingCart size={13} />
+                                        <span>Verkaufen</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
