@@ -457,10 +457,14 @@ function buildReceiptHtml({
     const safeRows = rows.map((row) => {
         const qty = Math.max(1, parseInt(row?.quantity || '1', 10) || 1);
         const lineTotal = Number(row?.total) || 0;
-        const lineName = escapeHtml(row?.name || 'Artikel');
+        const rawName = String(row?.name || 'Artikel');
+        const lineName = escapeHtml(rawName);
+        const len = rawName.length;
+        const lineNameSize = len > 36 ? '9px' : len > 22 ? '10px' : '11px';
+        const lineLeading = len > 36 ? '1.15' : '1.25';
         return `
             <div class="line-item">
-                <div class="line-name">${qty}x ${lineName}</div>
+                <div class="line-name" style="font-size:${lineNameSize}; line-height:${lineLeading};">${qty}x ${lineName}</div>
                 <div class="line-price">${formatMoney(lineTotal)}</div>
             </div>
         `;

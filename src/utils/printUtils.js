@@ -256,15 +256,19 @@ function buildKundenbelegHtml({
   const itemRows = lineItems.map((item) => {
     const qty = resolveReceiptItemQuantity(item)
     const imei = resolveReceiptItemImei(item)
-    const label = escapePrintHtml(resolveReceiptItemLabel(item))
+    const rawLabel = resolveReceiptItemLabel(item)
+    const label = escapePrintHtml(rawLabel)
+    const len = rawLabel.length
+    const labelSize = len > 36 ? '9px' : len > 22 ? '10px' : '11px'
+    const lineHeight = len > 36 ? '1.15' : '1.25'
     return `
       <tr>
-        <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; white-space: nowrap;">${qty}x</td>
-        <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; padding-right: 4px; word-break: break-word; overflow-wrap: break-word;">
-          <div style="font-size: 11px; line-height: 1.25; white-space: normal; word-break: break-word; overflow-wrap: break-word;">${label}</div>
-          ${imei ? `<div style="font-size: 10px; color: #333; margin-top: 2px; word-break: break-all;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
+        <td style="vertical-align: top; padding-top: 5px; padding-right: 4px; font-size: 11px; font-weight: 900; white-space: nowrap; text-align: left;">${qty}x</td>
+        <td style="vertical-align: top; padding-top: 5px; padding-left: 2px; padding-right: 4px; word-break: break-word; overflow-wrap: break-word; text-align: left;">
+          <div style="font-size: ${labelSize}; line-height: ${lineHeight}; font-weight: 900; white-space: normal; word-break: break-word; overflow-wrap: break-word;">${label}</div>
+          ${imei ? `<div style="font-size: 9.5px; color: #333; margin-top: 2px; word-break: break-all;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
         </td>
-        <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; text-align: right; width: 30%; word-break: break-all; white-space: nowrap;">
+        <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; text-align: right; word-break: break-all; white-space: nowrap;">
           &euro; ${formatReceiptMoney(resolveReceiptItemTotal(item))}
         </td>
       </tr>
@@ -314,23 +318,23 @@ function buildKundenbelegHtml({
 
       <table style="margin-bottom: 8px;">
         <colgroup>
-          <col style="width: 18%;"/>
-          <col style="width: 52%;"/>
-          <col style="width: 30%;"/>
+          <col style="width: 25%;"/>
+          <col style="width: 47%;"/>
+          <col style="width: 28%;"/>
         </colgroup>
         <thead>
           <tr style="font-weight: 900; border-bottom: 1px solid #000; font-size: 11px;">
-            <td style="padding-bottom: 6px; padding-right: 4px; white-space: nowrap;">Menge</td>
-            <td style="padding-bottom: 6px; padding-right: 4px;">Artikel</td>
-            <td style="padding-bottom: 6px; width: 30%; text-align: right; white-space: nowrap;">Betrag</td>
+            <td style="padding-bottom: 6px; padding-right: 4px; text-align: left; white-space: nowrap;">Menge</td>
+            <td style="padding-bottom: 6px; padding-left: 2px; padding-right: 4px; text-align: left;">Artikel</td>
+            <td style="padding-bottom: 6px; text-align: right; white-space: nowrap;">Betrag</td>
           </tr>
         </thead>
         <tbody>
           ${itemRows || `
             <tr>
-              <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; white-space: nowrap;">1x</td>
-              <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; padding-right: 4px; word-break: break-word; overflow-wrap: break-word;">Artikel</td>
-              <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; text-align: right; width: 30%; word-break: break-all; white-space: nowrap;">&euro; 0,00</td>
+              <td style="vertical-align: top; padding-top: 5px; padding-right: 4px; font-size: 11px; font-weight: 900; white-space: nowrap; text-align: left;">1x</td>
+              <td style="vertical-align: top; padding-top: 5px; padding-left: 2px; padding-right: 4px; font-size: 11px; font-weight: 900; word-break: break-word; overflow-wrap: break-word; text-align: left;">Artikel</td>
+              <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; text-align: right; word-break: break-all; white-space: nowrap;">&euro; 0,00</td>
             </tr>
           `}
         </tbody>
