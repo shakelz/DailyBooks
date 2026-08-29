@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Printer, ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers } from 'lucide-react';
 
 import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
 import { useAuth } from '../context/AuthContext';
@@ -756,6 +756,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         updateTransaction,
         deleteTransaction,
         adjustStock,
+        updateProduct,
         deleteProduct,
         clearLocalInventoryCache,
         getStockSeverity,
@@ -826,9 +827,18 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [showSuccess, setShowSuccess] = useState(false);
     const [showMobileInventoryModal, setShowMobileInventoryModal] = useState(false);
+    const [showOtherInventoryModal, setShowOtherInventoryModal] = useState(false);
+    const [inventoryViewMode, setInventoryViewMode] = useState('all'); // 'all' | 'mobile' | 'other'
+    const [inventorySearch, setInventorySearch] = useState('');
+    const [inventoryCategory, setInventoryCategory] = useState('all');
+    const [inventorySubCategory, setInventorySubCategory] = useState('all');
+    const [inventoryStockFilter, setInventoryStockFilter] = useState('all'); // 'all' | 'in_stock' | 'low_stock' | 'out_of_stock'
+    const [inventorySort, setInventorySort] = useState('default');
+    const [editingStockId, setEditingStockId] = useState(null);
+    const [editingStockVal, setEditingStockVal] = useState('');
+    const [savingStockId, setSavingStockId] = useState(null);
     const [mobileInventorySearch, setMobileInventorySearch] = useState('');
     const [mobileInventoryTab, setMobileInventoryTab] = useState('iphone');
-    const [showOtherInventoryModal, setShowOtherInventoryModal] = useState(false);
     const [otherInventorySearch, setOtherInventorySearch] = useState('');
     const [selectedMobileInventoryItem, setSelectedMobileInventoryItem] = useState(null);
     const [showSalesProductSuggestions, setShowSalesProductSuggestions] = useState(false);
@@ -2829,91 +2839,230 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || combinedText.includes('motorola');
     }
 
-    const mobileInventoryProducts = useMemo(() => {
-        const query = String(mobileInventorySearch || '').trim().toLowerCase();
+    // ── Unified Inventory Memos & Stock Management ──
+    const allInventoryItems = useMemo(() => {
+        return (products || []).map((product) => {
+            const snapshot = resolveProductSnapshot(product);
+            const isMobile = isMobileLikeSnapshot(snapshot);
+            return { raw: product, snapshot, isMobile };
+        });
+    }, [products]);
 
-        return (products || [])
-            .map((product) => {
-                const snapshot = resolveProductSnapshot(product);
-                return { raw: product, snapshot };
+    const inventoryScopeCounts = useMemo(() => {
+        let total = 0;
+        let mobile = 0;
+        let other = 0;
+        allInventoryItems.forEach((item) => {
+            total += 1;
+            if (item.isMobile) mobile += 1;
+            else other += 1;
+        });
+        return { total, mobile, other };
+    }, [allInventoryItems]);
+
+    const typeScopedInventoryItems = useMemo(() => {
+        if (inventoryViewMode === 'mobile') {
+            return allInventoryItems.filter((item) => item.isMobile);
+        }
+        if (inventoryViewMode === 'other') {
+            return allInventoryItems.filter((item) => !item.isMobile);
+        }
+        return allInventoryItems;
+    }, [allInventoryItems, inventoryViewMode]);
+
+    const inventoryCategoryOptions = useMemo(() => {
+        const categoryCounts = {};
+        typeScopedInventoryItems.forEach((item) => {
+            const cat = String(item.snapshot.category || 'Allgemein').trim();
+            if (cat) {
+                categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+            }
+        });
+
+        const catalogL1 = (typeof getLevel1Categories === 'function' ? (getLevel1Categories('sales') || []) : [])
+            .map((c) => (typeof c === 'object' ? c?.name : c))
+            .filter(Boolean);
+
+        const categorySet = new Set([...catalogL1, ...Object.keys(categoryCounts)]);
+        const list = Array.from(categorySet);
+
+        return list
+            .map((name) => ({
+                name,
+                count: categoryCounts[name] || 0,
+            }))
+            .filter((c) => c.count > 0 || catalogL1.includes(c.name))
+            .sort((a, b) => {
+                if (b.count !== a.count) return b.count - a.count;
+                return a.name.localeCompare(b.name);
+            });
+    }, [typeScopedInventoryItems, getLevel1Categories]);
+
+    const inventorySubCategoryOptions = useMemo(() => {
+        if (!inventoryCategory || inventoryCategory === 'all') return [];
+
+        const subCategoryCounts = {};
+        const targetCategoryLower = inventoryCategory.toLowerCase();
+
+        typeScopedInventoryItems
+            .filter((item) => {
+                const cat = String(item.snapshot.category || 'Allgemein').trim().toLowerCase();
+                return cat === targetCategoryLower;
             })
-            .filter(({ snapshot }) => isMobileLikeSnapshot(snapshot))
-            .filter(({ snapshot }) => {
-                if (!query) return true;
-                const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
-                return searchable.includes(query);
+            .forEach((item) => {
+                const sub = String(item.snapshot.subCategory || '').trim();
+                if (sub) {
+                    subCategoryCounts[sub] = (subCategoryCounts[sub] || 0) + 1;
+                }
+            });
+
+        const catalogL2 = (typeof getLevel2Categories === 'function' ? (getLevel2Categories(inventoryCategory, 'sales') || []) : [])
+            .map((c) => (typeof c === 'object' ? c?.name : c))
+            .filter(Boolean);
+
+        const subSet = new Set([...catalogL2, ...Object.keys(subCategoryCounts)]);
+        const list = Array.from(subSet);
+
+        return list
+            .map((name) => ({
+                name,
+                count: subCategoryCounts[name] || 0,
+            }))
+            .sort((a, b) => {
+                if (b.count !== a.count) return b.count - a.count;
+                return a.name.localeCompare(b.name);
+            });
+    }, [typeScopedInventoryItems, inventoryCategory, getLevel2Categories]);
+
+    const filteredInventoryItems = useMemo(() => {
+        const query = String(inventorySearch || '').trim().toLowerCase();
+        const categoryTarget = inventoryCategory !== 'all' ? String(inventoryCategory || '').toLowerCase() : null;
+        const subCategoryTarget = inventorySubCategory !== 'all' ? String(inventorySubCategory || '').toLowerCase() : null;
+
+        return typeScopedInventoryItems
+            .filter(({ raw, snapshot }) => {
+                // 1. Text Search Filter
+                if (query) {
+                    const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
+                    const attrValues = Object.values(raw?.attributes && typeof raw.attributes === 'object' ? raw.attributes : {}).join(' ').toLowerCase();
+                    if (!searchable.includes(query) && !attrValues.includes(query)) {
+                        return false;
+                    }
+                }
+
+                // 2. Category Filter
+                if (categoryTarget) {
+                    const cat = String(snapshot.category || 'Allgemein').toLowerCase();
+                    if (cat !== categoryTarget) {
+                        return false;
+                    }
+                }
+
+                // 3. Subcategory Filter
+                if (subCategoryTarget) {
+                    const sub = String(snapshot.subCategory || '').toLowerCase();
+                    if (sub !== subCategoryTarget) {
+                        return false;
+                    }
+                }
+
+                // 4. Stock Status Filter
+                const stockVal = Number(snapshot.stock) || 0;
+                const alertCfg = raw?.stockAlert && typeof raw.stockAlert === 'object' ? raw.stockAlert : {};
+                const redThreshold = Number(alertCfg.red) || 2;
+                if (inventoryStockFilter === 'in_stock' && stockVal <= 0) return false;
+                if (inventoryStockFilter === 'out_of_stock' && stockVal > 0) return false;
+                if (inventoryStockFilter === 'low_stock' && (stockVal <= 0 || stockVal > Math.max(5, redThreshold))) return false;
+
+                return true;
             })
             .sort((a, b) => {
-                const aMs = Date.parse(String(a.raw?.timestamp || ''));
-                const bMs = Date.parse(String(b.raw?.timestamp || ''));
-                const hasA = Number.isFinite(aMs);
-                const hasB = Number.isFinite(bMs);
-                if (hasA && hasB && aMs !== bMs) return bMs - aMs;
-                if (hasA && !hasB) return -1;
-                if (!hasA && hasB) return 1;
-                return String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' });
+                if (inventorySort === 'name_asc') {
+                    return String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''));
+                }
+                if (inventorySort === 'name_desc') {
+                    return String(b.snapshot.name || '').localeCompare(String(a.snapshot.name || ''));
+                }
+                if (inventorySort === 'stock_desc') {
+                    return (Number(b.snapshot.stock) || 0) - (Number(a.snapshot.stock) || 0);
+                }
+                if (inventorySort === 'stock_asc') {
+                    return (Number(a.snapshot.stock) || 0) - (Number(b.snapshot.stock) || 0);
+                }
+                if (inventorySort === 'price_desc') {
+                    return (Number(b.snapshot.sellingPrice) || 0) - (Number(a.snapshot.sellingPrice) || 0);
+                }
+                if (inventorySort === 'price_asc') {
+                    return (Number(a.snapshot.sellingPrice) || 0) - (Number(b.snapshot.sellingPrice) || 0);
+                }
+                // Default: newest timestamp
+                const aMs = Date.parse(String(a.raw?.timestamp || a.raw?.created_at || ''));
+                const bMs = Date.parse(String(b.raw?.timestamp || b.raw?.created_at || ''));
+                if (Number.isFinite(aMs) && Number.isFinite(bMs) && aMs !== bMs) return bMs - aMs;
+                if (Number.isFinite(aMs) && !Number.isFinite(bMs)) return -1;
+                if (!Number.isFinite(aMs) && Number.isFinite(bMs)) return 1;
+                return String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''));
             });
-    }, [mobileInventorySearch, products]);
+    }, [typeScopedInventoryItems, inventorySearch, inventoryCategory, inventorySubCategory, inventoryStockFilter, inventorySort]);
 
-    useEffect(() => {
-        if (zeroStockCleanupDoneRef.current) return;
-        if (!Array.isArray(products) || products.length === 0) return;
-        zeroStockCleanupDoneRef.current = true;
+    // Stock Management Handlers for Salesman
+    const handleSaveStock = useCallback(async (productId, newStockValue) => {
+        const parsedStock = Math.max(0, parseInt(newStockValue, 10) || 0);
+        const strId = String(productId);
+        setSavingStockId(strId);
+        try {
+            if (typeof updateProduct === 'function') {
+                await updateProduct(strId, { stock: parsedStock });
+            } else if (typeof adjustStock === 'function') {
+                const target = products.find((p) => String(p.id) === strId);
+                const current = Number(target?.stock) || 0;
+                await adjustStock(strId, parsedStock - current);
+            }
+            setToast(`Bestand auf ${parsedStock} aktualisiert`);
+            setTimeout(() => setToast(''), 2000);
+            setEditingStockId(null);
+            setEditingStockVal('');
+        } catch (err) {
+            showInlineError(err?.message || 'Fehler beim Speichern des Bestands');
+        } finally {
+            setSavingStockId(null);
+        }
+    }, [updateProduct, adjustStock, products, showInlineError]);
 
-        const zeroStockMobiles = (products || [])
-            .map((product) => {
-                const snapshot = resolveProductSnapshot(product);
-                return { raw: product, snapshot };
-            })
-            .filter(({ raw, snapshot }) => {
-                const id = String(raw?.id || '').trim();
-                if (!id) return false;
-                if (!isMobileLikeSnapshot(snapshot)) return false;
-                const stockValue = Number(snapshot.stock) || 0;
-                return stockValue <= 0;
-            });
+    const handleQuickStockStep = useCallback(async (snapshot, delta) => {
+        const strId = String(snapshot.id);
+        const currentStock = Number(snapshot.stock) || 0;
+        const newStock = Math.max(0, currentStock + delta);
+        setSavingStockId(strId);
+        try {
+            if (typeof updateProduct === 'function') {
+                await updateProduct(strId, { stock: newStock });
+            } else if (typeof adjustStock === 'function') {
+                await adjustStock(strId, delta);
+            }
+            setToast(`Bestand: ${newStock}`);
+            setTimeout(() => setToast(''), 1500);
+        } catch (err) {
+            showInlineError(err?.message || 'Fehler beim Anpassen des Bestands');
+        } finally {
+            setSavingStockId(null);
+        }
+    }, [updateProduct, adjustStock, showInlineError]);
 
-        zeroStockMobiles.forEach(({ raw }) => {
-            const id = String(raw?.id || '').trim();
-            if (!id || deletingZeroMobileIdsRef.current.has(id)) return;
+    const startEditingStock = useCallback((item) => {
+        setEditingStockId(String(item.snapshot.id));
+        setEditingStockVal(String(item.snapshot.stock ?? 0));
+    }, []);
 
-            deletingZeroMobileIdsRef.current.add(id);
-            Promise.resolve(deleteProduct(id))
-                .catch(() => { })
-                .finally(() => {
-                    deletingZeroMobileIdsRef.current.delete(id);
-                });
-        });
-    }, [products, deleteProduct]);
+    const cancelEditingStock = useCallback(() => {
+        setEditingStockId(null);
+        setEditingStockVal('');
+    }, []);
 
-    const otherInventoryProducts = useMemo(() => {
-        const query = String(otherInventorySearch || '').trim().toLowerCase();
-        return (products || [])
-            .map((product) => {
-                const snapshot = resolveProductSnapshot(product);
-                return { raw: product, snapshot };
-            })
-            .filter(({ snapshot }) => !isMobileLikeSnapshot(snapshot))
-            .filter(({ snapshot }) => {
-                if (!query) return true;
-                const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
-                return searchable.includes(query);
-            })
-            .sort((a, b) => String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' }));
-    }, [otherInventorySearch, products]);
-
-    const filteredMobileInventoryProducts = useMemo(() => {
-        const resolveBucket = (snapshot = {}) => {
-            const subCategoryText = String(snapshot.subCategory || '').toLowerCase();
-            const fallbackText = `${snapshot.name || ''} ${snapshot.category || ''}`.toLowerCase();
-            const text = `${subCategoryText} ${fallbackText}`;
-            if (text.includes('iphone')) return 'iphone';
-            if (text.includes('samsung')) return 'samsung';
-            return 'others';
-        };
-        if (mobileInventoryTab === 'all') return mobileInventoryProducts || [];
-        return (mobileInventoryProducts || []).filter((item) => resolveBucket(item.snapshot) === mobileInventoryTab);
-    }, [mobileInventoryProducts, mobileInventoryTab]);
+    // Fallbacks for legacy props
+    const mobileInventoryProducts = useMemo(() => allInventoryItems.filter((i) => i.isMobile), [allInventoryItems]);
+    const otherInventoryProducts = useMemo(() => allInventoryItems.filter((i) => !i.isMobile), [allInventoryItems]);
+    const filteredMobileInventoryProducts = filteredInventoryItems;
 
     const handleInventoryFormSaveSuccess = useCallback(() => {
         setToast('Product added successfully');
@@ -4495,8 +4644,30 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             className={`fab-animated ${isInventoryFormSubmitting ? 'opacity-60 cursor-not-allowed' : ''}`}
                             style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}
                         ><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Inventory</span></button>
-                        <button onClick={() => setShowMobileInventoryModal(true)} title="Mobile Inventory" className="fab-animated" style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobile Inventory</span></button>
-                        <button onClick={() => setShowOtherInventoryModal(true)} title="Other Inventory" className="fab-animated" style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}><span className="fab-icon"><Scale size={14} /></span><span className="fab-title">Other Inventory</span></button>
+                        <button
+                            onClick={() => {
+                                setInventoryViewMode('mobile');
+                                setInventoryCategory('all');
+                                setInventorySubCategory('all');
+                                setInventorySearch('');
+                                setShowMobileInventoryModal(true);
+                            }}
+                            title="Mobile Inventory"
+                            className="fab-animated"
+                            style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}
+                        ><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobile Inventory</span></button>
+                        <button
+                            onClick={() => {
+                                setInventoryViewMode('other');
+                                setInventoryCategory('all');
+                                setInventorySubCategory('all');
+                                setInventorySearch('');
+                                setShowOtherInventoryModal(true);
+                            }}
+                            title="Other Inventory"
+                            className="fab-animated"
+                            style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}
+                        ><span className="fab-icon"><Scale size={14} /></span><span className="fab-title">Other Inventory</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Reparatur & Abholschein" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Reparatur & Abholschein</span></button>
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
                         <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
@@ -5658,375 +5829,549 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 initialProduct={selectedProduct}
             />
 
-            {showMobileInventoryModal && (
-                <div className="fixed inset-0 z-[86]" onClick={() => { setShowMobileInventoryModal(false); setSelectedMobileInventoryItem(null); }}>
-                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
-                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-                            <div>
-                                <h3 className="text-sm font-black text-slate-800">Mobile Inventory</h3>
-                                <p className="text-[11px] text-slate-500">Tap Sell to open sale flow</p>
+            {(showMobileInventoryModal || showOtherInventoryModal) && (
+                <div
+                    className="fixed inset-0 z-[86] flex items-center justify-center p-2 sm:p-4 md:p-6"
+                    onClick={() => {
+                        setShowMobileInventoryModal(false);
+                        setShowOtherInventoryModal(false);
+                        setSelectedMobileInventoryItem(null);
+                        setEditingStockId(null);
+                    }}
+                >
+                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+                    <div
+                        className="relative w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* ── Modal Header ── */}
+                        <div className="px-4 sm:px-6 py-3.5 border-b border-slate-200 bg-slate-50/90 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-sm">
+                                    <Boxes size={20} />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-base font-black text-slate-800 tracking-tight">
+                                            Lagerbestand &amp; Inventar
+                                        </h3>
+                                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-mono">
+                                            {filteredInventoryItems.length} {filteredInventoryItems.length === 1 ? 'Artikel' : 'Artikel'}
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] font-medium text-slate-500">
+                                        Bestände prüfen, filtern &amp; direkt bearbeiten
+                                    </p>
+                                </div>
                             </div>
-                            <button onClick={() => { setShowMobileInventoryModal(false); setSelectedMobileInventoryItem(null); }} className="text-slate-500 hover:text-slate-700">x</button>
+
+                            {/* View Mode Tabs (All / Mobile / Other) */}
+                            <div className="flex items-center bg-slate-200/80 p-1 rounded-xl gap-1">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setInventoryViewMode('all');
+                                        setInventoryCategory('all');
+                                        setInventorySubCategory('all');
+                                    }}
+                                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                                        inventoryViewMode === 'all'
+                                            ? 'bg-white text-blue-700 shadow-xs'
+                                            : 'text-slate-600 hover:text-slate-900'
+                                    }`}
+                                >
+                                    Alle ({inventoryScopeCounts.total})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setInventoryViewMode('mobile');
+                                        setInventoryCategory('all');
+                                        setInventorySubCategory('all');
+                                    }}
+                                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                                        inventoryViewMode === 'mobile'
+                                            ? 'bg-white text-blue-700 shadow-xs'
+                                            : 'text-slate-600 hover:text-slate-900'
+                                    }`}
+                                >
+                                    <Smartphone size={13} />
+                                    <span>Mobile ({inventoryScopeCounts.mobile})</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setInventoryViewMode('other');
+                                        setInventoryCategory('all');
+                                        setInventorySubCategory('all');
+                                    }}
+                                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                                        inventoryViewMode === 'other'
+                                            ? 'bg-white text-blue-700 shadow-xs'
+                                            : 'text-slate-600 hover:text-slate-900'
+                                    }`}
+                                >
+                                    <Scale size={13} />
+                                    <span>Other ({inventoryScopeCounts.other})</span>
+                                </button>
+                            </div>
+
+                            <button
+                                onClick={() => {
+                                    setShowMobileInventoryModal(false);
+                                    setShowOtherInventoryModal(false);
+                                    setSelectedMobileInventoryItem(null);
+                                    setEditingStockId(null);
+                                }}
+                                className="w-8 h-8 rounded-lg bg-slate-200/60 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors font-bold"
+                            >
+                                <X size={16} />
+                            </button>
                         </div>
 
-                        <div className="p-4 space-y-3">
-                            <input
-                                value={mobileInventorySearch}
-                                onChange={(e) => setMobileInventorySearch(e.target.value)}
-                                placeholder="Search mobile by name/category/barcode..."
-                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
-                            />
+                        {/* ── Filter Controls on Top ── */}
+                        <div className="p-4 border-b border-slate-100 bg-white space-y-3">
+                            {/* Search + Stock Status + Sort Controls */}
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+                                {/* Search Bar */}
+                                <div className="md:col-span-6 relative">
+                                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                        value={inventorySearch}
+                                        onChange={(e) => setInventorySearch(e.target.value)}
+                                        placeholder="Suche nach Name, Barcode/IMEI, Marke, Specs..."
+                                        className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium text-slate-800 placeholder-slate-400 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all outline-none"
+                                    />
+                                    {inventorySearch && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setInventorySearch('')}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                                        >
+                                            <X size={13} />
+                                        </button>
+                                    )}
+                                </div>
 
-                            <div className="flex items-center gap-1.5">
-                                {[
-                                    { id: 'iphone', label: 'iPhone' },
-                                    { id: 'samsung', label: 'Samsung' },
-                                    { id: 'others', label: 'Others' },
-                                    { id: 'all', label: 'All' },
-                                ].map((tab) => (
+                                {/* Stock Status Filter */}
+                                <div className="md:col-span-3">
+                                    <div className="relative">
+                                        <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                        <select
+                                            value={inventoryStockFilter}
+                                            onChange={(e) => setInventoryStockFilter(e.target.value)}
+                                            className="w-full pl-8 pr-7 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 appearance-none focus:bg-white focus:border-blue-500 outline-none cursor-pointer"
+                                        >
+                                            <option value="all">📦 Alle Bestände</option>
+                                            <option value="in_stock">✅ Auf Lager (&gt;0)</option>
+                                            <option value="low_stock">⚠️ Niedriger Bestand (≤5)</option>
+                                            <option value="out_of_stock">❌ Nicht vorrätig (0)</option>
+                                        </select>
+                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    </div>
+                                </div>
+
+                                {/* Sort Options */}
+                                <div className="md:col-span-3">
+                                    <div className="relative">
+                                        <ArrowUpDown size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                        <select
+                                            value={inventorySort}
+                                            onChange={(e) => setInventorySort(e.target.value)}
+                                            className="w-full pl-8 pr-7 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 appearance-none focus:bg-white focus:border-blue-500 outline-none cursor-pointer"
+                                        >
+                                            <option value="default">🕒 Neueste zuerst</option>
+                                            <option value="name_asc">🔤 Name (A → Z)</option>
+                                            <option value="name_desc">🔤 Name (Z → A)</option>
+                                            <option value="stock_desc">📈 Bestand: Hoch → Tief</option>
+                                            <option value="stock_asc">📉 Bestand: Tief → Hoch</option>
+                                            <option value="price_desc">💰 Preis: Hoch → Tief</option>
+                                            <option value="price_asc">🏷️ Preis: Tief → Hoch</option>
+                                        </select>
+                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ── Category Chips (Level 1) ── */}
+                            <div className="space-y-2 pt-1">
+                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+                                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 flex-shrink-0 mr-1">
+                                        <Layers size={13} />
+                                        <span>Kategorien:</span>
+                                    </span>
                                     <button
-                                        key={`mobile-tab-${tab.id}`}
                                         type="button"
-                                        onClick={() => setMobileInventoryTab(tab.id)}
-                                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${mobileInventoryTab === tab.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:border-blue-300'}`}
+                                        onClick={() => {
+                                            setInventoryCategory('all');
+                                            setInventorySubCategory('all');
+                                        }}
+                                        className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1 flex-shrink-0 ${
+                                            inventoryCategory === 'all'
+                                                ? 'bg-blue-600 text-white shadow-xs'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80'
+                                        }`}
                                     >
-                                        {tab.label}
+                                        <span>Alle</span>
+                                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                                            inventoryCategory === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-500'
+                                        }`}>
+                                            {typeScopedInventoryItems.length}
+                                        </span>
                                     </button>
-                                ))}
-                            </div>
 
-                            <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/40">
-                                <div className="sticky top-0 z-10 grid grid-cols-12 gap-2 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 backdrop-blur-sm">
-                                    <div className="col-span-6">Product Info</div>
-                                    <div className="col-span-2 text-center">Stock</div>
-                                    <div className="col-span-2">Pricing &amp; Margin</div>
-                                    <div className="col-span-2 text-right">Actions</div>
+                                    {inventoryCategoryOptions.map((cat) => (
+                                        <button
+                                            key={`cat-chip-${cat.name}`}
+                                            type="button"
+                                            onClick={() => {
+                                                setInventoryCategory(cat.name);
+                                                setInventorySubCategory('all');
+                                            }}
+                                            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 flex-shrink-0 ${
+                                                inventoryCategory.toLowerCase() === cat.name.toLowerCase()
+                                                    ? 'bg-blue-600 text-white shadow-xs'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80'
+                                            }`}
+                                        >
+                                            <span>{cat.name}</span>
+                                            {cat.count > 0 && (
+                                                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                                                    inventoryCategory.toLowerCase() === cat.name.toLowerCase()
+                                                        ? 'bg-blue-700 text-white'
+                                                        : 'bg-slate-200 text-slate-500'
+                                                }`}>
+                                                    {cat.count}
+                                                </span>
+                                            )}
+                                        </button>
+                                    ))}
                                 </div>
 
-                                <div className="space-y-1.5 p-2">
-                                    {filteredMobileInventoryProducts.length === 0 ? (
-                                        <p className="text-xs text-slate-400 p-2">No mobile products found in inventory.</p>
-                                    ) : filteredMobileInventoryProducts.map((item) => (
-                                        <div
-                                            key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}
-                                            className={`rounded-lg border px-3 py-2.5 transition-colors hover:bg-blue-50/30 ${(() => {
-                                                const stockValue = Number(item.snapshot.stock) || 0;
-                                                const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
-                                                const redThreshold = Number(alertCfg.red);
-                                                const yellowThreshold = Number(alertCfg.yellow);
-                                                const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
-                                                const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
-                                                const severity = stockValue <= 0
-                                                    ? 'red'
-                                                    : hasRed && stockValue <= redThreshold
-                                                        ? 'red'
-                                                        : hasYellow && stockValue <= yellowThreshold
-                                                            ? 'yellow'
-                                                            : getStockSeverity(stockValue);
-                                                return severity === 'red'
-                                                    ? 'border-red-200 bg-red-50/30'
-                                                    : severity === 'yellow'
-                                                        ? 'border-amber-200 bg-amber-50/30'
-                                                        : 'border-slate-200 bg-white';
-                                            })()}`}
+                                {/* ── Sub Category Chips (Level 2) ── */}
+                                {inventoryCategory !== 'all' && inventorySubCategoryOptions.length > 0 && (
+                                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 no-scrollbar text-xs bg-slate-50/90 px-2.5 py-1.5 rounded-xl border border-slate-100">
+                                        <span className="text-[11px] font-bold text-indigo-500 uppercase tracking-wider flex items-center gap-1 flex-shrink-0 mr-1">
+                                            <ChevronRight size={13} />
+                                            <span>Unterkategorien:</span>
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setInventorySubCategory('all')}
+                                            className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all flex-shrink-0 ${
+                                                inventorySubCategory === 'all'
+                                                    ? 'bg-indigo-600 text-white shadow-xs'
+                                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                            }`}
                                         >
-                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-center w-full">
-                                                <div className="md:col-span-6 min-w-0">
-                                                    <div className="flex items-center gap-3 min-w-0">
+                                            Alle {inventoryCategory}
+                                        </button>
+
+                                        {inventorySubCategoryOptions.map((sub) => (
+                                            <button
+                                                key={`subcat-chip-${sub.name}`}
+                                                type="button"
+                                                onClick={() => setInventorySubCategory(sub.name)}
+                                                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 flex-shrink-0 ${
+                                                    inventorySubCategory.toLowerCase() === sub.name.toLowerCase()
+                                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                                }`}
+                                            >
+                                                <span>{sub.name}</span>
+                                                {sub.count > 0 && (
+                                                    <span className={`text-[9px] px-1 py-0.2 rounded ${
+                                                        inventorySubCategory.toLowerCase() === sub.name.toLowerCase()
+                                                            ? 'bg-indigo-700 text-white'
+                                                            : 'bg-slate-100 text-slate-500'
+                                                    }`}>
+                                                        {sub.count}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* ── Product List with Stock Edit Access ── */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/40">
+                            {filteredInventoryItems.length === 0 ? (
+                                <div className="text-center py-12 px-4 rounded-xl border border-dashed border-slate-200 bg-white">
+                                    <Boxes size={36} className="mx-auto text-slate-300 mb-2" />
+                                    <p className="text-sm font-bold text-slate-700">Keine Produkte gefunden</p>
+                                    <p className="text-xs text-slate-400 mt-0.5">Versuche einen anderen Suchbegriff oder passe die Filter an.</p>
+                                    {(inventorySearch || inventoryCategory !== 'all' || inventorySubCategory !== 'all' || inventoryStockFilter !== 'all') && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setInventorySearch('');
+                                                setInventoryCategory('all');
+                                                setInventorySubCategory('all');
+                                                setInventoryStockFilter('all');
+                                            }}
+                                            className="mt-3 px-3 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                                        >
+                                            Filter zurücksetzen
+                                        </button>
+                                    )}
+                                </div>
+                            ) : (
+                                filteredInventoryItems.map((item) => {
+                                    const stockValue = Number(item.snapshot.stock) || 0;
+                                    const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                    const redThreshold = Number(alertCfg.red);
+                                    const yellowThreshold = Number(alertCfg.yellow);
+                                    const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                    const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                    const severity = stockValue <= 0
+                                        ? 'red'
+                                        : hasRed && stockValue <= redThreshold
+                                            ? 'red'
+                                            : hasYellow && stockValue <= yellowThreshold
+                                                ? 'yellow'
+                                                : getStockSeverity(stockValue);
+
+                                    const isEditingThis = editingStockId === String(item.snapshot.id);
+                                    const isSavingThis = savingStockId === String(item.snapshot.id);
+
+                                    return (
+                                        <div
+                                            key={`inv-item-${item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}`}
+                                            className={`rounded-xl border p-3 bg-white transition-all hover:shadow-sm ${
+                                                severity === 'red'
+                                                    ? 'border-red-200/80 bg-red-50/20'
+                                                    : severity === 'yellow'
+                                                        ? 'border-amber-200/80 bg-amber-50/20'
+                                                        : 'border-slate-200/90'
+                                            }`}
+                                        >
+                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                                                {/* 1. Product Info & Thumbnail (col-span-5) */}
+                                                <div className="md:col-span-5 min-w-0">
+                                                    <div className="flex items-center gap-3">
                                                         <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
                                                             {item.snapshot.image ? (
-                                                                <img src={item.snapshot.image} alt={item.snapshot.name || 'Mobile'} className="w-full h-full object-cover" />
+                                                                <img src={item.snapshot.image} alt={item.snapshot.name} className="w-full h-full object-cover" />
                                                             ) : (
-                                                                <span className="text-lg">🛠️</span>
+                                                                <span className="text-xl">{item.isMobile ? '📱' : '📦'}</span>
                                                             )}
                                                         </div>
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-bold text-slate-800 truncate">{item.snapshot.name || 'Mobile'}</p>
-                                                            <div className="flex items-center gap-2 mt-1">
-                                                                <p className="text-[10px] font-mono text-slate-400 font-bold truncate">{item.snapshot.barcode || 'NO-BARCODE'}</p>
-                                                                <span className="text-slate-300">•</span>
-                                                                <p className="text-[10px] font-bold text-blue-500 truncate">{item.snapshot.subCategory || item.snapshot.category || 'Uncategorized'}</p>
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-sm font-bold text-slate-800 truncate" title={item.snapshot.name}>
+                                                                {item.snapshot.name || 'Unbenanntes Produkt'}
+                                                            </p>
+                                                            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                                                {item.snapshot.barcode && (
+                                                                    <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
+                                                                        {item.snapshot.barcode}
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100/60 px-1.5 py-0.2 rounded">
+                                                                    {item.snapshot.category || 'Allgemein'}
+                                                                </span>
+                                                                {item.snapshot.subCategory && (
+                                                                    <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                                                                        {item.snapshot.subCategory}
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="flex flex-wrap gap-1 mt-2">
-                                                        {Object.entries(item.raw?.attributes && typeof item.raw.attributes === 'object' ? item.raw.attributes : {})
-                                                            .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
-                                                            .slice(0, 8)
-                                                            .map(([key, value]) => (
-                                                                <span key={`${item.snapshot.id || item.snapshot.barcode || item.snapshot.name}-${key}`} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
-                                                                    {String(key).toUpperCase()}: {String(value)}
+
+                                                    {/* Attributes Pills */}
+                                                    {item.raw?.attributes && typeof item.raw.attributes === 'object' && (
+                                                        <div className="flex flex-wrap gap-1 mt-2">
+                                                            {Object.entries(item.raw.attributes)
+                                                                .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
+                                                                .slice(0, 6)
+                                                                .map(([key, value]) => (
+                                                                    <span
+                                                                        key={`${item.snapshot.id}-${key}`}
+                                                                        className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 text-[9px] font-bold"
+                                                                    >
+                                                                        {String(key).toUpperCase()}: {String(value)}
+                                                                    </span>
+                                                                ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* 2. Stock Management (Salesman Stock Editor) (col-span-3) */}
+                                                <div className="md:col-span-3 flex flex-col items-start md:items-center justify-center">
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                                        Lagerbestand (Stock)
+                                                    </p>
+
+                                                    {isEditingThis ? (
+                                                        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-blue-300 shadow-xs animate-in zoom-in-95 duration-150">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditingStockVal((prev) => String(Math.max(0, (parseInt(prev, 10) || 0) - 1)))}
+                                                                className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 border border-slate-200 flex items-center justify-center font-bold text-sm transition-colors"
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                autoFocus
+                                                                value={editingStockVal}
+                                                                onChange={(e) => setEditingStockVal(e.target.value)}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') handleSaveStock(item.snapshot.id, editingStockVal);
+                                                                    if (e.key === 'Escape') cancelEditingStock();
+                                                                }}
+                                                                className="w-14 text-center py-0.5 rounded-lg border border-slate-300 bg-white font-black text-sm text-slate-800 outline-none focus:ring-1 focus:ring-blue-500"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditingStockVal((prev) => String((parseInt(prev, 10) || 0) + 1))}
+                                                                className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-200 flex items-center justify-center font-bold text-sm transition-colors"
+                                                            >
+                                                                +
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={isSavingThis}
+                                                                onClick={() => handleSaveStock(item.snapshot.id, editingStockVal)}
+                                                                title="Speichern"
+                                                                className="w-7 h-7 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center shadow-xs transition-colors"
+                                                            >
+                                                                <Check size={14} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={cancelEditingStock}
+                                                                title="Abbrechen"
+                                                                className="w-7 h-7 rounded-lg bg-slate-200 text-slate-600 hover:bg-slate-300 flex items-center justify-center transition-colors"
+                                                            >
+                                                                <X size={14} />
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center gap-1.5">
+                                                            {/* Quick Minus */}
+                                                            <button
+                                                                type="button"
+                                                                disabled={isSavingThis || stockValue <= 0}
+                                                                onClick={() => handleQuickStockStep(item.snapshot, -1)}
+                                                                title="1 abziehen"
+                                                                className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 flex items-center justify-center font-bold text-xs transition-colors disabled:opacity-30"
+                                                            >
+                                                                -
+                                                            </button>
+
+                                                            {/* Stock Badge */}
+                                                            <div
+                                                                onClick={() => startEditingStock(item)}
+                                                                title="Klick zum Bearbeiten"
+                                                                className={`cursor-pointer group flex items-center gap-1.5 px-3 py-1 rounded-xl border transition-all hover:scale-105 ${
+                                                                    severity === 'red'
+                                                                        ? 'bg-red-50 text-red-700 border-red-200'
+                                                                        : severity === 'yellow'
+                                                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                }`}
+                                                            >
+                                                                <span className="text-base font-black leading-none font-mono">
+                                                                    {stockValue}
                                                                 </span>
-                                                            ))}
-                                                    </div>
-                                                </div>
-
-                                                <div className="md:col-span-2 md:text-center">
-                                                    <div className={`inline-flex flex-col items-center rounded-2xl border px-3 py-1 ${(() => {
-                                                        const stockValue = Number(item.snapshot.stock) || 0;
-                                                        const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
-                                                        const redThreshold = Number(alertCfg.red);
-                                                        const yellowThreshold = Number(alertCfg.yellow);
-                                                        const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
-                                                        const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
-                                                        const severity = stockValue <= 0
-                                                            ? 'red'
-                                                            : hasRed && stockValue <= redThreshold
-                                                                ? 'red'
-                                                                : hasYellow && stockValue <= yellowThreshold
-                                                                    ? 'yellow'
-                                                                    : getStockSeverity(stockValue);
-                                                        return severity === 'red'
-                                                            ? 'bg-red-50 text-red-600 border-red-100'
-                                                            : severity === 'yellow'
-                                                                ? 'bg-amber-50 text-amber-600 border-amber-100'
-                                                                : 'bg-emerald-50 text-emerald-600 border-emerald-100';
-                                                    })()}`}>
-                                                        <span className="text-2xl leading-none font-black">{item.snapshot.stock}</span>
-                                                        <span className="text-[8px] -mt-0.5 font-bold uppercase tracking-widest opacity-70">Units</span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="md:col-span-2">
-                                                    <div className="space-y-1 text-xs">
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <span className="text-slate-400 font-bold">Buy:</span>
-                                                            <span className="text-slate-600 font-black">{priceTag(item.snapshot.purchasePrice || 0)}</span>
-                                                        </div>
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <span className="text-slate-400 font-bold">Sell:</span>
-                                                            <span className="text-blue-600 font-black">{priceTag(item.snapshot.sellingPrice || 0)}</span>
-                                                        </div>
-                                                        <div className="pt-1 flex items-center md:justify-center">
-                                                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${(() => {
-                                                                const sell = Number(item.snapshot.sellingPrice) || 0;
-                                                                const buy = Number(item.snapshot.purchasePrice) || 0;
-                                                                const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
-                                                                return margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600';
-                                                            })()}`}>
-                                                                {(() => {
-                                                                    const sell = Number(item.snapshot.sellingPrice) || 0;
-                                                                    const buy = Number(item.snapshot.purchasePrice) || 0;
-                                                                    const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
-                                                                    return `${margin.toFixed(1)}% MARGIN`;
-                                                                })()}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="md:col-span-2">
-                                                    <div className="flex items-center justify-end gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => printMobileLabel(item.raw)}
-                                                            title="Print Label"
-                                                            className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
-                                                        >
-                                                            <Tags size={14} />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setSelectedMobileInventoryItem(item)}
-                                                            title="Details"
-                                                            className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                        >
-                                                            <Eye size={14} />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => sellMobileFromInventory(item.raw)}
-                                                            title="Sell"
-                                                            className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
-                                                        >
-                                                            <ShoppingCart size={14} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {showOtherInventoryModal && (
-                <div className="fixed inset-0 z-[86]" onClick={() => setShowOtherInventoryModal(false)}>
-                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
-                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-                            <div>
-                                <h3 className="text-sm font-black text-slate-800">Other Inventory</h3>
-                                <p className="text-[11px] text-slate-500">All non-mobile inventory stocks</p>
-                            </div>
-                            <button onClick={() => setShowOtherInventoryModal(false)} className="text-slate-500 hover:text-slate-700">x</button>
-                        </div>
-
-                        <div className="p-4 space-y-3">
-                            <input
-                                value={otherInventorySearch}
-                                onChange={(e) => setOtherInventorySearch(e.target.value)}
-                                placeholder="Search inventory by name/category/barcode..."
-                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
-                            />
-
-                            <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/40">
-                                <div className="sticky top-0 z-10 grid grid-cols-12 gap-2 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 backdrop-blur-sm">
-                                    <div className="col-span-6">Product Info</div>
-                                    <div className="col-span-2 text-center">Stock</div>
-                                    <div className="col-span-2">Pricing &amp; Margin</div>
-                                    <div className="col-span-2 text-right">Actions</div>
-                                </div>
-
-                                <div className="space-y-1.5 p-2">
-                                    {otherInventoryProducts.length === 0 ? (
-                                        <p className="text-xs text-slate-400 p-2">No other inventory products found.</p>
-                                    ) : otherInventoryProducts.map((item) => (
-                                        <div
-                                            key={`other-${item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}`}
-                                            className={`rounded-lg border px-3 py-2.5 transition-colors hover:bg-blue-50/30 ${(() => {
-                                                const stockValue = Number(item.snapshot.stock) || 0;
-                                                const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
-                                                const redThreshold = Number(alertCfg.red);
-                                                const yellowThreshold = Number(alertCfg.yellow);
-                                                const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
-                                                const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
-                                                const severity = stockValue <= 0
-                                                    ? 'red'
-                                                    : hasRed && stockValue <= redThreshold
-                                                        ? 'red'
-                                                        : hasYellow && stockValue <= yellowThreshold
-                                                            ? 'yellow'
-                                                            : getStockSeverity(stockValue);
-                                                return severity === 'red'
-                                                    ? 'border-red-200 bg-red-50/30'
-                                                    : severity === 'yellow'
-                                                        ? 'border-amber-200 bg-amber-50/30'
-                                                        : 'border-slate-200 bg-white';
-                                            })()}`}
-                                        >
-                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-center w-full">
-                                                <div className="md:col-span-6 min-w-0">
-                                                    <div className="flex items-center gap-3 min-w-0">
-                                                        <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                            {item.snapshot.image ? (
-                                                                <img src={item.snapshot.image} alt={item.snapshot.name || 'Inventory'} className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <span className="text-lg">🛠️</span>
-                                                            )}
-                                                        </div>
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-bold text-slate-800 truncate">{item.snapshot.name || 'Inventory Item'}</p>
-                                                            <div className="flex items-center gap-2 mt-1">
-                                                                <p className="text-[10px] font-mono text-slate-400 font-bold truncate">{item.snapshot.barcode || 'NO-BARCODE'}</p>
-                                                                <span className="text-slate-300">•</span>
-                                                                <p className="text-[10px] font-bold text-blue-500 truncate">{item.snapshot.subCategory || item.snapshot.category || 'Uncategorized'}</p>
+                                                                <span className="text-[9px] uppercase font-bold tracking-wider opacity-70">
+                                                                    Stk.
+                                                                </span>
+                                                                <Edit2 size={11} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500" />
                                                             </div>
+
+                                                            {/* Quick Plus */}
+                                                            <button
+                                                                type="button"
+                                                                disabled={isSavingThis}
+                                                                onClick={() => handleQuickStockStep(item.snapshot, 1)}
+                                                                title="1 hinzufügen"
+                                                                className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 border border-slate-200 flex items-center justify-center font-bold text-xs transition-colors"
+                                                            >
+                                                                +
+                                                            </button>
                                                         </div>
+                                                    )}
+                                                </div>
+
+                                                {/* 3. Pricing & Margin (col-span-2) */}
+                                                <div className="md:col-span-2 text-xs space-y-1">
+                                                    <div className="flex items-center justify-between gap-1">
+                                                        <span className="text-slate-400 font-medium">EK:</span>
+                                                        <span className="text-slate-600 font-bold font-mono">
+                                                            {priceTag(item.snapshot.purchasePrice || 0)}
+                                                        </span>
                                                     </div>
-                                                    <div className="flex flex-wrap gap-1 mt-2">
-                                                        {Object.entries(item.raw?.attributes && typeof item.raw.attributes === 'object' ? item.raw.attributes : {})
-                                                            .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
-                                                            .slice(0, 8)
-                                                            .map(([key, value]) => (
-                                                                <span key={`${item.snapshot.id || item.snapshot.barcode || item.snapshot.name}-${key}`} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
-                                                                    {String(key).toUpperCase()}: {String(value)}
+                                                    <div className="flex items-center justify-between gap-1">
+                                                        <span className="text-slate-400 font-medium">VK:</span>
+                                                        <span className="text-blue-600 font-bold font-mono">
+                                                            {priceTag(item.snapshot.sellingPrice || 0)}
+                                                        </span>
+                                                    </div>
+                                                    {(() => {
+                                                        const sell = Number(item.snapshot.sellingPrice) || 0;
+                                                        const buy = Number(item.snapshot.purchasePrice) || 0;
+                                                        const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
+                                                        return (
+                                                            <div className="pt-0.5">
+                                                                <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${
+                                                                    margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                                                                }`}>
+                                                                    {margin.toFixed(1)}% Marge
                                                                 </span>
-                                                            ))}
-                                                    </div>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
 
-                                                <div className="md:col-span-2 md:text-center">
-                                                    <div className={`inline-flex flex-col items-center rounded-2xl border px-3 py-1 ${(() => {
-                                                        const stockValue = Number(item.snapshot.stock) || 0;
-                                                        const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
-                                                        const redThreshold = Number(alertCfg.red);
-                                                        const yellowThreshold = Number(alertCfg.yellow);
-                                                        const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
-                                                        const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
-                                                        const severity = stockValue <= 0
-                                                            ? 'red'
-                                                            : hasRed && stockValue <= redThreshold
-                                                                ? 'red'
-                                                                : hasYellow && stockValue <= yellowThreshold
-                                                                    ? 'yellow'
-                                                                    : getStockSeverity(stockValue);
-                                                        return severity === 'red'
-                                                            ? 'bg-red-50 text-red-600 border-red-100'
-                                                            : severity === 'yellow'
-                                                                ? 'bg-amber-50 text-amber-600 border-amber-100'
-                                                                : 'bg-emerald-50 text-emerald-600 border-emerald-100';
-                                                    })()}`}>
-                                                        <span className="text-2xl leading-none font-black">{item.snapshot.stock}</span>
-                                                        <span className="text-[8px] -mt-0.5 font-bold uppercase tracking-widest opacity-70">Units</span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="md:col-span-2">
-                                                    <div className="space-y-1 text-xs">
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <span className="text-slate-400 font-bold">Buy:</span>
-                                                            <span className="text-slate-600 font-black">{priceTag(item.snapshot.purchasePrice || 0)}</span>
-                                                        </div>
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <span className="text-slate-400 font-bold">Sell:</span>
-                                                            <span className="text-blue-600 font-black">{priceTag(item.snapshot.sellingPrice || 0)}</span>
-                                                        </div>
-                                                        <div className="pt-1 flex items-center md:justify-center">
-                                                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${(() => {
-                                                                const sell = Number(item.snapshot.sellingPrice) || 0;
-                                                                const buy = Number(item.snapshot.purchasePrice) || 0;
-                                                                const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
-                                                                return margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600';
-                                                            })()}`}>
-                                                                {(() => {
-                                                                    const sell = Number(item.snapshot.sellingPrice) || 0;
-                                                                    const buy = Number(item.snapshot.purchasePrice) || 0;
-                                                                    const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
-                                                                    return `${margin.toFixed(1)}% MARGIN`;
-                                                                })()}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="md:col-span-2">
-                                                    <div className="flex items-center justify-end gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => printMobileLabel(item.raw)}
-                                                            title="Print Label"
-                                                            className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
-                                                        >
-                                                            <Tags size={14} />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => openSalesFormWithProduct(item.raw)}
-                                                            title="Details"
-                                                            className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                        >
-                                                            <Eye size={14} />
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => sellMobileFromInventory(item.raw)}
-                                                            title="Sell"
-                                                            className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
-                                                        >
-                                                            <ShoppingCart size={14} />
-                                                        </button>
-                                                    </div>
+                                                {/* 4. Actions (col-span-2) */}
+                                                <div className="md:col-span-2 flex items-center justify-end gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => printMobileLabel(item.raw)}
+                                                        title="Etikett drucken"
+                                                        className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
+                                                    >
+                                                        <Tags size={14} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (item.isMobile) {
+                                                                setSelectedMobileInventoryItem(item);
+                                                            } else {
+                                                                openSalesFormWithProduct(item.raw);
+                                                            }
+                                                        }}
+                                                        title="Details anzeigen"
+                                                        className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                    >
+                                                        <Eye size={14} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (item.isMobile) {
+                                                                sellMobileFromInventory(item.raw);
+                                                            } else {
+                                                                openSalesFormWithProduct(item.raw);
+                                                            }
+                                                        }}
+                                                        title="Verkaufen"
+                                                        className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
+                                                    >
+                                                        <ShoppingCart size={14} />
+                                                    </button>
                                                 </div>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
+                                    );
+                                })
+                            )}
                         </div>
                     </div>
                 </div>
@@ -6056,28 +6401,57 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             <div className="grid grid-cols-2 gap-2 text-sm">
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Category</p><p className="font-bold text-slate-700">{selectedMobileInventoryItem.snapshot.category || '-'}</p></div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Sub Category</p><p className="font-bold text-slate-700">{selectedMobileInventoryItem.snapshot.subCategory || '-'}</p></div>
-                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Stock</p><p className={`font-black text-base ${(() => {
-                                    const stockValue = Number(selectedMobileInventoryItem.snapshot.stock) || 0;
-                                    const alertCfg = selectedMobileInventoryItem.raw?.stockAlert && typeof selectedMobileInventoryItem.raw.stockAlert === 'object'
-                                        ? selectedMobileInventoryItem.raw.stockAlert
-                                        : {};
-                                    const redThreshold = Number(alertCfg.red);
-                                    const yellowThreshold = Number(alertCfg.yellow);
-                                    const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
-                                    const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
-                                    const severity = stockValue <= 0
-                                        ? 'red'
-                                        : hasRed && stockValue <= redThreshold
-                                            ? 'red'
-                                            : hasYellow && stockValue <= yellowThreshold
-                                                ? 'yellow'
-                                                : getStockSeverity(stockValue);
-                                    return severity === 'red'
-                                        ? 'text-red-600'
-                                        : severity === 'yellow'
-                                            ? 'text-amber-600'
-                                            : 'text-emerald-600';
-                                })()}`}>{selectedMobileInventoryItem.snapshot.stock}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2">
+                                    <p className="text-[11px] text-slate-400 font-medium">Stock (Bestand)</p>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <button
+                                            type="button"
+                                            disabled={savingStockId === String(selectedMobileInventoryItem.snapshot.id) || (Number(selectedMobileInventoryItem.snapshot.stock) || 0) <= 0}
+                                            onClick={async () => {
+                                                await handleQuickStockStep(selectedMobileInventoryItem.snapshot, -1);
+                                                setSelectedMobileInventoryItem((prev) => prev ? { ...prev, snapshot: { ...prev.snapshot, stock: Math.max(0, (Number(prev.snapshot.stock) || 0) - 1) } } : null);
+                                            }}
+                                            className="w-6 h-6 rounded bg-slate-200 hover:bg-rose-100 text-slate-700 hover:text-rose-700 font-black text-xs flex items-center justify-center disabled:opacity-40 transition-colors"
+                                        >
+                                            -
+                                        </button>
+                                        <span className={`font-black text-base font-mono ${(() => {
+                                            const stockValue = Number(selectedMobileInventoryItem.snapshot.stock) || 0;
+                                            const alertCfg = selectedMobileInventoryItem.raw?.stockAlert && typeof selectedMobileInventoryItem.raw.stockAlert === 'object'
+                                                ? selectedMobileInventoryItem.raw.stockAlert
+                                                : {};
+                                            const redThreshold = Number(alertCfg.red);
+                                            const yellowThreshold = Number(alertCfg.yellow);
+                                            const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                            const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                            const severity = stockValue <= 0
+                                                ? 'red'
+                                                : hasRed && stockValue <= redThreshold
+                                                    ? 'red'
+                                                    : hasYellow && stockValue <= yellowThreshold
+                                                        ? 'yellow'
+                                                        : getStockSeverity(stockValue);
+                                            return severity === 'red'
+                                                ? 'text-red-600'
+                                                : severity === 'yellow'
+                                                    ? 'text-amber-600'
+                                                    : 'text-emerald-600';
+                                        })()}`}>
+                                            {selectedMobileInventoryItem.snapshot.stock}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            disabled={savingStockId === String(selectedMobileInventoryItem.snapshot.id)}
+                                            onClick={async () => {
+                                                await handleQuickStockStep(selectedMobileInventoryItem.snapshot, 1);
+                                                setSelectedMobileInventoryItem((prev) => prev ? { ...prev, snapshot: { ...prev.snapshot, stock: (Number(prev.snapshot.stock) || 0) + 1 } } : null);
+                                            }}
+                                            className="w-6 h-6 rounded bg-slate-200 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 font-black text-xs flex items-center justify-center disabled:opacity-40 transition-colors"
+                                        >
+                                            +
+                                        </button>
+                                    </div>
+                                </div>
                                 <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Selling Price</p><p className="font-black text-emerald-700 text-base">{priceTag(selectedMobileInventoryItem.snapshot.sellingPrice || 0)}</p></div>
                             </div>
 
