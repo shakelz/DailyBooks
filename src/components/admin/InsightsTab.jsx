@@ -249,6 +249,7 @@ export default function InsightsTab() {
     const [selectedKpiBreakdown, setSelectedKpiBreakdown] = useState(null); // 'revenue' | 'expenses' | 'income' | null
     const [expandedCategoryKeys, setExpandedCategoryKeys] = useState(new Set());
     const [detailModalTxn, setDetailModalTxn] = useState(null);
+    const [showAllBestsellers, setShowAllBestsellers] = useState(false);
 
     const toggleCategoryExpanded = (catKey) => {
         setExpandedCategoryKeys((prev) => {
@@ -469,11 +470,22 @@ export default function InsightsTab() {
                 totalCOGS += buyAmount;
             }
 
-            if (txn.productId) {
-                const productKey = String(txn.productId);
-                if (!productStats[productKey]) productStats[productKey] = { name: txn.name || txn.desc || linkedProduct?.name || 'Unknown', qty: 0, profit: 0 };
-                productStats[productKey].qty += quantity;
-                productStats[productKey].profit += kpiContribution;
+            const resolvedProductName = safeText(txn.name || txn.productName || txn.product_name || txn.desc || linkedProduct?.name) || 'Artikel';
+            const productKey = String(txn.productId || resolvedProductName);
+            if (!productStats[productKey]) {
+                productStats[productKey] = {
+                    name: resolvedProductName,
+                    category: categoryName || extractCategoryLevel1(linkedProduct?.category) || '',
+                    qty: 0,
+                    profit: 0,
+                    revenue: 0,
+                };
+            }
+            productStats[productKey].qty += quantity;
+            productStats[productKey].profit += kpiContribution;
+            productStats[productKey].revenue += saleAmount;
+            if (!productStats[productKey].category && categoryName) {
+                productStats[productKey].category = categoryName;
             }
 
             if (!categoryStats[categoryName]) categoryStats[categoryName] = { name: categoryName, value: 0 };
@@ -539,9 +551,11 @@ export default function InsightsTab() {
             .sort((a, b) => b.value - a.value)
             .slice(0, 5);
 
-        const bestSellers = Object.values(productStats)
-            .sort((a, b) => b.qty - a.qty)
-            .slice(0, 5);
+        const allProductSales = Object.values(productStats)
+            .filter((p) => p.qty > 0 || p.revenue > 0)
+            .sort((a, b) => (b.qty - a.qty) || (b.profit - a.profit));
+
+        const bestSellers = allProductSales.slice(0, 5);
 
         const salesmanData = Object.values(salesmanStats)
             .map((s) => ({
@@ -639,6 +653,7 @@ export default function InsightsTab() {
             supplierData,
             categoryData,
             bestSellers,
+            allProductSales,
             salesmanData,
             inventoryHealth: [
                 { name: `Fast Moving (<${slowMovingDays}d)`, value: fastMovingCount },
@@ -1556,36 +1571,88 @@ export default function InsightsTab() {
                         )}
                     </div>
                 </div>
-
             </div>
-
 
             {/* ── 4. Data Science Insights ── */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
-                {/* Top 5 Best Sellers */}
-                <div className={`${CHART_CARD_CLASS} h-full`}>
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="p-3 bg-amber-50 rounded-xl text-amber-500"><Zap size={20} /></div>
-                        <div>
-                            <h3 className="text-sm font-black text-slate-800 mb-0.5">Top 5 Bestseller</h3>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Schnellstverkaufte Produkte</p>
+                {/* Best Sellers (Top 5 / All Products) */}
+                <div className={`${CHART_CARD_CLASS} h-full flex flex-col transition-all duration-300 col-span-1 md:col-span-2`}>
+                    <div
+                        onClick={() => setShowAllBestsellers((prev) => !prev)}
+                        className="flex items-center justify-between cursor-pointer group mb-3.5 select-none"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-amber-50 rounded-xl text-amber-500 group-hover:scale-105 transition-transform">
+                                <Zap size={20} />
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-black text-slate-800 mb-0.5 flex items-center gap-1.5">
+                                    <span>{showAllBestsellers ? 'Alle Produkte (Top bis Niedrigste)' : 'Top 5 Bestseller'}</span>
+                                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/60 px-1.5 py-0.5 rounded-full">
+                                        {analytics.allProductSales?.length || 0}
+                                    </span>
+                                </h3>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                    {showAllBestsellers ? 'Vollständige Verkaufsrangliste' : 'Schnellstverkaufte Produkte (Klick für alle)'}
+                                </p>
+                            </div>
                         </div>
+                        <button
+                            type="button"
+                            className="text-xs font-bold text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/80 transition-colors flex items-center gap-1"
+                        >
+                            <span>{showAllBestsellers ? 'Top 5' : 'Alle'}</span>
+                            {showAllBestsellers ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </button>
                     </div>
-                    <div className="space-y-4">
-                        {analytics.bestSellers.map((product, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
-                                <div className="flex items-center gap-3">
-                                    <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${idx === 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>{idx + 1}</span>
-                                    <div>
-                                        <p className="text-sm font-bold text-slate-800 line-clamp-1">{product.name}</p>
-                                        <p className="text-[10px] text-slate-400">{product.qty} verkauft</p>
+
+                    <div className={`space-y-2.5 ${showAllBestsellers ? 'max-h-[500px] overflow-y-auto pr-1' : ''}`}>
+                        {(showAllBestsellers ? (analytics.allProductSales || []) : (analytics.bestSellers || [])).map((product, idx) => (
+                            <div
+                                key={idx}
+                                className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100/70 transition-colors"
+                            >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                                    <span className={`w-6 h-6 flex-shrink-0 flex items-center justify-center rounded-full text-xs font-bold ${
+                                        idx === 0 ? 'bg-amber-100 text-amber-800' :
+                                        idx === 1 ? 'bg-slate-200 text-slate-700' :
+                                        idx === 2 ? 'bg-amber-50 text-amber-700' :
+                                        'bg-slate-100 text-slate-500'
+                                    }`}>
+                                        {idx + 1}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-bold text-slate-800 truncate" title={product.name}>
+                                            {product.name}
+                                        </p>
+                                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                            {product.category && (
+                                                <span className="text-[10px] font-semibold text-slate-500 bg-white border border-slate-200/80 px-1.5 py-0.2 rounded shadow-2xs">
+                                                    {product.category}
+                                                </span>
+                                            )}
+                                            <span className="text-[10px] font-medium text-slate-400">
+                                                {product.qty} {product.qty === 1 ? 'verkauft' : 'verkauft'}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
-                                <p className="text-sm font-bold text-emerald-600">{priceTag(product.profit)}</p>
+                                <div className="text-right flex-shrink-0">
+                                    <p className="text-sm font-bold text-emerald-600 font-mono">
+                                        {priceTag(product.profit)}
+                                    </p>
+                                    {product.revenue > 0 && (
+                                        <p className="text-[10px] text-slate-400 font-medium">
+                                            Umsatz: {priceTag(product.revenue)}
+                                        </p>
+                                    )}
+                                </div>
                             </div>
                         ))}
-                        {analytics.bestSellers.length === 0 && <p className="text-slate-400 text-sm text-center py-4">Noch keine Verkaufsdaten.</p>}
+                        {(!analytics.allProductSales || analytics.allProductSales.length === 0) && (
+                            <p className="text-slate-400 text-sm text-center py-4">Noch keine Verkaufsdaten.</p>
+                        )}
                     </div>
                 </div>
 
