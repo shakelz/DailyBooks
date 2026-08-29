@@ -131,20 +131,28 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
     <title>Reparaturrechnung - ${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Courier New', monospace; width: 80mm; font-size: 16px; font-weight: 900; }
-        .slip { padding: 4mm; page-break-after: always; border-bottom: 2px dashed #000; }
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+            width: 80mm;
+            font-size: 12px;
+            color: #111;
+            font-weight: 500;
+            background: #fff;
+        }
+        .slip { padding: 4mm 5mm; page-break-after: always; border-bottom: 2px dashed #777; }
         .slip:last-child { border-bottom: none; page-break-after: auto; }
-        .title { font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 2mm; color: #666; }
-        .shop-name { font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 2mm; }
-        .shop-addr { font-size: 15px; text-align: center; margin-bottom: 3mm; color: #333; }
-        .divider { border-top: 1px solid #000; margin: 2mm 0; }
-        .ref-id { font-size: 26px; font-weight: bold; text-align: center; margin: 3mm 0; letter-spacing: 2px; }
-        .row { display: flex; justify-content: space-between; gap: 8px; font-size: 16px; margin: 1mm 0; }
-        .row .label-text { font-weight: bold; white-space: nowrap; }
-        .problem { font-size: 16px; margin: 2mm 0; padding: 2mm; border: 1px solid #ccc; background: #f5f5f5; }
-        table { width: 100%; border-collapse: collapse; font-size: 16px; margin-top: 2mm; }
-        th, td { padding: 1.5mm 0; border-bottom: 1px dotted #ccc; }
-        th { text-align: left; font-size: 15px; text-transform: uppercase; color: #555; }
+        .title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; text-align: center; margin-bottom: 2mm; color: #444; }
+        .shop-name { font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; margin-bottom: 1.5mm; color: #000; }
+        .shop-addr { font-size: 11px; text-align: center; margin-bottom: 1mm; color: #333; }
+        .divider { border-top: 1px dashed #777; margin: 2.5mm 0; }
+        .ref-id { font-size: 20px; font-weight: 800; font-family: monospace; text-align: center; margin: 2mm 0; letter-spacing: 2px; }
+        .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin: 1mm 0; }
+        .row .label-text { font-weight: 600; color: #444; white-space: nowrap; }
+        .problem { font-size: 11.5px; margin: 2mm 0; padding: 2mm; border: 1px solid #ccc; border-radius: 3px; background: #fafafa; line-height: 1.35; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 2mm; }
+        th, td { padding: 1.5mm 0; border-bottom: 1px dotted #ddd; }
+        th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #444; }
+        .footer-thanks { font-size: 11px; font-weight: 700; text-align: center; margin-top: 3mm; color: #222; }
         @media print { body { width: 80mm; } .slip { break-inside: avoid; } }
     </style>
 </head>
@@ -155,46 +163,44 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         ${receiptShopAddress ? `<div class="shop-addr">${esc(receiptShopAddress)}</div>` : ''}
         ${receiptShopPhone ? `<div class="shop-addr">Tel: ${esc(receiptShopPhone)}</div>` : ''}
         <div class="divider"></div>
-        <div class="ref-id">${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</div>
-        <div class="row"><span class="label-text">Rechnung Nr:</span><span>${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</span></div>
-        <div class="divider"></div>
+        <div class="ref-id">#${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</div>
         <div class="row"><span class="label-text">Fertiggestellt:</span><span>${toDate(completedAt, true)}</span></div>
         <div class="row"><span class="label-text">Abholdatum:</span><span>${toDate(printData.deliveryDate)}</span></div>
         <div class="divider"></div>
-        <div class="row"><span class="label-text">Name:</span><span>${esc(printData.customerName)}</span></div>
+        <div class="row"><span class="label-text">Kunde:</span><span><strong>${esc(printData.customerName)}</strong></span></div>
         <div class="row"><span class="label-text">Telefon:</span><span>${esc(printData.phone)}</span></div>
-        <div class="row"><span class="label-text">Geraet:</span><span>${esc(printData.deviceModel)}</span></div>
-        ${printData.imei ? `<div class="row"><span class="label-text">IMEI:</span><span>${esc(printData.imei)}</span></div>` : ''}
+        <div class="row"><span class="label-text">Gerät:</span><span>${esc(printData.deviceModel)}</span></div>
+        ${printData.imei ? `<div class="row"><span class="label-text">IMEI:</span><span style="font-family:monospace;">${esc(printData.imei)}</span></div>` : ''}
         <div class="problem"><strong>Fehler:</strong> ${esc(printData.problem || 'N/A')}</div>
         <div class="divider"></div>
-        <div class="row" style="font-size:18px;"><span class="label-text">Endbetrag:</span><span><strong>${toAmount(serviceAmount)}</strong></span></div>
+        <div class="row" style="font-size:15px; font-weight:800;"><span class="label-text" style="font-size:14px; font-weight:800; color:#000;">Endbetrag:</span><span>${toAmount(serviceAmount)}</span></div>
         <div class="divider"></div>
-        <div class="title" style="text-align:left; margin-bottom:1mm;">Verwendete Teile</div>
+        <div class="title" style="text-align:left; margin-bottom:1mm; font-size:11px;">Verwendete Teile</div>
         <table>
             <thead>
-                <tr><th>Qty</th><th>Part</th><th style="text-align:right">Amount</th></tr>
+                <tr><th>Menge</th><th>Teil</th><th style="text-align:right">Betrag</th></tr>
             </thead>
             <tbody>
                 ${partsRows}
             </tbody>
         </table>
-        <div class="row"><span class="label-text">Teilekosten:</span><span>${toAmount(partsCost)}</span></div>
+        <div class="row" style="margin-top:2mm;"><span class="label-text">Teilekosten:</span><span>${toAmount(partsCost)}</span></div>
         <div class="divider"></div>
-        <div style="font-size:14px;font-weight:900;text-align:center;margin-top:2mm;color:#999;">Vielen Dank. ${esc(receiptShopName)}</div>
+        <div class="footer-thanks">Vielen Dank für Ihr Vertrauen! — ${esc(receiptShopName)}</div>
     </div>
 
     <div class="slip">
         <div class="title">— Ladenkopie —</div>
-        <div class="ref-id">${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</div>
+        <div class="ref-id">#${esc(printData.invoiceNumber || printData.invoice_number || printData.refId || printData.id || '')}</div>
         <div class="divider"></div>
-        <div class="row"><span class="label-text">Kunde:</span><span>${esc(printData.customerName)}</span></div>
-        <div class="row"><span class="label-text">Geraet:</span><span>${esc(printData.deviceModel)}</span></div>
+        <div class="row"><span class="label-text">Kunde:</span><span><strong>${esc(printData.customerName)}</strong></span></div>
+        <div class="row"><span class="label-text">Gerät:</span><span>${esc(printData.deviceModel)}</span></div>
         <div class="row"><span class="label-text">Fertiggestellt:</span><span>${toDate(completedAt, true)}</span></div>
         <div class="problem"><strong>Fehler:</strong> ${esc(printData.problem || 'N/A')}</div>
         <div class="divider"></div>
         <div class="row"><span class="label-text">Servicebetrag:</span><span>${toAmount(serviceAmount)}</span></div>
         <div class="row"><span class="label-text">Teilekosten:</span><span>${toAmount(partsCost)}</span></div>
-        <div class="row" style="font-size:18px;"><span class="label-text">Nettoertrag:</span><span><strong>${toAmount(netEarning)}</strong></span></div>
+        <div class="row" style="font-size:15px; font-weight:800;"><span class="label-text" style="font-size:14px; font-weight:800; color:#000;">Nettoertrag:</span><span>${toAmount(netEarning)}</span></div>
     </div>
 </body>
 </html>`;

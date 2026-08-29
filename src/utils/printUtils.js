@@ -1,5 +1,5 @@
 export const printRepairJobBill = (job, activeShop) => {
-  const shopName = String(activeShop?.name || 'Shop').trim()
+  const shopName = String(activeShop?.name || 'Shop').trim() || 'Shop'
   const shopAddress = String(activeShop?.address || '').trim()
   const shopPhone = String(activeShop?.telephone || activeShop?.phone || '').trim()
   
@@ -11,8 +11,6 @@ export const printRepairJobBill = (job, activeShop) => {
   ).replace(/\D/g, '').slice(-6) || 'N/A'
 
   // Total cost
-  // Prioritize repair-specific fields before 'amount', because when
-  // printing from a transaction, 'amount' is just the partial payment.
   const totalCost = parseFloat(
     job?.estimatedCost ?? job?.totalCost ?? job?.total_cost ?? 
     job?.cost ?? job?.repairCost ?? job?.amount ?? 0
@@ -38,12 +36,13 @@ export const printRepairJobBill = (job, activeShop) => {
     ? new Date(deliveryDateSource).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : '-'
 
-  const billTitle = isCompleted ? 'KASSENBON' : 'ABHOLSCHEIN'
+  const billTitle = isCompleted ? 'REPARATUR-BELEG' : 'ABHOLSCHEIN'
 
   const html = `<!DOCTYPE html>
   <html>
   <head>
     <meta charset="utf-8"/>
+    <title>${billTitle} - #${escapePrintHtml(jobNumber)}</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       
@@ -55,103 +54,161 @@ export const printRepairJobBill = (job, activeShop) => {
           width: 46mm;
         }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        
-        .receipt-wrapper {
-          width: 100%;
-          margin: 0;
-        }
+        .receipt-wrapper { width: 100%; margin: 0; }
       }
 
       body {
-        font-family: 'Arial', 'Helvetica', sans-serif;
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
         width: 46mm;
         margin: 0;
         padding: 2mm 0.5mm;
         background: #fff;
-        color: #000;
-        font-weight: 900;
+        color: #111;
+        font-size: 10px;
+        font-weight: 500;
         line-height: 1.4;
       }
 
-      .receipt-wrapper {
-        width: 100%;
-        max-width: 100%;
+      .receipt-wrapper { width: 100%; max-width: 100%; }
+      .receipt-header { text-align: center; margin-bottom: 4px; }
+      .receipt-badge {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: #444;
+        border-bottom: 1px solid #222;
+        padding-bottom: 1px;
+        margin-bottom: 3px;
       }
-
-      .center { text-align: center; }
-      .shop-name { font-size: 13px; font-weight: 900; text-align: center; }
-      .shop-sub { font-size: 10px; font-weight: 900; text-align: center; color: #000; margin-top: 1px; }
-      .bill-title { font-size: 13px; font-weight: 900; text-align: center; letter-spacing: 2px; border: 2px solid #000; padding: 3px 0; margin: 4px 0; }
-      .job-number { font-size: 22px; font-weight: 900; text-align: center; letter-spacing: 2px; margin: 4px 0; }
-      .divider { border: none; border-top: 1px dashed #999; margin: 4px 0; }
-      .divider-solid { border: none; border-top: 2px solid #000; margin: 4px 0; }
+      .shop-title {
+        font-size: 15px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #000;
+        line-height: 1.2;
+        margin-bottom: 2px;
+      }
+      .shop-info {
+        font-size: 9.5px;
+        color: #333;
+        line-height: 1.35;
+        font-weight: 500;
+      }
+      .job-box {
+        text-align: center;
+        margin: 4px 0;
+        padding: 3px 0;
+      }
+      .job-number {
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        font-family: monospace;
+        color: #000;
+      }
+      .divider { border: none; border-top: 1px dashed #777; margin: 5px 0; }
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-      td { font-size: 11px; padding: 2px 0; vertical-align: top; }
-      .label { font-weight: 900; color: #000; width: 52%; word-break: break-word; }
-      .value { font-weight: 900; color: #000; text-align: right; width: 45%; word-break: break-all; }
-      .issue-box { border: 2px solid #000; padding: 3px; margin: 4px 0; font-size: 11px; font-weight: 900; }
-      .amount-label { font-size: 11px; font-weight: 900; color: #000; width: 52%; word-break: break-word; }
-      .amount-value { font-size: 11px; font-weight: 900; text-align: right; width: 45%; word-break: break-all; }
-      .total-label { font-size: 14px; font-weight: 900; width: 52%; word-break: break-word; }
-      .total-value { font-size: 14px; font-weight: 900; text-align: right; width: 45%; word-break: break-all; }
-      .footer { text-align: center; font-size: 10px; color: #000; font-weight: 900; margin-top: 4px; line-height: 1.4; }
+      td { font-size: 9.5px; padding: 2px 0; vertical-align: top; }
+      .label { font-weight: 500; color: #555; width: 40%; word-break: break-word; }
+      .value { font-weight: 700; color: #000; text-align: right; width: 60%; word-break: break-word; }
+      .issue-box {
+        border: 1px solid #444;
+        border-radius: 3px;
+        padding: 4px;
+        margin: 4px 0;
+        font-size: 9.5px;
+        font-weight: 600;
+        background: #fdfdfd;
+        line-height: 1.3;
+      }
+      .amount-table { width: 100%; margin: 3px 0; }
+      .amount-table td { padding: 1.5px 0; font-size: 9.5px; }
+      .amount-label { font-weight: 500; color: #444; }
+      .amount-value { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+      .total-row td {
+        font-size: 12px;
+        font-weight: 800;
+        color: #000;
+        padding-top: 4px;
+        border-top: 1.5px solid #000;
+      }
+      .footer {
+        text-align: center;
+        font-size: 8.5px;
+        color: #444;
+        font-weight: 500;
+        margin-top: 6px;
+        line-height: 1.35;
+        border-top: 1px dashed #777;
+        padding-top: 5px;
+      }
+      .footer-thanks {
+        font-size: 9.5px;
+        font-weight: 700;
+        color: #000;
+        margin-top: 3px;
+      }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   </head>
   <body>
     <div class="receipt-wrapper">
-      <p class="bill-title">${billTitle}</p>
-      <p class="shop-name">${shopName}</p>
-    ${shopAddress ? `<p class="shop-sub">${shopAddress}</p>` : ''}
-    ${shopPhone ? `<p class="shop-sub">Tel: ${shopPhone}</p>` : ''}
-    
-    <hr class="divider"/>
-    
-    <p class="job-number">${jobNumber}</p>
-    
-    <hr class="divider"/>
-    
-    <table>
-      <tr><td class="label">Name</td><td class="value">${customerName}</td></tr>
-      <tr><td class="label">Telefon</td><td class="value">${phone}</td></tr>
-      <tr><td class="label">Gerät</td><td class="value">${deviceModel}</td></tr>
-      ${imei ? `<tr><td class="label">IMEI</td><td class="value">${imei}</td></tr>` : ''}
-      ${!isCompleted ? `<tr><td class="label">Abholung</td><td class="value">${deliveryDate}</td></tr>` : ''}
-    </table>
+      <div class="receipt-header">
+        <div class="receipt-badge">${billTitle}</div>
+        <div class="shop-title">${escapePrintHtml(shopName)}</div>
+        ${shopAddress ? `<div class="shop-info">${escapePrintHtml(shopAddress)}</div>` : ''}
+        ${shopPhone ? `<div class="shop-info">Tel: ${escapePrintHtml(shopPhone)}</div>` : ''}
+      </div>
+      
+      <hr class="divider"/>
+      
+      <div class="job-box">
+        <div style="font-size: 8.5px; font-weight: 700; letter-spacing: 1px; color: #555; text-transform: uppercase;">Auftragsnummer</div>
+        <div class="job-number">#${escapePrintHtml(jobNumber)}</div>
+      </div>
+      
+      <hr class="divider"/>
+      
+      <table>
+        <tr><td class="label">Kunde:</td><td class="value">${escapePrintHtml(customerName)}</td></tr>
+        <tr><td class="label">Telefon:</td><td class="value">${escapePrintHtml(phone)}</td></tr>
+        <tr><td class="label">Ger&auml;t:</td><td class="value">${escapePrintHtml(deviceModel)}</td></tr>
+        ${imei ? `<tr><td class="label">IMEI:</td><td class="value" style="font-family: monospace;">${escapePrintHtml(imei)}</td></tr>` : ''}
+        ${!isCompleted ? `<tr><td class="label">Abholung:</td><td class="value">${escapePrintHtml(deliveryDate)}</td></tr>` : ''}
+      </table>
 
-    <div class="issue-box">Fehler: ${issue}</div>
+      <div class="issue-box">
+        <strong style="color: #222;">Fehler:</strong> ${escapePrintHtml(issue)}
+      </div>
 
-    ${!isCompleted ? `<table><tr><td class="label">Status</td><td class="value">Ausstehend</td></tr></table>` : ''}
+      ${!isCompleted ? `<table><tr><td class="label">Status:</td><td class="value">Ausstehend</td></tr></table>` : ''}
 
-    <hr class="divider-solid"/>
+      <hr class="divider"/>
 
-    ${!isCompleted ? `
-    <table>
-      <tr>
-        <td class="amount-label">Kosten</td>
-        <td class="amount-value">€ ${formatReceiptMoney(totalCost)}</td>
-      </tr>
-      <tr>
-        <td class="amount-label">Anzahlung</td>
-        <td class="amount-value">€ ${formatReceiptMoney(advance)}</td>
-      </tr>
-    </table>
-    <hr class="divider-solid"/>
-    ` : ''}
+      <table class="amount-table">
+        ${!isCompleted ? `
+        <tr>
+          <td class="amount-label">Gesamtkosten</td>
+          <td class="amount-value">&euro;&nbsp;${formatReceiptMoney(totalCost)}</td>
+        </tr>
+        <tr>
+          <td class="amount-label">Anzahlung</td>
+          <td class="amount-value">&euro;&nbsp;${formatReceiptMoney(advance)}</td>
+        </tr>
+        ` : ''}
+        <tr class="total-row">
+          <td>${isCompleted ? 'GESAMTBETRAG' : 'RESTBETRAG'}</td>
+          <td style="text-align: right;">&euro;&nbsp;${isCompleted ? formatReceiptMoney(totalCost) : formatReceiptMoney(remaining)}</td>
+        </tr>
+      </table>
 
-    <table>
-      <tr>
-        <td class="total-label">${isCompleted ? 'Gesamt' : 'Restbetrag'}</td>
-        <td class="total-value">€ ${isCompleted ? formatReceiptMoney(totalCost) : formatReceiptMoney(remaining)}</td>
-      </tr>
-    </table>
-
-    <hr class="divider"/>
-    
-    <p class="footer">
-      ${isCompleted ? 'Vielen Dank.' : 'Bitte diesen Kundenbeleg zur Abholung mitbringen.'}<br/>
-      ${shopName}
-    </p>
+      <div class="footer">
+        ${isCompleted ? 'Reparatur erfolgreich abgeschlossen.' : 'Bitte diesen Kundenbeleg zur Abholung mitbringen.'}
+        <div class="footer-thanks">${escapePrintHtml(shopName)}</div>
+      </div>
     </div>
   </body>
   </html>`
@@ -259,17 +316,17 @@ function buildKundenbelegHtml({
     const rawLabel = resolveReceiptItemLabel(item)
     const label = escapePrintHtml(rawLabel)
     const len = rawLabel.length
-    const labelSize = len > 36 ? '9px' : len > 22 ? '10px' : '11px'
-    const lineHeight = len > 36 ? '1.15' : '1.25'
+    const labelSize = len > 36 ? '9px' : len > 22 ? '9.5px' : '10.5px'
+    const lineHeight = len > 36 ? '1.2' : '1.25'
     return `
       <tr>
-        <td style="vertical-align: top; padding-top: 5px; padding-right: 4px; font-size: 11px; font-weight: 900; white-space: nowrap; text-align: left;">${qty}x</td>
-        <td style="vertical-align: top; padding-top: 5px; padding-left: 2px; padding-right: 4px; word-break: break-word; overflow-wrap: break-word; text-align: left;">
-          <div style="font-size: ${labelSize}; line-height: ${lineHeight}; font-weight: 900; white-space: normal; word-break: break-word; overflow-wrap: break-word;">${label}</div>
-          ${imei ? `<div style="font-size: 9.5px; color: #333; margin-top: 2px; word-break: break-all;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
+        <td class="col-qty">${qty}x</td>
+        <td class="col-name">
+          <div style="font-size: ${labelSize}; line-height: ${lineHeight}; font-weight: 700; white-space: normal; word-break: break-word; overflow-wrap: break-word; color: #000;">${label}</div>
+          ${imei ? `<div style="font-size: 8.5px; color: #555; font-family: monospace; margin-top: 1.5px; word-break: break-all;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
         </td>
-        <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; text-align: right; word-break: break-all; white-space: nowrap;">
-          &euro; ${formatReceiptMoney(resolveReceiptItemTotal(item))}
+        <td class="col-price">
+          &euro;&nbsp;${formatReceiptMoney(resolveReceiptItemTotal(item))}
         </td>
       </tr>
     `
@@ -279,7 +336,7 @@ function buildKundenbelegHtml({
   <html>
     <head>
       <meta charset="utf-8"/>
-      <title>KUNDENBELEG</title>
+      <title>Kundenbeleg - ${escapePrintHtml(transactionId || '')}</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         @media print {
@@ -288,53 +345,132 @@ function buildKundenbelegHtml({
           * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         body {
-          font-family: 'Arial', 'Helvetica', sans-serif;
+          font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
           width: 46mm;
           margin: 0;
           padding: 2mm 0.5mm;
-          line-height: 1.6;
-          color: #000;
+          line-height: 1.4;
+          color: #111;
           background: #fff;
-          font-weight: 900;
+          font-size: 10px;
+          font-weight: 500;
         }
-        .divider { border: none; border-top: 1px dashed #999; margin: 8px 0; }
+        .receipt-header { text-align: center; margin-bottom: 4px; }
+        .receipt-badge {
+          display: inline-block;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          color: #444;
+          border-bottom: 1px solid #222;
+          padding-bottom: 1px;
+          margin-bottom: 3px;
+        }
+        .shop-title {
+          font-size: 15px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: #000;
+          line-height: 1.2;
+          margin-bottom: 2px;
+        }
+        .shop-info {
+          font-size: 9.5px;
+          color: #333;
+          line-height: 1.35;
+          font-weight: 500;
+        }
+        .divider { border: none; border-top: 1px dashed #777; margin: 5px 0; }
+        .divider-solid { border: none; border-top: 1px solid #111; margin: 5px 0; }
+        .meta-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 9.5px;
+          font-weight: 600;
+          color: #222;
+          margin: 2px 0;
+        }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th {
+          font-size: 9px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: #222;
+          border-bottom: 1px solid #111;
+          padding: 3px 0 4px 0;
+        }
+        td { vertical-align: top; padding: 4px 0; font-size: 10px; }
+        .col-qty { width: 18%; text-align: left; font-weight: 700; color: #222; padding-right: 3px; white-space: nowrap; }
+        .col-name { width: 54%; text-align: left; padding-right: 4px; padding-left: 1px; }
+        .col-price { width: 28%; text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .summary-table { width: 100%; margin: 3px 0; font-size: 9.5px; }
+        .summary-table td { padding: 1.5px 0; }
+        .summary-label { color: #444; font-weight: 500; }
+        .summary-val { text-align: right; font-weight: 700; color: #111; font-variant-numeric: tabular-nums; }
+        .total-row td {
+          font-size: 12px;
+          font-weight: 800;
+          color: #000;
+          padding-top: 4px;
+          border-top: 1.5px solid #000;
+        }
+        .footer-box {
+          margin-top: 8px;
+          font-size: 8.5px;
+          line-height: 1.35;
+          color: #444;
+          text-align: center;
+          border-top: 1px dashed #777;
+          padding-top: 5px;
+        }
+        .footer-thanks {
+          font-size: 9.5px;
+          font-weight: 700;
+          color: #000;
+          margin-top: 4px;
+        }
       </style>
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     </head>
     <body>
-      <div style="font-weight: 900; font-size: 24px; text-align: center;">${escapePrintHtml(shopName)}</div>
-      ${shopAddress ? `<div style="font-size: 11px; font-weight: 900; text-align: center; margin-top: 3px; color: #000;">${escapePrintHtml(shopAddress)}</div>` : ''}
-      ${shopPhone ? `<div style="font-size: 11px; font-weight: 900; text-align: center; margin-top: 2px; color: #000;">Tel: ${escapePrintHtml(shopPhone)}</div>` : ''}
-
-      <hr class="divider"/>
-
-      <div style="font-size: 13px; font-weight: 800; margin-bottom: 8px;">
-        <div><strong>Datum:</strong> ${escapePrintHtml(timestamp.date)} ${escapePrintHtml(timestamp.time)}</div>
-        <div><strong>Beleg-Nr:</strong> ${escapePrintHtml(transactionId || 'N/A')}</div>
+      <div class="receipt-header">
+        <div class="receipt-badge">Kundenbeleg</div>
+        <div class="shop-title">${escapePrintHtml(shopName)}</div>
+        ${shopAddress ? `<div class="shop-info">${escapePrintHtml(shopAddress)}</div>` : ''}
+        ${shopPhone ? `<div class="shop-info">Tel: ${escapePrintHtml(shopPhone)}</div>` : ''}
       </div>
 
       <hr class="divider"/>
 
-      <table style="margin-bottom: 8px;">
+      <div class="meta-row">
+        <span>Datum: ${escapePrintHtml(timestamp.date)} ${escapePrintHtml(timestamp.time)}</span>
+        <span>Beleg: #${escapePrintHtml(transactionId || 'N/A')}</span>
+      </div>
+
+      <hr class="divider"/>
+
+      <table style="margin-bottom: 4px;">
         <colgroup>
-          <col style="width: 25%;"/>
-          <col style="width: 47%;"/>
+          <col style="width: 18%;"/>
+          <col style="width: 54%;"/>
           <col style="width: 28%;"/>
         </colgroup>
         <thead>
-          <tr style="font-weight: 900; border-bottom: 1px solid #000; font-size: 11px;">
-            <td style="padding-bottom: 6px; padding-right: 4px; text-align: left; white-space: nowrap;">Menge</td>
-            <td style="padding-bottom: 6px; padding-left: 2px; padding-right: 4px; text-align: left;">Artikel</td>
-            <td style="padding-bottom: 6px; text-align: right; white-space: nowrap;">Betrag</td>
+          <tr>
+            <th style="text-align: left;">Menge</th>
+            <th style="text-align: left; padding-left: 1px;">Artikel</th>
+            <th style="text-align: right;">Betrag</th>
           </tr>
         </thead>
         <tbody>
           ${itemRows || `
             <tr>
-              <td style="vertical-align: top; padding-top: 5px; padding-right: 4px; font-size: 11px; font-weight: 900; white-space: nowrap; text-align: left;">1x</td>
-              <td style="vertical-align: top; padding-top: 5px; padding-left: 2px; padding-right: 4px; font-size: 11px; font-weight: 900; word-break: break-word; overflow-wrap: break-word; text-align: left;">Artikel</td>
-              <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; text-align: right; word-break: break-all; white-space: nowrap;">&euro; 0,00</td>
+              <td class="col-qty">1x</td>
+              <td class="col-name"><div style="font-size: 10.5px; font-weight: 700;">Artikel</div></td>
+              <td class="col-price">&euro;&nbsp;0,00</td>
             </tr>
           `}
         </tbody>
@@ -342,29 +478,33 @@ function buildKundenbelegHtml({
 
       <hr class="divider"/>
 
-      <table style="width: 100%; margin-bottom: 8px;">
+      <table class="summary-table">
         <tbody>
           <tr>
-            <td style="font-size: 12px; font-weight: 900;">Zwischensumme</td>
-            <td style="text-align: right; font-size: 12px; font-weight: 900; width: 45%; word-break: break-all;">&euro; ${formatReceiptMoney(grossTotal)}</td>
+            <td class="summary-label">Zwischensumme</td>
+            <td class="summary-val">&euro;&nbsp;${formatReceiptMoney(grossTotal)}</td>
           </tr>
           ${shouldShowTax ? `
             <tr>
-              <td style="font-size: 11px; font-weight: 900;">Netto (19%)</td>
-              <td style="text-align: right; font-size: 11px; font-weight: 900; width: 45%; word-break: break-all;">&euro; ${formatReceiptMoney(netTotal)}</td>
+              <td class="summary-label">Netto (19%)</td>
+              <td class="summary-val">&euro;&nbsp;${formatReceiptMoney(netTotal)}</td>
             </tr>
             <tr>
-              <td style="font-size: 11px; font-weight: 900;">USt. (19%)</td>
-              <td style="text-align: right; font-size: 11px; font-weight: 900; width: 45%; word-break: break-all;">&euro; ${formatReceiptMoney(taxTotal)}</td>
+              <td class="summary-label">USt. (19%)</td>
+              <td class="summary-val">&euro;&nbsp;${formatReceiptMoney(taxTotal)}</td>
             </tr>
           ` : ''}
+          <tr class="total-row">
+            <td>GESAMTBETRAG</td>
+            <td style="text-align: right;">&euro;&nbsp;${formatReceiptMoney(grossTotal)}</td>
+          </tr>
         </tbody>
       </table>
 
-      <div style="margin-top: 12px; font-size: 13px; line-height: 1.5; font-weight: 900; text-align: center; color: #000;">
+      <div class="footer-box">
         R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.<br/>
-        Bei Defekt/Mangel erfolgt Erstattung oder Reparatur.<br/>
-        Vielen Dank. ${escapePrintHtml(shopName)}
+        Bei Defekt/Mangel erfolgt Erstattung oder Reparatur.
+        <div class="footer-thanks">Vielen Dank f&uuml;r Ihren Einkauf!</div>
       </div>
     </body>
   </html>`

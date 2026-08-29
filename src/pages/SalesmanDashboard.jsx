@@ -460,11 +460,12 @@ function buildReceiptHtml({
         const rawName = String(row?.name || 'Artikel');
         const lineName = escapeHtml(rawName);
         const len = rawName.length;
-        const lineNameSize = len > 36 ? '9px' : len > 22 ? '10px' : '11px';
-        const lineLeading = len > 36 ? '1.15' : '1.25';
+        const lineNameSize = len > 36 ? '9px' : len > 22 ? '9.5px' : '10.5px';
+        const lineLeading = len > 36 ? '1.2' : '1.25';
         return `
             <div class="line-item">
-                <div class="line-name" style="font-size:${lineNameSize}; line-height:${lineLeading};">${qty}x ${lineName}</div>
+                <div class="line-qty">${qty}x</div>
+                <div class="line-name" style="font-size:${lineNameSize}; line-height:${lineLeading};">${lineName}</div>
                 <div class="line-price">${formatMoney(lineTotal)}</div>
             </div>
         `;
@@ -473,84 +474,167 @@ function buildReceiptHtml({
     return `
         <html>
             <head>
-                <title>Beleg</title>
+                <title>Kundenbeleg</title>
                 <style>
-                    * { box-sizing: border-box; }
+                    * { box-sizing: border-box; margin: 0; padding: 0; }
                     @media print {
                         @page { size: 58mm auto; margin: 0; }
                         html, body { margin: 0; padding: 0; width: 46mm; }
                         .receipt-wrapper { width: 46mm; }
                         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                     }
-                    body { font-family: 'Arial', 'Helvetica', sans-serif; width: 46mm; margin: 0; padding: 2mm 0.5mm; line-height: 1.4; background: #fff; font-size: 12px; color: #000; font-weight: 900; }
+                    body {
+                        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+                        width: 46mm;
+                        margin: 0;
+                        padding: 2mm 0.5mm;
+                        line-height: 1.4;
+                        background: #fff;
+                        font-size: 10px;
+                        color: #111;
+                        font-weight: 500;
+                    }
                     .receipt-wrapper { width: 100%; }
-                    .ticket { padding: 0; width: 100%; }
                     .center { text-align: center; }
-                    .shop { font-size: 20px; font-weight: 900; margin-bottom: 3px; }
-                    .line { border-top: 1px solid #111; margin: 6px 0; }
-                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
-                    .row > span:last-child, .row > strong:last-child { white-space: nowrap; text-align: right; flex-shrink: 0; }
-                    .head { font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 3px; font-size: 13px; }
-                    .line-item { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
-                    .line-name { flex: 1; white-space: normal; word-break: break-word; overflow-wrap: break-word; line-height: 1.25; font-size: 11px; }
-                    .line-price { text-align: right; font-weight: 900; white-space: nowrap; flex-shrink: 0; font-size: 11px; }
-                    .small { font-size: 11px; line-height: 1.5; font-weight: 800; }
-                    .tax-table { width: 100%; margin-top: 4px; font-size: 11px; border-collapse: collapse; font-weight: 900; table-layout: fixed; }
-                    .tax-table td { font-size: 11px; font-weight: 900; padding: 4px 2px; }
-                    .tax-table td:last-child { text-align: right; }
-                    .tax-table td:first-child { width: 15%; }
-                    .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
-                    .footer { font-size: 11px; font-weight: 800; color: #000; line-height: 1.5; }
+                    .receipt-badge {
+                        display: inline-block;
+                        font-size: 9px;
+                        font-weight: 700;
+                        letter-spacing: 1.5px;
+                        text-transform: uppercase;
+                        color: #444;
+                        border-bottom: 1px solid #222;
+                        padding-bottom: 1px;
+                        margin-bottom: 3px;
+                    }
+                    .shop-title {
+                        font-size: 15px;
+                        font-weight: 800;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        color: #000;
+                        line-height: 1.2;
+                        margin-bottom: 2px;
+                    }
+                    .shop-info {
+                        font-size: 9.5px;
+                        color: #333;
+                        line-height: 1.35;
+                        font-weight: 500;
+                    }
+                    .divider { border: none; border-top: 1px dashed #777; margin: 5px 0; }
+                    .meta-row {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 9.5px;
+                        font-weight: 600;
+                        color: #222;
+                        margin: 2px 0;
+                    }
+                    .head {
+                        font-weight: 800;
+                        font-size: 9px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        color: #222;
+                        border-bottom: 1px solid #111;
+                        padding-bottom: 3px;
+                        margin-bottom: 3px;
+                        display: flex;
+                        justify-content: space-between;
+                    }
+                    .line-item {
+                        display: flex;
+                        align-items: flex-start;
+                        padding: 3px 0;
+                        font-size: 10px;
+                    }
+                    .line-qty { width: 18%; font-weight: 700; color: #222; white-space: nowrap; }
+                    .line-name { width: 54%; font-weight: 700; color: #000; padding: 0 3px; white-space: normal; word-break: break-word; overflow-wrap: break-word; }
+                    .line-price { width: 28%; text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+                    .summary-row {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 9.5px;
+                        color: #444;
+                        margin: 2px 0;
+                    }
+                    .summary-row strong, .summary-row span:last-child {
+                        color: #111;
+                        font-weight: 700;
+                        font-variant-numeric: tabular-nums;
+                    }
+                    .total-row {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 12px;
+                        font-weight: 800;
+                        color: #000;
+                        border-top: 1.5px solid #000;
+                        padding-top: 4px;
+                        margin-top: 4px;
+                    }
+                    .footer-box {
+                        margin-top: 8px;
+                        font-size: 8.5px;
+                        line-height: 1.35;
+                        color: #444;
+                        text-align: center;
+                        border-top: 1px dashed #777;
+                        padding-top: 5px;
+                    }
+                    .footer-thanks {
+                        font-size: 9.5px;
+                        font-weight: 700;
+                        color: #000;
+                        margin-top: 4px;
+                    }
                 </style>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
             </head>
             <body>
                 <div class="receipt-wrapper">
-                <div class="ticket">
                     <div class="center">
-                        <div style="font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:2px;">KUNDENBELEG</div>
-                        <div class="shop">${escapeHtml(shopName || 'Shop')}</div>
-                        ${shopAddress ? `<div class="small" style="font-size: 11px; color: #000; font-weight: 900;">${escapeHtml(shopAddress)}</div>` : ''}
-                        ${shopPhone ? `<div class="small" style="font-size: 11px; color: #000; font-weight: 900;">Tel: ${escapeHtml(shopPhone)}</div>` : ''}
+                        <div class="receipt-badge">Kundenbeleg</div>
+                        <div class="shop-title">${escapeHtml(shopName || 'Shop')}</div>
+                        ${shopAddress ? `<div class="shop-info">${escapeHtml(shopAddress)}</div>` : ''}
+                        ${shopPhone ? `<div class="shop-info">Tel: ${escapeHtml(shopPhone)}</div>` : ''}
                     </div>
 
-                    <div class="line"></div>
-                    <div class="line"></div>
-                    <div style="text-align: center; margin: 6px 0;">
-                        <p style="font-size: 11px; font-weight: 800; color: #000; margin: 0;">${dt.toLocaleString('de-DE')}</p>
-                        <p style="font-size: 11px; font-weight: 800; color: #000; margin: 0;">Beleg: ${escapeHtml(receiptNo || '-')}</p>
+                    <hr class="divider"/>
+
+                    <div class="meta-row">
+                        <span>Datum: ${dt.toLocaleDateString('de-DE')} ${dt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span>Beleg: #${escapeHtml(receiptNo || '-')}</span>
                     </div>
 
-                    <div class="line"></div>
-                    <div class="row head"><span>Artikel</span><span>Betrag</span></div>
-                    ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 €</div></div>'}
+                    <hr class="divider"/>
 
-                    <div class="line"></div>
-                    ${rows.length > 1 ? `<div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>` : ''}
+                    <div class="head">
+                        <span style="width: 18%;">Menge</span>
+                        <span style="width: 54%; padding-left: 3px;">Artikel</span>
+                        <span style="width: 28%; text-align: right;">Betrag</span>
+                    </div>
+                    ${safeRows || '<div class="line-item"><div class="line-qty">1x</div><div class="line-name">Artikel</div><div class="line-price">0,00 €</div></div>'}
+
+                    <hr class="divider"/>
+
+                    ${rows.length > 1 ? `<div class="summary-row"><span>Zwischensumme</span><span>${formatMoney(grossTotal)}</span></div>` : ''}
 
                     ${showTax ? `
-                        <table class="tax-table">
-                            <tbody>
-                                <tr><td>USt. %</td><td>Netto</td><td>USt.</td><td>Brutto</td></tr>
-                                <tr>
-                                    <td>19%</td>
-                                    <td>${formatMoney(netTotal)}</td>
-                                    <td>${formatMoney(taxTotal)}</td>
-                                    <td>${formatMoney(grossTotal)}</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <div class="summary-row"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
+                        <div class="summary-row"><span>USt. (19%)</span><span>${formatMoney(taxTotal)}</span></div>
                     ` : ''}
 
-                    <div class="line"></div>
-                    <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
-                    <div class="line"></div>
-                    <div class="footer center">
+                    <div class="total-row"><span>GESAMTBETRAG</span><span>${formatMoney(grossTotal)}</span></div>
+
+                    <div class="summary-row" style="margin-top: 4px;"><span>Zahlungsart:</span><span>${escapeHtml(paymentMethod || 'Bar')}</span></div>
+
+                    <div class="footer-box">
                         R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.<br/>
-                        Bei Defekt/Mangel erfolgt Erstattung oder Reparatur.<br/>
-                        Vielen Dank. ${escapeHtml(shopName || 'Shop')}
+                        Bei Defekt/Mangel erfolgt Erstattung oder Reparatur.
+                        <div class="footer-thanks">Vielen Dank f&uuml;r Ihren Einkauf!</div>
                     </div>
-                </div>
                 </div>
             </body>
         </html>
