@@ -458,10 +458,9 @@ function buildReceiptHtml({
         const qty = Math.max(1, parseInt(row?.quantity || '1', 10) || 1);
         const lineTotal = Number(row?.total) || 0;
         const lineName = escapeHtml(row?.name || 'Artikel');
-        const lineNameSize = lineName.length > 34 ? '8px' : lineName.length > 26 ? '9px' : lineName.length > 20 ? '10px' : '11px';
         return `
             <div class="line-item">
-                <div class="line-name" style="font-size:${lineNameSize};">${qty}x ${lineName}</div>
+                <div class="line-name">${qty}x ${lineName}</div>
                 <div class="line-price">${formatMoney(lineTotal)}</div>
             </div>
         `;
@@ -488,9 +487,9 @@ function buildReceiptHtml({
                     .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
                     .row > span:last-child, .row > strong:last-child { white-space: nowrap; text-align: right; flex-shrink: 0; }
                     .head { font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 3px; font-size: 13px; }
-                    .line-item { display: flex; justify-content: space-between; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
-                    .line-name { flex: 1; white-space: nowrap; overflow: hidden; line-height: 1.2; }
-                    .line-price { text-align: right; font-weight: 900; white-space: nowrap; flex-shrink: 0; }
+                    .line-item { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
+                    .line-name { flex: 1; white-space: normal; word-break: break-word; overflow-wrap: break-word; line-height: 1.25; font-size: 11px; }
+                    .line-price { text-align: right; font-weight: 900; white-space: nowrap; flex-shrink: 0; font-size: 11px; }
                     .small { font-size: 11px; line-height: 1.5; font-weight: 800; }
                     .tax-table { width: 100%; margin-top: 4px; font-size: 11px; border-collapse: collapse; font-weight: 900; table-layout: fixed; }
                     .tax-table td { font-size: 11px; font-weight: 900; padding: 4px 2px; }

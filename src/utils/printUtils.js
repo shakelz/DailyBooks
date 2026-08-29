@@ -257,15 +257,14 @@ function buildKundenbelegHtml({
     const qty = resolveReceiptItemQuantity(item)
     const imei = resolveReceiptItemImei(item)
     const label = escapePrintHtml(resolveReceiptItemLabel(item))
-    const labelSize = label.length > 34 ? '8px' : label.length > 26 ? '9px' : label.length > 20 ? '10px' : '11px'
     return `
       <tr>
-        <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">${qty}x</td>
-        <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">
-          <div style="font-size: ${labelSize}; white-space: nowrap; overflow: hidden; line-height: 1.2;">${label}</div>
-          ${imei ? `<div style="font-size: 10px; color: #333; margin-top: 2px;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
+        <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; white-space: nowrap;">${qty}x</td>
+        <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; padding-right: 4px; word-break: break-word; overflow-wrap: break-word;">
+          <div style="font-size: 11px; line-height: 1.25; white-space: normal; word-break: break-word; overflow-wrap: break-word;">${label}</div>
+          ${imei ? `<div style="font-size: 10px; color: #333; margin-top: 2px; word-break: break-all;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
         </td>
-        <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900; text-align: right; width: 30%; word-break: break-all;">
+        <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; text-align: right; width: 30%; word-break: break-all; white-space: nowrap;">
           &euro; ${formatReceiptMoney(resolveReceiptItemTotal(item))}
         </td>
       </tr>
@@ -315,23 +314,23 @@ function buildKundenbelegHtml({
 
       <table style="margin-bottom: 8px;">
         <colgroup>
-          <col style="width: 22%;"/>
-          <col style="width: 48%;"/>
+          <col style="width: 18%;"/>
+          <col style="width: 52%;"/>
           <col style="width: 30%;"/>
         </colgroup>
         <thead>
           <tr style="font-weight: 900; border-bottom: 1px solid #000; font-size: 11px;">
-            <td style="padding-bottom: 6px; padding-right: 8px; white-space: nowrap;">Menge</td>
-            <td style="padding-bottom: 6px; padding-right: 6px; white-space: nowrap;">Artikel</td>
-            <td style="padding-bottom: 6px; width: 30%; text-align: right;">Betrag</td>
+            <td style="padding-bottom: 6px; padding-right: 4px; white-space: nowrap;">Menge</td>
+            <td style="padding-bottom: 6px; padding-right: 4px;">Artikel</td>
+            <td style="padding-bottom: 6px; width: 30%; text-align: right; white-space: nowrap;">Betrag</td>
           </tr>
         </thead>
         <tbody>
           ${itemRows || `
             <tr>
-              <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">1x</td>
-              <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900;">Artikel</td>
-              <td style="vertical-align: top; padding-top: 6px; font-size: 11px; font-weight: 900; text-align: right; width: 30%; word-break: break-all;">&euro; 0,00</td>
+              <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; white-space: nowrap;">1x</td>
+              <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; padding-right: 4px; word-break: break-word; overflow-wrap: break-word;">Artikel</td>
+              <td style="vertical-align: top; padding-top: 5px; font-size: 11px; font-weight: 900; text-align: right; width: 30%; word-break: break-all; white-space: nowrap;">&euro; 0,00</td>
             </tr>
           `}
         </tbody>
