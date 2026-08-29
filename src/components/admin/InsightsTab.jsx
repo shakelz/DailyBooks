@@ -962,11 +962,54 @@ export default function InsightsTab() {
         return `${rangeStart.toLocaleDateString('de-DE', options)} – ${rangeEnd.toLocaleDateString('de-DE', options)} (${rangeDays} ${rangeDays === 1 ? 'Tag' : 'Tage'})`;
     }, [rangeStart, rangeEnd, rangeDays]);
 
-    const kpiCategoryBreakdowns = useMemo(() => {
-        const revenueMap = new Map();
-        const expenseMap = new Map();
+    const dailyFinancialLedger = useMemo(() => {
+        const dayMap = new Map();
 
+        // Populate days between rangeStart and rangeEnd
+        const cursor = new Date(rangeStart);
+        cursor.setHours(0, 0, 0, 0);
+        const endCursor = new Date(rangeEnd);
+        endCursor.setHours(23, 59, 59, 999);
+
+        while (cursor <= endCursor) {
+            const key = getDayBucketKey(cursor);
+            const dayDate = new Date(cursor);
+            const isToday = dayDate.toDateString() === new Date().toDateString();
+            dayMap.set(key, {
+                key,
+                dateObj: dayDate,
+                dateFormatted: dayDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                weekday: dayDate.toLocaleDateString('de-DE', { weekday: 'short' }),
+                isToday,
+                revenue: 0,
+                expenses: 0,
+                income: 0,
+                transactionCount: 0,
+            });
+            cursor.setDate(cursor.getDate() + 1);
+        }
+
+        // Accumulate transactions into daily buckets
         transactions.forEach((txn) => {
+            const txnDate = parseTransactionDate(txn);
+            if (!txnDate) return;
+            const key = getDayBucketKey(txnDate);
+            if (!dayMap.has(key)) {
+                const isToday = txnDate.toDateString() === new Date().toDateString();
+                dayMap.set(key, {
+                    key,
+                    dateObj: txnDate,
+                    dateFormatted: txnDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                    weekday: txnDate.toLocaleDateString('de-DE', { weekday: 'short' }),
+                    isToday,
+                    revenue: 0,
+                    expenses: 0,
+                    income: 0,
+                    transactionCount: 0,
+                });
+            }
+
+            const entry = dayMap.get(key);
             const rawAmount = parseFloat(txn?.amount || 0);
             if (rawAmount === 0) return;
 
@@ -975,87 +1018,20 @@ export default function InsightsTab() {
                                 String(txn?.source || '').toLowerCase().includes('repair') ||
                                 (!String(txn?.type || '').toLowerCase().includes('expense') && rawAmount > 0);
 
-            let catName = 'Allgemein';
-            if (txn?.category && typeof txn.category === 'object') {
-                catName = String(txn.category.level1 || txn.category.name || 'Allgemein').trim();
-            } else if (typeof txn?.category === 'string' && txn.category.trim() && !isUUID(txn.category)) {
-                catName = txn.category.trim();
-            } else if (txn?.category_name && !isUUID(txn.category_name)) {
-                catName = String(txn.category_name).trim();
-            } else if (String(txn?.source || '').toLowerCase().includes('repair')) {
-                catName = 'Reparaturen (Repair)';
-            } else if (isFixedExpenseInsightTransaction(txn)) {
-                catName = 'Fixkosten & Gehälter';
-            }
-
-            const targetMap = isIncomeTxn ? revenueMap : expenseMap;
-            if (!targetMap.has(catName)) {
-                targetMap.set(catName, {
-                    name: catName,
-                    amount: 0,
-                    count: 0,
-                    transactions: [],
-                });
-            }
-            const entry = targetMap.get(catName);
-            entry.amount += Math.abs(rawAmount);
-            entry.count += 1;
-            entry.transactions.push(txn);
-        });
-
-        const sortTxns = (list) => [...list].sort((a, b) => {
-            const timeA = new Date(a.occurred_at || a.created_at || a.timestamp || 0).getTime();
-            const timeB = new Date(b.occurred_at || b.created_at || b.timestamp || 0).getTime();
-            return timeB - timeA;
-        });
-
-        const revenueCategories = Array.from(revenueMap.values())
-            .map((c) => ({ ...c, transactions: sortTxns(c.transactions) }))
-            .sort((a, b) => b.amount - a.amount);
-
-        const expenseCategories = Array.from(expenseMap.values())
-            .map((c) => ({ ...c, transactions: sortTxns(c.transactions) }))
-            .sort((a, b) => b.amount - a.amount);
-
-        const incomeMap = new Map();
-        revenueCategories.forEach((cat) => {
-            incomeMap.set(cat.name, {
-                name: cat.name,
-                revenue: cat.amount,
-                expenses: 0,
-                net: cat.amount,
-                count: cat.count,
-                transactions: [...cat.transactions],
-            });
-        });
-        expenseCategories.forEach((cat) => {
-            if (incomeMap.has(cat.name)) {
-                const existing = incomeMap.get(cat.name);
-                existing.expenses = cat.amount;
-                existing.net -= cat.amount;
-                existing.count += cat.count;
-                existing.transactions = sortTxns([...existing.transactions, ...cat.transactions]);
+            if (isIncomeTxn) {
+                entry.revenue += Math.abs(rawAmount);
             } else {
-                incomeMap.set(cat.name, {
-                    name: cat.name,
-                    revenue: 0,
-                    expenses: cat.amount,
-                    net: -cat.amount,
-                    count: cat.count,
-                    transactions: [...cat.transactions],
-                });
+                entry.expenses += Math.abs(rawAmount);
             }
+            entry.transactionCount += 1;
         });
 
-        const incomeCategories = Array.from(incomeMap.values())
-            .sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
-
-        return {
-            revenue: revenueCategories,
-            expenses: expenseCategories,
-            income: incomeCategories,
-        };
-    }, [transactions]);
+        // Compute net income for each day and sort descending (newest first)
+        return Array.from(dayMap.values()).map((row) => ({
+            ...row,
+            income: row.revenue - row.expenses,
+        })).sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
+    }, [transactions, rangeStart, rangeEnd]);
 
     return (
         <div className="space-y-4 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">
@@ -1079,301 +1055,98 @@ export default function InsightsTab() {
                 </div>
             </div>
 
-            {/* ── Highlight Container: Selected Days Total Revenue, Expense & Total Income ── */}
-            <section className="relative overflow-hidden rounded-[28px] border border-slate-200/90 bg-white p-5 md:p-6 shadow-sm">
-                <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-emerald-100/40 blur-3xl" />
-                <div className="pointer-events-none absolute -bottom-16 -left-16 h-64 w-64 rounded-full bg-blue-100/40 blur-3xl" />
-
-                {/* Header with period badge */}
-                <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4 mb-5 border-b border-slate-100">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2.5 bg-slate-900 text-white rounded-2xl shadow-md">
-                            <Scale size={20} />
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h2 className="text-base md:text-lg font-black text-slate-800 tracking-tight">
-                                    Tages- & Zeitraum-Finanzbilanz
-                                </h2>
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-emerald-700">
-                                    <Sparkles size={10} /> Live-Daten
-                                </span>
-                            </div>
-                            <p className="text-xs font-medium text-slate-500 mt-0.5">
-                                Finanzkennzahlen für den aktuell eingestellten Filterzeitraum
-                            </p>
-                        </div>
+            {/* ── Lineless Table Container: Date | Total Revenue | Total Expenses | Total Income ── */}
+            <section className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 space-y-3">
+                {/* Header with period indicator */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-1">
+                    <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.24em] mb-0.5">Tagesübersicht</p>
+                        <h2 className="text-base md:text-lg font-black tracking-tight text-slate-800">Tagesbilanz (Umsatz, Ausgaben &amp; Ertrag)</h2>
                     </div>
-
-                    <div className="inline-flex items-center gap-2 self-start md:self-center bg-slate-100 border border-slate-200 px-3.5 py-1.5 rounded-full shadow-inner text-xs font-bold text-slate-700">
-                        <Calendar size={14} className="text-slate-500" />
+                    <div className="inline-flex items-center gap-2 self-start sm:self-center bg-slate-50 px-3 py-1 rounded-full text-xs font-bold text-slate-600 border border-slate-100">
+                        <Calendar size={13} className="text-slate-400" />
                         <span>{formattedPeriodLabel}</span>
                     </div>
                 </div>
 
-                {/* 3 Core Highlight Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative">
-                    {/* 1. Total Revenue Card */}
-                    <div
-                        onClick={() => setSelectedKpiBreakdown(prev => prev === 'revenue' ? null : 'revenue')}
-                        className={`cursor-pointer relative group rounded-2xl border p-4 md:p-5 transition-all shadow-sm hover:shadow-md ${
-                            selectedKpiBreakdown === 'revenue'
-                                ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-gradient-to-br from-emerald-100/90 via-white to-emerald-50/50'
-                                : 'border-emerald-200/80 bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/30 hover:border-emerald-300'
-                        }`}
-                    >
-                        <div className="flex items-center justify-between gap-3 mb-2">
-                            <span className="text-[11px] font-black uppercase tracking-wider text-emerald-700">
-                                Gesamtumsatz (Revenue)
-                            </span>
-                            <div className="p-2.5 bg-emerald-500 text-white rounded-xl shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform">
-                                <ArrowUpRight size={18} />
-                            </div>
-                        </div>
-                        <div className="text-2xl md:text-3xl font-black text-emerald-900 tracking-tight">
-                            {priceTag(selectedRevenue)}
-                        </div>
-                        <div className="mt-3 pt-2.5 border-t border-emerald-100 flex items-center justify-between text-xs">
-                            <span className="text-slate-500 font-medium">Ø {priceTag(selectedRevenue / rangeDays)} / Tag</span>
-                            <span className="font-bold text-emerald-700 inline-flex items-center gap-0.5 text-[11px]">
-                                {selectedKpiBreakdown === 'revenue' ? 'Schließen' : 'Kategorien'}
-                                <ChevronDown size={14} className={`transition-transform duration-200 ${selectedKpiBreakdown === 'revenue' ? 'rotate-180' : ''}`} />
-                            </span>
-                        </div>
-                    </div>
+                {/* Lineless Table */}
+                <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left border-0">
+                        <thead>
+                            <tr className="text-[11px] font-black uppercase tracking-wider text-slate-400 border-0">
+                                <th className="pb-2.5 pt-1 px-3 font-black text-left">Datum</th>
+                                <th className="pb-2.5 pt-1 px-3 font-black text-right">Gesamtumsatz</th>
+                                <th className="pb-2.5 pt-1 px-3 font-black text-right">Gesamtausgaben</th>
+                                <th className="pb-2.5 pt-1 px-3 font-black text-right">Gesamtertrag</th>
+                            </tr>
+                        </thead>
+                        <tbody className="border-0">
+                            {/* Period Total Summary Row (Prominently styled with subtle background and zero lines) */}
+                            <tr className="bg-slate-50/90 font-black text-sm text-slate-900 border-0">
+                                <td className="py-3 px-3 rounded-l-xl">
+                                    <span className="flex items-center gap-2">
+                                        <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                                        <span>Gesamt ({dailyFinancialLedger.length} {dailyFinancialLedger.length === 1 ? 'Tag' : 'Tage'})</span>
+                                    </span>
+                                </td>
+                                <td className="py-3 px-3 text-right text-emerald-700 font-black tabular-nums">
+                                    {priceTag(selectedRevenue)}
+                                </td>
+                                <td className="py-3 px-3 text-right text-rose-700 font-black tabular-nums">
+                                    {priceTag(selectedExpenses)}
+                                </td>
+                                <td className="py-3 px-3 text-right rounded-r-xl tabular-nums">
+                                    <span className={`font-black ${selectedIncome >= 0 ? 'text-blue-700' : 'text-rose-700'}`}>
+                                        {selectedIncome >= 0 ? '+' : ''}{priceTag(selectedIncome)}
+                                    </span>
+                                </td>
+                            </tr>
 
-                    {/* 2. Total Expenses Card */}
-                    <div
-                        onClick={() => setSelectedKpiBreakdown(prev => prev === 'expenses' ? null : 'expenses')}
-                        className={`cursor-pointer relative group rounded-2xl border p-4 md:p-5 transition-all shadow-sm hover:shadow-md ${
-                            selectedKpiBreakdown === 'expenses'
-                                ? 'border-rose-500 ring-2 ring-rose-500/20 bg-gradient-to-br from-rose-100/90 via-white to-rose-50/50'
-                                : 'border-rose-200/80 bg-gradient-to-br from-rose-50/70 via-white to-pink-50/30 hover:border-rose-300'
-                        }`}
-                    >
-                        <div className="flex items-center justify-between gap-3 mb-2">
-                            <span className="text-[11px] font-black uppercase tracking-wider text-rose-700">
-                                Gesamtausgaben (Expenses)
-                            </span>
-                            <div className="p-2.5 bg-rose-500 text-white rounded-xl shadow-md shadow-rose-500/20 group-hover:scale-105 transition-transform">
-                                <ArrowDownRight size={18} />
-                            </div>
-                        </div>
-                        <div className="text-2xl md:text-3xl font-black text-rose-900 tracking-tight">
-                            {priceTag(selectedExpenses)}
-                        </div>
-                        <div className="mt-3 pt-2.5 border-t border-rose-100 flex items-center justify-between text-xs">
-                            <span className="text-slate-500 font-medium">Ø {priceTag(selectedExpenses / rangeDays)} / Tag</span>
-                            <span className="font-bold text-rose-700 inline-flex items-center gap-0.5 text-[11px]">
-                                {selectedKpiBreakdown === 'expenses' ? 'Schließen' : 'Kategorien'}
-                                <ChevronDown size={14} className={`transition-transform duration-200 ${selectedKpiBreakdown === 'expenses' ? 'rotate-180' : ''}`} />
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* 3. Total Income Card */}
-                    <div
-                        onClick={() => setSelectedKpiBreakdown(prev => prev === 'income' ? null : 'income')}
-                        className={`cursor-pointer relative group rounded-2xl border p-4 md:p-5 transition-all shadow-sm hover:shadow-md ${
-                            selectedKpiBreakdown === 'income'
-                                ? 'border-blue-500 ring-2 ring-blue-500/20 bg-gradient-to-br from-blue-100/90 via-white to-blue-50/50'
-                                : 'border-blue-200/80 bg-gradient-to-br from-blue-50/70 via-white to-indigo-50/30 hover:border-blue-300'
-                        }`}
-                    >
-                        <div className="flex items-center justify-between gap-3 mb-2">
-                            <span className="text-[11px] font-black uppercase tracking-wider text-blue-700">
-                                Gesamtertrag (Total Income)
-                            </span>
-                            <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-md shadow-blue-600/20 group-hover:scale-105 transition-transform">
-                                <Wallet size={18} />
-                            </div>
-                        </div>
-                        <div className={`text-2xl md:text-3xl font-black tracking-tight ${selectedIncome >= 0 ? 'text-blue-900' : 'text-rose-700'}`}>
-                            {priceTag(selectedIncome)}
-                        </div>
-                        <div className="mt-3 pt-2.5 border-t border-blue-100 flex items-center justify-between text-xs">
-                            <span className="text-slate-500 font-medium">Rendite: {revenueMargin.toFixed(1)}%</span>
-                            <span className="font-bold text-blue-700 inline-flex items-center gap-0.5 text-[11px]">
-                                {selectedKpiBreakdown === 'income' ? 'Schließen' : 'Kategorien'}
-                                <ChevronDown size={14} className={`transition-transform duration-200 ${selectedKpiBreakdown === 'income' ? 'rotate-180' : ''}`} />
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Interactive Category Breakdown Drawer (when one card is clicked) */}
-                {selectedKpiBreakdown && (
-                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/90 p-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                        <div className="flex items-center justify-between gap-3 mb-3 pb-2 border-b border-slate-200">
-                            <div className="flex items-center gap-2">
-                                <span className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 shadow-sm">
-                                    {selectedKpiBreakdown === 'revenue' && <TrendingUp size={16} className="text-emerald-600" />}
-                                    {selectedKpiBreakdown === 'expenses' && <Activity size={16} className="text-rose-600" />}
-                                    {selectedKpiBreakdown === 'income' && <Wallet size={16} className="text-blue-600" />}
-                                </span>
-                                <h3 className="text-xs md:text-sm font-black text-slate-800 uppercase tracking-wider">
-                                    {selectedKpiBreakdown === 'revenue' && 'Umsatz nach Kategorien'}
-                                    {selectedKpiBreakdown === 'expenses' && 'Ausgaben nach Kategorien'}
-                                    {selectedKpiBreakdown === 'income' && 'Ertrag / Netto-Bilanz nach Kategorien'}
-                                </h3>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setSelectedKpiBreakdown(null)}
-                                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/60 transition-colors"
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
-
-                        {/* Categories List */}
-                        <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
-                            {((selectedKpiBreakdown === 'revenue'
-                                ? kpiCategoryBreakdowns.revenue
-                                : selectedKpiBreakdown === 'expenses'
-                                ? kpiCategoryBreakdowns.expenses
-                                : kpiCategoryBreakdowns.income
-                            ) || []).map((cat, idx) => {
-                                const isExpanded = expandedCategoryKeys.has(cat.name);
-                                const totalRef = selectedKpiBreakdown === 'revenue'
-                                    ? selectedRevenue
-                                    : selectedKpiBreakdown === 'expenses'
-                                    ? selectedExpenses
-                                    : Math.max(1, selectedRevenue);
-                                const amountVal = selectedKpiBreakdown === 'income' ? cat.net : cat.amount;
-                                const percent = totalRef > 0 ? Math.min(100, (Math.abs(amountVal) / totalRef) * 100) : 0;
-
-                                return (
-                                    <div
-                                        key={`kpi-cat-${idx}-${cat.name}`}
-                                        className="rounded-xl border border-slate-200/80 bg-white overflow-hidden shadow-sm"
+                            {/* Daily Rows */}
+                            {dailyFinancialLedger.length === 0 ? (
+                                <tr className="border-0">
+                                    <td colSpan={4} className="py-6 text-center text-sm text-slate-400 font-medium border-0">
+                                        Keine Buchungen im ausgewählten Zeitraum.
+                                    </td>
+                                </tr>
+                            ) : (
+                                dailyFinancialLedger.map((row) => (
+                                    <tr
+                                        key={row.key}
+                                        className="hover:bg-slate-50/70 transition-colors text-sm border-0 group"
                                     >
-                                        <div
-                                            onClick={() => toggleCategoryExpanded(cat.name)}
-                                            className="p-3 cursor-pointer hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-3"
-                                        >
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-bold text-sm text-slate-800 truncate">{cat.name}</span>
-                                                    <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">
-                                                        {cat.count} {cat.count === 1 ? 'Buchung' : 'Buchungen'}
+                                        <td className="py-2.5 px-3 rounded-l-xl font-medium text-slate-700 border-0">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold text-slate-900">{row.dateFormatted}</span>
+                                                <span className="text-xs text-slate-400 font-semibold">({row.weekday})</span>
+                                                {row.isToday && (
+                                                    <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                                        Heute
                                                     </span>
-                                                </div>
-                                                <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
-                                                    <div
-                                                        style={{ width: `${percent}%` }}
-                                                        className={`h-full ${
-                                                            selectedKpiBreakdown === 'revenue'
-                                                                ? 'bg-emerald-500'
-                                                                : selectedKpiBreakdown === 'expenses'
-                                                                ? 'bg-rose-500'
-                                                                : amountVal >= 0 ? 'bg-blue-500' : 'bg-rose-500'
-                                                        }`}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="text-right flex items-center gap-3">
-                                                <div>
-                                                    <div className="font-black text-sm text-slate-900">{priceTag(amountVal)}</div>
-                                                    <div className="text-[10px] font-bold text-slate-400">{percent.toFixed(1)}%</div>
-                                                </div>
-                                                <div className="text-slate-400">
-                                                    {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Expanded Transactions List */}
-                                        {isExpanded && (
-                                            <div className="border-t border-slate-100 bg-slate-50/70 p-2.5 space-y-1.5 animate-in fade-in duration-200">
-                                                {cat.transactions.length === 0 ? (
-                                                    <div className="text-xs text-slate-400 text-center py-2">Keine Einzeltransaktionen gefunden.</div>
-                                                ) : (
-                                                    cat.transactions.map((txn, tIdx) => {
-                                                        const txnDate = parseTransactionDate(txn);
-                                                        const dateStr = txnDate ? txnDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : '-';
-                                                        const timeStr = txnDate ? txnDate.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
-                                                        const txnAmount = parseFloat(txn.amount || 0);
-
-                                                        return (
-                                                            <div
-                                                                key={`txn-${txn.id || tIdx}`}
-                                                                onClick={() => setDetailModalTxn(txn)}
-                                                                className="p-2 bg-white rounded-lg border border-slate-200/60 hover:border-blue-300 hover:bg-blue-50/30 transition-all cursor-pointer flex items-center justify-between gap-2 text-xs"
-                                                            >
-                                                                <div className="min-w-0 flex-1 flex items-center gap-2">
-                                                                    <span className="font-semibold text-slate-400 whitespace-nowrap text-[11px]">{dateStr} {timeStr}</span>
-                                                                    <span className="font-bold text-slate-800 truncate">{txn.name || txn.desc || txn.description || 'Artikel'}</span>
-                                                                    {txn.paymentMethod && (
-                                                                        <span className="hidden sm:inline-block text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                                                                            {txn.paymentMethod}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <div className="font-black text-slate-900 whitespace-nowrap">
-                                                                    {priceTag(txnAmount)}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })
+                                                )}
+                                                {row.transactionCount > 0 && (
+                                                    <span className="text-[10px] font-semibold text-slate-400 hidden sm:inline">
+                                                        • {row.transactionCount} {row.transactionCount === 1 ? 'Buchung' : 'Buchungen'}
+                                                    </span>
                                                 )}
                                             </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {/* Financial Balance Summary Bar */}
-                <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-3.5">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2 text-xs">
-                        <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Finanzverteilung:</span>
-                            <span className="font-bold text-slate-700">Umsatz vs. Ausgaben</span>
-                        </div>
-                        <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-600">
-                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Umsatz: {selectedRevenue > 0 ? ((selectedRevenue / Math.max(1, selectedRevenue + selectedExpenses)) * 100).toFixed(0) : 0}%</span>
-                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Ausgaben: {selectedExpenses > 0 ? ((selectedExpenses / Math.max(1, selectedRevenue + selectedExpenses)) * 100).toFixed(0) : 0}%</span>
-                            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Ertrag: {priceTag(selectedIncome)}</span>
-                        </div>
-                    </div>
-
-                    <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden flex">
-                        <div
-                            style={{ width: `${selectedRevenue > 0 ? Math.min(100, (selectedRevenue / Math.max(1, selectedRevenue + selectedExpenses)) * 100) : 0}%` }}
-                            className="bg-emerald-500 h-full transition-all duration-500"
-                            title={`Umsatz: ${priceTag(selectedRevenue)}`}
-                        />
-                        <div
-                            style={{ width: `${selectedExpenses > 0 ? Math.min(100, (selectedExpenses / Math.max(1, selectedRevenue + selectedExpenses)) * 100) : 0}%` }}
-                            className="bg-rose-500 h-full transition-all duration-500"
-                            title={`Ausgaben: ${priceTag(selectedExpenses)}`}
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-2.5 border-t border-slate-200/60 text-xs">
-                        <div className="text-slate-600">
-                            <span className="block text-[10px] uppercase font-bold text-slate-400">Buchungen</span>
-                            <span className="font-bold text-slate-800">{transactions.length} Transaktionen</span>
-                        </div>
-                        <div className="text-slate-600">
-                            <span className="block text-[10px] uppercase font-bold text-slate-400">Ø Bon / Ticket</span>
-                            <span className="font-bold text-slate-800">{priceTag(transactions.length > 0 ? selectedRevenue / transactions.length : 0)}</span>
-                        </div>
-                        <div className="text-slate-600">
-                            <span className="block text-[10px] uppercase font-bold text-slate-400">Tägl. Netto-Ertrag</span>
-                            <span className="font-bold text-slate-800">{priceTag(selectedIncome / rangeDays)}</span>
-                        </div>
-                        <div className="text-slate-600">
-                            <span className="block text-[10px] uppercase font-bold text-slate-400">Status</span>
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${selectedIncome >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                                {selectedIncome >= 0 ? 'Positiv (Gewinn)' : 'Negativ (Verlust)'}
-                            </span>
-                        </div>
-                    </div>
+                                        </td>
+                                        <td className="py-2.5 px-3 text-right font-bold text-emerald-600 tabular-nums border-0">
+                                            {row.revenue > 0 ? priceTag(row.revenue) : '0,00 €'}
+                                        </td>
+                                        <td className="py-2.5 px-3 text-right font-bold text-rose-600 tabular-nums border-0">
+                                            {row.expenses > 0 ? priceTag(row.expenses) : '0,00 €'}
+                                        </td>
+                                        <td className="py-2.5 px-3 text-right rounded-r-xl font-bold tabular-nums border-0">
+                                            <span className={row.income > 0 ? 'text-blue-600 font-black' : row.income < 0 ? 'text-rose-600 font-black' : 'text-slate-400'}>
+                                                {row.income > 0 ? '+' : ''}{priceTag(row.income)}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </section>
 
