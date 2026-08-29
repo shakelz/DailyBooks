@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Printer } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Printer, ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
 
 import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
 import { useAuth } from '../context/AuthContext';
@@ -763,6 +763,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [contributionModeConfigStatus, setContributionModeConfigStatus] = useState('');
     const [kpiSettingsVersion, setKpiSettingsVersion] = useState(0);
     const [activeKpiBreakdownType, setActiveKpiBreakdownType] = useState('');
+    const [expandedKpiCategoryKeys, setExpandedKpiCategoryKeys] = useState({});
     const [recentlyDeletedTxn, setRecentlyDeletedTxn] = useState(null);
     const [isLocked, setIsLocked] = useState(false);
     const [unlockPin, setUnlockPin] = useState('');
@@ -1122,6 +1123,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             setShowPurchaseProductSuggestions(false);
             setSelectedMobileInventoryItem(null);
             setActiveKpiBreakdownType('');
+            setExpandedKpiCategoryKeys({});
 
             escCount = 0;
             if (escTimer) {
@@ -1915,12 +1917,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const displaySub = toTitle(subCategoryName || '');
             const label = displaySub ? `${displayCat} / ${displaySub}` : displayCat;
             const key = label.toLowerCase();
-            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0 };
+            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0, transactions: [] };
             categoryMap[key].amount += contribution;
             categoryMap[key].count += 1;
+            categoryMap[key].transactions.push({
+                ...txn,
+                kpiContribution: contribution,
+            });
         });
         return Object.values(categoryMap)
             .filter((row) => row.amount !== 0)
+            .map((row) => ({
+                ...row,
+                transactions: (row.transactions || []).sort((a, b) => {
+                    const timeA = new Date(a.timestamp || a.created_at || a.date || 0).getTime() || 0;
+                    const timeB = new Date(b.timestamp || b.created_at || b.date || 0).getTime() || 0;
+                    return timeB - timeA;
+                })
+            }))
             .sort((a, b) => b.amount - a.amount);
     }, [debouncedRevenueTransactions, resolveKpiRevenueContribution, resolveTxnContributionMode, resolveTxnCategoryParts]);
 
@@ -1934,28 +1948,51 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const label = displaySub ? `${displayCat} / ${displaySub}` : displayCat;
             const key = label.toLowerCase();
             const amount = parseFloat(txn?.amount) || 0;
-            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0 };
+            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0, transactions: [] };
             categoryMap[key].amount += amount;
             categoryMap[key].count += 1;
+            categoryMap[key].transactions.push({
+                ...txn,
+                kpiContribution: amount,
+            });
         });
         return Object.values(categoryMap)
             .filter((row) => row.amount > 0)
+            .map((row) => ({
+                ...row,
+                transactions: (row.transactions || []).sort((a, b) => {
+                    const timeA = new Date(a.timestamp || a.created_at || a.date || 0).getTime() || 0;
+                    const timeB = new Date(b.timestamp || b.created_at || b.date || 0).getTime() || 0;
+                    return timeB - timeA;
+                })
+            }))
             .sort((a, b) => b.amount - a.amount);
     }, [kpiExpenseTransactions, resolveTxnCategoryParts]);
 
     const kpiIncomeCategoryBreakdown = useMemo(() => {
         const combinedMap = {};
         kpiRevenueCategoryBreakdown.forEach((row) => {
-            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0 };
+            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0, transactions: [] };
             combinedMap[row.key].amount += row.amount;
             combinedMap[row.key].count += row.count;
+            combinedMap[row.key].transactions.push(...(row.transactions || []));
         });
         kpiExpenseCategoryBreakdown.forEach((row) => {
-            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0 };
+            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0, transactions: [] };
             combinedMap[row.key].amount -= row.amount;
             combinedMap[row.key].count += row.count;
+            combinedMap[row.key].transactions.push(...(row.transactions || []));
         });
-        return Object.values(combinedMap).sort((a, b) => b.amount - a.amount);
+        return Object.values(combinedMap)
+            .map((row) => ({
+                ...row,
+                transactions: (row.transactions || []).sort((a, b) => {
+                    const timeA = new Date(a.timestamp || a.created_at || a.date || 0).getTime() || 0;
+                    const timeB = new Date(b.timestamp || b.created_at || b.date || 0).getTime() || 0;
+                    return timeB - timeA;
+                })
+            }))
+            .sort((a, b) => b.amount - a.amount);
     }, [kpiRevenueCategoryBreakdown, kpiExpenseCategoryBreakdown]);
 
     const revenueBreakdown = useMemo(() => buildPaymentBreakdown(debouncedRevenueTransactions), [debouncedRevenueTransactions]);
@@ -4998,34 +5035,158 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             </main>
 
             {activeKpiBreakdown && (
-                <div className="fixed inset-0 z-[84]" onClick={() => setActiveKpiBreakdownType('')}>
+                <div className="fixed inset-0 z-[84]" onClick={() => { setActiveKpiBreakdownType(''); setExpandedKpiCategoryKeys({}); }}>
                     <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
-                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0 bg-white">
                             <div>
                                 <h3 className="text-sm font-black text-slate-800">{activeKpiBreakdown.title}</h3>
                                 <p className="text-[11px] text-slate-500">{activeKpiBreakdown.subtitle}</p>
                             </div>
-                            <button onClick={() => setActiveKpiBreakdownType('')} className="text-slate-500 hover:text-slate-700">x</button>
+                            <button
+                                onClick={() => { setActiveKpiBreakdownType(''); setExpandedKpiCategoryKeys({}); }}
+                                className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
                         </div>
-                        <div className="p-4 space-y-3">
+                        <div className="p-4 space-y-3 overflow-y-auto flex-1">
                             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-center justify-between">
                                 <p className="text-xs font-semibold text-slate-600">KPI Total</p>
                                 <p className={`text-sm font-black ${activeKpiBreakdown.total >= 0 ? activeKpiBreakdown.positiveClass : activeKpiBreakdown.negativeClass}`}>{priceTag(activeKpiBreakdown.total)}</p>
                             </div>
 
-                            <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                            <div className="space-y-2 pr-1">
                                 {!activeKpiBreakdown.rows.length ? (
                                     <p className="text-xs text-slate-400 text-center py-10">No category contributions in selected period.</p>
-                                ) : activeKpiBreakdown.rows.map((row) => (
-                                    <div key={`kpi-break-${row.key}`} className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 flex items-center justify-between gap-2">
-                                        <div className="min-w-0">
-                                            <p className="text-xs font-bold text-slate-700 truncate">{row.label}</p>
-                                            <p className="text-[10px] text-slate-500">{row.count} transaction(s)</p>
+                                ) : activeKpiBreakdown.rows.map((row) => {
+                                    const isExpanded = Boolean(expandedKpiCategoryKeys[row.key]);
+                                    const txns = row.transactions || [];
+
+                                    const toggleCategory = () => {
+                                        setExpandedKpiCategoryKeys((prev) => ({
+                                            ...prev,
+                                            [row.key]: !prev[row.key],
+                                        }));
+                                    };
+
+                                    return (
+                                        <div
+                                            key={`kpi-break-${row.key}`}
+                                            className={`rounded-xl border transition-all duration-200 overflow-hidden ${
+                                                isExpanded ? 'border-blue-300 bg-white shadow-sm ring-1 ring-blue-100' : 'border-slate-200 bg-slate-50/70 hover:bg-slate-100/80 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <div
+                                                role="button"
+                                                tabIndex={0}
+                                                onClick={toggleCategory}
+                                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCategory(); } }}
+                                                className="px-3.5 py-3 flex items-center justify-between gap-3 cursor-pointer select-none"
+                                            >
+                                                <div className="min-w-0 flex items-center gap-2.5">
+                                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${isExpanded ? 'bg-blue-600 text-white rotate-180 shadow-sm' : 'bg-slate-200/80 text-slate-600'}`}>
+                                                        <ChevronDown size={14} />
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs font-bold text-slate-800 truncate">{row.label}</p>
+                                                        <p className="text-[10px] text-slate-500 font-medium">
+                                                            {row.count} {row.count === 1 ? 'transaction' : 'transactions'}
+                                                            <span className="text-slate-400"> • {isExpanded ? 'Click to collapse' : 'Click to show details'}</span>
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right shrink-0">
+                                                    <p className={`text-sm font-black font-mono ${row.amount >= 0 ? activeKpiBreakdown.positiveClass : activeKpiBreakdown.negativeClass}`}>
+                                                        {priceTag(row.amount)}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {isExpanded && (
+                                                <div className="border-t border-slate-200/70 bg-slate-50/70 p-2.5 space-y-1.5">
+                                                    {txns.length === 0 ? (
+                                                        <p className="text-xs text-slate-400 py-3 text-center">No transaction records found for this category.</p>
+                                                    ) : (
+                                                        <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                                                            {txns.map((txn, idx) => {
+                                                                const txnKey = getTransactionIdentityKey(txn) || `kpi-txn-${txn.id || idx}-${txn.time || ''}-${idx}`;
+                                                                const invNo = getTransactionInvoiceNumber(txn);
+                                                                const displayName = resolveTransactionDisplayName(txn);
+                                                                const txnAmount = txn.kpiContribution !== undefined ? txn.kpiContribution : (parseFloat(txn.amount) || 0);
+                                                                const isIncomeTxn = normalizeTxnType(txn.type) === 'income';
+
+                                                                return (
+                                                                    <div
+                                                                        key={txnKey}
+                                                                        onClick={() => openTransactionDetailModal(txn)}
+                                                                        className="group w-full text-left rounded-xl border border-slate-200/80 bg-white p-2.5 grid grid-cols-[1fr_auto_auto] items-center gap-2.5 hover:border-blue-300 hover:bg-blue-50/50 hover:shadow-sm transition-all cursor-pointer"
+                                                                        title="Click to view full transaction details"
+                                                                    >
+                                                                        <div className="min-w-0">
+                                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
+                                                                                    {displayName}
+                                                                                </p>
+                                                                                {txn.type && (
+                                                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
+                                                                                        isIncomeTxn ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                                                                    }`}>
+                                                                                        {txn.type}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                                                                {(txn.date || txn.time) && (
+                                                                                    <span className="font-medium text-slate-600">
+                                                                                        {txn.date || ''} {txn.time || ''}
+                                                                                    </span>
+                                                                                )}
+                                                                                {invNo && (
+                                                                                    <span className="text-slate-500 font-mono">
+                                                                                        • Inv #{invNo}
+                                                                                    </span>
+                                                                                )}
+                                                                                {txn.paymentMethod && (
+                                                                                    <span className="text-slate-500">
+                                                                                        • {txn.paymentMethod}
+                                                                                    </span>
+                                                                                )}
+                                                                                {txn.customerName && (
+                                                                                    <span className="text-slate-500 truncate max-w-[120px]">
+                                                                                        • {txn.customerName}
+                                                                                    </span>
+                                                                                )}
+                                                                                {txn.workerId && (
+                                                                                    <span className="text-slate-500">
+                                                                                        • Staff #{txn.workerId}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="text-right shrink-0">
+                                                                            <p className={`text-xs font-black font-mono ${txnAmount >= 0 ? (isIncomeTxn ? 'text-emerald-700' : activeKpiBreakdown.positiveClass) : activeKpiBreakdown.negativeClass}`}>
+                                                                                {priceTag(txnAmount)}
+                                                                            </p>
+                                                                            {txn.quantity && Number(txn.quantity) > 1 && (
+                                                                                <p className="text-[9px] text-slate-400 font-medium">Qty: {txn.quantity}</p>
+                                                                            )}
+                                                                        </div>
+
+                                                                        <div className="text-slate-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all">
+                                                                            <ChevronRight size={14} />
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
-                                        <p className={`text-sm font-black ${row.amount >= 0 ? activeKpiBreakdown.positiveClass : activeKpiBreakdown.negativeClass}`}>{priceTag(row.amount)}</p>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     </div>
