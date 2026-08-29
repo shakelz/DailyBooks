@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useMemo, useEffect } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
@@ -8,6 +8,7 @@ import { CURRENCY_CONFIG } from '../utils/currency';
 
 // Built-in chip library
 const CHIP_LIBRARY = [
+    { key: 'imei', label: 'IMEI', icon: 'IMEI', type: 'text', placeholder: 'Enter IMEI...' },
     { key: 'warranty', label: 'Warranty', icon: 'WAR', type: 'select', options: ['No Warranty', '14 Days', '1 Month', '3 Months', '6 Months', '1 Year', '2 Years'] },
     { key: 'variant', label: 'Variant', icon: 'VAR', type: 'text', placeholder: 'e.g. 8GB/256GB, Pro Max' },
     { key: 'supplierUrl', label: 'Supplier URL', icon: 'URL', type: 'url', placeholder: 'https://supplier-link.com' },
@@ -17,7 +18,7 @@ const CHIP_LIBRARY = [
     { key: 'networkType', label: 'Network Type', icon: 'NET', type: 'select', options: ['4G LTE', '5G', '3G', 'WiFi Only'] },
     { key: 'packagingCond', label: 'Packaging Condition', icon: 'PKG', type: 'select', options: ['Sealed Box', 'Open Box', 'No Box', 'Damaged Box'] },
 ];
-const HIDDEN_SPEC_KEYS = ['imei', 'color', 'condition', 'compatibility', 'quality', 'brand'];
+const HIDDEN_SPEC_KEYS = ['color', 'condition', 'compatibility', 'quality', 'brand'];
 const PAYMENT_MODE_OPTIONS = ['Cash', 'Visa', 'Online'];
 
 export default function SmartCategoryForm({
@@ -118,13 +119,16 @@ export default function SmartCategoryForm({
                 setImageFile(null);
 
                 // Chips & Attributes
-                if (initialData.attributes) {
-                    const attrs = initialData.attributes;
+                if (initialData.attributes || initialData.imei) {
+                    const attrs = initialData.attributes || {};
                     const cleanedAttrs = Object.entries(attrs).reduce((acc, [key, value]) => {
                         if (HIDDEN_SPEC_KEYS.includes(key)) return acc;
                         acc[key] = value;
                         return acc;
                     }, {});
+                    if (initialData.imei && !cleanedAttrs.imei) {
+                        cleanedAttrs.imei = initialData.imei;
+                    }
                     setDynamicFields(cleanedAttrs);
 
                     const libraryKeys = CHIP_LIBRARY.map(c => c.key);
