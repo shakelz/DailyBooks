@@ -532,10 +532,8 @@ function buildReceiptHtml({
                         margin: 2px 0;
                     }
                     .head {
-                        font-weight: 800;
-                        font-size: 9px;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
+                        font-weight: 700;
+                        font-size: 9.5px;
                         color: #222;
                         border-bottom: 1px solid #111;
                         padding-bottom: 3px;
@@ -549,8 +547,8 @@ function buildReceiptHtml({
                         padding: 3px 0;
                         font-size: 10px;
                     }
-                    .line-qty { width: 18%; font-weight: 700; color: #222; white-space: nowrap; }
-                    .line-name { width: 54%; font-weight: 700; color: #000; padding: 0 3px; white-space: normal; word-break: break-word; overflow-wrap: break-word; }
+                    .line-qty { width: 28%; font-weight: 700; color: #222; padding-right: 6px; white-space: nowrap; text-align: left; }
+                    .line-name { width: 44%; font-weight: 700; color: #000; padding-left: 2px; padding-right: 4px; white-space: normal; word-break: break-word; overflow-wrap: break-word; text-align: left; }
                     .line-price { width: 28%; text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
                     .summary-row {
                         display: flex;
@@ -595,7 +593,6 @@ function buildReceiptHtml({
             <body>
                 <div class="receipt-wrapper">
                     <div class="center">
-                        <div class="receipt-badge">Kundenbeleg</div>
                         <div class="shop-title">${escapeHtml(shopName || 'Shop')}</div>
                         ${shopAddress ? `<div class="shop-info">${escapeHtml(shopAddress)}</div>` : ''}
                         ${shopPhone ? `<div class="shop-info">Tel: ${escapeHtml(shopPhone)}</div>` : ''}
@@ -611,8 +608,8 @@ function buildReceiptHtml({
                     <hr class="divider"/>
 
                     <div class="head">
-                        <span style="width: 18%;">Menge</span>
-                        <span style="width: 54%; padding-left: 3px;">Artikel</span>
+                        <span style="width: 28%; text-align: left; padding-right: 6px;">Menge</span>
+                        <span style="width: 44%; text-align: left; padding-left: 2px; padding-right: 4px;">Artikel</span>
                         <span style="width: 28%; text-align: right;">Betrag</span>
                     </div>
                     ${safeRows || '<div class="line-item"><div class="line-qty">1x</div><div class="line-name">Artikel</div><div class="line-price">0,00 €</div></div>'}

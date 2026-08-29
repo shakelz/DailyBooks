@@ -336,7 +336,7 @@ function buildKundenbelegHtml({
   <html>
     <head>
       <meta charset="utf-8"/>
-      <title>Kundenbeleg - ${escapePrintHtml(transactionId || '')}</title>
+      <title>Beleg - ${escapePrintHtml(transactionId || '')}</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         @media print {
@@ -355,18 +355,7 @@ function buildKundenbelegHtml({
           font-size: 10px;
           font-weight: 500;
         }
-        .receipt-header { text-align: center; margin-bottom: 4px; }
-        .receipt-badge {
-          display: inline-block;
-          font-size: 9px;
-          font-weight: 700;
-          letter-spacing: 1.5px;
-          text-transform: uppercase;
-          color: #444;
-          border-bottom: 1px solid #222;
-          padding-bottom: 1px;
-          margin-bottom: 3px;
-        }
+        .receipt-header { text-align: center; margin-bottom: 4px; padding-top: 1mm; }
         .shop-title {
           font-size: 15px;
           font-weight: 800;
@@ -383,7 +372,6 @@ function buildKundenbelegHtml({
           font-weight: 500;
         }
         .divider { border: none; border-top: 1px dashed #777; margin: 5px 0; }
-        .divider-solid { border: none; border-top: 1px solid #111; margin: 5px 0; }
         .meta-row {
           display: flex;
           justify-content: space-between;
@@ -394,17 +382,15 @@ function buildKundenbelegHtml({
         }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         th {
-          font-size: 9px;
-          font-weight: 800;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
+          font-size: 9.5px;
+          font-weight: 700;
           color: #222;
           border-bottom: 1px solid #111;
           padding: 3px 0 4px 0;
         }
         td { vertical-align: top; padding: 4px 0; font-size: 10px; }
-        .col-qty { width: 18%; text-align: left; font-weight: 700; color: #222; padding-right: 3px; white-space: nowrap; }
-        .col-name { width: 54%; text-align: left; padding-right: 4px; padding-left: 1px; }
+        .col-qty { width: 28%; text-align: left; font-weight: 700; color: #222; padding-right: 6px; white-space: nowrap; }
+        .col-name { width: 44%; text-align: left; padding-left: 2px; padding-right: 4px; }
         .col-price { width: 28%; text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .summary-table { width: 100%; margin: 3px 0; font-size: 9.5px; }
         .summary-table td { padding: 1.5px 0; }
@@ -437,7 +423,6 @@ function buildKundenbelegHtml({
     </head>
     <body>
       <div class="receipt-header">
-        <div class="receipt-badge">Kundenbeleg</div>
         <div class="shop-title">${escapePrintHtml(shopName)}</div>
         ${shopAddress ? `<div class="shop-info">${escapePrintHtml(shopAddress)}</div>` : ''}
         ${shopPhone ? `<div class="shop-info">Tel: ${escapePrintHtml(shopPhone)}</div>` : ''}
@@ -454,14 +439,14 @@ function buildKundenbelegHtml({
 
       <table style="margin-bottom: 4px;">
         <colgroup>
-          <col style="width: 18%;"/>
-          <col style="width: 54%;"/>
+          <col style="width: 28%;"/>
+          <col style="width: 44%;"/>
           <col style="width: 28%;"/>
         </colgroup>
         <thead>
           <tr>
-            <th style="text-align: left;">Menge</th>
-            <th style="text-align: left; padding-left: 1px;">Artikel</th>
+            <th style="text-align: left; padding-right: 6px;">Menge</th>
+            <th style="text-align: left; padding-left: 2px; padding-right: 4px;">Artikel</th>
             <th style="text-align: right;">Betrag</th>
           </tr>
         </thead>
