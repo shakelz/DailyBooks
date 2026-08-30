@@ -535,16 +535,16 @@ function setCategoryHiddenEntry(shopId, level, name, parent = '', scope = '', is
 
 function resolveCategoryHidden(record, hiddenMap = null) {
     if (!record || typeof record !== 'object') return false;
-    if (record.is_hidden !== undefined && record.is_hidden !== null) return Boolean(record.is_hidden);
-    if (record.isHidden !== undefined && record.isHidden !== null) return Boolean(record.isHidden);
-    if (record.hidden !== undefined && record.hidden !== null) return Boolean(record.hidden);
     const hasParent = Boolean(cleanText(record.parent) || cleanText(record.parent_id || record.parent_category_id));
     const level = Number(record.level) || (hasParent ? 2 : 1);
     const name = record.name || record.category_name || '';
     const parent = record.parent || '';
-    const scope = record.scope || record.category_purpose || '';
+    const scope = normalizeCategoryScope(record.scope || record.category_purpose || CATEGORY_SCOPE_SALES);
     const key = categoryHiddenKey(level, name, parent, scope);
     if (hiddenMap && key in hiddenMap) return Boolean(hiddenMap[key]);
+    if (record.is_hidden !== undefined && record.is_hidden !== null) return Boolean(record.is_hidden);
+    if (record.isHidden !== undefined && record.isHidden !== null) return Boolean(record.isHidden);
+    if (record.hidden !== undefined && record.hidden !== null) return Boolean(record.hidden);
     return false;
 }
 
@@ -577,7 +577,7 @@ function resolveCategoryScopeRecord(record, scopeMap = null) {
 function withCategoryScope(record, scopeMap = null, hiddenMap = null) {
     if (!record || typeof record !== 'object') return record;
     const scope = resolveCategoryScopeRecord(record, scopeMap);
-    const isHidden = resolveCategoryHidden(record, hiddenMap);
+    const isHidden = resolveCategoryHidden({ ...record, scope, category_purpose: scope }, hiddenMap);
     return { ...record, scope, category_purpose: scope, is_hidden: isHidden, isHidden };
 }
 
@@ -1738,14 +1738,22 @@ export function InventoryProvider({ children }) {
                     const newCat = withCategoryScope(normalizeCategoryRecord(payload.new, categoryLookupsRef.current.byId), readCategoryScopeMap(sid));
                     if (newCat.level === 1) {
                         setL1Categories(prev => {
-                            if (prev.some(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name))) return prev;
+                            if (prev.some(c => {
+                                const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name);
+                                const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                                return sameName && cScope === newCat.scope;
+                            })) return prev;
                             return [...prev, newCat];
                         });
                     } else if (newCat.level === 2) {
                         setL2Map(prev => {
                             const parentBucket = Object.keys(prev || {}).find((key) => normalizeCategoryNameForMatch(key) === normalizeCategoryNameForMatch(newCat.parent)) || newCat.parent;
                             const currentList = prev[parentBucket] || [];
-                            if (currentList.some(c => normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name))) return prev;
+                            if (currentList.some(c => {
+                                const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c.name : c) === normalizeCategoryNameForMatch(newCat.name);
+                                const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                                return sameName && cScope === newCat.scope;
+                            })) return prev;
                             return { ...prev, [parentBucket]: [...currentList, { ...newCat, parent: parentBucket }] };
                         });
                     }
@@ -1755,9 +1763,11 @@ export function InventoryProvider({ children }) {
                     if (updated.level === 1) {
                         setL1Categories(prev => prev.map(c => {
                             const cName = typeof c === 'object' ? c.name : c;
-                            if ((typeof c === 'object' && c.id === updated.id) || cName === updated.name) {
-                                const currentScope = typeof c === 'object' ? c.scope : undefined;
-                                return { ...updated, scope: updated.scope || currentScope || CATEGORY_SCOPE_SALES };
+                            const cId = typeof c === 'object' ? c.id : '';
+                            const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                            const isMatch = (cId && updated.id && cId === updated.id) || (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(updated.name) && cScope === updated.scope);
+                            if (isMatch) {
+                                return { ...updated, scope: updated.scope || cScope || CATEGORY_SCOPE_SALES };
                             }
                             return c;
                         }));
@@ -1765,11 +1775,16 @@ export function InventoryProvider({ children }) {
                         setL2Map(prev => {
                             const next = { ...prev };
                             if (next[updated.parent]) {
-                                next[updated.parent] = next[updated.parent].map(c =>
-                                    ((typeof c === 'object' && c.id === updated.id) || (typeof c === 'object' ? c.name : c) === updated.name)
-                                        ? { ...updated, scope: updated.scope || (typeof c === 'object' ? c.scope : undefined) || CATEGORY_SCOPE_SALES }
-                                        : c
-                                );
+                                next[updated.parent] = next[updated.parent].map(c => {
+                                    const cName = typeof c === 'object' ? c.name : c;
+                                    const cId = typeof c === 'object' ? c.id : '';
+                                    const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                                    const isMatch = (cId && updated.id && cId === updated.id) || (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(updated.name) && cScope === updated.scope);
+                                    if (isMatch) {
+                                        return { ...updated, scope: updated.scope || cScope || CATEGORY_SCOPE_SALES };
+                                    }
+                                    return c;
+                                });
                             }
                             return next;
                         });
@@ -3020,15 +3035,19 @@ export function InventoryProvider({ children }) {
         // Update local hidden cache
         setCategoryHiddenEntry(sid, level, strIdentifier, parentName, normalizedScope, hiddenBool);
 
-        // Update local state
+        // Update local state ONLY for the matching scope
         if (Number(level) === 1) {
             setL1Categories((prev) => prev.map((c) => {
                 const cName = typeof c === 'object' ? c?.name : c;
                 const cId = typeof c === 'object' ? c?.id : '';
-                if (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(strIdentifier) || cId === strIdentifier) {
+                const cScope = typeof c === 'object'
+                    ? normalizeCategoryScope(c?.scope || c?.category_purpose)
+                    : CATEGORY_SCOPE_SALES;
+                const isMatch = (cId && cId === strIdentifier) || normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(strIdentifier);
+                if (isMatch && cScope === normalizedScope) {
                     return typeof c === 'object'
-                        ? { ...c, is_hidden: hiddenBool, isHidden: hiddenBool }
-                        : { name: c, is_hidden: hiddenBool, isHidden: hiddenBool };
+                        ? { ...c, is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope, category_purpose: normalizedScope }
+                        : { name: c, is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope, category_purpose: normalizedScope };
                 }
                 return c;
             }));
@@ -3040,10 +3059,14 @@ export function InventoryProvider({ children }) {
                 next[bucketKey] = currentList.map((c) => {
                     const cName = typeof c === 'object' ? c?.name : c;
                     const cId = typeof c === 'object' ? c?.id : '';
-                    if (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(strIdentifier) || cId === strIdentifier) {
+                    const cScope = typeof c === 'object'
+                        ? normalizeCategoryScope(c?.scope || c?.category_purpose)
+                        : CATEGORY_SCOPE_SALES;
+                    const isMatch = (cId && cId === strIdentifier) || normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(strIdentifier);
+                    if (isMatch && cScope === normalizedScope) {
                         return typeof c === 'object'
-                            ? { ...c, is_hidden: hiddenBool, isHidden: hiddenBool }
-                            : { name: c, is_hidden: hiddenBool, isHidden: hiddenBool };
+                            ? { ...c, is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope, category_purpose: normalizedScope }
+                            : { name: c, is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope, category_purpose: normalizedScope };
                     }
                     return c;
                 });
