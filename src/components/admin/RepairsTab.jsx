@@ -285,10 +285,25 @@ export default function RepairsTab() {
                                                 </div>
                                             </div>
 
-                                            <div className="mt-3">
+                                            <div className="mt-3 space-y-2">
                                                 <p className="text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
                                                     <strong>Problem:</strong> {job.problem || job.issueType || '-'}
                                                 </p>
+
+                                                {job.notes && (
+                                                    <p className="text-xs text-amber-800 bg-amber-50/70 px-3 py-2 rounded-lg border border-amber-200/70">
+                                                        <strong>Notizen:</strong> {job.notes}
+                                                    </p>
+                                                )}
+
+                                                {(job.repairPerformer === 'external' || job.repair_performer === 'external' || job.technicianName || job.technician_name) && (
+                                                    <p className="text-xs text-indigo-800 bg-indigo-50/70 px-3 py-1.5 rounded-lg border border-indigo-200/70 flex items-center justify-between">
+                                                        <span><strong>Techniker / Werkstatt:</strong> {job.technicianName || job.technician_name || 'Extern'}</span>
+                                                        {parseFloat(job.externalCost || job.external_cost || 0) > 0 && (
+                                                            <span className="font-bold font-mono">Bezahlt: €{parseFloat(job.externalCost || job.external_cost).toFixed(2)}</span>
+                                                        )}
+                                                    </p>
+                                                )}
 
                                                 {job.partsUsed && job.partsUsed.length > 0 && (
                                                     <div className="mt-2 bg-blue-50/50 px-3 py-2 rounded-lg border border-blue-100">

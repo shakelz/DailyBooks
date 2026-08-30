@@ -16,6 +16,10 @@ export default function RepairModal({ isOpen, onClose }) {
         deviceModel: '',
         imei: '',
         problem: '',
+        notes: '',
+        repairPerformer: 'shop', // 'shop' | 'external'
+        technicianName: '',
+        externalCost: '',
         advanceAmount: '',
         cost: '',
         deliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
@@ -34,6 +38,10 @@ export default function RepairModal({ isOpen, onClose }) {
             deviceModel: '',
             imei: '',
             problem: '',
+            notes: '',
+            repairPerformer: 'shop',
+            technicianName: '',
+            externalCost: '',
             advanceAmount: '',
             cost: '',
             deliveryDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
@@ -47,18 +55,28 @@ export default function RepairModal({ isOpen, onClose }) {
         if (!form.phone.trim()) nextErrors.phone = t('repair.phoneRequired');
         if (!form.deviceModel.trim()) nextErrors.deviceModel = t('repair.deviceModelRequired');
         if (!form.problem.trim()) nextErrors.problem = t('repair.problemRequired');
+        if (form.repairPerformer === 'external' && !form.technicianName.trim()) {
+            nextErrors.technicianName = 'Please enter technician / shop name';
+        }
         if (Object.keys(nextErrors).length > 0) {
             setErrors(nextErrors);
             return;
         }
 
         try {
+            const isExternal = form.repairPerformer === 'external';
             const job = await addRepair({
                 customerName: form.customerName.trim(),
                 phone: form.phone.trim(),
                 deviceModel: form.deviceModel.trim(),
                 imei: form.imei.trim(),
                 problem: form.problem.trim(),
+                notes: form.notes.trim(),
+                repairPerformer: form.repairPerformer,
+                technicianName: isExternal ? form.technicianName.trim() : '',
+                externalCost: isExternal ? (parseFloat(form.externalCost) || 0) : 0,
+                deviceLocation: isExternal ? 'sent_to_technician' : 'in_shop',
+                sentToTechnicianAt: isExternal ? new Date().toISOString() : null,
                 advanceAmount: parseFloat(form.advanceAmount) || 0,
                 cost: parseFloat(form.cost) || 0,
                 estimatedCost: parseFloat(form.cost) || 0,
@@ -81,6 +99,7 @@ export default function RepairModal({ isOpen, onClose }) {
                     phone: form.phone.trim(),
                     deviceModel: form.deviceModel.trim(),
                     issue: form.problem.trim(),
+                    notes: form.notes.trim(),
                     expectedDelivery: form.deliveryDate,
                     status: 'pending'
                 }, activeShop);
@@ -119,6 +138,63 @@ export default function RepairModal({ isOpen, onClose }) {
                 </div>
 
                 <div className="p-5 space-y-4">
+                    {/* Performer Selection: My Shop vs External */}
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+                            Repair Done By
+                        </label>
+                        <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
+                            <button
+                                type="button"
+                                onClick={() => handleChange('repairPerformer', 'shop')}
+                                className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${form.repairPerformer === 'shop' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                            >
+                                🏪 My Shop (In-House)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleChange('repairPerformer', 'external')}
+                                className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${form.repairPerformer === 'external' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                            >
+                                👤 Other Person / Shop
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* External Technician Details if External */}
+                    {form.repairPerformer === 'external' && (
+                        <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-2xl space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="flex items-center gap-1.5 text-xs font-bold text-indigo-900 uppercase mb-1">
+                                        <User size={12} /> Technician / Shop Name
+                                    </label>
+                                    <input
+                                        value={form.technicianName}
+                                        onChange={(event) => handleChange('technicianName', event.target.value)}
+                                        className={`w-full px-3 py-2 rounded-xl border bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 text-sm font-medium ${errors.technicianName ? 'border-rose-300' : 'border-indigo-200'}`}
+                                        placeholder="e.g. Ali Repair / FixMaster"
+                                    />
+                                    {errors.technicianName && <p className="mt-1 text-[10px] text-rose-600">{errors.technicianName}</p>}
+                                </div>
+                                <div>
+                                    <label className="flex items-center gap-1.5 text-xs font-bold text-indigo-900 uppercase mb-1">
+                                        <DollarSign size={12} /> Amount Paid to Them (€)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={form.externalCost}
+                                        onChange={(event) => handleChange('externalCost', event.target.value)}
+                                        className="w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 text-sm font-medium font-mono"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1">
@@ -181,8 +257,8 @@ export default function RepairModal({ isOpen, onClose }) {
                             <textarea
                                 value={form.problem}
                                 onChange={(event) => handleChange('problem', event.target.value)}
-                                rows={3}
-                                className={`w-full px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium resize-none ${errors.problem ? 'border-rose-300' : 'border-slate-200'}`}
+                                rows={2}
+                                className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium resize-none ${errors.problem ? 'border-rose-300' : 'border-slate-200'}`}
                                 placeholder={t('repair.problemPlaceholder')}
                             />
                             {errors.problem && <p className="mt-1 text-[10px] text-rose-600">{errors.problem}</p>}
@@ -197,10 +273,24 @@ export default function RepairModal({ isOpen, onClose }) {
                                 min="0"
                                 value={form.advanceAmount}
                                 onChange={(event) => handleChange('advanceAmount', event.target.value)}
-                                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium font-mono"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium font-mono"
                                 placeholder="0.00"
                             />
                         </div>
+                    </div>
+
+                    {/* Notes / Important Info */}
+                    <div>
+                        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase mb-1">
+                            <FileText size={12} /> Notes / Important Info
+                        </label>
+                        <textarea
+                            value={form.notes}
+                            onChange={(event) => handleChange('notes', event.target.value)}
+                            rows={2}
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-sm font-medium resize-none"
+                            placeholder="Write anything important about this repair job (passcode, accessories left, customer note, etc.)..."
+                        />
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

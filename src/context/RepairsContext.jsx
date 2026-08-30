@@ -107,10 +107,17 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
     const createdIso = parseIsoTimestamp(record?.created_at || record?.createdAt || record?.timestamp) || new Date().toISOString();
     const completedIso = parseIsoTimestamp(record?.completed_at || record?.completedAt);
     const deliveryAt = toDateOnly(record?.delivery_date || record?.delivery_at || record?.deliveryDate);
+    const sentAt = parseIsoTimestamp(record?.sent_to_technician_at || record?.sentToTechnicianAt);
+    const receivedBackAt = parseIsoTimestamp(record?.received_from_technician_at || record?.receivedFromTechnicianAt);
 
     const mappedParts = id && Array.isArray(partsByRepair[id]) && partsByRepair[id].length > 0
         ? partsByRepair[id]
         : (Array.isArray(record?.partsUsed) ? record.partsUsed.map(normalizeRepairPart) : []);
+
+    const repairPerformer = cleanText(record?.repair_performer || record?.repairPerformer || 'shop') || 'shop';
+    const technicianName = cleanText(record?.technician_name || record?.technicianName || '');
+    const externalCost = parseFloat(record?.external_cost ?? record?.externalCost ?? record?.amount_paid_to_technician ?? record?.amountPaidToTechnician ?? 0) || 0;
+    const deviceLocation = cleanText(record?.device_location || record?.deviceLocation || 'in_shop') || 'in_shop';
 
     return {
         ...record,
@@ -123,6 +130,19 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
         deviceModel: cleanText(record?.deviceModel || record?.device_model),
         imei: cleanText(record?.imei),
         problem: cleanText(record?.problem || record?.issueType),
+        notes: cleanText(record?.notes || record?.note || ''),
+        repairPerformer,
+        repair_performer: repairPerformer,
+        technicianName,
+        technician_name: technicianName,
+        externalCost,
+        external_cost: externalCost,
+        deviceLocation,
+        device_location: deviceLocation,
+        sentToTechnicianAt: sentAt || null,
+        sent_to_technician_at: sentAt || null,
+        receivedFromTechnicianAt: receivedBackAt || null,
+        received_from_technician_at: receivedBackAt || null,
         status: cleanText(record?.status) || 'pending',
         estimatedCost: parseFloat(record?.estimated_cost ?? record?.estimatedCost ?? 0) || 0,
         advanceAmount: parseFloat(record?.advance_amount ?? record?.advanceAmount ?? 0) || 0,
@@ -192,6 +212,8 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
     const createdAt = parseIsoTimestamp(repair?.created_at || repair?.createdAt) || new Date().toISOString();
     const completedAt = parseIsoTimestamp(repair?.completed_at || repair?.completedAt);
     const deliveryAt = toDateOnly(repair?.delivery_date || repair?.delivery_at || repair?.deliveryDate);
+    const sentAt = parseIsoTimestamp(repair?.sent_to_technician_at || repair?.sentToTechnicianAt);
+    const receivedBackAt = parseIsoTimestamp(repair?.received_from_technician_at || repair?.receivedFromTechnicianAt);
 
     const providedRepairId = cleanText(repair?.id);
     const payload = {
@@ -200,8 +222,15 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
         device_model: cleanText(repair?.deviceModel),
         imei: cleanText(repair?.imei),
         problem: cleanText(repair?.problem),
+        notes: cleanText(repair?.notes || repair?.note || ''),
+        repair_performer: cleanText(repair?.repairPerformer || repair?.repair_performer || 'shop') || 'shop',
+        technician_name: cleanText(repair?.technicianName || repair?.technician_name || '') || null,
+        external_cost: parseFloat(repair?.externalCost ?? repair?.external_cost ?? 0) || 0,
+        device_location: cleanText(repair?.deviceLocation || repair?.device_location || 'in_shop') || 'in_shop',
+        sent_to_technician_at: sentAt || null,
+        received_from_technician_at: receivedBackAt || null,
         advance_amount: parseFloat(repair?.advanceAmount ?? 0) || 0,
-        estimated_cost: parseFloat(repair?.estimatedCost ?? 0) || 0,
+        estimated_cost: parseFloat(repair?.estimatedCost ?? repair?.cost ?? 0) || 0,
         delivery_date: deliveryAt || null,
         used_part_order_ids: normalizeUuidArray(repair?.used_part_order_ids),
         status: cleanText(repair?.status) || 'pending',
@@ -257,6 +286,40 @@ function buildRepairUpdatePayload(status, extras = {}) {
     if (Object.prototype.hasOwnProperty.call(next, 'estimatedCost')) {
         next.estimated_cost = parseFloat(next.estimatedCost ?? 0) || 0;
         delete next.estimatedCost;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'externalCost') || Object.prototype.hasOwnProperty.call(next, 'external_cost')) {
+        const extCost = parseFloat(next.externalCost ?? next.external_cost ?? 0) || 0;
+        next.external_cost = extCost;
+        next.externalCost = extCost;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'repairPerformer') || Object.prototype.hasOwnProperty.call(next, 'repair_performer')) {
+        const performer = cleanText(next.repairPerformer || next.repair_performer || 'shop') || 'shop';
+        next.repair_performer = performer;
+        next.repairPerformer = performer;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'technicianName') || Object.prototype.hasOwnProperty.call(next, 'technician_name')) {
+        const techName = cleanText(next.technicianName || next.technician_name || '');
+        next.technician_name = techName;
+        next.technicianName = techName;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'deviceLocation') || Object.prototype.hasOwnProperty.call(next, 'device_location')) {
+        const loc = cleanText(next.deviceLocation || next.device_location || 'in_shop') || 'in_shop';
+        next.device_location = loc;
+        next.deviceLocation = loc;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'sentToTechnicianAt') || Object.prototype.hasOwnProperty.call(next, 'sent_to_technician_at')) {
+        const sAt = parseIsoTimestamp(next.sentToTechnicianAt || next.sent_to_technician_at);
+        next.sent_to_technician_at = sAt || null;
+        next.sentToTechnicianAt = sAt || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'receivedFromTechnicianAt') || Object.prototype.hasOwnProperty.call(next, 'received_from_technician_at')) {
+        const rAt = parseIsoTimestamp(next.receivedFromTechnicianAt || next.received_from_technician_at);
+        next.received_from_technician_at = rAt || null;
+        next.receivedFromTechnicianAt = rAt || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, 'notes') || Object.prototype.hasOwnProperty.call(next, 'note')) {
+        const notes = cleanText(next.notes || next.note || '');
+        next.notes = notes;
     }
     if (Array.isArray(next.partsUsed)) {
         next.partsUsed = next.partsUsed.map(normalizeRepairPart);
@@ -558,11 +621,20 @@ export function RepairsProvider({ children }) {
         broadcastRepairSync({ action: 'DELETE', data: { id: strId, shop_id: sid } }).catch((error) => console.error(error));
     }, [activeShopId, broadcastRepairSync]);
 
+    const updateRepairJob = useCallback(async (id, fields = {}) => {
+        const strId = cleanText(id);
+        if (!strId) return;
+        const currentJob = repairJobs.find((job) => String(job.id) === strId) || null;
+        const status = fields.status || currentJob?.status || 'pending';
+        return updateRepairStatus(strId, status, fields);
+    }, [repairJobs, updateRepairStatus]);
+
     const value = {
         repairJobs,
         repairsLoaded,
         addRepair,
         updateRepairStatus,
+        updateRepairJob,
         deleteRepair,
         generateRefId,
     };

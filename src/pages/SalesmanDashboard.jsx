@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, Edit3, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, Edit3, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers, Calendar, Truck, Send, Inbox, RotateCcw, CheckCircle, CheckCircle2, MessageSquare, StickyNote, UserCheck, ArrowRightLeft } from 'lucide-react';
 
 import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
 import { useAuth } from '../context/AuthContext';
@@ -807,6 +807,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [showPendingOrders, setShowPendingOrders] = useState(false);
     const [pendingTab, setPendingTab] = useState('orders');
     const [repairSearchQuery, setRepairSearchQuery] = useState('');
+    const [repairStatusTab, setRepairStatusTab] = useState('active'); // 'active' | 'history' | 'all'
+    const [repairPerformerFilter, setRepairPerformerFilter] = useState('all'); // 'all' | 'shop' | <technicianName>
+    const [repairDatePreset, setRepairDatePreset] = useState('all'); // 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month' | 'custom'
+    const [repairCustomStartDate, setRepairCustomStartDate] = useState('');
+    const [repairCustomEndDate, setRepairCustomEndDate] = useState('');
+    const [editingNoteJobId, setEditingNoteJobId] = useState(null);
+    const [editingNoteText, setEditingNoteText] = useState('');
+    const [editingTechJob, setEditingTechJob] = useState(null);
+    const [techFormPerformer, setTechFormPerformer] = useState('shop');
+    const [techFormName, setTechFormName] = useState('');
+    const [techFormCost, setTechFormCost] = useState('');
     const [onlineOrders, setOnlineOrders] = useState([]);
     const [showOnlineOrderForm, setShowOnlineOrderForm] = useState(false);
     const [onlineOrderForm, setOnlineOrderForm] = useState(newOnlineOrderForm());
@@ -3808,22 +3819,207 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         extractInvoiceNumberBase(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id)
         || String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim()
     ), []);
-    const filteredPendingOrders = useMemo(() => {
-        const query = String(repairSearchQuery || '').trim().toLowerCase();
-        if (!query) return pendingOrders;
-        return (pendingOrders || []).filter((job) => {
-            const invoice = getRepairInvoiceNumber(job).toLowerCase();
-            const haystack = [
-                invoice,
-                String(job?.customerName || '').toLowerCase(),
-                String(job?.phone || job?.customerPhone || '').toLowerCase(),
-                String(job?.deviceModel || '').toLowerCase(),
-                String(job?.imei || '').toLowerCase(),
-                String(job?.problem || job?.issueType || '').toLowerCase(),
-            ].join(' ');
-            return haystack.includes(query);
+
+    const uniqueTechnicianNames = useMemo(() => {
+        const names = new Set();
+        (repairJobs || []).forEach((job) => {
+            const name = String(job?.technicianName || job?.technician_name || '').trim();
+            if (name) names.add(name);
         });
-    }, [pendingOrders, repairSearchQuery]);
+        return Array.from(names).sort();
+    }, [repairJobs]);
+
+    const activeRepairsCount = useMemo(() => {
+        return (repairJobs || []).filter((j) => String(j?.status || '').toLowerCase() !== 'completed' && String(j?.status || '').toLowerCase() !== 'cancelled').length;
+    }, [repairJobs]);
+
+    const historyRepairsCount = useMemo(() => {
+        return (repairJobs || []).filter((j) => String(j?.status || '').toLowerCase() === 'completed').length;
+    }, [repairJobs]);
+
+    const shopRepairsCount = useMemo(() => {
+        return (repairJobs || []).filter((j) => {
+            const performer = String(j?.repairPerformer || j?.repair_performer || 'shop').toLowerCase();
+            const tech = String(j?.technicianName || j?.technician_name || '').trim();
+            return performer === 'shop' && !tech;
+        }).length;
+    }, [repairJobs]);
+
+    const techCounts = useMemo(() => {
+        const counts = {};
+        (repairJobs || []).forEach((j) => {
+            const tech = String(j?.technicianName || j?.technician_name || '').trim();
+            if (tech) counts[tech] = (counts[tech] || 0) + 1;
+        });
+        return counts;
+    }, [repairJobs]);
+
+    const filteredRepairJobsList = useMemo(() => {
+        let list = Array.isArray(repairJobs) ? [...repairJobs] : [];
+
+        // 1. Status Filter (Active vs History vs All)
+        if (repairStatusTab === 'active') {
+            list = list.filter((job) => String(job?.status || '').toLowerCase() !== 'completed' && String(job?.status || '').toLowerCase() !== 'cancelled');
+        } else if (repairStatusTab === 'history') {
+            list = list.filter((job) => String(job?.status || '').toLowerCase() === 'completed');
+        }
+
+        // 2. Performer / Technician Chip Filter
+        if (repairPerformerFilter === 'shop') {
+            list = list.filter((job) => {
+                const performer = String(job?.repairPerformer || job?.repair_performer || 'shop').toLowerCase();
+                const techName = String(job?.technicianName || job?.technician_name || '').trim();
+                return performer === 'shop' && !techName;
+            });
+        } else if (repairPerformerFilter !== 'all') {
+            const targetTech = repairPerformerFilter.toLowerCase().trim();
+            list = list.filter((job) => {
+                const techName = String(job?.technicianName || job?.technician_name || '').toLowerCase().trim();
+                return techName === targetTech;
+            });
+        }
+
+        // 3. Date Filter
+        if (repairDatePreset !== 'all') {
+            const now = new Date();
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+            const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+            list = list.filter((job) => {
+                const rawDate = job?.createdAt || job?.created_at || job?.timestamp;
+                if (!rawDate) return false;
+                const d = new Date(rawDate);
+                if (Number.isNaN(d.getTime())) return false;
+
+                if (repairDatePreset === 'today') {
+                    return d >= startOfToday && d <= endOfToday;
+                }
+                if (repairDatePreset === 'yesterday') {
+                    const startOfYesterday = new Date(startOfToday);
+                    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+                    const endOfYesterday = new Date(endOfToday);
+                    endOfYesterday.setDate(endOfYesterday.getDate() - 1);
+                    return d >= startOfYesterday && d <= endOfYesterday;
+                }
+                if (repairDatePreset === 'this_week') {
+                    const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0
+                    const startOfWeek = new Date(startOfToday);
+                    startOfWeek.setDate(startOfWeek.getDate() - dayOfWeek);
+                    return d >= startOfWeek && d <= endOfToday;
+                }
+                if (repairDatePreset === 'this_month') {
+                    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+                    return d >= startOfMonth && d <= endOfToday;
+                }
+                if (repairDatePreset === 'custom') {
+                    const s = repairCustomStartDate ? new Date(repairCustomStartDate + 'T00:00:00') : null;
+                    const e = repairCustomEndDate ? new Date(repairCustomEndDate + 'T23:59:59.999') : null;
+                    if (s && d < s) return false;
+                    if (e && d > e) return false;
+                    return true;
+                }
+                return true;
+            });
+        }
+
+        // 4. Search Query
+        const query = String(repairSearchQuery || '').trim().toLowerCase();
+        if (query) {
+            list = list.filter((job) => {
+                const invoice = getRepairInvoiceNumber(job).toLowerCase();
+                const haystack = [
+                    invoice,
+                    String(job?.customerName || '').toLowerCase(),
+                    String(job?.phone || job?.customerPhone || '').toLowerCase(),
+                    String(job?.deviceModel || '').toLowerCase(),
+                    String(job?.imei || '').toLowerCase(),
+                    String(job?.problem || job?.issueType || '').toLowerCase(),
+                    String(job?.notes || '').toLowerCase(),
+                    String(job?.technicianName || job?.technician_name || '').toLowerCase(),
+                ].join(' ');
+                return haystack.includes(query);
+            });
+        }
+
+        return list;
+    }, [repairJobs, repairStatusTab, repairPerformerFilter, repairDatePreset, repairCustomStartDate, repairCustomEndDate, repairSearchQuery, getRepairInvoiceNumber]);
+
+    const handleSaveRepairNote = async (jobId, noteText) => {
+        try {
+            await updateRepairStatus(jobId, undefined, { notes: String(noteText || '').trim() });
+            setEditingNoteJobId(null);
+            setToast('Note saved');
+            setTimeout(() => setToast(''), 1500);
+        } catch (err) {
+            showInlineError(err?.message || 'Failed to save note');
+        }
+    };
+
+    const handleMarkSentToTechnician = async (job) => {
+        try {
+            await updateRepairStatus(job.id, undefined, {
+                deviceLocation: 'sent_to_technician',
+                sentToTechnicianAt: new Date().toISOString(),
+            });
+            setToast('Device marked as sent to technician');
+            setTimeout(() => setToast(''), 1800);
+        } catch (err) {
+            showInlineError(err?.message || 'Failed to update location');
+        }
+    };
+
+    const handleMarkReceivedBackInShop = async (job) => {
+        try {
+            await updateRepairStatus(job.id, undefined, {
+                deviceLocation: 'received_back',
+                receivedFromTechnicianAt: new Date().toISOString(),
+            });
+            setToast('Device marked as received back in shop');
+            setTimeout(() => setToast(''), 1800);
+        } catch (err) {
+            showInlineError(err?.message || 'Failed to update location');
+        }
+    };
+
+    const handleReopenRepair = async (job) => {
+        try {
+            await updateRepairStatus(job.id, 'pending', {
+                completedAt: null,
+                completed_at: null,
+            });
+            setToast('Repair re-opened as active');
+            setTimeout(() => setToast(''), 1800);
+        } catch (err) {
+            showInlineError(err?.message || 'Failed to re-open repair');
+        }
+    };
+
+    const openEditTechModal = (job) => {
+        setEditingTechJob(job);
+        setTechFormPerformer(job?.repairPerformer || job?.repair_performer || (job?.technicianName ? 'external' : 'shop'));
+        setTechFormName(job?.technicianName || job?.technician_name || '');
+        setTechFormCost(job?.externalCost || job?.external_cost ? String(job.externalCost || job.external_cost) : '');
+    };
+
+    const handleSaveTechnicianAssignment = async (e) => {
+        if (e) e.preventDefault();
+        if (!editingTechJob?.id) return;
+        const isExt = techFormPerformer === 'external';
+        try {
+            await updateRepairStatus(editingTechJob.id, undefined, {
+                repairPerformer: techFormPerformer,
+                technicianName: isExt ? techFormName.trim() : '',
+                externalCost: isExt ? (parseFloat(techFormCost) || 0) : 0,
+                deviceLocation: isExt ? (editingTechJob.deviceLocation || 'sent_to_technician') : 'in_shop',
+                sentToTechnicianAt: isExt ? (editingTechJob.sentToTechnicianAt || new Date().toISOString()) : null,
+            });
+            setEditingTechJob(null);
+            setToast('Technician details updated');
+            setTimeout(() => setToast(''), 1800);
+        } catch (err) {
+            showInlineError(err?.message || 'Failed to save technician details');
+        }
+    };
 
 
     const printOnlineOrderBill = (order) => {
@@ -6656,28 +6852,32 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             {showPendingOrders && (
                 <div className="fixed inset-0 z-[80]" onClick={() => setShowPendingOrders(false)}>
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-                    <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
-                        <div className="bg-gradient-to-r from-rose-500 to-orange-500 p-5 flex items-center justify-between">
+                    <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="bg-gradient-to-r from-rose-500 to-orange-500 p-4 sm:p-5 flex items-center justify-between shadow-sm">
                             <div>
-                                <h2 className="text-lg font-bold text-white">Pending Center</h2>
-                                <p className="text-xs text-rose-100">Repair order tracking</p>
+                                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                    <ClipboardList size={20} /> Pending Center
+                                </h2>
+                                <p className="text-xs text-rose-100">Repair order tracking & history</p>
                             </div>
-                            <button onClick={() => setShowPendingOrders(false)} className="text-white text-lg">x</button>
+                            <button onClick={() => setShowPendingOrders(false)} className="text-white hover:bg-white/20 p-1.5 rounded-xl transition-colors text-lg">
+                                <X size={20} />
+                            </button>
                         </div>
 
-                        <div className="px-4 pt-3">
+                        <div className="px-4 pt-3 pb-1 border-b border-slate-100">
                             <div className="rounded-xl bg-slate-100 p-1 grid grid-cols-2 gap-1">
                                 <button
                                     onClick={() => setPendingTab('orders')}
-                                    className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                                    className={`rounded-lg py-2 text-xs font-bold transition-all ${pendingTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                                 >
-                                    Reparatur & Abholschein
+                                    🔧 Reparatur & Abholschein
                                 </button>
                                 <button
                                     onClick={() => setPendingTab('online')}
-                                    className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'online' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
+                                    className={`rounded-lg py-2 text-xs font-bold transition-all ${pendingTab === 'online' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                                 >
-                                    Online Orders Abholschein
+                                    📦 Online Orders Abholschein
                                 </button>
                             </div>
                         </div>
@@ -6685,79 +6885,345 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
                             {pendingTab === 'orders' ? (
                                 <>
-                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-                                        <input
-                                            value={repairSearchQuery}
-                                            onChange={(e) => setRepairSearchQuery(e.target.value)}
-                                            placeholder="Search invoice, customer, phone, device..."
-                                            className="w-full text-xs text-slate-700 placeholder:text-slate-400 bg-transparent outline-none"
-                                        />
+                                    {/* Sub-tabs: Active Jobs | Jobs History | All */}
+                                    <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
+                                        <button
+                                            type="button"
+                                            onClick={() => setRepairStatusTab('active')}
+                                            className={`py-1.5 rounded-lg text-xs font-bold transition-all ${repairStatusTab === 'active' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                        >
+                                            Active ({activeRepairsCount})
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setRepairStatusTab('history')}
+                                            className={`py-1.5 rounded-lg text-xs font-bold transition-all ${repairStatusTab === 'history' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                        >
+                                            History ({historyRepairsCount})
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setRepairStatusTab('all')}
+                                            className={`py-1.5 rounded-lg text-xs font-bold transition-all ${repairStatusTab === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                        >
+                                            All ({repairJobs.length})
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={() => {
-                                            setShowPendingOrders(false);
-                                            setShowRepairModal(true);
-                                        }}
-                                        className="w-full rounded-xl bg-amber-600 text-white py-2 text-sm font-semibold hover:bg-amber-700 transition-colors"
-                                    >
-                                        + Add Repair Job
-                                    </button>
-                                    {filteredPendingOrders.length === 0 ? (
-                                        <div className="text-center py-12">
-                                            <p className="text-4xl">OK</p>
-                                            <p className="text-sm text-slate-500 mt-2">No pending orders</p>
+
+                                    {/* Filter Chips & Date Filter */}
+                                    <div className="space-y-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
+                                        {/* Top Chips: Performer / Handler */}
+                                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-[11px]">
+                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider shrink-0">Handler:</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setRepairPerformerFilter('all')}
+                                                className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 transition-all ${repairPerformerFilter === 'all' ? 'bg-slate-800 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                                            >
+                                                All ({repairJobs.length})
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setRepairPerformerFilter('shop')}
+                                                className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 transition-all ${repairPerformerFilter === 'shop' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                                            >
+                                                🏪 My Shop ({shopRepairsCount})
+                                            </button>
+                                            {uniqueTechnicianNames.map((tech) => (
+                                                <button
+                                                    key={tech}
+                                                    type="button"
+                                                    onClick={() => setRepairPerformerFilter(tech)}
+                                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 transition-all ${repairPerformerFilter === tech ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                                                >
+                                                    👤 {tech} ({techCounts[tech] || 0})
+                                                </button>
+                                            ))}
                                         </div>
-                                    ) : filteredPendingOrders.map((job) => (
-                                        <div key={job.id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm ring-1 ring-slate-100/70 space-y-3">
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="min-w-0">
-                                                    <p className="text-xs font-extrabold tracking-wide text-blue-700">#{getRepairInvoiceNumber(job) || '-'}</p>
-                                                    <p className="text-sm font-bold text-slate-900 truncate">{job.customerName || 'Customer'}</p>
+
+                                        {/* Date Preset Filter */}
+                                        <div className="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar text-[11px]">
+                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider shrink-0">Date:</span>
+                                            {[
+                                                { key: 'all', label: 'All' },
+                                                { key: 'today', label: 'Today' },
+                                                { key: 'yesterday', label: 'Yesterday' },
+                                                { key: 'this_week', label: 'This Week' },
+                                                { key: 'this_month', label: 'This Month' },
+                                                { key: 'custom', label: 'Custom' }
+                                            ].map((item) => (
+                                                <button
+                                                    key={item.key}
+                                                    type="button"
+                                                    onClick={() => setRepairDatePreset(item.key)}
+                                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold shrink-0 transition-all ${repairDatePreset === item.key ? 'bg-amber-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                                                >
+                                                    {item.label}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {repairDatePreset === 'custom' && (
+                                            <div className="flex items-center gap-2 pt-1">
+                                                <input
+                                                    type="date"
+                                                    value={repairCustomStartDate}
+                                                    onChange={(e) => setRepairCustomStartDate(e.target.value)}
+                                                    className="px-2 py-1 border border-slate-200 rounded-lg text-[11px] bg-white w-full"
+                                                />
+                                                <span className="text-slate-400 text-xs font-bold">to</span>
+                                                <input
+                                                    type="date"
+                                                    value={repairCustomEndDate}
+                                                    onChange={(e) => setRepairCustomEndDate(e.target.value)}
+                                                    className="px-2 py-1 border border-slate-200 rounded-lg text-[11px] bg-white w-full"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Search Bar + Add Repair Job */}
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex-1 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-500/10">
+                                            <Search size={14} className="text-slate-400" />
+                                            <input
+                                                value={repairSearchQuery}
+                                                onChange={(e) => setRepairSearchQuery(e.target.value)}
+                                                placeholder="Search invoice, customer, device, technician, notes..."
+                                                className="w-full text-xs text-slate-700 placeholder:text-slate-400 bg-transparent outline-none"
+                                            />
+                                            {repairSearchQuery && (
+                                                <button onClick={() => setRepairSearchQuery('')} className="text-slate-400 hover:text-slate-600 text-xs font-bold">
+                                                    <X size={12} />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                setShowPendingOrders(false);
+                                                setShowRepairModal(true);
+                                            }}
+                                            className="rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-3.5 py-2 text-xs font-bold shadow-sm transition-all shrink-0 flex items-center gap-1.5"
+                                        >
+                                            <Plus size={14} /> Add Job
+                                        </button>
+                                    </div>
+
+                                    {/* Repair Cards List */}
+                                    {filteredRepairJobsList.length === 0 ? (
+                                        <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                                            <Wrench size={32} className="text-slate-300 mx-auto mb-2" />
+                                            <p className="text-sm font-bold text-slate-600">No repair jobs found</p>
+                                            <p className="text-xs text-slate-400 mt-1">Try adjusting the filter, date, or search query</p>
+                                        </div>
+                                    ) : filteredRepairJobsList.map((job) => {
+                                        const isCompleted = String(job.status || '').toLowerCase() === 'completed';
+                                        const isExternal = String(job.repairPerformer || job.repair_performer || '').toLowerCase() === 'external' || Boolean(job.technicianName || job.technician_name);
+                                        const techName = job.technicianName || job.technician_name || '';
+                                        const extCost = parseFloat(job.externalCost ?? job.external_cost ?? 0) || 0;
+                                        const deviceLocation = job.deviceLocation || job.device_location || (isExternal ? 'sent_to_technician' : 'in_shop');
+                                        const isEditingNote = editingNoteJobId === job.id;
+
+                                        return (
+                                            <div
+                                                key={job.id}
+                                                className={`rounded-2xl border bg-white p-3.5 shadow-sm space-y-3 transition-all ${isCompleted ? 'border-emerald-200 bg-emerald-50/20' : 'border-slate-200 hover:border-slate-300'}`}
+                                            >
+                                                {/* Card Header */}
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-xs font-extrabold tracking-wide text-blue-700">#{getRepairInvoiceNumber(job) || '-'}</p>
+                                                            {isExternal ? (
+                                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center gap-1">
+                                                                    👤 {techName || 'External'} {extCost > 0 ? `(€${extCost.toFixed(2)})` : ''}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold border border-blue-100">
+                                                                    🏪 My Shop
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-sm font-bold text-slate-900 truncate mt-0.5">{job.customerName || 'Customer'}</p>
+                                                    </div>
+                                                    <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold capitalize ${isCompleted ? 'bg-emerald-100 text-emerald-800' : job.status === 'in_progress' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
+                                                        {isCompleted ? '✓ Completed' : (job.status || 'Pending')}
+                                                    </span>
                                                 </div>
-                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold capitalize">{job.status || 'pending'}</span>
-                                            </div>
 
-                                            <div className="grid grid-cols-2 gap-1 text-[11px]">
-                                                <p className="text-slate-500"><span className="text-slate-400">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">IMEI:</span> {job.imei || '-'}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">Device:</span> {job.deviceModel || '-'}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">Delivery:</span> {job.deliveryDate || job.delivery_at || '-'}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
-                                                <p className="text-slate-500"><span className="text-slate-400">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
-                                            </div>
+                                                {/* Details Grid */}
+                                                <div className="grid grid-cols-2 gap-1.5 text-[11px] bg-slate-50/70 p-2.5 rounded-xl border border-slate-100">
+                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
+                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">IMEI:</span> {job.imei || '-'}</p>
+                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Device:</span> {job.deviceModel || '-'}</p>
+                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Delivery:</span> {job.deliveryDate || job.delivery_at || '-'}</p>
+                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
+                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
+                                                </div>
 
-                                            <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
-                                                <span className="text-slate-400">Issue:</span> {job.problem || job.issueType || '-'}
-                                            </p>
-                                            {job.notes ? (
-                                                <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
-                                                    <span className="text-slate-400">Notes:</span> {job.notes}
+                                                {/* Issue Description */}
+                                                <p className="text-[11px] text-slate-700 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 font-medium">
+                                                    <span className="text-slate-400 font-bold">Issue:</span> {job.problem || job.issueType || '-'}
                                                 </p>
-                                            ) : null}
 
-                                            <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                                <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 text-emerald-700 font-semibold">Cost: {priceTag(job.estimatedCost || 0)}</span>
-                                                <span className="rounded-lg bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
-                                            </div>
+                                                {/* Notes Section with Inline Editor */}
+                                                <div className="rounded-xl border border-amber-200/80 bg-amber-50/40 p-2.5 text-xs space-y-1.5">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 flex items-center gap-1">
+                                                            <StickyNote size={12} className="text-amber-600" /> Notes:
+                                                        </span>
+                                                        {!isEditingNote && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditingNoteJobId(job.id);
+                                                                    setEditingNoteText(job.notes || '');
+                                                                }}
+                                                                className="text-[10px] font-bold text-amber-700 hover:text-amber-900 flex items-center gap-0.5 hover:underline"
+                                                            >
+                                                                <Edit3 size={11} /> {job.notes ? 'Edit' : '+ Add Note'}
+                                                            </button>
+                                                        )}
+                                                    </div>
 
-                                            <div className="flex justify-end gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => completePendingRepair(job)}
-                                                    className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-emerald-700"
-                                                >
-                                                    Complete
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => printRepairJobBill(job, activeShop)}
-                                                    className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                                                >
-                                                    Print
-                                                </button>
+                                                    {isEditingNote ? (
+                                                        <div className="space-y-2 pt-1">
+                                                            <textarea
+                                                                value={editingNoteText}
+                                                                onChange={(e) => setEditingNoteText(e.target.value)}
+                                                                rows={2}
+                                                                className="w-full text-xs p-2 rounded-lg border border-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                                                placeholder="Write important note..."
+                                                                autoFocus
+                                                            />
+                                                            <div className="flex justify-end gap-1.5">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setEditingNoteJobId(null)}
+                                                                    className="px-2 py-1 rounded-md text-[10px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200"
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleSaveRepairNote(job.id, editingNoteText)}
+                                                                    className="px-2.5 py-1 rounded-md text-[10px] font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-sm"
+                                                                >
+                                                                    Save Note
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-[11px] text-slate-700 italic">
+                                                            {job.notes || <span className="text-slate-400">No notes written yet</span>}
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                {/* External Technician & Device Tracking Location */}
+                                                {isExternal && (
+                                                    <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-2.5 text-xs space-y-1">
+                                                        <div className="flex items-center justify-between gap-1">
+                                                            <span className="text-[10px] font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1">
+                                                                <Truck size={12} className="text-indigo-600" /> Outsourced Repair Tracking:
+                                                            </span>
+                                                            <span className="text-[10px] font-extrabold text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-200">
+                                                                Paid: €{extCost.toFixed(2)}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-[11px] text-indigo-950 font-semibold">
+                                                            Technician: <span className="font-bold">{techName || 'Unspecified'}</span>
+                                                        </p>
+                                                        <p className="text-[11px] text-slate-600 flex items-center gap-1">
+                                                            <span className="text-slate-400 font-medium">Device Status:</span>
+                                                            {deviceLocation === 'sent_to_technician' ? (
+                                                                <span className="text-amber-700 font-bold bg-amber-100 px-1.5 py-0.5 rounded">
+                                                                    🚚 Sent to Technician {job.sentToTechnicianAt ? `(${formatDisplayDate(job.sentToTechnicianAt)})` : ''}
+                                                                </span>
+                                                            ) : deviceLocation === 'received_back' ? (
+                                                                <span className="text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded">
+                                                                    📥 Received back in shop {job.receivedFromTechnicianAt ? `(${formatDisplayDate(job.receivedFromTechnicianAt)})` : ''}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-blue-700 font-bold bg-blue-50 px-1.5 py-0.5 rounded">
+                                                                    📍 In Shop
+                                                                </span>
+                                                            )}
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {/* Cost & Advance */}
+                                                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                                    <span className="rounded-xl bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 text-emerald-800 font-bold flex items-center justify-between">
+                                                        <span>Cost:</span> <span>{priceTag(job.estimatedCost || 0)}</span>
+                                                    </span>
+                                                    <span className="rounded-xl bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-sky-800 font-bold flex items-center justify-between">
+                                                        <span>Advance:</span> <span>{priceTag(job.advanceAmount || 0)}</span>
+                                                    </span>
+                                                </div>
+
+                                                {/* Actions */}
+                                                <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
+                                                    {!isCompleted && isExternal && deviceLocation === 'sent_to_technician' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleMarkReceivedBackInShop(job)}
+                                                            className="rounded-lg bg-cyan-600 text-white px-2.5 py-1.5 text-[10px] font-bold hover:bg-cyan-700 shadow-sm flex items-center gap-1"
+                                                        >
+                                                            <Inbox size={11} /> Mark Received Back
+                                                        </button>
+                                                    )}
+
+                                                    {!isCompleted && isExternal && deviceLocation !== 'sent_to_technician' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleMarkSentToTechnician(job)}
+                                                            className="rounded-lg bg-indigo-600 text-white px-2.5 py-1.5 text-[10px] font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1"
+                                                        >
+                                                            <Send size={11} /> Mark Sent Out
+                                                        </button>
+                                                    )}
+
+                                                    {!isCompleted && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openEditTechModal(job)}
+                                                            className="rounded-lg border border-slate-300 bg-white text-slate-700 px-2.5 py-1.5 text-[10px] font-bold hover:bg-slate-100 flex items-center gap-1"
+                                                        >
+                                                            <UserCheck size={11} /> Assign/Tech
+                                                        </button>
+                                                    )}
+
+                                                    {!isCompleted ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => completePendingRepair(job)}
+                                                            className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-[10px] font-bold hover:bg-emerald-700 shadow-sm flex items-center gap-1"
+                                                        >
+                                                            <CheckCircle2 size={11} /> Complete
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleReopenRepair(job)}
+                                                            className="rounded-lg border border-amber-300 bg-amber-50 text-amber-800 px-2.5 py-1.5 text-[10px] font-bold hover:bg-amber-100 flex items-center gap-1"
+                                                        >
+                                                            <RotateCcw size={11} /> Re-open
+                                                        </button>
+                                                    )}
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => printRepairJobBill(job, activeShop)}
+                                                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-1"
+                                                    >
+                                                        <Printer size={11} /> Print
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </>
                             ) : (
                                 <>
@@ -7020,6 +7486,89 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         </form>
 
                         <p className="mt-3 text-[10px] text-slate-400">{user?.name || 'Salesman'} • Auto-lock {autoLockTimeout}s</p>
+                    </div>
+                </div>
+            )}
+
+            {editingTechJob && (
+                <div className="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setEditingTechJob(null)}>
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+                        <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-5 text-white flex items-center justify-between">
+                            <div>
+                                <h3 className="font-bold text-base flex items-center gap-2">
+                                    <UserCheck size={18} /> Assign Repair Handler
+                                </h3>
+                                <p className="text-xs text-indigo-100 mt-0.5">Job #{getRepairInvoiceNumber(editingTechJob)} • {editingTechJob.customerName || 'Customer'}</p>
+                            </div>
+                            <button onClick={() => setEditingTechJob(null)} className="text-white hover:bg-white/20 p-1.5 rounded-xl transition-colors">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleSaveTechnicianAssignment} className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Repair Done By</label>
+                                <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
+                                    <button
+                                        type="button"
+                                        onClick={() => setTechFormPerformer('shop')}
+                                        className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${techFormPerformer === 'shop' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                    >
+                                        🏪 My Shop (In-House)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTechFormPerformer('external')}
+                                        className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${techFormPerformer === 'external' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                    >
+                                        👤 Other Person / Shop
+                                    </button>
+                                </div>
+                            </div>
+
+                            {techFormPerformer === 'external' && (
+                                <div className="space-y-3 bg-indigo-50/70 border border-indigo-100 p-3.5 rounded-2xl">
+                                    <div>
+                                        <label className="block text-xs font-bold text-indigo-900 mb-1">Technician / External Shop Name</label>
+                                        <input
+                                            value={techFormName}
+                                            onChange={(e) => setTechFormName(e.target.value)}
+                                            placeholder="e.g. Ali Phone Repair / MasterFix"
+                                            className="w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                            required
+                                            autoFocus
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-indigo-900 mb-1">Amount Paid to Them (€)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={techFormCost}
+                                            onChange={(e) => setTechFormCost(e.target.value)}
+                                            placeholder="0.00"
+                                            className="w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs font-medium font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingTechJob(null)}
+                                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition-colors"
+                                >
+                                    Save Assignment
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
