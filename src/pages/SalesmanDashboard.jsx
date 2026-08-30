@@ -2542,13 +2542,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         ? expenseKpiContributionCategoryRows
         : salesKpiContributionCategoryRows;
 
-    const resolveDefaultCategoryMode = useCallback((_categoryName = '', _subCategoryName = '', _scope = KPI_SCOPE_SALES) => {
+    const resolveDefaultCategoryMode = useCallback((_categoryName = '', _subCategoryName = '', scope = KPI_SCOPE_SALES) => {
+        const normalizedScope = normalizeKpiScope(scope);
+        if (normalizedScope === KPI_SCOPE_EXPENSE) {
+            return KPI_MODE_EXCLUDED;
+        }
         return KPI_MODE_SALES;
     }, []);
 
     const resolveCategoryRowMode = useCallback((row = {}, scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
-        if (!row?.key) return KPI_MODE_SALES;
+        if (!row?.key) return normalizedScope === KPI_SCOPE_EXPENSE ? KPI_MODE_EXCLUDED : KPI_MODE_SALES;
         if (!hasExplicitContributionModeConfig) {
             return resolveDefaultCategoryMode(row.categoryName, row.subCategoryName, normalizedScope);
         }
@@ -5533,7 +5537,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     ? `Custom mode active. Sales: ${categoryContributionModeCounts[KPI_MODE_SALES]} | Profit: ${categoryContributionModeCounts[KPI_MODE_PROFIT]} | Excluded: ${categoryContributionModeCounts[KPI_MODE_EXCLUDED]}`
                                     : (activeKpiContributionTab === KPI_SCOPE_SALES
                                         ? 'Default mode active: mobile/laptop/tab-like categories use Profit mode, other categories use Sales mode.'
-                                        : 'Default mode active: expense/purchase categories are included in KPI expenses unless excluded.')}
+                                        : 'Default mode active: new expense categories are Excluded from KPI expenses by default.')}
                             </div>
 
                             <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 space-y-2">

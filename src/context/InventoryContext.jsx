@@ -579,6 +579,7 @@ async function upsertKpiCategorySetting(shopId, kpiScope, categoryName, subCateg
             return;
         }
 
+        const defaultMode = scope === 'expense' ? 'excluded' : 'sales';
         const { error } = await supabase
             .from('kpi_profit_category_settings')
             .insert({
@@ -586,7 +587,7 @@ async function upsertKpiCategorySetting(shopId, kpiScope, categoryName, subCateg
                 kpi_scope: scope,
                 category_name: catName,
                 sub_category_name: dbSubCategoryName,
-                contribution_mode: 'sales',
+                contribution_mode: defaultMode,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             });
