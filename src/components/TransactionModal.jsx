@@ -250,6 +250,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
             },
 
             // Customer
+            // Customer
             customerInfo: {
                 name: customerName || 'Walk-in',
                 phone: customerPhone,
@@ -259,6 +260,8 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
             // Meta
             desc: product.name || '',
             category: product.category?.level1 || (typeof product.category === 'string' ? product.category : '') || '',
+            sub_category: product.category?.level2 || product.subCategory || product.subcategory || '',
+            subCategory: product.category?.level2 || product.subCategory || product.subcategory || '',
             salesmanName: user?.name || 'Unknown',
             salesmanNumber: user?.salesmanNumber || 0,
             workerId: String(user?.id || ''),

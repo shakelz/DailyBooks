@@ -51,13 +51,28 @@ export default function CartSidebar({ onEditItem, onFinalized }) {
         // but share the SAME transactionId for searching/grouping.
         cart.forEach(item => {
             const itemNotes = String(item.notes || '').trim();
+            const pid = item.productId || item.id || null;
+            const purchasePrice = Number(item.purchasePriceAtTime ?? item.purchasePrice ?? item.costPrice ?? 0);
+            const subCategory = item.sub_category || item.subCategory || item.categorySnapshot?.level2 || '';
             const individualTxn = {
                 ...item,
                 id: generateId('ITM'), // Unique ID for literal row
                 transactionId: masterTransactionId, // Shared Master ID
+                productId: pid,
+                product_id: pid,
+                purchasePriceAtTime: purchasePrice,
+                purchase_price_at_time: purchasePrice,
+                productSnapshot: item.productSnapshot || {
+                    id: pid,
+                    name: item.name || item.productName || '',
+                    purchasePrice: purchasePrice,
+                    sellingPrice: item.unitPrice || item.price || 0,
+                    category: item.category || '',
+                    subCategory,
+                },
                 desc: item.name || item.productName || 'Item',
                 amount: item.amount || 0,
-                profit: parseFloat(item.profit) || 0,
+                profit: parseFloat(item.profit) || (item.amount ? item.amount - (purchasePrice * (parseInt(item.quantity) || 1)) : 0),
                 discount: parseFloat(item.discount) || 0,
                 quantity: parseInt(item.quantity) || 1,
                 date: currentDate,
@@ -65,6 +80,8 @@ export default function CartSidebar({ onEditItem, onFinalized }) {
                 timestamp: new Date().toISOString(),
                 type: 'income',
                 category: item.category || 'Sales',
+                sub_category: subCategory,
+                subCategory: subCategory,
                 source: 'shop',
                 soldBy: user?.name || 'Unknown',
                 userName: user?.name || 'Unknown',
@@ -81,7 +98,7 @@ export default function CartSidebar({ onEditItem, onFinalized }) {
             addTransaction(individualTxn);
 
             // 2. Adjust stock
-            adjustStock(item.productId || item.id, -individualTxn.quantity);
+            adjustStock(pid, -individualTxn.quantity);
         });
 
         // 3. Set ref which triggers the useEffect -> printReceipt

@@ -49,6 +49,109 @@ function scopedCategoryIdKey(scope = 'sales', categoryId = '') {
     return `${normalizeKpiScope(scope)}::id::${normalizeToken(categoryId)}`;
 }
 
+function extractCategoryLevel1(rawCategory) {
+    if (!rawCategory) return '';
+    if (typeof rawCategory === 'string') return safeText(rawCategory);
+    if (typeof rawCategory === 'object') return safeText(rawCategory.level1 || rawCategory.name || '');
+    return '';
+}
+
+function extractSubCategory(txn = {}, linkedProduct = null) {
+    const direct = safeText(txn?.subCategory || txn?.subcategory || txn?.sub_category);
+    if (direct) return direct;
+    const snapshot = safeText(txn?.productSnapshot?.subCategory || txn?.productSnapshot?.sub_category);
+    if (snapshot) return snapshot;
+    if (Array.isArray(txn?.categoryPath) && txn.categoryPath[1]) return safeText(txn.categoryPath[1]);
+    if (Array.isArray(txn?.productSnapshot?.categoryPath) && txn.productSnapshot.categoryPath[1]) return safeText(txn.productSnapshot.categoryPath[1]);
+    return safeText(linkedProduct?.subCategory || linkedProduct?.subcategory);
+}
+
+function resolveCategoryName(txn, linkedProduct = null) {
+    const sourceText = String(txn?.source || txn?.tx_source || '').toLowerCase();
+    if (sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_')) {
+        return 'Repair Job';
+    }
+
+    const directCategory =
+        extractCategoryLevel1(txn?.category)
+        || extractCategoryLevel1(txn?.categorySnapshot)
+        || extractCategoryLevel1(txn?.productSnapshot?.category);
+    if (directCategory) return directCategory;
+    if (Array.isArray(txn?.categoryPath) && txn.categoryPath[0]) return safeText(txn.categoryPath[0]);
+    if (Array.isArray(txn?.productSnapshot?.categoryPath) && txn.productSnapshot.categoryPath[0]) return safeText(txn.productSnapshot.categoryPath[0]);
+    const linkedCategory = extractCategoryLevel1(linkedProduct?.category);
+    return linkedCategory || 'Allgemeiner Verkauf';
+}
+
+function resolveContributionMode(categoryContributionModeMap = {}, scope = 'sales', categoryName = '', subCategoryName = '') {
+    const normalizedScope = normalizeKpiScope(scope);
+    const normCat = normalizeToken(categoryName);
+    const normSub = normalizeToken(subCategoryName);
+
+    // 1. Exact match: scope::category::subcategory
+    const exactKey = scopedCategoryKey(normalizedScope, normCat, normSub);
+    if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap || {}, exactKey)) {
+        return normalizeContributionMode(categoryContributionModeMap[exactKey]);
+    }
+
+    // 2. Parent-only match: scope::category::
+    const categoryOnlyKey = scopedCategoryKey(normalizedScope, normCat, '');
+    if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap || {}, categoryOnlyKey)) {
+        return normalizeContributionMode(categoryContributionModeMap[categoryOnlyKey]);
+    }
+
+    // 3. Subcategory match as parent: if subCategoryName is in map as category
+    if (normSub) {
+        const subOnlyKey = scopedCategoryKey(normalizedScope, normSub, '');
+        if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap || {}, subOnlyKey)) {
+            return normalizeContributionMode(categoryContributionModeMap[subOnlyKey]);
+        }
+    }
+
+    // 4. Prefix fallback scan: if subcategories under this category are configured
+    if (normCat) {
+        const categoryPrefix = `${normalizedScope}::${normCat}::`;
+        const modesFound = [];
+        const mapKeys = Object.keys(categoryContributionModeMap || {});
+        for (let i = 0; i < mapKeys.length; i++) {
+            const key = mapKeys[i];
+            if (key.startsWith(categoryPrefix) && key.length > categoryPrefix.length) {
+                modesFound.push(normalizeContributionMode(categoryContributionModeMap[key]));
+            }
+        }
+        if (modesFound.length > 0) {
+            if (modesFound.includes(KPI_MODE_EXCLUDED)) return KPI_MODE_EXCLUDED;
+            if (modesFound.includes(KPI_MODE_PROFIT)) return KPI_MODE_PROFIT;
+            return KPI_MODE_SALES;
+        }
+    }
+
+    return KPI_MODE_SALES;
+}
+
+function resolveRevenueContribution(txn = {}, linkedProduct = null, categoryName = '', subCategoryName = '', categoryContributionModeMap = {}) {
+    const amount = parseFloat(txn?.amount) || 0;
+    const mode = resolveContributionMode(categoryContributionModeMap, 'sales', categoryName, subCategoryName);
+    if (mode === KPI_MODE_EXCLUDED) return 0;
+    if (mode === KPI_MODE_SALES) return amount;
+
+    const quantity = Math.max(1, parseInt(txn.quantity || '1', 10) || 1);
+    const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
+    const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
+    const linkedPurchase = linkedProduct ? Number(linkedProduct?.purchasePrice) : NaN;
+    const unitCost = Number.isFinite(purchaseAtTime) && purchaseAtTime > 0
+        ? purchaseAtTime
+        : (Number.isFinite(snapshotPurchase) && snapshotPurchase > 0
+            ? snapshotPurchase
+            : (Number.isFinite(linkedPurchase) && linkedPurchase > 0 ? linkedPurchase : 0));
+
+    if (unitCost === 0 && Number.isFinite(Number(txn?.profit)) && Number(txn?.profit) > 0) {
+        return Number(txn.profit);
+    }
+
+    return amount - (unitCost * quantity);
+}
+
 function safeDate(value) {
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
@@ -313,8 +416,10 @@ export default function InsightsTab() {
 
             const nextMap = result.data.reduce((acc, row) => {
                 const scope = normalizeKpiScope(row?.kpi_scope || row?.scope);
-                const categoryName = String(row?.category_name || '').trim();
-                const subCategoryName = String(row?.sub_category_name || '').trim();
+                const categoryName = String(row?.category_name || '').trim().toLowerCase();
+                const rawSub = String(row?.sub_category_name || '').trim().toLowerCase();
+                const EMPTY_PLACEHOLDERS = new Set(['empty', 'null', 'undefined', '-', 'none', '']);
+                const subCategoryName = EMPTY_PLACEHOLDERS.has(rawSub) ? '' : rawSub;
                 const categoryId = String(row?.category_id || row?.categoryId || '').trim();
                 if (!categoryName) return acc;
                 const modeFromContributionColumn = row?.contribution_mode ?? row?.contributionMode;
@@ -338,6 +443,14 @@ export default function InsightsTab() {
         };
     }, [settingsShopId]);
 
+    const productById = useMemo(() => {
+        return (products || []).reduce((acc, p) => {
+            if (p?.id !== undefined && p?.id !== null) acc[String(p.id)] = p;
+            if (p?.barcode) acc[String(p.barcode)] = p;
+            return acc;
+        }, {});
+    }, [products]);
+
     // ── Helper: Calculate Business Metrics ──
     const analytics = useMemo(() => {
         const periodType = timeView === 'weekly' ? 'weekly' : 'monthly';
@@ -351,74 +464,6 @@ export default function InsightsTab() {
             periodType,
             categoryContributionModeMap,
         });
-
-        const productById = products.reduce((acc, p) => {
-            if (p?.id !== undefined && p?.id !== null) acc[String(p.id)] = p;
-            return acc;
-        }, {});
-
-        const extractCategoryLevel1 = (rawCategory) => {
-            if (!rawCategory) return '';
-            if (typeof rawCategory === 'string') return safeText(rawCategory);
-            if (typeof rawCategory === 'object') return safeText(rawCategory.level1 || rawCategory.name || '');
-            return '';
-        };
-
-        const extractSubCategory = (txn = {}, linkedProduct = null) => {
-            const direct = safeText(txn?.subCategory || txn?.subcategory || txn?.sub_category);
-            if (direct) return direct;
-            const snapshot = safeText(txn?.productSnapshot?.subCategory || txn?.productSnapshot?.sub_category);
-            if (snapshot) return snapshot;
-            if (Array.isArray(txn?.categoryPath) && txn.categoryPath[1]) return safeText(txn.categoryPath[1]);
-            if (Array.isArray(txn?.productSnapshot?.categoryPath) && txn.productSnapshot.categoryPath[1]) return safeText(txn.productSnapshot.categoryPath[1]);
-            return safeText(linkedProduct?.subCategory || linkedProduct?.subcategory);
-        };
-
-        const resolveCategoryName = (txn, linkedProduct = null) => {
-            const sourceText = String(txn?.source || txn?.tx_source || '').toLowerCase();
-            if (sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_')) {
-                return 'Repair Job';
-            }
-
-            const directCategory =
-                extractCategoryLevel1(txn?.category)
-                || extractCategoryLevel1(txn?.categorySnapshot)
-                || extractCategoryLevel1(txn?.productSnapshot?.category);
-            if (directCategory) return directCategory;
-            if (Array.isArray(txn?.categoryPath) && txn.categoryPath[0]) return safeText(txn.categoryPath[0]);
-            if (Array.isArray(txn?.productSnapshot?.categoryPath) && txn.productSnapshot.categoryPath[0]) return safeText(txn.productSnapshot.categoryPath[0]);
-            const linkedCategory = extractCategoryLevel1(linkedProduct?.category);
-            return linkedCategory || 'Allgemeiner Verkauf';
-        };
-
-        const resolveContributionMode = (scope, categoryName, subCategoryName) => {
-            const exactKey = scopedCategoryKey(scope, categoryName, subCategoryName);
-            if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, exactKey)) {
-                return normalizeContributionMode(categoryContributionModeMap[exactKey]);
-            }
-            const categoryOnlyKey = scopedCategoryKey(scope, categoryName, '');
-            if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, categoryOnlyKey)) {
-                return normalizeContributionMode(categoryContributionModeMap[categoryOnlyKey]);
-            }
-            return KPI_MODE_SALES;
-        };
-
-        const resolveRevenueContribution = (txn = {}, linkedProduct = null, categoryName = '', subCategoryName = '') => {
-            const amount = parseFloat(txn?.amount) || 0;
-            const mode = resolveContributionMode('sales', categoryName, subCategoryName);
-            if (mode === KPI_MODE_EXCLUDED) return 0;
-            if (mode === KPI_MODE_SALES) return amount;
-
-            const quantity = Math.max(1, parseInt(txn.quantity || '1', 10) || 1);
-            const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
-            const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
-            const linkedPurchase = linkedProduct ? Number(linkedProduct?.purchasePrice) : NaN;
-            const unitCost = Number.isFinite(purchaseAtTime)
-                ? purchaseAtTime
-                : (Number.isFinite(snapshotPurchase) ? snapshotPurchase : (Number.isFinite(linkedPurchase) ? linkedPurchase : 0));
-
-            return amount - (unitCost * quantity);
-        };
 
         const resolveSalesmanName = (txn) => {
             const workerId = safeText(txn?.workerId || txn?.userId || '');
@@ -442,7 +487,9 @@ export default function InsightsTab() {
             const txnDate = parseTransactionDate(txn);
             if (!txnDate || txnDate < rangeStart || txnDate > rangeEnd) return;
 
-            const linkedProduct = txn?.productId !== undefined && txn?.productId !== null ? productById[String(txn.productId)] : null;
+            const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
+                ? (productById[String(txn.productId)] || productById[String(txn.product_id)])
+                : (txn?.barcode ? productById[String(txn.barcode)] : null);
             const categoryName = resolveCategoryName(txn, linkedProduct);
             const subCategoryName = extractSubCategory(txn, linkedProduct);
 
@@ -451,9 +498,9 @@ export default function InsightsTab() {
             const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
             const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
             const linkedPurchase = linkedProduct ? Number(linkedProduct?.purchasePrice) : NaN;
-            const unitCost = Number.isFinite(purchaseAtTime)
+            const unitCost = Number.isFinite(purchaseAtTime) && purchaseAtTime > 0
                 ? purchaseAtTime
-                : (Number.isFinite(snapshotPurchase) ? snapshotPurchase : (Number.isFinite(linkedPurchase) ? linkedPurchase : 0));
+                : (Number.isFinite(snapshotPurchase) && snapshotPurchase > 0 ? snapshotPurchase : (Number.isFinite(linkedPurchase) && linkedPurchase > 0 ? linkedPurchase : 0));
             const buyAmount = unitCost * quantity;
 
             let grossProfit = saleAmount - buyAmount;
@@ -465,7 +512,7 @@ export default function InsightsTab() {
                 grossProfit = saleAmount - (Number.isFinite(partsCost) ? partsCost : 0);
             }
 
-            const kpiContribution = resolveRevenueContribution(txn, linkedProduct, categoryName, subCategoryName);
+            const kpiContribution = resolveRevenueContribution(txn, linkedProduct, categoryName, subCategoryName, categoryContributionModeMap);
             if (!isRepair) {
                 totalCOGS += buyAmount;
             }
@@ -483,7 +530,7 @@ export default function InsightsTab() {
             }
             productStats[productKey].qty += quantity;
             productStats[productKey].profit += kpiContribution;
-            productStats[productKey].revenue += saleAmount;
+            productStats[productKey].revenue += kpiContribution;
             if (!productStats[productKey].category && categoryName) {
                 productStats[productKey].category = categoryName;
             }
@@ -937,18 +984,24 @@ export default function InsightsTab() {
     }, [purchaseChartTransactions]);
 
     const categorySalesData = useMemo(() => {
-        const grouped = salesChartTransactions.reduce((acc, txn) => {
-            const category = extractChartCategory(txn);
-            if (!category) return acc;
-            acc[category] = (acc[category] || 0) + (parseFloat(txn.amount) || 0);
-            return acc;
-        }, {});
+        const grouped = {};
+        salesChartTransactions.forEach((txn) => {
+            const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
+                ? (productById[String(txn.productId)] || productById[String(txn.product_id)])
+                : (txn?.barcode ? productById[String(txn.barcode)] : null);
+            const categoryName = resolveCategoryName(txn, linkedProduct) || 'Allgemeiner Verkauf';
+            const subCategoryName = extractSubCategory(txn, linkedProduct);
+            const mode = resolveContributionMode(categoryContributionModeMap, 'sales', categoryName, subCategoryName);
+            if (mode === KPI_MODE_EXCLUDED) return;
+            const contribution = resolveRevenueContribution(txn, linkedProduct, categoryName, subCategoryName, categoryContributionModeMap);
+            grouped[categoryName] = (grouped[categoryName] || 0) + contribution;
+        });
 
         return Object.entries(grouped)
             .map(([category, amount]) => ({ category, amount: Math.round(amount * 100) / 100 }))
             .sort((a, b) => b.amount - a.amount)
             .slice(0, 10);
-    }, [salesChartTransactions]);
+    }, [salesChartTransactions, productById, categoryContributionModeMap]);
 
     const selectedRevenue = useMemo(() => {
         return Number(analytics.unifiedTotals?.revenue ?? analytics.totalSales ?? 0);
@@ -1004,7 +1057,7 @@ export default function InsightsTab() {
             cursor.setDate(cursor.getDate() + 1);
         }
 
-        // Accumulate transactions into daily buckets
+        // Accumulate transactions into daily buckets with contribution modes applied
         transactions.forEach((txn) => {
             const txnDate = parseTransactionDate(txn);
             if (!txnDate) return;
@@ -1033,12 +1086,26 @@ export default function InsightsTab() {
                                 String(txn?.source || '').toLowerCase().includes('repair') ||
                                 (!String(txn?.type || '').toLowerCase().includes('expense') && rawAmount > 0);
 
+            const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
+                ? (productById[String(txn.productId)] || productById[String(txn.product_id)])
+                : (txn?.barcode ? productById[String(txn.barcode)] : null);
+            const categoryName = resolveCategoryName(txn, linkedProduct);
+            const subCategoryName = extractSubCategory(txn, linkedProduct);
+
             if (isIncomeTxn) {
-                entry.revenue += Math.abs(rawAmount);
+                const mode = resolveContributionMode(categoryContributionModeMap, 'sales', categoryName, subCategoryName);
+                if (mode !== KPI_MODE_EXCLUDED) {
+                    const revContribution = resolveRevenueContribution(txn, linkedProduct, categoryName, subCategoryName, categoryContributionModeMap);
+                    entry.revenue += revContribution;
+                    entry.transactionCount += 1;
+                }
             } else {
-                entry.expenses += Math.abs(rawAmount);
+                const expMode = resolveContributionMode(categoryContributionModeMap, 'expense', categoryName, subCategoryName);
+                if (expMode !== KPI_MODE_EXCLUDED) {
+                    entry.expenses += Math.abs(rawAmount);
+                    entry.transactionCount += 1;
+                }
             }
-            entry.transactionCount += 1;
         });
 
         // Compute net income for each day and sort descending (newest first)
@@ -1046,7 +1113,7 @@ export default function InsightsTab() {
             ...row,
             income: row.revenue - row.expenses,
         })).sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
-    }, [transactions, rangeStart, rangeEnd]);
+    }, [transactions, rangeStart, rangeEnd, productById, categoryContributionModeMap]);
 
     return (
         <div className="space-y-4 animate-in fade-in duration-500 pb-10 max-w-[1500px] mx-auto">

@@ -341,19 +341,51 @@ function resolveTxnCategoryParts(txn = {}, productById = {}) {
 }
 
 function resolveConfiguredMode(categoryContributionModeMap = {}, scope = KPI_SCOPE_SALES, categoryName = '', subCategoryName = '', categoryId = '') {
-  const idKey = scopedCategoryIdKey(scope, categoryId);
+  const normScope = normalizeKpiScope(scope);
+  const normCat = normalizeToken(categoryName);
+  const normSub = normalizeToken(subCategoryName);
+
+  const idKey = scopedCategoryIdKey(normScope, categoryId);
   if (normalizeToken(categoryId) && Object.prototype.hasOwnProperty.call(categoryContributionModeMap || {}, idKey)) {
     return normalizeContributionMode(categoryContributionModeMap[idKey]);
   }
 
-  const exact = scopedCategoryKey(scope, categoryName, subCategoryName);
+  // 1. Exact match: scope::category::subcategory
+  const exact = scopedCategoryKey(normScope, normCat, normSub);
   if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap || {}, exact)) {
     return normalizeContributionMode(categoryContributionModeMap[exact]);
   }
 
-  const fallback = scopedCategoryKey(scope, categoryName, '');
+  // 2. Parent-only match: scope::category::
+  const fallback = scopedCategoryKey(normScope, normCat, '');
   if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap || {}, fallback)) {
     return normalizeContributionMode(categoryContributionModeMap[fallback]);
+  }
+
+  // 3. Subcategory match: if subCategoryName is in map as category
+  if (normSub) {
+    const subAsParent = scopedCategoryKey(normScope, normSub, '');
+    if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap || {}, subAsParent)) {
+      return normalizeContributionMode(categoryContributionModeMap[subAsParent]);
+    }
+  }
+
+  // 4. Prefix fallback scan: if subcategories under this category are configured
+  if (normCat) {
+    const categoryPrefix = `${normScope}::${normCat}::`;
+    const modesFound = [];
+    const mapKeys = Object.keys(categoryContributionModeMap || {});
+    for (let i = 0; i < mapKeys.length; i++) {
+      const key = mapKeys[i];
+      if (key.startsWith(categoryPrefix) && key.length > categoryPrefix.length) {
+        modesFound.push(normalizeContributionMode(categoryContributionModeMap[key]));
+      }
+    }
+    if (modesFound.length > 0) {
+      if (modesFound.includes(KPI_MODE_EXCLUDED)) return KPI_MODE_EXCLUDED;
+      if (modesFound.includes(KPI_MODE_PROFIT)) return KPI_MODE_PROFIT;
+      return KPI_MODE_SALES;
+    }
   }
 
   return KPI_MODE_SALES;
@@ -390,6 +422,10 @@ function computeTxnGrossProfit(txn = {}, linkedProduct = null) {
     const match = String(txn?.notes || '').match(/Parts Cost: €([\d.]+)/);
     const partsCost = match?.[1] ? safeNumber(match[1], 0) : 0;
     return amount - partsCost;
+  }
+
+  if (unitCost === 0 && Number.isFinite(Number(txn?.profit)) && Number(txn?.profit) > 0) {
+    return Number(txn.profit);
   }
 
   return amount - (unitCost * quantity);

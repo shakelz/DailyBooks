@@ -1463,6 +1463,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return (products || []).reduce((acc, product) => {
             const key = String(product?.id || '').trim();
             if (key) acc[key] = product;
+            const barcode = String(product?.barcode || '').trim();
+            if (barcode) acc[barcode] = product;
             return acc;
         }, {});
     }, [products]);
@@ -1890,26 +1892,35 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const resolveConfiguredContributionMode = useCallback((categoryName = '', subCategoryName = '', scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
+        const normCat = normalizeCategoryToken(categoryName);
+        const normSub = normalizeCategoryToken(subCategoryName);
 
         // 1. Exact match: scope::category::subcategory
-        const exactKey = makeScopedProfitCategoryKey(normalizedScope, categoryName, subCategoryName);
+        const exactKey = makeScopedProfitCategoryKey(normalizedScope, normCat, normSub);
         if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, exactKey)) {
             return normalizeKpiContributionMode(categoryContributionModeMap[exactKey]);
         }
 
         // 2. Parent-only match: scope::category:: (empty subcategory)
-        const categoryOnlyKey = makeScopedProfitCategoryKey(normalizedScope, categoryName, '');
+        const categoryOnlyKey = makeScopedProfitCategoryKey(normalizedScope, normCat, '');
         if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, categoryOnlyKey)) {
             return normalizeKpiContributionMode(categoryContributionModeMap[categoryOnlyKey]);
         }
 
-        // 3. Fallback scan: if no parent key exists, scan ALL subcategory-level entries under
+        // 3. Subcategory match as parent: if subCategoryName is in map as category
+        if (normSub) {
+            const subOnlyKey = makeScopedProfitCategoryKey(normalizedScope, normSub, '');
+            if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, subOnlyKey)) {
+                return normalizeKpiContributionMode(categoryContributionModeMap[subOnlyKey]);
+            }
+        }
+
+        // 4. Fallback scan: if no parent key exists, scan ALL subcategory-level entries under
         //    this category and return the most restrictive mode found.
         //    Priority: excluded > profit > sales
         //    This handles transactions that have no subcategory but the category has sub-level rules.
-        if (categoryName) {
-            const normalizedCategoryName = normalizeCategoryToken(categoryName);
-            const categoryPrefix = `${normalizedScope}::${normalizedCategoryName}::`;
+        if (normCat) {
+            const categoryPrefix = `${normalizedScope}::${normCat}::`;
             const modesFound = [];
             const mapKeys = Object.keys(categoryContributionModeMap);
             for (let i = 0; i < mapKeys.length; i++) {
@@ -1932,10 +1943,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const resolveTxnContributionMode = useCallback((txn = {}, scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
         const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
-        // No early-exit on hasExplicitContributionModeConfig — the map lookup already
-        // returns '' (-> SALES default) when the map is empty or the key is not found.
-        // Removing the flag check prevents a React state timing race where the map is
-        // already populated but the flag hasn't flipped yet, causing wrong SALES fallback.
         const configuredMode = resolveConfiguredContributionMode(categoryName, subCategoryName, normalizedScope);
         if (configuredMode) return configuredMode;
         return KPI_MODE_SALES;
@@ -1960,15 +1967,20 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const quantity = Math.max(1, parseInt(txn?.quantity || '1', 10) || 1);
         const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
         const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
-        const linkedPurchase = txn?.productId !== undefined && txn?.productId !== null
-            ? Number(productLookup[String(txn.productId)]?.purchasePrice)
-            : NaN;
+        const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
+            ? (productLookup[String(txn.productId)] || productLookup[String(txn.product_id)])
+            : (txn?.barcode ? productLookup[String(txn.barcode)] : null);
+        const linkedPurchase = Number(linkedProduct?.purchasePrice);
 
         const unitCost = Number.isFinite(purchaseAtTime) && purchaseAtTime > 0
             ? purchaseAtTime
             : (Number.isFinite(snapshotPurchase) && snapshotPurchase > 0
                 ? snapshotPurchase
                 : (Number.isFinite(linkedPurchase) && linkedPurchase > 0 ? linkedPurchase : 0));
+
+        if (unitCost === 0 && Number.isFinite(Number(txn?.profit)) && Number(txn?.profit) > 0) {
+            return Number(txn.profit);
+        }
 
         return amount - (unitCost * quantity);
     }, [productLookup, resolveTxnContributionMode]);
@@ -3966,17 +3978,43 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             ? (existingNotes ? `SubCategory: ${subCategoryName} | ${existingNotes}` : `SubCategory: ${subCategoryName}`)
             : existingNotes;
 
+        const purchasePriceAtTime = Number(
+            productWithQty?.purchasePriceAtTime
+            ?? productWithQty?.purchasePrice
+            ?? productWithQty?.productSnapshot?.purchasePrice
+            ?? (productId && productLookup[productId]?.purchasePrice ? productLookup[productId].purchasePrice : 0)
+        );
+        const saleAmount = parseFloat(productWithQty?.amount || 0) || 0;
+        const profitValue = Number(
+            productWithQty?.profit
+            ?? (saleAmount - (purchasePriceAtTime * quantityValue))
+        );
+
         try {
             const insertedTxn = await addTransaction({
                 ...productWithQty,
+                productId: productId || null,
+                product_id: productId || null,
+                purchasePriceAtTime: purchasePriceAtTime,
+                purchase_price_at_time: purchasePriceAtTime,
+                profit: profitValue,
+                productSnapshot: productWithQty?.productSnapshot || {
+                    id: productId,
+                    name: productWithQty?.name || productWithQty?.desc || '',
+                    purchasePrice: purchasePriceAtTime,
+                    sellingPrice: quantityValue > 0 ? saleAmount / quantityValue : 0,
+                    category: productWithQty?.category || '',
+                    subCategory: subCategoryName,
+                },
                 desc: productWithQty?.desc || productWithQty?.name || 'Sale',
-                amount: parseFloat(productWithQty?.amount || 0) || 0,
+                amount: saleAmount,
                 quantity: quantityValue,
                 type: 'income',
                 tx_type: 'product_sale',
                 source: 'shop',
                 category: productWithQty?.category || 'General',
                 sub_category: subCategoryName,
+                subCategory: subCategoryName,
                 paymentMethod: productWithQty?.paymentMethod || productWithQty?.paymentMode || 'Cash',
                 notes: finalNotes,
                 salesmanName: user?.name,
