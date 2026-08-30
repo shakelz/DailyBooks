@@ -2,7 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
 
 export default function CategoryManagerModal({ isOpen, onClose }) {
-    const { getLevel1Categories, getLevel2Categories, addLevel1Category, addLevel2Category, deleteCategory } = useInventory();
+    const {
+        getLevel1Categories,
+        getLevel2Categories,
+        addLevel1Category,
+        addLevel2Category,
+        deleteCategory,
+        toggleCategoryHidden,
+    } = useInventory();
     const previousFocusedElementRef = useRef(null);
 
     // Tabs: 'add' | 'update'
@@ -14,6 +21,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const [newMainCatStr, setNewMainCatStr] = useState('');
     const [subCatSelect, setSubCatSelect] = useState('');
     const [newSubCatStr, setNewSubCatStr] = useState('');
+    const [addIsHidden, setAddIsHidden] = useState(false);
 
     // ── UPDATE CATEGORY STATE ──
     const [updateScope, setUpdateScope] = useState('sales');
@@ -22,17 +30,20 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const [editingCategory, setEditingCategory] = useState(null);
     const [updateName, setUpdateName] = useState('');
     const [updateImagePreview, setUpdateImagePreview] = useState(null);
+    const [updateIsHidden, setUpdateIsHidden] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const updateFileInputRef = useRef(null);
 
-    const addL1Categories = getLevel1Categories(addScope);
-    const updateL1Categories = getLevel1Categories(updateScope);
-    const updateL2Categories = selectedUpdateL1 ? getLevel2Categories(selectedUpdateL1, updateScope) : [];
+    const addL1Categories = getLevel1Categories(addScope, true);
+    const updateL1Categories = getLevel1Categories(updateScope, true);
+    const updateL2Categories = selectedUpdateL1 ? getLevel2Categories(selectedUpdateL1, updateScope, true) : [];
+
     const resetModalState = () => {
         setMainCatSelect('');
         setNewMainCatStr('');
         setSubCatSelect('');
         setNewSubCatStr('');
+        setAddIsHidden(false);
         setAddScope('sales');
         setUpdateScope('sales');
         setSelectedUpdateL1('');
@@ -40,6 +51,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setEditingCategory(null);
         setUpdateName('');
         setUpdateImagePreview(null);
+        setUpdateIsHidden(false);
         setActiveTab('add');
         if (updateFileInputRef.current) {
             updateFileInputRef.current.value = '';
@@ -89,11 +101,13 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setNewMainCatStr('');
         setSubCatSelect('');
         setNewSubCatStr('');
+        setAddIsHidden(false);
         setSelectedUpdateL1('');
         setSelectedUpdateL2('');
         setEditingCategory(null);
         setUpdateName('');
         setUpdateImagePreview(null);
+        setUpdateIsHidden(false);
         if (updateFileInputRef.current) {
             updateFileInputRef.current.value = '';
         }
@@ -166,40 +180,44 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         e.preventDefault();
         setIsSaving(true);
         try {
+            let finalMainCat = mainCatSelect;
+            let parentCategoryId = '';
 
-        let finalMainCat = mainCatSelect;
-        let parentCategoryId = '';
+            if (mainCatSelect === 'NEW_ADD') {
+                finalMainCat = newMainCatStr.trim();
+                if (!finalMainCat) return alert('Main Category name required!');
 
-        if (mainCatSelect === 'NEW_ADD') {
-            finalMainCat = newMainCatStr.trim();
-            if (!finalMainCat) return alert("Main Category name required!");
+                const exists = addL1Categories.some(
+                    (c) => (typeof c === 'object' ? c.name : c).toLowerCase() === finalMainCat.toLowerCase()
+                );
+                if (exists) return alert('This Main Category already exists!');
 
-            const exists = addL1Categories.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalMainCat.toLowerCase());
-            if (exists) return alert("This Main Category already exists!");
+                const parentResult = await addLevel1Category(finalMainCat, null, addScope, addIsHidden);
+                parentCategoryId = String(parentResult?.categoryId || '').trim();
+            } else if (!finalMainCat) {
+                return alert('Please select or add a Main Category!');
+            }
 
-            const parentResult = await addLevel1Category(finalMainCat, null, addScope);
-            parentCategoryId = String(parentResult?.categoryId || '').trim();
-        } else if (!finalMainCat) {
-            return alert("Please select or add a Main Category!");
-        }
+            if (subCatSelect === 'NEW_ADD') {
+                const finalSubCat = newSubCatStr.trim();
+                if (!finalSubCat) return alert('Sub Category name required!');
 
-        if (subCatSelect === 'NEW_ADD') {
-            const finalSubCat = newSubCatStr.trim();
-            if (!finalSubCat) return alert("Sub Category name required!");
+                const existingL2s = getLevel2Categories(finalMainCat, addScope, true) || [];
+                const exists = existingL2s.some(
+                    (c) => (typeof c === 'object' ? c.name : c).toLowerCase() === finalSubCat.toLowerCase()
+                );
+                if (exists) return alert('This Sub Category already exists under the selected Main Category!');
 
-            const existingL2s = getLevel2Categories(finalMainCat, addScope) || [];
-            const exists = existingL2s.some(c => (typeof c === 'object' ? c.name : c).toLowerCase() === finalSubCat.toLowerCase());
-            if (exists) return alert("This Sub Category already exists under the selected Main Category!");
-
-            await addLevel2Category(finalMainCat, finalSubCat, null, addScope, parentCategoryId);
-        } else if (mainCatSelect !== 'NEW_ADD') {
-            return alert("Select ➕ Add New... to create a new category. To update existing categories, use the Update tab.");
-        }
+                await addLevel2Category(finalMainCat, finalSubCat, null, addScope, parentCategoryId, addIsHidden);
+            } else if (mainCatSelect !== 'NEW_ADD') {
+                return alert('Select ➕ Add New... to create a new category. To update existing categories, use the Update tab.');
+            }
 
             setMainCatSelect('');
             setNewMainCatStr('');
             setSubCatSelect('');
             setNewSubCatStr('');
+            setAddIsHidden(false);
             handleClose();
         } catch (error) {
             alert(error?.message || 'Failed to save category in database.');
@@ -211,25 +229,40 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const startEditing = (cat, isL1) => {
         const nameData = typeof cat === 'object' ? cat.name : cat;
         const imgData = typeof cat === 'object' ? cat.image : null;
+        const isHiddenData = typeof cat === 'object' ? Boolean(cat.is_hidden || cat.isHidden) : false;
         setEditingCategory({ originalName: nameData, isL1, originalRecord: cat });
         setUpdateName(nameData);
         setUpdateImagePreview(imgData);
+        setUpdateIsHidden(isHiddenData);
+    };
+
+    const handleToggleHidden = async (cat, isL1) => {
+        const nameData = typeof cat === 'object' ? cat.name : cat;
+        const currentHidden = typeof cat === 'object' ? Boolean(cat.is_hidden || cat.isHidden) : false;
+        const nextHidden = !currentHidden;
+        try {
+            if (isL1) {
+                await toggleCategoryHidden(1, nameData, nextHidden, '', updateScope);
+            } else {
+                await toggleCategoryHidden(2, nameData, nextHidden, selectedUpdateL1, updateScope);
+            }
+        } catch (error) {
+            alert(error?.message || 'Failed to update hidden status in database.');
+        }
     };
 
     const handleUpdateSubmit = async (e) => {
         e.preventDefault();
         if (!updateName.trim()) return;
 
-        // Since update logic isn't fully implemented in InventoryContext for renaming,
-        // we'll at least overwrite the image or re-add it (which acts like an upsert).
         try {
             if (editingCategory.isL1) {
-                await addLevel1Category(updateName.trim(), updateImagePreview, updateScope);
+                await addLevel1Category(updateName.trim(), updateImagePreview, updateScope, updateIsHidden);
             } else {
-                await addLevel2Category(selectedUpdateL1, updateName.trim(), null, updateScope);
+                await addLevel2Category(selectedUpdateL1, updateName.trim(), null, updateScope, '', updateIsHidden);
             }
             setEditingCategory(null);
-            alert("Category Updated!");
+            alert('Category Updated!');
         } catch (error) {
             alert(error?.message || 'Failed to update category in database.');
         }
@@ -270,12 +303,16 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
 
                 {/* Tabs */}
                 <div className="flex border-b border-slate-200">
-                    <button onClick={() => setActiveTab('add')}
-                        className={`flex-1 py-3 text-sm font-bold transition-all ${activeTab === 'add' ? 'text-emerald-600 border-b-2 border-emerald-500 bg-emerald-50/50' : 'text-slate-400 hover:bg-slate-50'}`}>
+                    <button
+                        onClick={() => setActiveTab('add')}
+                        className={`flex-1 py-3 text-sm font-bold transition-all ${activeTab === 'add' ? 'text-emerald-600 border-b-2 border-emerald-500 bg-emerald-50/50' : 'text-slate-400 hover:bg-slate-50'}`}
+                    >
                         ➕ Add Category
                     </button>
-                    <button onClick={() => setActiveTab('update')}
-                        className={`flex-1 py-3 text-sm font-bold transition-all ${activeTab === 'update' ? 'text-blue-600 border-b-2 border-blue-500 bg-blue-50/50' : 'text-slate-400 hover:bg-slate-50'}`}>
+                    <button
+                        onClick={() => setActiveTab('update')}
+                        className={`flex-1 py-3 text-sm font-bold transition-all ${activeTab === 'update' ? 'text-blue-600 border-b-2 border-blue-500 bg-blue-50/50' : 'text-slate-400 hover:bg-slate-50'}`}
+                    >
                         ✏️ Update Category
                     </button>
                 </div>
@@ -309,7 +346,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Main Category</label>
                                 <select
                                     value={mainCatSelect}
-                                    onChange={e => {
+                                    onChange={(e) => {
                                         setMainCatSelect(e.target.value);
                                         setSubCatSelect('');
                                     }}
@@ -317,7 +354,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                     className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold focus:outline-none focus:border-emerald-400 cursor-pointer"
                                 >
                                     <option value="">-- Select Main Category --</option>
-                                    {addL1Categories.map(c => {
+                                    {addL1Categories.map((c) => {
                                         const name = typeof c === 'object' ? c.name : c;
                                         return <option key={name} value={name}>{name}</option>;
                                     })}
@@ -327,7 +364,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                 {mainCatSelect === 'NEW_ADD' && (
                                     <input
                                         value={newMainCatStr}
-                                        onChange={e => setNewMainCatStr(e.target.value)}
+                                        onChange={(e) => setNewMainCatStr(e.target.value)}
                                         placeholder="Enter new Main Category name..."
                                         required
                                         autoFocus
@@ -341,12 +378,12 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Sub Category (Optional)</label>
                                 <select
                                     value={subCatSelect}
-                                    onChange={e => setSubCatSelect(e.target.value)}
+                                    onChange={(e) => setSubCatSelect(e.target.value)}
                                     className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold focus:outline-none focus:border-emerald-400 cursor-pointer"
                                 >
                                     <option value="">-- No Sub Category --</option>
                                     {mainCatSelect && mainCatSelect !== 'NEW_ADD' && (
-                                        (getLevel2Categories(mainCatSelect, addScope) || []).map(c => {
+                                        (getLevel2Categories(mainCatSelect, addScope, true) || []).map((c) => {
                                             const name = typeof c === 'object' ? c.name : c;
                                             return <option key={name} value={name}>{name}</option>;
                                         })
@@ -357,13 +394,32 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                 {subCatSelect === 'NEW_ADD' && (
                                     <input
                                         value={newSubCatStr}
-                                        onChange={e => setNewSubCatStr(e.target.value)}
+                                        onChange={(e) => setNewSubCatStr(e.target.value)}
                                         placeholder="Enter new Sub Category name..."
                                         required
                                         autoFocus
                                         className="w-full mt-2 px-4 py-2.5 rounded-xl bg-white border border-emerald-200 text-sm font-bold focus:outline-none focus:border-emerald-500 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200"
                                     />
                                 )}
+                            </div>
+
+                            {/* Hide from Dashboard Checkbox */}
+                            <div className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                                <input
+                                    type="checkbox"
+                                    id="addIsHiddenCheckbox"
+                                    checked={addIsHidden}
+                                    onChange={(e) => setAddIsHidden(e.target.checked)}
+                                    className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                                />
+                                <label htmlFor="addIsHiddenCheckbox" className="text-xs text-slate-700 cursor-pointer flex-1 select-none">
+                                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                                        <span>👁️‍🗨️</span> Hide from Dashboard
+                                    </span>
+                                    <span className="block text-[11px] text-slate-500 font-normal mt-0.5">
+                                        If enabled, this category will be hidden from dashboard category filters and quick lists.
+                                    </span>
+                                </label>
                             </div>
 
                             <button
@@ -374,8 +430,8 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                 {isSaving ? (
                                     <span className="flex items-center justify-center gap-2">
                                         <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                                         </svg>
                                         Saving...
                                     </span>
@@ -410,23 +466,54 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                     </div>
 
                                     <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">1. Select Main Category</label>
+                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">1. Main Categories (Click Eye to Hide/Unhide)</label>
                                         <div className="flex flex-wrap gap-2">
-                                            {updateL1Categories.map(c => {
+                                            {updateL1Categories.map((c) => {
                                                 const name = typeof c === 'object' ? c.name : c;
+                                                const isHidden = typeof c === 'object' ? Boolean(c.is_hidden || c.isHidden) : false;
                                                 const isActive = selectedUpdateL1 === name;
                                                 return (
                                                     <div key={name} className="flex items-center gap-1">
-                                                        <button onClick={() => { setSelectedUpdateL1(name); setSelectedUpdateL2(''); }}
-                                                            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border ${isActive ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                                                            {name}
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedUpdateL1(name);
+                                                                setSelectedUpdateL2('');
+                                                            }}
+                                                            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border flex items-center gap-1.5 ${isActive ? 'bg-blue-50 border-blue-500 text-blue-700' : isHidden ? 'bg-slate-100 border-dashed border-slate-300 text-slate-400' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                                                        >
+                                                            <span>{name}</span>
+                                                            {isHidden && (
+                                                                <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-md font-semibold">Hidden</span>
+                                                            )}
                                                         </button>
-                                                        {isActive && (
-                                                            <div className="flex border border-slate-200 rounded-lg overflow-hidden ml-1 shadow-sm">
-                                                                <button onClick={() => startEditing(c, true)} className="px-2.5 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all border-r border-slate-200">✏️</button>
-                                                                <button onClick={() => handleDelete(c, true)} className="px-2.5 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 transition-all">🗑️</button>
-                                                            </div>
-                                                        )}
+                                                        <div className="flex border border-slate-200 rounded-lg overflow-hidden ml-1 shadow-sm bg-white">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleToggleHidden(c, true)}
+                                                                title={isHidden ? 'Unhide from Dashboard' : 'Hide from Dashboard'}
+                                                                className={`px-2.5 py-1.5 transition-all border-r border-slate-200 text-xs ${isHidden ? 'bg-amber-50 text-amber-600 hover:bg-amber-100' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                                                            >
+                                                                {isHidden ? '🙈' : '👁️'}
+                                                            </button>
+                                                            {isActive && (
+                                                                <>
+                                                                    <button
+                                                                        onClick={() => startEditing(c, true)}
+                                                                        title="Edit Category"
+                                                                        className="px-2.5 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all border-r border-slate-200"
+                                                                    >
+                                                                        ✏️
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleDelete(c, true)}
+                                                                        title="Delete Category"
+                                                                        className="px-2.5 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 transition-all"
+                                                                    >
+                                                                        🗑️
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 );
                                             })}
@@ -435,21 +522,43 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
 
                                     {selectedUpdateL1 && (
                                         <div className="p-4 rounded-2xl border border-blue-100 bg-blue-50/30">
-                                            <label className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-2 block">2. Select Sub Category</label>
+                                            <label className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-2 block">2. Sub Categories (Click Eye to Hide/Unhide)</label>
                                             {updateL2Categories.length === 0 ? (
                                                 <p className="text-sm text-slate-400 italic">No sub-categories yet.</p>
                                             ) : (
                                                 <div className="flex flex-wrap gap-2">
-                                                    {updateL2Categories.map(c => {
+                                                    {updateL2Categories.map((c) => {
                                                         const name = typeof c === 'object' ? c.name : c;
+                                                        const isHidden = typeof c === 'object' ? Boolean(c.is_hidden || c.isHidden) : false;
                                                         return (
-                                                            <div key={name} className="flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                                                                <span className="px-3 py-1.5 text-sm font-bold text-slate-600">{name}</span>
+                                                            <div key={name} className={`flex items-center border rounded-xl overflow-hidden shadow-sm ${isHidden ? 'bg-slate-50 border-dashed border-slate-300' : 'bg-white border-slate-200'}`}>
+                                                                <span className={`px-3 py-1.5 text-sm font-bold flex items-center gap-1.5 ${isHidden ? 'text-slate-400' : 'text-slate-600'}`}>
+                                                                    <span>{name}</span>
+                                                                    {isHidden && (
+                                                                        <span className="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.5 rounded font-semibold">Hidden</span>
+                                                                    )}
+                                                                </span>
                                                                 <div className="flex border-l border-slate-200">
-                                                                    <button onClick={() => startEditing(c, false)} className="px-2.5 py-1.5 bg-slate-50 hover:bg-blue-100 text-blue-500 border-r border-slate-200 transition-all">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleToggleHidden(c, false)}
+                                                                        title={isHidden ? 'Unhide from Dashboard' : 'Hide from Dashboard'}
+                                                                        className={`px-2.5 py-1.5 transition-all border-r border-slate-200 text-xs ${isHidden ? 'bg-amber-50 text-amber-600 hover:bg-amber-100' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                                                                    >
+                                                                        {isHidden ? '🙈' : '👁️'}
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => startEditing(c, false)}
+                                                                        title="Edit Sub-Category"
+                                                                        className="px-2.5 py-1.5 bg-slate-50 hover:bg-blue-100 text-blue-500 border-r border-slate-200 transition-all"
+                                                                    >
                                                                         ✏️
                                                                     </button>
-                                                                    <button onClick={() => handleDelete(c, false)} className="px-2.5 py-1.5 bg-slate-50 hover:bg-red-100 text-red-500 transition-all">
+                                                                    <button
+                                                                        onClick={() => handleDelete(c, false)}
+                                                                        title="Delete Sub-Category"
+                                                                        className="px-2.5 py-1.5 bg-slate-50 hover:bg-red-100 text-red-500 transition-all"
+                                                                    >
                                                                         🗑️
                                                                     </button>
                                                                 </div>
@@ -470,28 +579,61 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
 
                                     <div>
                                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Name</label>
-                                        <input value={updateName} onChange={e => setUpdateName(e.target.value)} required
-                                            className="w-full px-4 py-2 rounded-xl bg-white border border-slate-200 text-sm font-bold focus:outline-none focus:border-blue-400" />
-                                        {/* Name updates require deeper context changes, for now just image upload works perfectly as an upsert */}
-                                        <p className="text-[10px] text-slate-400 mt-1">Note: Please focus on updating images. Name updates will create a new entry.</p>
+                                        <input
+                                            value={updateName}
+                                            onChange={(e) => setUpdateName(e.target.value)}
+                                            required
+                                            className="w-full px-4 py-2 rounded-xl bg-white border border-slate-200 text-sm font-bold focus:outline-none focus:border-blue-400"
+                                        />
+                                        <p className="text-[10px] text-slate-400 mt-1">Note: Please focus on updating images or visibility settings.</p>
+                                    </div>
+
+                                    {/* Hide from Dashboard Checkbox in Edit */}
+                                    <div className="flex items-start gap-3 p-3 rounded-xl bg-white border border-slate-200">
+                                        <input
+                                            type="checkbox"
+                                            id="updateIsHiddenCheckbox"
+                                            checked={updateIsHidden}
+                                            onChange={(e) => setUpdateIsHidden(e.target.checked)}
+                                            className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                        <label htmlFor="updateIsHiddenCheckbox" className="text-xs text-slate-700 cursor-pointer flex-1 select-none">
+                                            <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                                                <span>👁️‍🗨️</span> Hide from Dashboard
+                                            </span>
+                                            <span className="block text-[10px] text-slate-500 font-normal mt-0.5">
+                                                Hide this category from dashboard filters and selectors.
+                                            </span>
+                                        </label>
                                     </div>
 
                                     {editingCategory.isL1 && (
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Image</label>
-                                            <div onClick={() => updateFileInputRef.current?.click()}
-                                                className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:bg-white hover:border-blue-400 transition-all overflow-hidden relative bg-white">
+                                            <div
+                                                onClick={() => updateFileInputRef.current?.click()}
+                                                className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:bg-white hover:border-blue-400 transition-all overflow-hidden relative bg-white"
+                                            >
                                                 {updateImagePreview ? (
                                                     <img src={updateImagePreview} alt="Preview" className="w-full h-full object-cover" />
                                                 ) : (
                                                     <span className="text-xl">📷</span>
                                                 )}
-                                                <input type="file" ref={updateFileInputRef} onChange={e => handleImageChange(e, setUpdateImagePreview)} className="hidden" accept="image/*" />
+                                                <input
+                                                    type="file"
+                                                    ref={updateFileInputRef}
+                                                    onChange={(e) => handleImageChange(e, setUpdateImagePreview)}
+                                                    className="hidden"
+                                                    accept="image/*"
+                                                />
                                             </div>
                                         </div>
                                     )}
 
-                                    <button type="submit" className="w-full py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all shadow-md">
+                                    <button
+                                        type="submit"
+                                        className="w-full py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all shadow-md"
+                                    >
                                         Save Changes
                                     </button>
                                 </form>

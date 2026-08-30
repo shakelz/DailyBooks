@@ -491,6 +491,63 @@ function categoryScopeKey(level, name, parent = '') {
     return `${String(level || '')}|${cleanText(parent)}|${cleanText(name)}`;
 }
 
+const inMemoryCategoryHiddenByShop = new Map();
+
+function categoryHiddenKey(level, name, parent = '', scope = '') {
+    return `${normalizeCategoryScope(scope)}|${String(level || '')}|${cleanText(parent).toLowerCase()}|${cleanText(name).toLowerCase()}`;
+}
+
+function readCategoryHiddenMap(shopId) {
+    const sid = cleanText(shopId);
+    if (!sid) return {};
+    if (inMemoryCategoryHiddenByShop.has(sid)) {
+        return inMemoryCategoryHiddenByShop.get(sid) || {};
+    }
+    try {
+        const raw = localStorage.getItem(`dailybooks_category_hidden_${sid}`);
+        const parsed = raw ? JSON.parse(raw) : {};
+        inMemoryCategoryHiddenByShop.set(sid, parsed);
+        return parsed;
+    } catch {
+        return {};
+    }
+}
+
+function writeCategoryHiddenMap(shopId, map) {
+    const sid = cleanText(shopId);
+    if (!sid) return;
+    inMemoryCategoryHiddenByShop.set(sid, map && typeof map === 'object' ? { ...map } : {});
+    try {
+        localStorage.setItem(`dailybooks_category_hidden_${sid}`, JSON.stringify(map || {}));
+    } catch {
+        // ignore
+    }
+}
+
+function setCategoryHiddenEntry(shopId, level, name, parent = '', scope = '', isHidden = false) {
+    const sid = cleanText(shopId);
+    if (!sid) return;
+    const current = readCategoryHiddenMap(sid);
+    const key = categoryHiddenKey(level, name, parent, scope);
+    const next = { ...current, [key]: Boolean(isHidden) };
+    writeCategoryHiddenMap(sid, next);
+}
+
+function resolveCategoryHidden(record, hiddenMap = null) {
+    if (!record || typeof record !== 'object') return false;
+    if (record.is_hidden !== undefined && record.is_hidden !== null) return Boolean(record.is_hidden);
+    if (record.isHidden !== undefined && record.isHidden !== null) return Boolean(record.isHidden);
+    if (record.hidden !== undefined && record.hidden !== null) return Boolean(record.hidden);
+    const hasParent = Boolean(cleanText(record.parent) || cleanText(record.parent_id || record.parent_category_id));
+    const level = Number(record.level) || (hasParent ? 2 : 1);
+    const name = record.name || record.category_name || '';
+    const parent = record.parent || '';
+    const scope = record.scope || record.category_purpose || '';
+    const key = categoryHiddenKey(level, name, parent, scope);
+    if (hiddenMap && key in hiddenMap) return Boolean(hiddenMap[key]);
+    return false;
+}
+
 function readCategoryScopeMap(shopId) {
     const sid = cleanText(shopId);
     if (!sid) return {};
@@ -517,15 +574,16 @@ function resolveCategoryScopeRecord(record, scopeMap = null) {
     return CATEGORY_SCOPE_SALES;
 }
 
-function withCategoryScope(record, scopeMap = null) {
+function withCategoryScope(record, scopeMap = null, hiddenMap = null) {
     if (!record || typeof record !== 'object') return record;
     const scope = resolveCategoryScopeRecord(record, scopeMap);
-    return { ...record, scope, category_purpose: scope };
+    const isHidden = resolveCategoryHidden(record, hiddenMap);
+    return { ...record, scope, category_purpose: scope, is_hidden: isHidden, isHidden };
 }
 
-function applyScopeToCategoryList(list, scopeMap) {
+function applyScopeToCategoryList(list, scopeMap, hiddenMap = null) {
     if (!Array.isArray(list)) return [];
-    return list.map((item) => withCategoryScope(item, scopeMap));
+    return list.map((item) => withCategoryScope(item, scopeMap, hiddenMap));
 }
 
 function dedupeCategoryObjectsByName(list = []) {
@@ -774,7 +832,7 @@ function normalizeInventoryRecord(product, categoryLookups = null) {
     };
 }
 
-function normalizeCategoryRecord(row = {}, categoryById = {}) {
+function normalizeCategoryRecord(row = {}, categoryById = {}, hiddenMap = null) {
     const id = cleanText(row?.category_id || row?.id);
     const name = cleanText(row?.category_name || row?.name);
     const parentId = cleanText(row?.parent_category_id || row?.parent_id);
@@ -782,6 +840,7 @@ function normalizeCategoryRecord(row = {}, categoryById = {}) {
         ? cleanText(categoryById?.[parentId]?.category_name || categoryById?.[parentId]?.name)
         : cleanText(row?.parent);
     const level = parentId || parentName ? 2 : 1;
+    const isHidden = resolveCategoryHidden(row, hiddenMap);
 
     return {
         ...row,
@@ -794,6 +853,8 @@ function normalizeCategoryRecord(row = {}, categoryById = {}) {
         parent_category_id: parentId || null,
         parent: parentName || '',
         level,
+        is_hidden: isHidden,
+        isHidden,
     };
 }
 
@@ -1539,6 +1600,7 @@ export function InventoryProvider({ children }) {
             const categoryRows = !catResult.error && Array.isArray(catResult.data) ? catResult.data : [];
             const categoryLookups = buildCategoryLookups(categoryRows);
             const scopeMap = readCategoryScopeMap(sid);
+            const hiddenMap = readCategoryHiddenMap(sid);
 
             const profileRows = !profileResult.error && Array.isArray(profileResult.data)
                 ? profileResult.data
@@ -1572,17 +1634,17 @@ export function InventoryProvider({ children }) {
             }
 
             if (categoryRows.length > 0) {
-                const normalizedCategories = categoryRows.map((row) => normalizeCategoryRecord(row, categoryLookups.byId));
+                const normalizedCategories = categoryRows.map((row) => normalizeCategoryRecord(row, categoryLookups.byId, hiddenMap));
                 const l1 = normalizedCategories.filter(c => Number(c.level) === 1) || [];
                 const l2 = normalizedCategories.filter(c => Number(c.level) === 2) || [];
-                setL1Categories(dedupeCategoryObjectsByName(applyScopeToCategoryList(l1, scopeMap)));
+                setL1Categories(dedupeCategoryObjectsByName(applyScopeToCategoryList(l1, scopeMap, hiddenMap)));
 
                 const map2 = {};
                 l2.forEach(c => {
                     const parentName = resolveCategoryParentName(c, categoryLookups.byId);
                     if (!parentName) return;
                     if (!map2[parentName]) map2[parentName] = [];
-                    map2[parentName].push(withCategoryScope({ ...c, parent: parentName }, scopeMap));
+                    map2[parentName].push(withCategoryScope({ ...c, parent: parentName }, scopeMap, hiddenMap));
                 });
                 Object.keys(map2).forEach((parentName) => {
                     map2[parentName] = dedupeCategoryObjectsByName(map2[parentName]);
@@ -2637,40 +2699,58 @@ export function InventoryProvider({ children }) {
     }, [products, activeShopId]);
 
     // Stateful Category Helpers
-    const getL1Categories = useCallback((scope = 'all') => {
-        if (!scope || String(scope).toLowerCase() === 'all') return dedupeCategoryObjectsByName(l1Categories);
-        const normalizedScope = normalizeCategoryScope(scope);
-        return dedupeCategoryObjectsByName(l1Categories.filter((c) => {
-            if (!c || typeof c !== 'object') return normalizedScope === CATEGORY_SCOPE_SALES;
-            return normalizeCategoryScope(c.scope) === normalizedScope;
-        }));
+    const getL1Categories = useCallback((scope = 'all', includeHidden = false) => {
+        let list = l1Categories;
+        if (scope && String(scope).toLowerCase() !== 'all') {
+            const normalizedScope = normalizeCategoryScope(scope);
+            list = list.filter((c) => {
+                if (!c || typeof c !== 'object') return normalizedScope === CATEGORY_SCOPE_SALES;
+                return normalizeCategoryScope(c.scope) === normalizedScope;
+            });
+        }
+        if (!includeHidden) {
+            list = list.filter((c) => {
+                if (!c || typeof c !== 'object') return true;
+                return !c.is_hidden && !c.isHidden;
+            });
+        }
+        return dedupeCategoryObjectsByName(list);
     }, [l1Categories]);
 
-    const getL2Categories = useCallback((l1Name, scope = 'all') => {
+    const getL2Categories = useCallback((l1Name, scope = 'all', includeHidden = false) => {
         if (!l1Name) return [];
         const parentBucket = Object.keys(l2Map || {}).find((key) => normalizeCategoryNameForMatch(key) === normalizeCategoryNameForMatch(l1Name)) || l1Name;
-        const categories = l2Map[parentBucket] || [];
-        if (!scope || String(scope).toLowerCase() === 'all') return dedupeCategoryObjectsByName(categories);
-        const normalizedScope = normalizeCategoryScope(scope);
-        return dedupeCategoryObjectsByName((categories || []).filter((c) => {
-            if (!c || typeof c !== 'object') return normalizedScope === CATEGORY_SCOPE_SALES;
-            return normalizeCategoryScope(c.scope) === normalizedScope;
-        }));
+        let categories = l2Map[parentBucket] || [];
+        if (scope && String(scope).toLowerCase() !== 'all') {
+            const normalizedScope = normalizeCategoryScope(scope);
+            categories = categories.filter((c) => {
+                if (!c || typeof c !== 'object') return normalizedScope === CATEGORY_SCOPE_SALES;
+                return normalizeCategoryScope(c.scope) === normalizedScope;
+            });
+        }
+        if (!includeHidden) {
+            categories = categories.filter((c) => {
+                if (!c || typeof c !== 'object') return true;
+                return !c.is_hidden && !c.isHidden;
+            });
+        }
+        return dedupeCategoryObjectsByName(categories);
     }, [l2Map]);
 
-    const addL1Category = useCallback(async (name, image = null, scope = CATEGORY_SCOPE_SALES) => {
+    const addL1Category = useCallback(async (name, image = null, scope = CATEGORY_SCOPE_SALES, isHidden = false) => {
         const sid = await ensureActiveShopExists(activeShopId);
 
         const trimmed = cleanText(name).replace(/\s+/g, ' ');
         if (!trimmed) return;
         const normalizedScope = normalizeCategoryScope(scope);
+        const hiddenBool = Boolean(isHidden);
 
         // Sync to cloud
         let existing = null;
         let resolvedCategoryId = '';
         const scopedSelect = await supabase
             .from('categories')
-            .select('category_id,category_name')
+            .select('*')
             .eq('shop_id', sid)
             .ilike('category_name', trimmed)
             .eq('category_purpose', normalizedScope)
@@ -2686,12 +2766,21 @@ export function InventoryProvider({ children }) {
 
         if (existing) {
             resolvedCategoryId = cleanText(existing?.category_id || existing?.id);
+            try {
+                await executeWithPrunedColumns(
+                    (candidate) => supabase.from('categories').update(candidate).eq('shop_id', sid).eq('category_id', resolvedCategoryId),
+                    { is_hidden: hiddenBool }
+                );
+            } catch {
+                // ignore
+            }
         } else {
             const insertPayload = {
                 category_name: trimmed,
                 parent_category_id: null,
                 category_purpose: normalizedScope,
                 shop_id: sid,
+                is_hidden: hiddenBool,
             };
             const insertResult = await executeWithPrunedColumns(
                 (candidate) => supabase.from('categories').insert([candidate]),
@@ -2701,7 +2790,7 @@ export function InventoryProvider({ children }) {
             if (insertError) {
                 const fallbackSelect = await supabase
                     .from('categories')
-                    .select('category_id,category_name')
+                    .select('*')
                     .eq('shop_id', sid)
                     .ilike('category_name', trimmed)
                     .eq('category_purpose', normalizedScope)
@@ -2740,33 +2829,37 @@ export function InventoryProvider({ children }) {
                             name: trimmed,
                             image: image || c.image || '',
                             scope: normalizedScope,
+                            is_hidden: hiddenBool,
+                            isHidden: hiddenBool,
                         };
                     }
-                    return { id: resolvedCategoryId || undefined, name: trimmed, image: image || '', scope: normalizedScope };
+                    return { id: resolvedCategoryId || undefined, name: trimmed, image: image || '', scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool };
                 });
             }
-            return [...prev, { id: resolvedCategoryId || undefined, name: trimmed, image, scope: normalizedScope }];
+            return [...prev, { id: resolvedCategoryId || undefined, name: trimmed, image, scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool }];
         });
         setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
+        setCategoryHiddenEntry(sid, 1, trimmed, '', normalizedScope, hiddenBool);
 
         // Upsert main category into kpi_profit_category_settings (both scopes)
         await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, trimmed, '');
         await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, trimmed, '');
 
-        return { categoryId: resolvedCategoryId, name: trimmed, shopId: sid };
+        return { categoryId: resolvedCategoryId, name: trimmed, shopId: sid, isHidden: hiddenBool };
     }, [activeShopId, ensureActiveShopExists]);
 
-    const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES, parentCategoryIdOverride = '') => {
+    const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES, parentCategoryIdOverride = '', isHidden = false) => {
         const sid = await ensureActiveShopExists(activeShopId);
 
         const trimmed = cleanText(name).replace(/\s+/g, ' ');
         if (!trimmed || !l1Name) return;
         const normalizedScope = normalizeCategoryScope(scope);
+        const hiddenBool = Boolean(isHidden);
         let parentCategoryId = cleanText(parentCategoryIdOverride) || cleanText(categoryNameToId[l1Name]);
         if (!parentCategoryId) {
             const parentLookup = await supabase
                 .from('categories')
-                .select('category_id,category_name')
+                .select('*')
                 .eq('shop_id', sid)
                 .ilike('category_name', l1Name)
                 .eq('category_purpose', normalizedScope)
@@ -2787,7 +2880,7 @@ export function InventoryProvider({ children }) {
         let existing = null;
         const scopedSelect = await supabase
             .from('categories')
-            .select('category_id,category_name')
+            .select('*')
             .eq('shop_id', sid)
             .ilike('category_name', trimmed)
             .eq('category_purpose', normalizedScope)
@@ -2801,13 +2894,21 @@ export function InventoryProvider({ children }) {
         }
 
         if (existing) {
-            // already exists
+            try {
+                await executeWithPrunedColumns(
+                    (candidate) => supabase.from('categories').update(candidate).eq('shop_id', sid).eq('category_id', existing.category_id || existing.id),
+                    { is_hidden: hiddenBool }
+                );
+            } catch {
+                // ignore
+            }
         } else {
             const insertPayload = {
                 category_name: trimmed,
                 parent_category_id: parentCategoryId || null,
                 category_purpose: normalizedScope,
                 shop_id: sid,
+                is_hidden: hiddenBool,
             };
             const insertResult = await executeWithPrunedColumns(
                 (candidate) => supabase.from('categories').insert([candidate]),
@@ -2817,7 +2918,7 @@ export function InventoryProvider({ children }) {
             if (insertError) {
                 let fallbackSelect = await supabase
                     .from('categories')
-                    .select('category_id,category_name')
+                    .select('*')
                     .eq('shop_id', sid)
                     .ilike('category_name', trimmed)
                     .eq('category_purpose', normalizedScope)
@@ -2858,25 +2959,98 @@ export function InventoryProvider({ children }) {
                             parent_id: c.parent_id || parentCategoryId || null,
                             parent_category_id: c.parent_category_id || parentCategoryId || null,
                             scope: normalizedScope,
+                            is_hidden: hiddenBool,
+                            isHidden: hiddenBool,
                         };
                     }
-                    return { name: trimmed, image: image || '', parent: l1Name, parent_id: parentCategoryId || null, scope: normalizedScope };
+                    return { name: trimmed, image: image || '', parent: l1Name, parent_id: parentCategoryId || null, scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool };
                 });
                 return { ...prev, [l1Name]: updatedList };
             }
             return {
                 ...prev,
-                [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, parent_id: parentCategoryId || null, scope: normalizedScope }]
+                [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, parent_id: parentCategoryId || null, scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool }]
             };
         });
         setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
+        setCategoryHiddenEntry(sid, 2, trimmed, l1Name, normalizedScope, hiddenBool);
 
         // Upsert sub-category into kpi_profit_category_settings (both scopes)
         await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_SALES, l1Name, trimmed);
         await upsertKpiCategorySetting(sid, CATEGORY_SCOPE_EXPENSE, l1Name, trimmed);
 
-        return { parentCategoryId, name: trimmed, shopId: sid };
+        return { parentCategoryId, name: trimmed, shopId: sid, isHidden: hiddenBool };
     }, [activeShopId, ensureActiveShopExists, categoryNameToId]);
+
+    const toggleCategoryHidden = useCallback(async (level, categoryNameOrId, isHidden, parentName = '', scope = CATEGORY_SCOPE_SALES) => {
+        const sid = await ensureActiveShopExists(activeShopId);
+        const normalizedScope = normalizeCategoryScope(scope);
+        const hiddenBool = Boolean(isHidden);
+        const strIdentifier = cleanText(categoryNameOrId);
+        if (!strIdentifier) return;
+
+        // Update in Supabase
+        try {
+            if (Number(level) === 1) {
+                await executeWithPrunedColumns(
+                    (candidate) => supabase.from('categories')
+                        .update(candidate)
+                        .eq('shop_id', sid)
+                        .eq('category_purpose', normalizedScope)
+                        .is('parent_category_id', null)
+                        .or(`category_id.eq.${strIdentifier},category_name.ilike.${strIdentifier}`),
+                    { is_hidden: hiddenBool }
+                );
+            } else {
+                let parentId = cleanText(categoryNameToId[parentName]);
+                const query = supabase.from('categories')
+                    .update({ is_hidden: hiddenBool })
+                    .eq('shop_id', sid)
+                    .eq('category_purpose', normalizedScope)
+                    .or(`category_id.eq.${strIdentifier},category_name.ilike.${strIdentifier}`);
+                if (parentId) {
+                    query.eq('parent_category_id', parentId);
+                }
+                await executeWithPrunedColumns(() => query, { is_hidden: hiddenBool });
+            }
+        } catch (err) {
+            console.warn('Supabase toggle category hidden notice:', err);
+        }
+
+        // Update local hidden cache
+        setCategoryHiddenEntry(sid, level, strIdentifier, parentName, normalizedScope, hiddenBool);
+
+        // Update local state
+        if (Number(level) === 1) {
+            setL1Categories((prev) => prev.map((c) => {
+                const cName = typeof c === 'object' ? c?.name : c;
+                const cId = typeof c === 'object' ? c?.id : '';
+                if (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(strIdentifier) || cId === strIdentifier) {
+                    return typeof c === 'object'
+                        ? { ...c, is_hidden: hiddenBool, isHidden: hiddenBool }
+                        : { name: c, is_hidden: hiddenBool, isHidden: hiddenBool };
+                }
+                return c;
+            }));
+        } else {
+            setL2Map((prev) => {
+                const next = { ...prev };
+                const bucketKey = Object.keys(next).find((k) => normalizeCategoryNameForMatch(k) === normalizeCategoryNameForMatch(parentName)) || parentName;
+                const currentList = next[bucketKey] || [];
+                next[bucketKey] = currentList.map((c) => {
+                    const cName = typeof c === 'object' ? c?.name : c;
+                    const cId = typeof c === 'object' ? c?.id : '';
+                    if (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(strIdentifier) || cId === strIdentifier) {
+                        return typeof c === 'object'
+                            ? { ...c, is_hidden: hiddenBool, isHidden: hiddenBool }
+                            : { name: c, is_hidden: hiddenBool, isHidden: hiddenBool };
+                    }
+                    return c;
+                });
+                return next;
+            });
+        }
+    }, [activeShopId, categoryNameToId, ensureActiveShopExists]);
 
     const getCatImage = useCallback((l1, l2) => {
         if (l2 && l2Map[l1]) {
@@ -2978,6 +3152,7 @@ export function InventoryProvider({ children }) {
         getLevel2Categories: getL2Categories,
         addLevel1Category: addL1Category,
         addLevel2Category: addL2Category,
+        toggleCategoryHidden,
         deleteCategory,
         getCategoryImage: getCatImage,
         buildProductJSON,
