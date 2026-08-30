@@ -94,6 +94,17 @@ function writeLocalNotesCache(shopId, notesList = []) {
     }
 }
 
+function mergeNotes(dbNotes = [], cachedNotes = []) {
+    const map = new Map();
+    (Array.isArray(cachedNotes) ? cachedNotes : []).forEach((n) => {
+        if (n && n.id) map.set(String(n.id), normalizeNoteRecord(n));
+    });
+    (Array.isArray(dbNotes) ? dbNotes : []).forEach((n) => {
+        if (n && n.id) map.set(String(n.id), normalizeNoteRecord(n));
+    });
+    return sortNotes([...map.values()]);
+}
+
 export function NotesProvider({ children }) {
     const { activeShopId, user } = useAuth();
     const [notes, setNotes] = useState([]);
@@ -120,9 +131,9 @@ export function NotesProvider({ children }) {
         }
 
         let cancelled = false;
-        const cached = readLocalNotesCache(sid);
-        if (cached && cached.length > 0) {
-            setNotes(sortNotes(cached));
+        const initialCached = readLocalNotesCache(sid);
+        if (initialCached && initialCached.length > 0) {
+            setNotes(sortNotes(initialCached));
         }
 
         const fetchNotesFromDb = async () => {
@@ -135,13 +146,40 @@ export function NotesProvider({ children }) {
 
                 if (cancelled) return;
 
+                const currentCache = readLocalNotesCache(sid);
+
                 if (!error && Array.isArray(data)) {
-                    const normalized = data.map(normalizeNoteRecord);
-                    const sorted = sortNotes(normalized);
-                    setNotes(sorted);
-                    writeLocalNotesCache(sid, sorted);
+                    const dbNormalized = data.map(normalizeNoteRecord);
+                    const merged = mergeNotes(dbNormalized, currentCache);
+                    setNotes(merged);
+                    writeLocalNotesCache(sid, merged);
+
+                    // Auto-sync any notes in local cache that aren't yet in DB
+                    const dbIds = new Set(dbNormalized.map((n) => String(n.id)));
+                    const missingInDb = currentCache.filter((n) => !dbIds.has(String(n.id)));
+                    if (missingInDb.length > 0) {
+                        for (const pendingNote of missingInDb) {
+                            supabase.from('notes').upsert([{
+                                id: pendingNote.id,
+                                shop_id: sid,
+                                title: pendingNote.title || null,
+                                content: pendingNote.content,
+                                category: pendingNote.category,
+                                color: pendingNote.color,
+                                is_pinned: pendingNote.isPinned,
+                                is_archived: pendingNote.isArchived,
+                                author_name: pendingNote.authorName || null,
+                                created_by: pendingNote.createdBy || null,
+                                created_at: pendingNote.createdAt,
+                                updated_at: pendingNote.updatedAt,
+                            }]).then();
+                        }
+                    }
                 } else if (error) {
-                    console.warn('Notes table query notice (using local storage cache if table not yet created):', error.message);
+                    console.warn('Notes table query notice:', error.message);
+                    if (currentCache && currentCache.length > 0) {
+                        setNotes(sortNotes(currentCache));
+                    }
                 }
             } catch (err) {
                 console.warn('Notes fetch error:', err);
@@ -275,12 +313,12 @@ export function NotesProvider({ children }) {
         };
 
         try {
-            const { error } = await supabase.from('notes').insert([dbPayload]);
+            const { error } = await supabase.from('notes').upsert([dbPayload]);
             if (error) {
-                console.warn('Supabase insert note notice (persisted in local cache):', error.message);
+                console.warn('Supabase upsert note notice (persisted in local cache):', error.message);
             }
         } catch (err) {
-            console.warn('Supabase insert note network error:', err);
+            console.warn('Supabase upsert note network error:', err);
         }
 
         broadcastNoteSync({ action: 'INSERT', data: newNote }).catch(() => {});

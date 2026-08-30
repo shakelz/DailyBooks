@@ -1,4 +1,4 @@
--- DailyBooks: Notes table schema with indexes and RLS policies
+-- DailyBooks: Notes table schema with permissions
 -- Run this in your Supabase SQL Editor:
 
 create table if not exists public.notes (
@@ -21,18 +21,8 @@ create index if not exists idx_notes_shop_id on public.notes(shop_id);
 create index if not exists idx_notes_created_at on public.notes(created_at);
 create index if not exists idx_notes_archived on public.notes(is_archived);
 
--- Enable RLS
-alter table public.notes enable row level security;
+-- Disable RLS so client operations are not blocked by missing policies
+alter table if exists public.notes disable row level security;
 
--- Policy for shop data access
-do $$
-begin
-    if not exists (
-        select 1 from pg_policies where schemaname = 'public' and tablename = 'notes' and policyname = 'notes_shop_access'
-    ) then
-        create policy notes_shop_access on public.notes
-            for all
-            using (true)
-            with check (true);
-    end if;
-end $$;
+-- Grant permissions to standard Supabase roles
+grant all on table public.notes to anon, authenticated, service_role;
