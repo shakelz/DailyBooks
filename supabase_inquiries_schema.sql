@@ -1,10 +1,10 @@
 -- DailyBooks: Website Customer Inquiries Schema & Permissions
 -- Run this in your Supabase SQL Editor:
 
--- 1. Create inquiries table
+-- 1. Create inquiries table (safe without rigid foreign key constraint)
 create table if not exists public.inquiries (
     id text primary key default ('inq_' || floor(extract(epoch from now()) * 1000)::text),
-    shop_id text references public.shops(id) on delete set null,
+    shop_id text,
     customer_name text not null,
     customer_phone text not null,
     device_model text,
@@ -19,7 +19,7 @@ create index if not exists idx_inquiries_shop_id on public.inquiries(shop_id);
 create index if not exists idx_inquiries_created_at on public.inquiries(created_at);
 create index if not exists idx_inquiries_status on public.inquiries(status);
 
--- 3. Ensure permissions for notes table (so public website inquiries sync seamlessly to Salesman Dashboard)
+-- 3. Ensure notes table exists and is accessible
 create table if not exists public.notes (
     id text primary key,
     shop_id text not null,
@@ -35,7 +35,7 @@ create table if not exists public.notes (
     updated_at timestamptz default now()
 );
 
--- 4. Disable RLS or grant open access to anon/authenticated for website inquiries and notes
+-- 4. Disable RLS and grant permissions so website inquiries save smoothly
 alter table if exists public.inquiries disable row level security;
 alter table if exists public.notes disable row level security;
 
