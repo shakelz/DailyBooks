@@ -13,7 +13,6 @@ import {
   Phone,
   Mail,
   MapPin,
-  BatteryCharging,
   Cpu,
   Star,
   Zap,
@@ -23,11 +22,7 @@ import {
   ChevronUp,
   Coffee,
   Lock,
-  Camera,
-  Check,
   RefreshCw,
-  ExternalLink,
-  MessageCircle,
   AlertCircle
 } from 'lucide-react'
 import { supabase } from '../supabaseClient'
@@ -184,14 +179,58 @@ export default function LandingPage() {
 
   const [selectedCategory, setSelectedCategory] = useState('iphone')
   const [openFaqIndex, setOpenFaqIndex] = useState(0)
+
+  // Shop Info State (Dynamic from Receipt / DB)
+  const [shopInfo, setShopInfo] = useState({
+    name: 'Carefone Berlin',
+    address: 'Carefone Berlin, Berlin, Deutschland',
+    telephone: '+49 30 0000 0000',
+    email: 'support@carefone.de',
+    id: '',
+  })
+
+  // Inquiry Form State
+  const [inquiryName, setInquiryName] = useState('')
+  const [inquiryPhone, setInquiryPhone] = useState('')
+  const [inquiryDevice, setInquiryDevice] = useState('')
+  const [inquiryIssue, setInquiryIssue] = useState('')
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false)
+  const [inquiryError, setInquiryError] = useState('')
   const [contactSubmitted, setContactSubmitted] = useState(false)
+
+  // Load shop details from database (matches receipt details)
+  useEffect(() => {
+    async function loadShopDetails() {
+      if (!supabase) return
+      try {
+        const { data, error } = await supabase
+          .from('shops')
+          .select('*')
+          .order('created_at', { ascending: true })
+          .limit(1)
+
+        if (!error && Array.isArray(data) && data[0]) {
+          const shop = data[0]
+          setShopInfo({
+            name: String(shop.name || shop.shop_name || 'Carefone Berlin').trim(),
+            address: String(shop.address || 'Carefone Berlin, Berlin, Deutschland').trim(),
+            telephone: String(shop.telephone || shop.phone || '+49 30 0000 0000').trim(),
+            email: String(shop.owner_email || shop.email || 'support@carefone.de').trim(),
+            id: String(shop.id || shop.shop_id || '').trim(),
+          })
+        }
+      } catch (err) {
+        console.warn('Failed to load shop details:', err)
+      }
+    }
+    loadShopDetails()
+  }, [])
 
   // Live store open/close status based on Berlin time
   const isStoreOpen = useMemo(() => {
     const now = new Date()
     const day = now.getDay() // 0 = Sun, 1-6 = Mon-Sat
     const hours = now.getHours()
-    // Open Mon-Sat 10:00 - 19:00
     if (day === 0) return false
     return hours >= 10 && hours < 19
   }, [])
@@ -269,6 +308,87 @@ export default function LandingPage() {
     handleSearchTicket(id)
   }
 
+  // Handle Customer Inquiry Submit (Dispatches directly to Salesman Dashboard in real-time)
+  const handleInquirySubmit = async (e) => {
+    e.preventDefault()
+    if (!inquiryName.trim() || !inquiryPhone.trim() || !inquiryDevice.trim()) return
+
+    setIsSubmittingInquiry(true)
+    setInquiryError('')
+
+    try {
+      let targetShopId = shopInfo.id
+      if (!targetShopId && supabase) {
+        const { data: shopData } = await supabase.from('shops').select('id').limit(1)
+        if (Array.isArray(shopData) && shopData[0]) {
+          targetShopId = String(shopData[0].id)
+        }
+      }
+      if (!targetShopId) {
+        targetShopId = 'default'
+      }
+
+      const noteId = `inq_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+      const nowIso = new Date().toISOString()
+      const nowFormatted = new Date().toLocaleString('de-DE')
+
+      const noteRecord = {
+        id: noteId,
+        shop_id: targetShopId,
+        title: `🌐 Website-Anfrage: ${inquiryName.trim()} (${inquiryDevice.trim()})`,
+        content: `👤 Kunde: ${inquiryName.trim()}\n📞 Telefon / WhatsApp: ${inquiryPhone.trim()}\n📱 Gerätemodell: ${inquiryDevice.trim()}\n💬 Fehlerbeschreibung: ${inquiryIssue.trim() || 'Allgemeine Anfrage'}\n🕒 Eingegangen am: ${nowFormatted}`,
+        category: 'inquiry',
+        color: 'blue',
+        is_pinned: true,
+        is_archived: false,
+        author_name: 'carefone.de Website',
+        created_at: nowIso,
+        updated_at: nowIso,
+      }
+
+      if (supabase) {
+        // 1. Insert into notes table so it appears in Salesman Dashboard Notes Drawer immediately
+        const { error: noteErr } = await supabase.from('notes').insert([noteRecord])
+        if (noteErr) {
+          console.warn('Note insert warning, trying upsert:', noteErr.message)
+          await supabase.from('notes').upsert([noteRecord]).catch(() => {})
+        }
+
+        // 2. Broadcast realtime event
+        const broadcastChannel = supabase.channel(`public:notes:${targetShopId}`)
+        await broadcastChannel.send({
+          type: 'broadcast',
+          event: 'note_sync',
+          payload: { action: 'INSERT', data: noteRecord }
+        }).catch(() => {})
+
+        // 3. Insert into dedicated inquiries table if created
+        await supabase.from('inquiries').insert([{
+          shop_id: targetShopId !== 'default' ? targetShopId : null,
+          customer_name: inquiryName.trim(),
+          customer_phone: inquiryPhone.trim(),
+          device_model: inquiryDevice.trim(),
+          issue_description: inquiryIssue.trim() || null,
+          status: 'new'
+        }]).catch(() => {})
+      }
+
+      setContactSubmitted(true)
+      setInquiryName('')
+      setInquiryPhone('')
+      setInquiryDevice('')
+      setInquiryIssue('')
+    } catch (err) {
+      console.error('Inquiry submission error:', err)
+      setInquiryError('Übermittlung fehlgeschlagen. Bitte rufen Sie uns direkt an.')
+    } finally {
+      setIsSubmittingInquiry(false)
+    }
+  }
+
+  const cleanPhoneLink = `tel:${shopInfo.telephone.replace(/[^0-9+]/g, '')}`
+  const cleanEmailLink = `mailto:${shopInfo.email}`
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white font-sans antialiased overflow-x-hidden">
       
@@ -280,7 +400,7 @@ export default function LandingPage() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
-            <span className="font-semibold text-white">Carefone Berlin Workshop:</span>
+            <span className="font-semibold text-white">{shopInfo.name} Workshop:</span>
             <span>Same-Day Express Repairs in 30–45 Mins</span>
           </div>
 
@@ -289,16 +409,16 @@ export default function LandingPage() {
               <Clock className="w-3.5 h-3.5 text-blue-400" />
               Mo - Sa: 10:00 - 19:00 Uhr
             </span>
-            <span className="hidden md:inline-flex items-center gap-1.5">
-              <MapPin className="w-3.5 h-3.5 text-blue-400" />
-              Berlin, Deutschland
+            <span className="hidden md:inline-flex items-center gap-1.5 truncate max-w-[280px]">
+              <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              <span className="truncate">{shopInfo.address}</span>
             </span>
             <a
-              href="tel:+493000000000"
+              href={cleanPhoneLink}
               className="inline-flex items-center gap-1 font-bold text-cyan-400 hover:text-cyan-300 transition-colors"
             >
               <Phone className="w-3 h-3" />
-              +49 30 0000 0000
+              {shopInfo.telephone}
             </a>
           </div>
         </div>
@@ -356,15 +476,13 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* ── Hero Section (Ultra Modern & Energetic) ── */}
+      {/* ── Hero Section ── */}
       <section className="relative pt-12 pb-20 md:pt-20 md:pb-28 overflow-hidden">
-        {/* Glowing Background Orbs */}
         <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-blue-600/15 rounded-full blur-[120px] pointer-events-none" />
         <div className="absolute top-40 right-10 w-[350px] h-[250px] bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
           
-          {/* Main Hero Header */}
           <div className="max-w-3xl mx-auto text-center space-y-5">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-950/80 border border-blue-500/30 text-blue-300 text-xs font-semibold shadow-inner">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
@@ -384,7 +502,6 @@ export default function LandingPage() {
               Ohne Datenverlust, mit Original-Qualitätsersatzteilen und <strong className="text-cyan-300 font-semibold">12 Monaten Garantie</strong>.
             </p>
 
-            {/* Quick Action CTA Buttons */}
             <div className="pt-3 flex flex-wrap items-center justify-center gap-3">
               <a
                 href="#tracker"
@@ -502,21 +619,21 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={() => handleQuickChipClick('RPR-2401')}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition-colors"
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition-colors cursor-pointer"
               >
                 RPR-2401 (Abholbereit)
               </button>
               <button
                 type="button"
                 onClick={() => handleQuickChipClick('RPR-8821')}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition-colors"
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition-colors cursor-pointer"
               >
                 RPR-8821 (In Reparatur)
               </button>
               <button
                 type="button"
                 onClick={() => handleQuickChipClick('CF-2026')}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition-colors"
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition-colors cursor-pointer"
               >
                 CF-2026 (Diagnose)
               </button>
@@ -549,51 +666,49 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                {/* 5-Step Visual Timeline */}
-                <div className="relative">
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 relative">
-                    
-                    {/* Step 1 */}
-                    <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 1 ? 'bg-blue-950/40 border-blue-500/40 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 1 ? 'text-emerald-400' : 'text-slate-600'}`} />
-                        <span className="text-xs font-bold uppercase">Schritt 1</span>
-                      </div>
-                      <h4 className="text-sm font-bold">Annahme & Check-In</h4>
-                      <p className="text-[11px] text-slate-400 mt-1">Gerät im System erfasst & vorinspiziert.</p>
+                {/* 4-Step Visual Timeline */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 relative">
+                  
+                  {/* Step 1 */}
+                  <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 1 ? 'bg-blue-950/40 border-blue-500/40 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 1 ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      <span className="text-xs font-bold uppercase">Schritt 1</span>
                     </div>
-
-                    {/* Step 2 */}
-                    <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 2 ? 'bg-blue-950/40 border-blue-500/40 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 2 ? 'text-emerald-400' : 'text-slate-600'}`} />
-                        <span className="text-xs font-bold uppercase">Schritt 2</span>
-                      </div>
-                      <h4 className="text-sm font-bold">Diagnose & Labor</h4>
-                      <p className="text-[11px] text-slate-400 mt-1">Elektronische Messung & Teilebereitstellung.</p>
-                    </div>
-
-                    {/* Step 3 */}
-                    <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 3 ? 'bg-blue-950/40 border-blue-500/40 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 3 ? 'text-emerald-400' : 'text-slate-600'}`} />
-                        <span className="text-xs font-bold uppercase">Schritt 3</span>
-                      </div>
-                      <h4 className="text-sm font-bold">Werkstatt-Reparatur</h4>
-                      <p className="text-[11px] text-slate-400 mt-1">Austausch mit zertifizierten Ersatzteilen.</p>
-                    </div>
-
-                    {/* Step 4 */}
-                    <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 4 ? 'bg-emerald-950/40 border-emerald-500/50 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 4 ? 'text-emerald-400' : 'text-slate-600'}`} />
-                        <span className="text-xs font-bold uppercase">Schritt 4</span>
-                      </div>
-                      <h4 className="text-sm font-bold">Abholbereit</h4>
-                      <p className="text-[11px] text-slate-400 mt-1">24-Punkte-Endkontrolle bestanden.</p>
-                    </div>
-
+                    <h4 className="text-sm font-bold">Annahme & Check-In</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">Gerät im System erfasst & vorinspiziert.</p>
                   </div>
+
+                  {/* Step 2 */}
+                  <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 2 ? 'bg-blue-950/40 border-blue-500/40 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 2 ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      <span className="text-xs font-bold uppercase">Schritt 2</span>
+                    </div>
+                    <h4 className="text-sm font-bold">Diagnose & Labor</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">Elektronische Messung & Teilebereitstellung.</p>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 3 ? 'bg-blue-950/40 border-blue-500/40 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 3 ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      <span className="text-xs font-bold uppercase">Schritt 3</span>
+                    </div>
+                    <h4 className="text-sm font-bold">Werkstatt-Reparatur</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">Austausch mit zertifizierten Ersatzteilen.</p>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 4 ? 'bg-emerald-950/40 border-emerald-500/50 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 4 ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      <span className="text-xs font-bold uppercase">Schritt 4</span>
+                    </div>
+                    <h4 className="text-sm font-bold">Abholbereit</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">24-Punkte-Endkontrolle bestanden.</p>
+                  </div>
+
                 </div>
 
                 {/* Status Note Banner */}
@@ -603,7 +718,7 @@ export default function LandingPage() {
                     <span><strong>Aktuelle Werkstatt-Notiz:</strong> {ticketResult.statusNote}</span>
                   </div>
                   <a
-                    href="tel:+493000000000"
+                    href={cleanPhoneLink}
                     className="shrink-0 px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-bold text-xs border border-cyan-400/30 transition-all"
                   >
                     Rückfrage stellen
@@ -627,7 +742,7 @@ export default function LandingPage() {
             Reparatur-Übersicht & Preiskalkulator
           </h2>
           <p className="text-sm text-slate-400 mt-2">
-            Wählen Sie Ihre Gerätekategorie für typische Reparaturzeiten, Festpreise und Garantieangaben.
+            Wählen Sie Ihre Gerätekategorie für typische Reparaturzeiten, Richtpreise und Garantieangaben. (Individuelle Angebote vor Ort)
           </p>
         </div>
 
@@ -708,12 +823,12 @@ export default function LandingPage() {
             </div>
             <div>
               <h4 className="text-sm font-bold text-white">Gerät nicht in der Liste oder unklarer Fehler?</h4>
-              <p className="text-xs text-slate-400 mt-0.5">Wir bieten eine kostenlose Erstdiagnose direkt vor Ort in unserer Berliner Filiale.</p>
+              <p className="text-xs text-slate-400 mt-0.5">Wir bieten eine kostenlose Erstdiagnose direkt vor Ort in unserer Filiale.</p>
             </div>
           </div>
 
           <a
-            href="tel:+493000000000"
+            href={cleanPhoneLink}
             className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs transition-all shadow-md shadow-cyan-500/20 whitespace-nowrap"
           >
             Direkt Beraten Lassen
@@ -727,7 +842,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           
           <div className="text-center max-w-2xl mx-auto mb-14">
-            <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Warum Carefone Berlin?</span>
+            <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Warum {shopInfo.name}?</span>
             <h2 className="text-3xl sm:text-4xl font-black text-white mt-1">
               Präzision, Vertrauen & Höchste Qualität
             </h2>
@@ -898,16 +1013,16 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Contact, Location & Store Info ── */}
+      {/* ── Contact, Location & Store Info (Receipt Info Matched) ── */}
       <section id="contact" className="py-20 max-w-7xl mx-auto px-4 sm:px-6">
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           
-          {/* Store Details Card */}
+          {/* Store Details Card (Receipt Matching) */}
           <div className="p-8 rounded-3xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Besuchen Sie Uns</span>
-              <h2 className="text-2xl sm:text-3xl font-black text-white mt-1">Carefone Filiale Berlin</h2>
+              <h2 className="text-2xl sm:text-3xl font-black text-white mt-1">{shopInfo.name}</h2>
               <p className="text-xs sm:text-sm text-slate-400 mt-2">
                 Zentral erreichbar im Herzen Berlins mit bester U-Bahn & S-Bahn Anbindung.
               </p>
@@ -919,7 +1034,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <span className="font-bold text-white block">Adresse:</span>
-                    <p className="text-slate-400">Carefone Berlin, Berlin, Deutschland</p>
+                    <p className="text-slate-300 font-medium">{shopInfo.address}</p>
                   </div>
                 </div>
 
@@ -929,7 +1044,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <span className="font-bold text-white block">Öffnungszeiten:</span>
-                    <p className="text-slate-400">Montag – Samstag: 10:00 – 19:00 Uhr</p>
+                    <p className="text-slate-300">Montag – Samstag: 10:00 – 19:00 Uhr</p>
                     <p className="text-[11px] text-slate-500">Sonn- und Feiertage: Geschlossen</p>
                   </div>
                 </div>
@@ -940,7 +1055,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <span className="font-bold text-white block">Telefon:</span>
-                    <a href="tel:+493000000000" className="text-cyan-400 hover:underline">+49 30 0000 0000</a>
+                    <a href={cleanPhoneLink} className="text-cyan-400 hover:underline font-semibold">{shopInfo.telephone}</a>
                   </div>
                 </div>
 
@@ -950,7 +1065,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <span className="font-bold text-white block">E-Mail:</span>
-                    <a href="mailto:support@carefone.de" className="text-indigo-400 hover:underline">support@carefone.de</a>
+                    <a href={cleanEmailLink} className="text-indigo-400 hover:underline font-semibold">{shopInfo.email}</a>
                   </div>
                 </div>
               </div>
@@ -958,17 +1073,17 @@ export default function LandingPage() {
 
             <div className="mt-8 pt-6 border-t border-slate-800 flex flex-wrap gap-3">
               <a
-                href="https://maps.google.com"
+                href={`https://maps.google.com/?q=${encodeURIComponent(shopInfo.address)}`}
                 target="_blank"
                 rel="noreferrer"
-                className="flex-1 min-w-[160px] py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs text-center border border-slate-700 flex items-center justify-center gap-2 transition-all"
+                className="flex-1 min-w-[160px] py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs text-center border border-slate-700 flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
                 <MapPin className="w-3.5 h-3.5 text-cyan-400" />
                 <span>In Google Maps öffnen</span>
               </a>
               <a
-                href="tel:+493000000000"
-                className="flex-1 min-w-[160px] py-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold text-xs text-center shadow-lg shadow-blue-600/30 hover:scale-[1.01] transition-all flex items-center justify-center gap-2"
+                href={cleanPhoneLink}
+                className="flex-1 min-w-[160px] py-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold text-xs text-center shadow-lg shadow-blue-600/30 hover:scale-[1.01] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Phone className="w-3.5 h-3.5" />
                 <span>Jetzt Anrufen</span>
@@ -976,70 +1091,84 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Quick Inquiry Form */}
+          {/* Quick Inquiry Form (Direct to Salesman Dashboard) */}
           <div className="p-8 rounded-3xl bg-slate-900/90 border border-slate-800">
             <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Schnellanfrage</span>
             <h3 className="text-2xl font-black text-white mt-1">Reparaturanfrage senden</h3>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              Beschreiben Sie Ihr Problem und wir melden uns innerhalb kürzester Zeit mit einem Kostenvoranschlag.
+              Beschreiben Sie Ihr Problem und unsere Filiale erhält Ihre Anfrage in Echtzeit.
             </p>
+
+            {inquiryError && (
+              <div className="mt-4 p-3 rounded-xl bg-rose-950/40 border border-rose-800 text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{inquiryError}</span>
+              </div>
+            )}
 
             {contactSubmitted ? (
               <div className="mt-6 p-6 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-center animate-fadeIn">
                 <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-2" />
                 <h4 className="text-base font-bold text-white">Anfrage erfolgreich übermittelt!</h4>
-                <p className="text-xs text-slate-300 mt-1">Unser Werkstatt-Team prüft Ihre Angaben und meldet sich in Kürze.</p>
+                <p className="text-xs text-slate-300 mt-1">
+                  Ihre Nachricht wurde direkt an unser Werkstatt-Team in {shopInfo.name} übermittelt. Wir melden uns in Kürze telefonisch oder per WhatsApp bei Ihnen.
+                </p>
                 <button
                   type="button"
                   onClick={() => setContactSubmitted(false)}
-                  className="mt-4 px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-white hover:bg-slate-700 transition-colors"
+                  className="mt-4 px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-white hover:bg-slate-700 transition-colors cursor-pointer"
                 >
                   Weitere Anfrage senden
                 </button>
               </div>
             ) : (
               <form
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  setContactSubmitted(true)
-                }}
+                onSubmit={handleInquirySubmit}
                 className="mt-6 space-y-4"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Ihr Name</label>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Ihr Name *</label>
                     <input
                       required
                       type="text"
+                      value={inquiryName}
+                      onChange={(e) => setInquiryName(e.target.value)}
                       placeholder="z. B. Max Mustermann"
                       className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Telefon / WhatsApp</label>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Telefon / WhatsApp *</label>
                     <input
                       required
                       type="tel"
-                      placeholder="z. B. +49 170 1234567"
+                      value={inquiryPhone}
+                      onChange={(e) => setInquiryPhone(e.target.value)}
+                      placeholder="z. B. 0170 1234567"
                       className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Gerätemodell</label>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Gerätemodell *</label>
                   <input
                     required
                     type="text"
+                    value={inquiryDevice}
+                    onChange={(e) => setInquiryDevice(e.target.value)}
                     placeholder="z. B. iPhone 15 Pro, Samsung S24, MacBook Air M2"
                     className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Fehlerbeschreibung</label>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Fehlerbeschreibung / Anliegen</label>
                   <textarea
                     rows={3}
+                    value={inquiryIssue}
+                    onChange={(e) => setInquiryIssue(e.target.value)}
                     placeholder="z. B. Displayglas gerissen, Akku entlädt sich schnell, Gerät startet nicht..."
                     className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 resize-none"
                   />
@@ -1047,9 +1176,17 @@ export default function LandingPage() {
 
                 <button
                   type="submit"
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 hover:scale-[1.01] active:scale-[0.98] transition-all cursor-pointer"
+                  disabled={isSubmittingInquiry}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 hover:scale-[1.01] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  Unverbindliche Preisauskunft anfordern
+                  {isSubmittingInquiry ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Wird übermittelt...</span>
+                    </>
+                  ) : (
+                    <span>Anfrage jetzt absenden</span>
+                  )}
                 </button>
               </form>
             )}
@@ -1069,7 +1206,7 @@ export default function LandingPage() {
                 <Wrench className="w-4 h-4" />
               </div>
               <span className="font-bold text-white text-sm">
-                Carefone Berlin • Meisterwerkstatt
+                {shopInfo.name} • Meisterwerkstatt
               </span>
             </div>
 
@@ -1078,11 +1215,11 @@ export default function LandingPage() {
               <a href="#services" className="hover:text-white transition-colors">Preise & Services</a>
               <a href="#why-us" className="hover:text-white transition-colors">Garantie & Qualität</a>
               <a href="#contact" className="hover:text-white transition-colors">Filiale</a>
-              <a href="mailto:support@carefone.de" className="hover:text-white transition-colors">Impressum & Kontakt</a>
+              <a href={cleanEmailLink} className="hover:text-white transition-colors">Impressum & Kontakt</a>
             </div>
 
             <p className="text-center sm:text-right">
-              © {new Date().getFullYear()} Carefone.de. Alle Rechte vorbehalten.
+              © {new Date().getFullYear()} {shopInfo.name}. Alle Rechte vorbehalten.
             </p>
           </div>
         </div>

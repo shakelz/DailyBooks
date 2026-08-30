@@ -7,6 +7,7 @@ import { useNotes } from '../context/NotesContext';
 
 const NOTE_CATEGORIES = [
     { id: 'all', label: 'All', icon: null },
+    { id: 'inquiry', label: 'Website Inquiry', color: 'blue', icon: '🌐' },
     { id: 'urgent', label: 'Urgent', color: 'rose', icon: '🔥' },
     { id: 'reminder', label: 'Reminder', color: 'amber', icon: '⏰' },
     { id: 'repair', label: 'Repair', color: 'blue', icon: '🔧' },

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, Edit3, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers, Calendar, Truck, Send, Inbox, RotateCcw, CheckCircle, CheckCircle2, MessageSquare, StickyNote, UserCheck, ArrowRightLeft } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, Edit3, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers, Calendar, Truck, Send, Inbox, RotateCcw, CheckCircle, CheckCircle2, MessageSquare, StickyNote, UserCheck, ArrowRightLeft, Globe } from 'lucide-react';
 
 import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
 import { useAuth } from '../context/AuthContext';
@@ -800,6 +800,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
     }, []);
     const activeNotesCount = useMemo(() => notes.filter((n) => !n.isArchived).length, [notes]);
+    const websiteInquiryCount = useMemo(() => notes.filter((n) => !n.isArchived && n.category === 'inquiry').length, [notes]);
+    const latestInquiry = useMemo(() => notes.find((n) => !n.isArchived && n.category === 'inquiry') || null, [notes]);
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
     const debouncedTransactions = useDebouncedValue(transactions, 140);
     const debouncedProducts = useDebouncedValue(products, 140);
@@ -5013,6 +5015,30 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             </header>
 
             <main className="max-w-7xl mx-auto px-3 pt-4 pb-6 space-y-3">
+                {websiteInquiryCount > 0 && (
+                    <div className="rounded-2xl bg-gradient-to-r from-blue-900 via-indigo-900 to-cyan-950 border border-cyan-400/50 p-3.5 shadow-lg shadow-blue-950/40 flex flex-wrap items-center justify-between gap-3 text-white">
+                        <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-cyan-400/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shrink-0">
+                                <Globe size={18} />
+                            </div>
+                            <div>
+                                <span className="font-bold text-xs text-cyan-300 uppercase tracking-wider block">
+                                    🌐 Neue Website-Anfrage ({websiteInquiryCount})
+                                </span>
+                                <p className="text-xs text-slate-200 mt-0.5">
+                                    {latestInquiry?.title || `${websiteInquiryCount} neue Kunden-Anfrage(n) von carefone.de eingegangen.`}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowNotesModal(true)}
+                            className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all shadow-md cursor-pointer whitespace-nowrap"
+                        >
+                            Anfrage ansehen & bearbeiten
+                        </button>
+                    </div>
+                )}
 
                 <section className="grid grid-cols-1 md:grid-cols-[0.72fr_1fr_1fr] gap-2">
                     <CompactTrendCard
