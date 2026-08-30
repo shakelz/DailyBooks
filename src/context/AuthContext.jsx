@@ -336,11 +336,6 @@ function getSalesmanRedirectPath() {
     return '/terminal-access-v1/dashboard';
 }
 
-function redirectToSalesmanLogin() {
-    if (typeof window === 'undefined') return;
-    if (window.location.pathname === SALESMAN_LOGIN_ROUTE) return;
-    window.location.replace(SALESMAN_LOGIN_ROUTE);
-}
 
 function sleep(ms = 0) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -2542,7 +2537,7 @@ export function AuthProvider({ children }) {
     const activeUserId = asString(getProfileId(user));
     const activeUserShopId = asString(user?.shop_id || activeShopId);
 
-    const resetAuthState = useCallback(({ redirect = false, preserveShopId = true } = {}) => {
+    const resetAuthState = useCallback(({ preserveShopId = true } = {}) => {
         setAuthTokenFromSupabaseSession(null);
         clearPersistedAuthState();
         setRole(null);
@@ -2559,9 +2554,6 @@ export function AuthProvider({ children }) {
         setActiveAttendanceId('');
         setIsAttendanceActionPending(false);
         setLowStockAlerts([]);
-        if (redirect) {
-            redirectToSalesmanLogin();
-        }
     }, []);
 
     const hydrateAuthStateFromSession = useCallback(async (session) => {
@@ -2570,7 +2562,7 @@ export function AuthProvider({ children }) {
         const appMetadata = getAuthAppMetadata(authUser);
 
         if (!authUser?.id) {
-            resetAuthState({ redirect: true });
+            resetAuthState({ redirect: false });
             return null;
         }
 
@@ -2586,7 +2578,7 @@ export function AuthProvider({ children }) {
 
         const sessionRole = resolveAuthUserRole(authUser, profile);
         if (!sessionRole) {
-            resetAuthState({ redirect: true });
+            resetAuthState({ redirect: false });
             return null;
         }
 
@@ -2602,7 +2594,7 @@ export function AuthProvider({ children }) {
         });
 
         if (!sessionUser) {
-            resetAuthState({ redirect: true });
+            resetAuthState({ redirect: false });
             return null;
         }
 
@@ -2682,7 +2674,7 @@ export function AuthProvider({ children }) {
 
         const syncSession = async (session) => {
             if (!session?.user) {
-                resetAuthState({ redirect: true });
+                resetAuthState({ redirect: false });
                 clearAuthLoadingTimeout();
                 if (!cancelled) {
                     setAuthLoading(false);
