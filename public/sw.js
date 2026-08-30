@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dailybooks-erp-v6';
+const CACHE_NAME = 'dailybooks-erp-v7';
 const APP_SHELL = [
   '/',
   '/index.html',
