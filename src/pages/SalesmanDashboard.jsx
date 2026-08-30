@@ -764,6 +764,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         getStockSeverity,
         getLevel1Categories,
         getLevel2Categories,
+        toggleCategoryHidden,
         refreshProducts,
         refreshCategoryCatalog,
     } = useInventory();
@@ -771,6 +772,33 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const { addToCart, cart, editingCartItem, setEditingCartItem } = useCart();
     const { notes } = useNotes();
     const [showNotesModal, setShowNotesModal] = useState(false);
+    const [hideConfirmCategory, setHideConfirmCategory] = useState(null);
+    const [isHidingCategory, setIsHidingCategory] = useState(false);
+    const categoryLongPressTimerRef = useRef(null);
+    const categoryLongPressTriggeredRef = useRef(false);
+
+    const startCategoryLongPress = useCallback((name, level = 1, parentName = '', scope = 'sales') => {
+        categoryLongPressTriggeredRef.current = false;
+        if (categoryLongPressTimerRef.current) {
+            clearTimeout(categoryLongPressTimerRef.current);
+        }
+        categoryLongPressTimerRef.current = setTimeout(() => {
+            categoryLongPressTriggeredRef.current = true;
+            try {
+                if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                    navigator.vibrate(60);
+                }
+            } catch {}
+            setHideConfirmCategory({ name, level, parentName, scope });
+        }, 1500);
+    }, []);
+
+    const cancelCategoryLongPress = useCallback(() => {
+        if (categoryLongPressTimerRef.current) {
+            clearTimeout(categoryLongPressTimerRef.current);
+            categoryLongPressTimerRef.current = null;
+        }
+    }, []);
     const activeNotesCount = useMemo(() => notes.filter((n) => !n.isArchived).length, [notes]);
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
     const debouncedTransactions = useDebouncedValue(transactions, 140);
@@ -914,6 +942,37 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const debouncedRevenueHistoryInvoiceQuery = useDebouncedValue(revenueHistoryInvoiceQuery, 180);
 
     useTranslatedTextTree(translatedTreeRef);
+
+    const confirmHideCategory = useCallback(async () => {
+        if (!hideConfirmCategory) return;
+        setIsHidingCategory(true);
+        try {
+            const { name, level, parentName, scope } = hideConfirmCategory;
+            await toggleCategoryHidden(level, name, true, parentName, scope);
+            if (scope === 'sales') {
+                if (level === 1 && salesEntry.category === name) {
+                    setSalesEntry((prev) => ({ ...prev, category: '', subCategory: '' }));
+                } else if (level === 2 && salesEntry.subCategory === name) {
+                    setSalesEntry((prev) => ({ ...prev, subCategory: '' }));
+                }
+                if (inventoryCategory === name) {
+                    setInventoryCategory('all');
+                    setInventorySubCategory('all');
+                }
+            } else {
+                if (level === 1 && purchaseEntry.category === name) {
+                    setPurchaseEntry((prev) => ({ ...prev, category: '', subCategory: '' }));
+                } else if (level === 2 && purchaseEntry.subCategory === name) {
+                    setPurchaseEntry((prev) => ({ ...prev, subCategory: '' }));
+                }
+            }
+            setHideConfirmCategory(null);
+        } catch (err) {
+            alert(err?.message || 'Failed to hide category.');
+        } finally {
+            setIsHidingCategory(false);
+        }
+    }, [hideConfirmCategory, toggleCategoryHidden, salesEntry.category, salesEntry.subCategory, purchaseEntry.category, purchaseEntry.subCategory, inventoryCategory]);
 
     const readLastActivityAt = useCallback(() => {
         let raw = volatileLockState.get(lockStateKey);
@@ -5253,7 +5312,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             <button
                                                 key={`sales-cat-chip-${name}`}
                                                 type="button"
+                                                title="Click to select, hold to hide from dashboard"
+                                                onMouseDown={() => startCategoryLongPress(name, 1, '', 'sales')}
+                                                onMouseUp={cancelCategoryLongPress}
+                                                onMouseLeave={cancelCategoryLongPress}
+                                                onTouchStart={() => startCategoryLongPress(name, 1, '', 'sales')}
+                                                onTouchEnd={cancelCategoryLongPress}
                                                 onClick={() => {
+                                                    if (categoryLongPressTriggeredRef.current) return;
                                                     setSalesEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
                                                     setSalesEntryErrors((prev) => ({ ...prev, category: '' }));
                                                 }}
@@ -5280,7 +5346,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         <button
                                             key={`sales-sub-chip-${name}`}
                                             type="button"
-                                            onClick={() => setSalesEntry((prev) => ({ ...prev, subCategory: name }))}
+                                            title="Click to select, hold to hide from dashboard"
+                                            onMouseDown={() => startCategoryLongPress(name, 2, salesEntry.category, 'sales')}
+                                            onMouseUp={cancelCategoryLongPress}
+                                            onMouseLeave={cancelCategoryLongPress}
+                                            onTouchStart={() => startCategoryLongPress(name, 2, salesEntry.category, 'sales')}
+                                            onTouchEnd={cancelCategoryLongPress}
+                                            onClick={() => {
+                                                if (categoryLongPressTriggeredRef.current) return;
+                                                setSalesEntry((prev) => ({ ...prev, subCategory: name }));
+                                            }}
                                             className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${salesEntry.subCategory === name ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
                                         >
                                             {name}
@@ -5421,7 +5496,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             <button
                                                 key={`purchase-cat-chip-${name}`}
                                                 type="button"
+                                                title="Click to select, hold to hide from dashboard"
+                                                onMouseDown={() => startCategoryLongPress(name, 1, '', 'expense')}
+                                                onMouseUp={cancelCategoryLongPress}
+                                                onMouseLeave={cancelCategoryLongPress}
+                                                onTouchStart={() => startCategoryLongPress(name, 1, '', 'expense')}
+                                                onTouchEnd={cancelCategoryLongPress}
                                                 onClick={() => {
+                                                    if (categoryLongPressTriggeredRef.current) return;
                                                     setPurchaseEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
                                                     setPurchaseEntryErrors((prev) => ({ ...prev, category: '' }));
                                                 }}
@@ -5443,7 +5525,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             <button
                                                 key={`purchase-subcat-chip-${name}`}
                                                 type="button"
+                                                title="Click to select, hold to hide from dashboard"
+                                                onMouseDown={() => startCategoryLongPress(name, 2, purchaseEntry.category, 'expense')}
+                                                onMouseUp={cancelCategoryLongPress}
+                                                onMouseLeave={cancelCategoryLongPress}
+                                                onTouchStart={() => startCategoryLongPress(name, 2, purchaseEntry.category, 'expense')}
+                                                onTouchEnd={cancelCategoryLongPress}
                                                 onClick={() => {
+                                                    if (categoryLongPressTriggeredRef.current) return;
                                                     setPurchaseEntry((prev) => ({
                                                         ...prev,
                                                         subCategory: prev.subCategory === name ? '' : name,
@@ -6255,7 +6344,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         <button
                                             key={`cat-chip-${cat.name}`}
                                             type="button"
+                                            title="Click to filter, hold to hide from dashboard"
+                                            onMouseDown={() => startCategoryLongPress(cat.name, 1, '', 'sales')}
+                                            onMouseUp={cancelCategoryLongPress}
+                                            onMouseLeave={cancelCategoryLongPress}
+                                            onTouchStart={() => startCategoryLongPress(cat.name, 1, '', 'sales')}
+                                            onTouchEnd={cancelCategoryLongPress}
                                             onClick={() => {
+                                                if (categoryLongPressTriggeredRef.current) return;
                                                 setInventoryCategory(cat.name);
                                                 setInventorySubCategory('all');
                                             }}
@@ -6302,7 +6398,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             <button
                                                 key={`subcat-chip-${sub.name}`}
                                                 type="button"
-                                                onClick={() => setInventorySubCategory(sub.name)}
+                                                title="Click to filter, hold to hide from dashboard"
+                                                onMouseDown={() => startCategoryLongPress(sub.name, 2, inventoryCategory, 'sales')}
+                                                onMouseUp={cancelCategoryLongPress}
+                                                onMouseLeave={cancelCategoryLongPress}
+                                                onTouchStart={() => startCategoryLongPress(sub.name, 2, inventoryCategory, 'sales')}
+                                                onTouchEnd={cancelCategoryLongPress}
+                                                onClick={() => {
+                                                    if (categoryLongPressTriggeredRef.current) return;
+                                                    setInventorySubCategory(sub.name);
+                                                }}
                                                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 flex-shrink-0 ${
                                                     inventorySubCategory.toLowerCase() === sub.name.toLowerCase()
                                                         ? 'bg-indigo-600 text-white shadow-xs'
@@ -7482,6 +7587,53 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             <SalesmanProfile isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
             <CategoryManagerModal isOpen={showCategoryModal} onClose={() => setShowCategoryModal(false)} />
             <RepairModal isOpen={showRepairModal} onClose={() => setShowRepairModal(false)} />
+
+            {/* Category Hide Confirmation Modal (Triggered on 1.5s - 5s long press) */}
+            {hideConfirmCategory && (
+                <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150" onClick={() => setHideConfirmCategory(null)}>
+                    <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 space-y-4 animate-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-2xl shadow-sm flex-shrink-0">
+                                🙈
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-slate-800 text-base">Hide Category from Dashboard?</h3>
+                                <p className="text-xs text-slate-500 font-medium">
+                                    {hideConfirmCategory.scope === 'sales' ? 'Sales' : 'Expense'} Category • Level {hideConfirmCategory.level}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-1.5">
+                            <p className="text-xs font-bold text-slate-800">
+                                Category: <span className="text-blue-600">"{hideConfirmCategory.name}"</span>
+                            </p>
+                            <p className="text-[11px] text-slate-500 leading-relaxed">
+                                This category will be hidden from dashboard chips and dropdowns. You can easily unhide it at any time from <strong>Category Manager</strong>.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2.5 pt-1">
+                            <button
+                                type="button"
+                                onClick={() => setHideConfirmCategory(null)}
+                                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isHidingCategory}
+                                onClick={confirmHideCategory}
+                                className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-500/20 transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                            >
+                                <span>🙈</span>
+                                {isHidingCategory ? 'Hiding...' : 'Hide Category'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {isLocked && !adminView && (
                 <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/75 backdrop-blur-sm">

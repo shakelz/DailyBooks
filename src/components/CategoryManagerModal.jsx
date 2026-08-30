@@ -356,10 +356,38 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                     <option value="">-- Select Main Category --</option>
                                     {addL1Categories.map((c) => {
                                         const name = typeof c === 'object' ? c.name : c;
-                                        return <option key={name} value={name}>{name}</option>;
+                                        const isHidden = typeof c === 'object' ? Boolean(c.is_hidden || c.isHidden) : false;
+                                        return (
+                                            <option key={name} value={name}>
+                                                {name}{isHidden ? ' 🙈 [Hidden]' : ''}
+                                            </option>
+                                        );
                                     })}
                                     <option value="NEW_ADD" className="font-bold text-emerald-600">➕ Add New Main Category...</option>
                                 </select>
+
+                                {mainCatSelect && mainCatSelect !== 'NEW_ADD' && (() => {
+                                    const selectedObj = addL1Categories.find((c) => (typeof c === 'object' ? c.name : c) === mainCatSelect);
+                                    const isHidden = typeof selectedObj === 'object' ? Boolean(selectedObj.is_hidden || selectedObj.isHidden) : false;
+                                    if (!isHidden) return null;
+                                    return (
+                                        <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-2 animate-in fade-in duration-200">
+                                            <div className="flex items-center gap-1.5 text-xs text-amber-800 font-semibold">
+                                                <span className="text-sm">🙈</span>
+                                                <span><strong>{mainCatSelect}</strong> is hidden on Dashboard</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    await toggleCategoryHidden(1, mainCatSelect, false, '', addScope);
+                                                }}
+                                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
+                                            >
+                                                👁️ Unhide Now
+                                            </button>
+                                        </div>
+                                    );
+                                })()}
 
                                 {mainCatSelect === 'NEW_ADD' && (
                                     <input
@@ -385,11 +413,40 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                     {mainCatSelect && mainCatSelect !== 'NEW_ADD' && (
                                         (getLevel2Categories(mainCatSelect, addScope, true) || []).map((c) => {
                                             const name = typeof c === 'object' ? c.name : c;
-                                            return <option key={name} value={name}>{name}</option>;
+                                            const isHidden = typeof c === 'object' ? Boolean(c.is_hidden || c.isHidden) : false;
+                                            return (
+                                                <option key={name} value={name}>
+                                                    {name}{isHidden ? ' 🙈 [Hidden]' : ''}
+                                                </option>
+                                            );
                                         })
                                     )}
                                     <option value="NEW_ADD" className="font-bold text-emerald-600">➕ Add New Sub Category...</option>
                                 </select>
+
+                                {subCatSelect && subCatSelect !== 'NEW_ADD' && (() => {
+                                    const subCategories = getLevel2Categories(mainCatSelect, addScope, true) || [];
+                                    const selectedSubObj = subCategories.find((c) => (typeof c === 'object' ? c.name : c) === subCatSelect);
+                                    const isHidden = typeof selectedSubObj === 'object' ? Boolean(selectedSubObj.is_hidden || selectedSubObj.isHidden) : false;
+                                    if (!isHidden) return null;
+                                    return (
+                                        <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-2 animate-in fade-in duration-200">
+                                            <div className="flex items-center gap-1.5 text-xs text-amber-800 font-semibold">
+                                                <span className="text-sm">🙈</span>
+                                                <span>Sub-category <strong>{subCatSelect}</strong> is hidden</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    await toggleCategoryHidden(2, subCatSelect, false, mainCatSelect, addScope);
+                                                }}
+                                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
+                                            >
+                                                👁️ Unhide Now
+                                            </button>
+                                        </div>
+                                    );
+                                })()}
 
                                 {subCatSelect === 'NEW_ADD' && (
                                     <input
@@ -437,6 +494,42 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                                     </span>
                                 ) : 'Save Category'}
                             </button>
+
+                            {/* Quick Unhide Hidden Categories Section */}
+                            {(() => {
+                                const hiddenCategories = addL1Categories.filter((c) => (typeof c === 'object' ? Boolean(c.is_hidden || c.isHidden) : false));
+                                if (hiddenCategories.length === 0) return null;
+                                return (
+                                    <div className="pt-3 border-t border-slate-200">
+                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                            <span>🙈</span> Hidden {addScope === 'sales' ? 'Sales' : 'Expense'} Categories ({hiddenCategories.length})
+                                        </h4>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {hiddenCategories.map((c) => {
+                                                const name = typeof c === 'object' ? c.name : c;
+                                                return (
+                                                    <div
+                                                        key={`hidden-chip-${name}`}
+                                                        className="flex items-center bg-amber-50/90 border border-amber-200 rounded-lg px-2.5 py-1 text-xs text-amber-900 gap-2 shadow-xs"
+                                                    >
+                                                        <span className="font-semibold">{name}</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                await toggleCategoryHidden(1, name, false, '', addScope);
+                                                            }}
+                                                            className="px-2 py-0.5 bg-amber-600 hover:bg-amber-700 text-white rounded font-bold text-[10px] transition-colors flex items-center gap-1"
+                                                            title="Unhide this category on dashboard"
+                                                        >
+                                                            <span>👁️</span> Unhide
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </form>
                     )}
 
