@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNotes } from '../context/NotesContext';
+import NotesDrawer from '../components/NotesDrawer';
 import {
     LayoutDashboard, Package, TrendingUp, Settings,
-    LogOut, ChevronLeft, ChevronRight, Menu, FileText, Wrench
+    LogOut, ChevronLeft, ChevronRight, Menu, FileText, Wrench, StickyNote
 } from 'lucide-react';
 
 const ADMIN_BASE_ROUTE = '/management-portal-v1';
@@ -20,6 +22,9 @@ export default function AdminPanel() {
     const [sidebarOpen, setSidebarOpen] = useState(() => (
         typeof window !== 'undefined' ? window.innerWidth >= 768 : true
     ));
+    const [notesOpen, setNotesOpen] = useState(false);
+    const { notes } = useNotes();
+    const activeNotesCount = useMemo(() => notes.filter((n) => !n.isArchived).length, [notes]);
 
     const currentShop = useMemo(
         () => shops.find((s) => String(s.id) === String(activeShopId)) || null,
@@ -143,6 +148,23 @@ export default function AdminPanel() {
                             </button>
                         );
                     })}
+
+                    {/* Notes Quick Access */}
+                    <button
+                        type="button"
+                        onClick={() => setNotesOpen(true)}
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 text-amber-400 hover:bg-slate-800 hover:text-amber-300 ${!showSidebarLabels && 'justify-center'}`}
+                    >
+                        <span className="relative">
+                            <StickyNote size={20} />
+                            {activeNotesCount > 0 && (
+                                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center border border-slate-900">
+                                    {activeNotesCount}
+                                </span>
+                            )}
+                        </span>
+                        {showSidebarLabels && <span className="font-medium text-sm text-white">Notizen & Verlauf</span>}
+                    </button>
                 </nav>
 
                 <div className="p-4 border-t border-slate-800">
@@ -168,9 +190,24 @@ export default function AdminPanel() {
                             <div className="text-[10px] text-slate-400 font-semibold">{currentShop.name}</div>
                         )}
                     </div>
-                    <button onClick={() => setSidebarOpen((prev) => !prev)} className="p-2 text-slate-600">
-                        <Menu size={24} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setNotesOpen(true)}
+                            className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg relative"
+                            title="Notizen"
+                        >
+                            <StickyNote size={20} />
+                            {activeNotesCount > 0 && (
+                                <span className="absolute 1 1 bg-rose-500 text-white text-[9px] font-black h-3.5 min-w-[14px] px-0.5 rounded-full flex items-center justify-center">
+                                    {activeNotesCount}
+                                </span>
+                            )}
+                        </button>
+                        <button onClick={() => setSidebarOpen((prev) => !prev)} className="p-2 text-slate-600">
+                            <Menu size={24} />
+                        </button>
+                    </div>
                 </div>
 
                 <button
@@ -188,7 +225,7 @@ export default function AdminPanel() {
                 </main>
 
                 <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur-sm shadow-[0_-4px_14px_rgba(15,23,42,0.08)]">
-                    <div className="grid grid-cols-4 gap-1 px-2 py-2">
+                    <div className="grid grid-cols-5 gap-1 px-2 py-2">
                         {mobileBottomItems.map((item) => {
                             const isActive = location.pathname.startsWith(item.route);
                             return (
@@ -202,9 +239,27 @@ export default function AdminPanel() {
                                 </button>
                             );
                         })}
+                        <button
+                            type="button"
+                            onClick={() => setNotesOpen(true)}
+                            className="flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-amber-600 hover:bg-amber-50 transition-all relative"
+                        >
+                            <StickyNote size={18} />
+                            <span className="text-[10px] font-bold tracking-wide">Notizen</span>
+                            {activeNotesCount > 0 && (
+                                <span className="absolute top-1 right-2 bg-rose-500 text-white text-[8px] font-black h-3 min-w-[12px] px-0.5 rounded-full flex items-center justify-center">
+                                    {activeNotesCount}
+                                </span>
+                            )}
+                        </button>
                     </div>
                 </nav>
             </div>
+
+            <NotesDrawer
+                isOpen={notesOpen}
+                onClose={() => setNotesOpen(false)}
+            />
         </div>
     );
 }

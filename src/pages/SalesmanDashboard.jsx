@@ -14,7 +14,9 @@ import SmartCategoryForm from '../components/SmartCategoryForm';
 import TransactionModal from '../components/TransactionModal';
 import { useRepairs } from '../context/RepairsContext';
 import { useCart } from '../context/CartContext';
+import { useNotes } from '../context/NotesContext';
 import CartSidebar from '../components/CartSidebar';
+import NotesDrawer from '../components/NotesDrawer';
 import { supabase } from '../supabaseClient';
 import { useTranslatedTextTree } from '../hooks/useTranslatedTextTree';
 import { buildStageInvoiceNumber, extractInvoiceNumberBase, getCleanTransactionInvoiceNumber, reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
@@ -767,6 +769,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     } = useInventory();
     const { repairJobs, repairsLoaded, updateRepairStatus } = useRepairs();
     const { addToCart, cart, editingCartItem, setEditingCartItem } = useCart();
+    const { notes } = useNotes();
+    const [showNotesModal, setShowNotesModal] = useState(false);
+    const activeNotesCount = useMemo(() => notes.filter((n) => !n.isArchived).length, [notes]);
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
     const debouncedTransactions = useDebouncedValue(transactions, 140);
     const debouncedProducts = useDebouncedValue(products, 140);
@@ -4917,9 +4922,23 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}
                         ><span className="fab-icon"><Boxes size={14} /></span><span className="fab-title">Inventory</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Reparatur & Abholschein" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Reparatur & Abholschein</span></button>
+                        <button
+                            onClick={() => setShowNotesModal(true)}
+                            title="Notes & History"
+                            className="fab-animated relative"
+                            style={{ '--fab-i': '#f59e0b', '--fab-j': '#d97706' }}
+                        >
+                            <span className="fab-icon"><StickyNote size={14} /></span>
+                            <span className="fab-title">Notes</span>
+                            {activeNotesCount > 0 && (
+                                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center border-2 border-slate-900 shadow-sm">
+                                    {activeNotesCount}
+                                </span>
+                            )}
+                        </button>
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
                         <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
-                        <button onClick={() => setShowExcludedCategoriesModal(true)} title="Excluded Categories" className="fab-animated" style={{ '--fab-i': '#f59e0b', '--fab-j': '#ea580c' }}><span className="fab-icon"><Tags size={14} /></span><span className="fab-title">Excluded Categories</span></button>
+                        <button onClick={() => setShowExcludedCategoriesModal(true)} title="Excluded Categories" className="fab-animated" style={{ '--fab-i': '#ea580c', '--fab-j': '#c2410c' }}><span className="fab-icon"><Tags size={14} /></span><span className="fab-title">Excluded Categories</span></button>
                         {adminView && (
                             <button onClick={handleClearLocalCache} title="Clear Local Cache" className="fab-animated" style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}><span className="fab-icon"><Trash2 size={14} /></span><span className="fab-title">Clear Cache</span></button>
                         )}
@@ -7579,6 +7598,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     setShowSuccess(true);
                     setTimeout(() => setShowSuccess(false), 1800);
                 }}
+            />
+
+            <NotesDrawer
+                isOpen={showNotesModal}
+                onClose={() => setShowNotesModal(false)}
             />
         </div>
     );
