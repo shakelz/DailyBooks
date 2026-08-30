@@ -39,3 +39,10 @@ dist-electron-v2/
 dist-electron-*.zip
 eslint.json
 supabase/.temp/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
