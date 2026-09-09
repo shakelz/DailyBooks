@@ -55,110 +55,110 @@ export const printRepairJobBill = (job, activeShop) => {
       }
       
       @media print {
-        @page { size: 80mm auto; margin: 0mm; }
+        @page { size: 58mm auto; margin: 0mm; }
         html, body {
-          margin: 0;
-          padding: 0;
-          width: 80mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 46mm !important;
         }
-        .receipt-wrapper { width: 80mm; margin: 0; }
+        .receipt-wrapper { width: 46mm !important; margin: 0; }
       }
 
       body {
         font-family: 'Segoe UI', Arial, -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', sans-serif;
-        width: 80mm;
+        width: 46mm;
         margin: 0 auto;
-        padding: 12mm 5mm 30mm 5mm;
+        padding: 2mm 0.5mm 25mm 0.5mm;
         background: #fff;
         color: #000;
-        font-size: 14px;
+        font-size: 10px;
         font-weight: 800;
-        line-height: 1.6;
+        line-height: 1.4;
       }
 
       .receipt-wrapper { width: 100%; max-width: 100%; }
-      .receipt-header { text-align: center; margin-bottom: 12px; }
+      .receipt-header { text-align: center; margin-bottom: 6px; padding-top: 1mm; }
       .receipt-badge {
         display: inline-block;
-        font-size: 12px;
+        font-size: 9px;
         font-weight: 900 !important;
-        letter-spacing: 1.5px;
+        letter-spacing: 1px;
         text-transform: uppercase;
         color: #000;
-        border-bottom: 2px solid #000;
-        padding-bottom: 2px;
-        margin-bottom: 6px;
+        border-bottom: 1.5px solid #000;
+        padding-bottom: 1px;
+        margin-bottom: 3px;
       }
       .shop-title {
-        font-size: 22px;
+        font-size: 16px;
         font-weight: 900 !important;
         text-transform: uppercase;
         letter-spacing: 0.5px;
         color: #000;
-        line-height: 1.25;
-        margin-bottom: 4px;
+        line-height: 1.2;
+        margin-bottom: 2px;
       }
       .shop-info {
-        font-size: 13px;
+        font-size: 9.5px;
         color: #000;
-        line-height: 1.4;
+        line-height: 1.35;
         font-weight: 800 !important;
       }
       .job-box {
         text-align: center;
-        margin: 8px 0;
-        padding: 4px 0;
+        margin: 5px 0;
+        padding: 2px 0;
       }
       .job-number {
-        font-size: 24px;
+        font-size: 18px;
         font-weight: 900 !important;
-        letter-spacing: 2px;
+        letter-spacing: 1.5px;
         font-family: monospace;
         color: #000;
       }
-      .divider { border: none; border-top: 2px dashed #000; margin: 12px 0; }
+      .divider { border: none; border-top: 1.5px dashed #000; margin: 6px 0; }
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-      td { font-size: 14px; padding: 4px 0; vertical-align: top; font-weight: 800 !important; color: #000; }
+      td { font-size: 10px; padding: 2px 0; vertical-align: top; font-weight: 800 !important; color: #000; }
       .label { font-weight: 800 !important; color: #000; width: 35%; word-break: break-word; }
       .value { font-weight: 900 !important; color: #000; text-align: right; width: 65%; word-break: break-word; }
       .issue-box {
-        border: 2px solid #000;
-        border-radius: 4px;
-        padding: 8px;
-        margin: 8px 0;
-        font-size: 14px;
+        border: 1.5px solid #000;
+        border-radius: 3px;
+        padding: 5px;
+        margin: 5px 0;
+        font-size: 10px;
         font-weight: 800 !important;
         color: #000;
         background: #fff;
-        line-height: 1.4;
+        line-height: 1.35;
       }
-      .amount-table { width: 100%; margin: 8px 0; }
-      .amount-table td { padding: 4px 0; font-size: 14px; font-weight: 800 !important; color: #000; }
+      .amount-table { width: 100%; margin: 5px 0; }
+      .amount-table td { padding: 2px 0; font-size: 10px; font-weight: 800 !important; color: #000; }
       .amount-label { font-weight: 800 !important; color: #000; }
       .amount-value { font-weight: 900 !important; color: #000; text-align: right; font-variant-numeric: tabular-nums; }
       .total-row td {
-        font-size: 18px !important;
+        font-size: 13px !important;
         font-weight: 900 !important;
         color: #000;
-        padding-top: 8px;
-        padding-bottom: 4px;
+        padding-top: 5px;
+        padding-bottom: 3px;
         border-top: 2px solid #000;
       }
       .footer {
         text-align: center;
-        font-size: 12px;
+        font-size: 9px;
         color: #000;
         font-weight: 800 !important;
-        margin-top: 16px;
-        line-height: 1.6;
-        border-top: 2px dashed #000;
-        padding-top: 10px;
+        margin-top: 8px;
+        line-height: 1.4;
+        border-top: 1.5px dashed #000;
+        padding-top: 6px;
       }
       .footer-thanks {
-        font-size: 14px;
+        font-size: 10px;
         font-weight: 900 !important;
         color: #000;
-        margin-top: 6px;
+        margin-top: 3px;
       }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -225,7 +225,7 @@ export const printRepairJobBill = (job, activeShop) => {
   </body>
   </html>`
 
-  const win = window.open('', 'repair-bill', 'width=420,height=760')
+  const win = window.open('', 'repair-bill', 'width=340,height=640')
   if(!win) return;
   win.document.write(html)
   win.document.close()
@@ -357,26 +357,26 @@ function buildKundenbelegHtml({
           print-color-adjust: exact !important;
         }
         @media print {
-          @page { size: 80mm auto; margin: 0; }
+          @page { size: 58mm auto; margin: 0mm; }
           html, body {
             margin: 0 !important;
             padding: 0 !important;
-            width: 80mm !important;
+            width: 46mm !important;
           }
           .receipt-wrapper {
-            width: 80mm !important;
+            width: 46mm !important;
             margin: 0 !important;
           }
         }
         body {
           font-family: 'Segoe UI', Arial, -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', sans-serif;
-          width: 80mm;
+          width: 46mm;
           margin: 0 auto;
-          padding: 12mm 5mm 30mm 5mm;
-          line-height: 1.65;
+          padding: 2mm 0.5mm 25mm 0.5mm;
+          line-height: 1.4;
           color: #000;
           background: #fff;
-          font-size: 15px;
+          font-size: 10px;
           font-weight: 800;
           box-sizing: border-box;
         }
@@ -386,35 +386,36 @@ function buildKundenbelegHtml({
         }
         .receipt-header {
           text-align: center;
-          margin-bottom: 16px;
+          margin-bottom: 6px;
+          padding-top: 1mm;
         }
         .shop-title {
-          font-size: 24px;
+          font-size: 16px;
           font-weight: 900 !important;
           text-transform: uppercase;
           letter-spacing: 0.5px;
           color: #000;
-          line-height: 1.25;
-          margin-bottom: 4px;
+          line-height: 1.2;
+          margin-bottom: 2px;
         }
         .shop-info {
-          font-size: 14px;
+          font-size: 9.5px;
           font-weight: 800 !important;
           color: #000;
-          line-height: 1.4;
-          margin-top: 3px;
+          line-height: 1.35;
+          margin-top: 2px;
         }
         .divider {
           border: none;
-          border-top: 2px dashed #000;
-          margin: 12px 0;
+          border-top: 1.5px dashed #000;
+          margin: 6px 0;
         }
         .meta-box {
-          font-size: 14px;
+          font-size: 9.5px;
           font-weight: 800 !important;
           color: #000;
-          margin-bottom: 10px;
-          line-height: 1.5;
+          margin-bottom: 4px;
+          line-height: 1.4;
         }
         .meta-box div {
           color: #000;
@@ -428,19 +429,19 @@ function buildKundenbelegHtml({
           width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          margin-bottom: 10px;
+          margin-bottom: 4px;
         }
         th {
-          font-size: 14px;
+          font-size: 9.5px;
           font-weight: 900 !important;
           color: #000;
-          border-bottom: 2px solid #000;
-          padding-bottom: 8px;
+          border-bottom: 1.5px solid #000;
+          padding-bottom: 4px;
         }
         td {
           vertical-align: top;
-          padding: 8px 0 4px 0;
-          font-size: 14px;
+          padding: 3px 0;
+          font-size: 10px;
           font-weight: 900 !important;
           color: #000;
         }
@@ -449,30 +450,30 @@ function buildKundenbelegHtml({
           text-align: left;
           font-weight: 900 !important;
           color: #000;
-          padding-right: 8px;
+          padding-right: 4px;
           white-space: nowrap;
         }
         .col-name {
           width: 48%;
           text-align: left;
-          padding-right: 6px;
+          padding-right: 3px;
           font-weight: 900 !important;
           color: #000;
         }
         .col-name .item-name {
-          font-size: 14px;
+          font-size: 10px;
           font-weight: 900 !important;
           color: #000;
-          line-height: 1.35;
+          line-height: 1.25;
           word-break: break-word;
           overflow-wrap: break-word;
         }
         .col-name .item-imei {
-          font-size: 11px;
+          font-size: 8px;
           font-weight: 800 !important;
           color: #000;
           font-family: monospace;
-          margin-top: 3px;
+          margin-top: 1px;
           word-break: break-all;
         }
         .col-price {
@@ -485,45 +486,45 @@ function buildKundenbelegHtml({
         }
         .summary-table {
           width: 100%;
-          margin-bottom: 10px;
+          margin-bottom: 4px;
           table-layout: fixed;
         }
         .summary-table td {
-          padding: 4px 0;
+          padding: 2px 0;
           color: #000;
         }
         .summary-subtotal td {
-          font-size: 16px;
+          font-size: 10.5px;
           font-weight: 900 !important;
         }
         .summary-tax td {
-          font-size: 15px;
+          font-size: 9.5px;
           font-weight: 800 !important;
-          padding: 3px 0;
+          padding: 1.5px 0;
         }
         .total-row td {
-          font-size: 18px !important;
+          font-size: 13px !important;
           font-weight: 900 !important;
           color: #000;
-          padding-top: 8px;
-          padding-bottom: 4px;
+          padding-top: 5px;
+          padding-bottom: 3px;
           border-top: 2px solid #000;
         }
         .footer-box {
-          margin-top: 16px;
-          font-size: 11.5px;
-          line-height: 1.6;
+          margin-top: 8px;
+          font-size: 8.5px;
+          line-height: 1.4;
           color: #000;
           font-weight: 800 !important;
           text-align: center;
-          border-top: 2px dashed #000;
-          padding-top: 12px;
+          border-top: 1.5px dashed #000;
+          padding-top: 6px;
         }
         .footer-thanks {
-          font-size: 13px;
+          font-size: 9.5px;
           font-weight: 900 !important;
           color: #000;
-          margin-top: 6px;
+          margin-top: 3px;
         }
       </style>
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -553,8 +554,8 @@ function buildKundenbelegHtml({
           </colgroup>
           <thead>
             <tr>
-              <th style="text-align: left; padding-right: 8px; white-space: nowrap;">Menge</th>
-              <th style="text-align: left; padding-right: 6px; white-space: nowrap;">Artikel</th>
+              <th style="text-align: left; padding-right: 4px; white-space: nowrap;">Menge</th>
+              <th style="text-align: left; padding-right: 3px; white-space: nowrap;">Artikel</th>
               <th style="text-align: right;">Betrag</th>
             </tr>
           </thead>
@@ -587,7 +588,7 @@ function buildKundenbelegHtml({
                 <td style="text-align: right; font-weight: 800 !important; font-variant-numeric: tabular-nums;">&euro;&nbsp;${formatReceiptMoney(taxTotal)}</td>
               </tr>
               <tr>
-                <td colSpan="2" style="padding-top: 8px;">
+                <td colSpan="2" style="padding-top: 6px;">
                   <div class="divider"></div>
                 </td>
               </tr>
@@ -606,14 +607,14 @@ function buildKundenbelegHtml({
         </div>
 
         <!-- Feed spacer to make bill longer and prevent thermal paper cutting into the footer -->
-        <div style="height: 30mm; width: 100%;"></div>
+        <div style="height: 25mm; width: 100%;"></div>
       </div>
     </body>
   </html>`
 }
 
 export function printKundenbeleg(items, transactionId, _paymentMethod, shopInfo, options = {}) {
-  const win = window.open('', '_blank', 'width=420,height=760')
+  const win = window.open('', '_blank', 'width=340,height=640')
   if (!win) return
 
   win.document.write(buildKundenbelegHtml({

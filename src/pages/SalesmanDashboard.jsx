@@ -488,86 +488,86 @@ function buildReceiptHtml({
                         print-color-adjust: exact !important;
                     }
                     @media print {
-                        @page { size: 80mm auto; margin: 0; }
-                        html, body { margin: 0 !important; padding: 0 !important; width: 80mm !important; }
-                        .receipt-wrapper { width: 80mm !important; margin: 0 !important; }
+                        @page { size: 58mm auto; margin: 0mm; }
+                        html, body { margin: 0 !important; padding: 0 !important; width: 46mm !important; }
+                        .receipt-wrapper { width: 46mm !important; margin: 0 !important; }
                     }
                     body {
                         font-family: 'Segoe UI', Arial, -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
-                        width: 80mm;
+                        width: 46mm;
                         margin: 0 auto;
-                        padding: 12mm 5mm 30mm 5mm;
-                        line-height: 1.65;
+                        padding: 2mm 0.5mm 25mm 0.5mm;
+                        line-height: 1.4;
                         background: #fff;
-                        font-size: 15px;
+                        font-size: 10px;
                         color: #000;
                         font-weight: 800;
                     }
                     .receipt-wrapper { width: 100%; max-width: 100%; }
-                    .center { text-align: center; margin-bottom: 16px; }
+                    .center { text-align: center; margin-bottom: 6px; padding-top: 1mm; }
                     .receipt-badge {
                         display: inline-block;
-                        font-size: 12px;
+                        font-size: 9px;
                         font-weight: 900 !important;
-                        letter-spacing: 1.5px;
+                        letter-spacing: 1px;
                         text-transform: uppercase;
                         color: #000;
-                        border-bottom: 2px solid #000;
-                        padding-bottom: 2px;
-                        margin-bottom: 4px;
+                        border-bottom: 1.5px solid #000;
+                        padding-bottom: 1px;
+                        margin-bottom: 3px;
                     }
                     .shop-title {
-                        font-size: 24px;
+                        font-size: 16px;
                         font-weight: 900 !important;
                         text-transform: uppercase;
                         letter-spacing: 0.5px;
                         color: #000;
-                        line-height: 1.25;
-                        margin-bottom: 4px;
+                        line-height: 1.2;
+                        margin-bottom: 2px;
                     }
                     .shop-info {
-                        font-size: 14px;
+                        font-size: 9.5px;
                         color: #000;
-                        line-height: 1.4;
+                        line-height: 1.35;
                         font-weight: 800 !important;
-                        margin-top: 3px;
+                        margin-top: 2px;
                     }
-                    .divider { border: none; border-top: 2px dashed #000; margin: 12px 0; }
+                    .divider { border: none; border-top: 1.5px dashed #000; margin: 6px 0; }
                     .meta-row {
                         display: flex;
                         justify-content: space-between;
-                        font-size: 14px;
+                        font-size: 9.5px;
                         font-weight: 800 !important;
                         color: #000;
-                        margin: 4px 0;
+                        margin: 2px 0;
                     }
                     .head {
                         font-weight: 900 !important;
-                        font-size: 14px;
+                        font-size: 9.5px;
                         color: #000;
-                        border-bottom: 2px solid #000;
-                        padding-bottom: 8px;
-                        margin-bottom: 4px;
+                        border-bottom: 1.5px solid #000;
+                        padding-bottom: 4px;
+                        margin-bottom: 2px;
                         display: flex;
                         justify-content: space-between;
                     }
                     .line-item {
                         display: flex;
                         align-items: flex-start;
-                        padding: 8px 0 4px 0;
-                        font-size: 14px;
+                        padding: 3px 0 1px 0;
+                        font-size: 10px;
                         font-weight: 900 !important;
                     }
-                    .line-qty { width: 22%; font-weight: 900 !important; color: #000; padding-right: 8px; white-space: nowrap; text-align: left; }
-                    .line-name { width: 48%; font-weight: 900 !important; color: #000; padding-right: 6px; white-space: normal; word-break: break-word; overflow-wrap: break-word; text-align: left; }
+                    .line-qty { width: 22%; font-weight: 900 !important; color: #000; padding-right: 4px; white-space: nowrap; text-align: left; }
+                    .line-name { width: 48%; font-weight: 900 !important; color: #000; padding-right: 3px; white-space: normal; word-break: break-word; overflow-wrap: break-word; text-align: left; }
                     .line-price { width: 30%; text-align: right; font-weight: 900 !important; color: #000; white-space: nowrap; font-variant-numeric: tabular-nums; }
                     .summary-row {
                         display: flex;
                         justify-content: space-between;
-                        font-size: 15px;
+                        font-size: 9.5px;
                         font-weight: 800 !important;
                         color: #000;
-                        margin: 4px 0;
+                        margin: 2px 0;
                     }
                     .summary-row strong, .summary-row span:last-child {
                         color: #000;
@@ -577,29 +577,29 @@ function buildReceiptHtml({
                     .total-row {
                         display: flex;
                         justify-content: space-between;
-                        font-size: 18px !important;
+                        font-size: 13px !important;
                         font-weight: 900 !important;
                         color: #000;
                         border-top: 2px solid #000;
-                        padding-top: 8px;
-                        padding-bottom: 4px;
-                        margin-top: 6px;
+                        padding-top: 5px;
+                        padding-bottom: 3px;
+                        margin-top: 4px;
                     }
                     .footer-box {
-                        margin-top: 16px;
-                        font-size: 11.5px;
-                        line-height: 1.6;
+                        margin-top: 8px;
+                        font-size: 8.5px;
+                        line-height: 1.4;
                         color: #000;
                         font-weight: 800 !important;
                         text-align: center;
-                        border-top: 2px dashed #000;
-                        padding-top: 12px;
+                        border-top: 1.5px dashed #000;
+                        padding-top: 6px;
                     }
                     .footer-thanks {
-                        font-size: 13px;
+                        font-size: 9.5px;
                         font-weight: 900 !important;
                         color: #000;
-                        margin-top: 6px;
+                        margin-top: 3px;
                     }
                 </style>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -622,15 +622,15 @@ function buildReceiptHtml({
                     <hr class="divider"/>
 
                     <div class="head">
-                        <span style="width: 22%; text-align: left; padding-right: 8px;">Menge</span>
-                        <span style="width: 48%; text-align: left; padding-right: 6px;">Artikel</span>
+                        <span style="width: 22%; text-align: left; padding-right: 4px;">Menge</span>
+                        <span style="width: 48%; text-align: left; padding-right: 3px;">Artikel</span>
                         <span style="width: 30%; text-align: right;">Betrag</span>
                     </div>
                     ${safeRows || '<div class="line-item"><div class="line-qty">1x</div><div class="line-name">Artikel</div><div class="line-price">0,00 €</div></div>'}
 
                     <hr class="divider"/>
 
-                    ${rows.length > 1 ? `<div class="summary-row" style="font-size: 16px; font-weight: 900 !important;"><span>Zwischensumme</span><span>${formatMoney(grossTotal)}</span></div>` : ''}
+                    ${rows.length > 1 ? `<div class="summary-row" style="font-size: 10.5px; font-weight: 900 !important;"><span>Zwischensumme</span><span>${formatMoney(grossTotal)}</span></div>` : ''}
 
                     ${showTax ? `
                         <div class="summary-row"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
@@ -639,7 +639,7 @@ function buildReceiptHtml({
 
                     <div class="total-row"><span>GESAMTBETRAG</span><span>${formatMoney(grossTotal)}</span></div>
 
-                    <div class="summary-row" style="margin-top: 8px; font-size: 14px;"><span>Zahlungsart:</span><span>${escapeHtml(paymentMethod || 'Bar')}</span></div>
+                    <div class="summary-row" style="margin-top: 6px; font-size: 9.5px;"><span>Zahlungsart:</span><span>${escapeHtml(paymentMethod || 'Bar')}</span></div>
 
                     <div class="footer-box">
                         R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.<br/>
@@ -648,7 +648,7 @@ function buildReceiptHtml({
                     </div>
 
                     <!-- Bottom feed spacer to make bill longer -->
-                    <div style="height: 30mm; width: 100%;"></div>
+                    <div style="height: 25mm; width: 100%;"></div>
                 </div>
             </body>
         </html>
@@ -4110,7 +4110,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const remainingAmount = Math.max(0, totalPrice - advanceAmount);
         const hasAdvance = advanceAmount > 0;
 
-        const win = window.open('', 'online-order-bill', 'width=420,height=760');
+        const win = window.open('', 'online-order-bill', 'width=340,height=640');
         if (!win) return;
 
         const toSafe = (value) => String(value || '')
@@ -4134,8 +4134,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const row = (label, value) => {
             if (!value || value === '-' || value === '') return '';
             return `<tr>
-            <td style="padding:4px 0;font-size:14px;font-weight:800;color:#000;width:50%;vertical-align:top;">${label}</td>
-            <td style="padding:4px 0;font-size:14px;font-weight:900;color:#000;text-align:right;vertical-align:top;width:50%;word-break:break-all;">${toSafe(String(value))}</td>
+            <td style="padding:2px 0;font-size:10px;font-weight:800;color:#000;width:50%;vertical-align:top;">${label}</td>
+            <td style="padding:2px 0;font-size:10px;font-weight:900;color:#000;text-align:right;vertical-align:top;width:50%;word-break:break-all;">${toSafe(String(value))}</td>
         </tr>`;
         };
 
@@ -4156,28 +4156,28 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             print-color-adjust: exact !important;
         }
         @media print {
-            @page { size: 80mm auto; margin: 0; }
-            html, body { margin: 0 !important; padding: 0 !important; width: 80mm !important; }
-            .receipt-wrapper { width: 80mm !important; margin: 0 !important; }
+            @page { size: 58mm auto; margin: 0mm; }
+            html, body { margin: 0 !important; padding: 0 !important; width: 46mm !important; }
+            .receipt-wrapper { width: 46mm !important; margin: 0 !important; }
         }
         body {
             font-family: 'Segoe UI', Arial, -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
-            width: 80mm;
+            width: 46mm;
             margin: 0 auto;
-            padding: 12mm 5mm 30mm 5mm;
-            line-height: 1.65;
+            padding: 2mm 0.5mm 25mm 0.5mm;
+            line-height: 1.4;
             background: #fff;
             color: #000;
-            font-size: 14px;
+            font-size: 10px;
             font-weight: 800;
         }
         .receipt-wrapper { width: 100%; max-width: 100%; }
-        .shop-name { font-size: 24px; font-weight: 900 !important; text-align: center; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .shop-sub { font-size: 14px; font-weight: 800 !important; text-align: center; margin-top: 3px; color: #000; }
-        .divider { border: none; border-top: 2px dashed #000; margin: 12px 0; }
-        table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 4px 0; }
-        td { font-size: 14px; color: #000; word-break: break-word; }
-        .footer { text-align: center; font-size: 13px; font-weight: 900 !important; color: #000; margin-top: 16px; border-top: 2px dashed #000; padding-top: 12px; }
+        .shop-name { font-size: 16px; font-weight: 900 !important; text-align: center; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .shop-sub { font-size: 9.5px; font-weight: 800 !important; text-align: center; margin-top: 2px; color: #000; }
+        .divider { border: none; border-top: 1.5px dashed #000; margin: 6px 0; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 2px 0; }
+        td { font-size: 10px; color: #000; word-break: break-word; padding: 2px 0; }
+        .footer { text-align: center; font-size: 9.5px; font-weight: 900 !important; color: #000; margin-top: 8px; border-top: 1.5px dashed #000; padding-top: 6px; }
     </style>
 </head>
 <body>
@@ -4187,9 +4187,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
 
         <hr class="divider"/>
-        <div style="text-align:center; margin:8px 0;">
-            <p style="font-size:12px;font-weight:900;color:#000;letter-spacing:1px;text-transform:uppercase;margin:0;">Abholung Nr.</p>
-            <p style="font-size:24px;font-weight:900;color:#000;margin:3px 0 0 0;letter-spacing:2px;font-family:monospace;">${toSafe(orderId)}</p>
+        <div style="text-align:center; margin:5px 0;">
+            <p style="font-size:9px;font-weight:900;color:#000;letter-spacing:1px;text-transform:uppercase;margin:0;">Abholung Nr.</p>
+            <p style="font-size:18px;font-weight:900;color:#000;margin:2px 0 0 0;letter-spacing:1.5px;font-family:monospace;">${toSafe(orderId)}</p>
         </div>
         <hr class="divider"/>
 
@@ -4213,7 +4213,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         <p class="footer">Vielen Dank. ${toSafe(receiptShopName)}</p>
 
         <!-- Bottom feed spacer to make bill longer and prevent cutting into footer -->
-        <div style="height: 30mm; width: 100%;"></div>
+        <div style="height: 25mm; width: 100%;"></div>
     </div>
 </body>
 </html>`;

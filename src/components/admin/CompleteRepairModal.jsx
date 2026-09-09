@@ -140,32 +140,32 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
             print-color-adjust: exact !important;
         }
         @media print {
-            @page { size: 80mm auto; margin: 0; }
-            html, body { width: 80mm !important; margin: 0 !important; padding: 0 !important; }
+            @page { size: 58mm auto; margin: 0mm; }
+            html, body { width: 46mm !important; margin: 0 !important; padding: 0 !important; }
             .slip { break-inside: avoid; }
         }
         body {
             font-family: 'Segoe UI', Arial, -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
-            width: 80mm;
-            font-size: 13px;
+            width: 46mm;
+            font-size: 10px;
             color: #000;
             font-weight: 800;
             background: #fff;
         }
-        .slip { padding: 6mm 5mm 25mm 5mm; page-break-after: always; border-bottom: 2px dashed #000; }
+        .slip { padding: 2mm 0.5mm 20mm 0.5mm; page-break-after: always; border-bottom: 1.5px dashed #000; }
         .slip:last-child { border-bottom: none; page-break-after: auto; }
-        .title { font-size: 12px; font-weight: 900 !important; text-transform: uppercase; letter-spacing: 1.5px; text-align: center; margin-bottom: 2mm; color: #000; }
-        .shop-name { font-size: 20px; font-weight: 900 !important; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; margin-bottom: 1.5mm; color: #000; }
-        .shop-addr { font-size: 12px; font-weight: 800 !important; text-align: center; margin-bottom: 1mm; color: #000; }
-        .divider { border-top: 1.5px dashed #000; margin: 3mm 0; }
-        .ref-id { font-size: 22px; font-weight: 900 !important; font-family: monospace; text-align: center; margin: 2mm 0; letter-spacing: 2px; color: #000; }
-        .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 800 !important; margin: 1.5mm 0; color: #000; }
+        .title { font-size: 9.5px; font-weight: 900 !important; text-transform: uppercase; letter-spacing: 1px; text-align: center; margin-bottom: 2px; color: #000; }
+        .shop-name { font-size: 16px; font-weight: 900 !important; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; margin-bottom: 2px; color: #000; }
+        .shop-addr { font-size: 9.5px; font-weight: 800 !important; text-align: center; margin-bottom: 1px; color: #000; }
+        .divider { border-top: 1.5px dashed #000; margin: 4px 0; }
+        .ref-id { font-size: 18px; font-weight: 900 !important; font-family: monospace; text-align: center; margin: 2px 0; letter-spacing: 1.5px; color: #000; }
+        .row { display: flex; justify-content: space-between; gap: 4px; font-size: 10px; font-weight: 800 !important; margin: 2px 0; color: #000; }
         .row .label-text { font-weight: 800 !important; color: #000; white-space: nowrap; }
-        .problem { font-size: 12px; margin: 2mm 0; padding: 2.5mm; border: 1.5px solid #000; border-radius: 3px; background: #fff; line-height: 1.4; font-weight: 800 !important; color: #000; }
-        table { width: 100%; border-collapse: collapse; font-size: 13px; font-weight: 800 !important; margin-top: 2mm; color: #000; }
-        th, td { padding: 2mm 0; border-bottom: 1.5px solid #000; font-weight: 800 !important; color: #000; }
-        th { text-align: left; font-size: 12px; font-weight: 900 !important; text-transform: uppercase; letter-spacing: 0.5px; color: #000; }
-        .footer-thanks { font-size: 13px; font-weight: 900 !important; text-align: center; margin-top: 4mm; color: #000; }
+        .problem { font-size: 9.5px; margin: 3px 0; padding: 3px; border: 1.5px solid #000; border-radius: 3px; background: #fff; line-height: 1.35; font-weight: 800 !important; color: #000; }
+        table { width: 100%; border-collapse: collapse; font-size: 9.5px; font-weight: 800 !important; margin-top: 3px; color: #000; }
+        th, td { padding: 2px 0; border-bottom: 1.5px solid #000; font-weight: 800 !important; color: #000; }
+        th { text-align: left; font-size: 9.5px; font-weight: 900 !important; text-transform: uppercase; letter-spacing: 0.5px; color: #000; }
+        .footer-thanks { font-size: 9.5px; font-weight: 900 !important; text-align: center; margin-top: 6px; color: #000; }
     </style>
 </head>
 <body>
@@ -185,9 +185,9 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         ${printData.imei ? `<div class="row"><span class="label-text">IMEI:</span><span style="font-family:monospace; font-weight:900;">${esc(printData.imei)}</span></div>` : ''}
         <div class="problem"><strong>Fehler:</strong> ${esc(printData.problem || 'N/A')}</div>
         <div class="divider"></div>
-        <div class="row" style="font-size:16px; font-weight:900;"><span class="label-text" style="font-size:15px; font-weight:900; color:#000;">Endbetrag:</span><span>${toAmount(serviceAmount)}</span></div>
+        <div class="row" style="font-size:13px; font-weight:900;"><span class="label-text" style="font-size:12px; font-weight:900; color:#000;">Endbetrag:</span><span>${toAmount(serviceAmount)}</span></div>
         <div class="divider"></div>
-        <div class="title" style="text-align:left; margin-bottom:1mm; font-size:12px;">Verwendete Teile</div>
+        <div class="title" style="text-align:left; margin-bottom:1mm; font-size:10px;">Verwendete Teile</div>
         <table>
             <thead>
                 <tr><th>Menge</th><th>Teil</th><th style="text-align:right">Betrag</th></tr>
@@ -213,8 +213,8 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         <div class="divider"></div>
         <div class="row"><span class="label-text">Servicebetrag:</span><span>${toAmount(serviceAmount)}</span></div>
         <div class="row"><span class="label-text">Teilekosten:</span><span>${toAmount(partsCost)}</span></div>
-        <div class="row" style="font-size:16px; font-weight:900;"><span class="label-text" style="font-size:15px; font-weight:900; color:#000;">Nettoertrag:</span><span>${toAmount(netEarning)}</span></div>
-        <div style="height: 30mm; width: 100%;"></div>
+        <div class="row" style="font-size:13px; font-weight:900;"><span class="label-text" style="font-size:12px; font-weight:900; color:#000;">Nettoertrag:</span><span>${toAmount(netEarning)}</span></div>
+        <div style="height: 25mm; width: 100%;"></div>
     </div>
 </body>
 </html>`;
@@ -237,7 +237,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
 
         let printWindow = null;
         if (shouldPrint) {
-            printWindow = window.open('', '_blank', 'width=420,height=760');
+            printWindow = window.open('', '_blank', 'width=340,height=640');
             if (!printWindow) {
                 alert('Popup blocked. Please allow popups to print.');
             }

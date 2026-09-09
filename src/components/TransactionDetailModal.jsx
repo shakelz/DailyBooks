@@ -161,56 +161,57 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                 <title>Beleg ${esc(txn.transactionId || txn.id)}</title>
                 <style>
                     @media print {
-                        html, body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; }
-                        .receipt-wrapper { width: 80mm; margin: 0 auto; }
-                        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                        @page { size: 58mm auto; margin: 0mm; }
+                        html, body { width: 100%; display: flex; align-items: flex-start; justify-content: center; margin: 0; padding: 0; }
+                        .receipt-wrapper { width: 46mm; margin: 0 auto; }
+                        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000 !important; }
                     }
                     body {
-                        display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff;
+                        display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 10px 0; background: #fff;
                         font-family: 'Segoe UI', Arial, -apple-system, sans-serif;
-                        font-size: 15px;
-                        line-height: 1.5;
+                        font-size: 10px;
+                        line-height: 1.4;
                         color: #000;
                         font-weight: 800;
                     }
-                    .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 10mm 5mm 30mm 5mm; }
-                    .ticket { border: 2px solid #000; padding: 3mm; width: 100%; box-sizing: border-box; }
+                    .receipt-wrapper { width: 46mm; max-width: 46mm; padding: 2mm 0.5mm 25mm 0.5mm; }
+                    .ticket { border: 1.5px solid #000; padding: 2mm; width: 100%; box-sizing: border-box; }
                     .text-center { text-align: center; }
                     .text-right { text-align: right; }
                     .bold { font-weight: 900; }
-                    .divider { border-top: 2px dashed #000; margin: 10px 0; }
-                    table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 15px; font-weight: 800; color: #000; }
-                    td { vertical-align: top; padding: 6px 2px; color: #000; }
-                    .fs-lg { font-size: 24px; font-weight: 900; color: #000; }
-                    .footer-text { font-size: 12px; margin-top: 15px; font-weight: 800; line-height: 1.6; text-align: center; color: #000; }
-                    .box { border: 1.5px solid #000; padding: 4px; margin: 4px 0; }
+                    .divider { border-top: 1.5px dashed #000; margin: 6px 0; }
+                    table { width: 100%; border-collapse: collapse; margin: 4px 0; font-size: 10px; font-weight: 800; color: #000; }
+                    td { vertical-align: top; padding: 3px 2px; color: #000; }
+                    .fs-lg { font-size: 16px; font-weight: 900; color: #000; text-transform: uppercase; }
+                    .footer-text { font-size: 8.5px; margin-top: 8px; font-weight: 800; line-height: 1.4; text-align: center; color: #000; border-top: 1.5px dashed #000; padding-top: 6px; }
+                    .box { border: 1px solid #000; padding: 3px; margin: 3px 0; }
                 </style>
             </head>
             <body>
                 <div class="receipt-wrapper">
                 <div class="ticket">
                     <div class="text-center">
-                        <div style="font-size:15px; text-transform:uppercase; letter-spacing:2px; font-weight:900; color:#000;">KUNDENBELEG</div>
+                        <div style="font-size:9px; text-transform:uppercase; letter-spacing:1px; font-weight:900; color:#000;">KUNDENBELEG</div>
                         <div class="bold fs-lg">${esc(receiptShopName)}</div>
-                        ${receiptShopAddress ? `<div style="margin-top: 4px; font-size: 14px; font-weight: 800; color: #000;">${esc(receiptShopAddress)}</div>` : ''}
-                        ${receiptShopPhone ? `<div style="margin-top: 2px; font-size: 14px; font-weight: 800; color: #000;">Tel: ${esc(receiptShopPhone)}</div>` : ''}
+                        ${receiptShopAddress ? `<div style="margin-top: 2px; font-size: 9.5px; font-weight: 800; color: #000;">${esc(receiptShopAddress)}</div>` : ''}
+                        ${receiptShopPhone ? `<div style="margin-top: 2px; font-size: 9.5px; font-weight: 800; color: #000;">Tel: ${esc(receiptShopPhone)}</div>` : ''}
                     </div>
 
                     <div class="divider"></div>
 
-                    <div style="text-align: center; margin: 8px 0;">
-                        <p style="font-size: 14px; font-weight: 800; color: #000; margin: 0;">${esc(txn.date)} ${esc(txn.time)}</p>
-                        <p style="font-size: 14px; font-weight: 800; color: #000; margin: 0;">Beleg: ${esc(txn.transactionId || txn.id)}</p>
-                        ${groupCount > 1 ? `<p style="font-size: 14px; font-weight: 800; color: #000; margin: 0;">Positionen: ${groupCount}</p>` : ''}
+                    <div style="text-align: center; margin: 4px 0;">
+                        <p style="font-size: 9.5px; font-weight: 800; color: #000; margin: 0;">${esc(txn.date)} ${esc(txn.time)}</p>
+                        <p style="font-size: 9.5px; font-weight: 800; color: #000; margin: 0;">Beleg: ${esc(txn.transactionId || txn.id)}</p>
+                        ${groupCount > 1 ? `<p style="font-size: 9.5px; font-weight: 800; color: #000; margin: 0;">Positionen: ${groupCount}</p>` : ''}
                     </div>
 
                     <div class="divider"></div>
 
                     <table>
-                        <tr class="bold" style="border-bottom: 2px solid #000; padding-bottom: 4px; font-size: 15px; font-weight: 900; color: #000;">
-                            <td style="padding: 6px 2px;">Artikel</td>
-                            <td class="text-right" style="padding: 6px 2px;">Menge</td>
-                            <td class="text-right" style="padding: 6px 2px;">Betrag</td>
+                        <tr class="bold" style="border-bottom: 1.5px solid #000; padding-bottom: 3px; font-size: 9.5px; font-weight: 900; color: #000;">
+                            <td style="padding: 3px 2px;">Artikel</td>
+                            <td class="text-right" style="padding: 3px 2px;">Menge</td>
+                            <td class="text-right" style="padding: 3px 2px;">Betrag</td>
                         </tr>
                         ${printRows}
                     </table>
@@ -218,10 +219,10 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                     <div class="divider"></div>
 
                     ${groupCount > 1 ? `
-                    <table class="bold" style="font-size: 16px; font-weight: 900; color: #000;">
+                    <table class="bold" style="font-size: 10.5px; font-weight: 900; color: #000;">
                         <tr>
-                            <td style="padding: 6px 2px;">Zwischensumme</td>
-                            <td class="text-right" style="white-space: nowrap; padding: 6px 2px;">${formatAmount(amount)}</td>
+                            <td style="padding: 3px 2px;">Zwischensumme</td>
+                            <td class="text-right" style="white-space: nowrap; padding: 3px 2px;">${formatAmount(amount)}</td>
                         </tr>
                     </table>
                     ` : ''}
@@ -230,9 +231,9 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
 
                     <div class="divider"></div>
 
-                    <div style="margin-top: 10px; font-size: 15px; font-weight: 800; color: #000;">
+                    <div style="margin-top: 6px; font-size: 9.5px; font-weight: 800; color: #000;">
                         <div>Zahlungsart: ${esc(txn.paymentMethod || 'Bar')}</div>
-                        <div style="margin-top: 10px; font-size: 12px; font-weight: 800; text-align: center; line-height: 1.6; color: #000;">
+                        <div style="margin-top: 8px; font-size: 8.5px; font-weight: 800; text-align: center; line-height: 1.4; color: #000; border-top: 1.5px dashed #000; padding-top: 6px;">
                             Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${esc(receiptShopName)}
                         </div>
                     </div>
@@ -244,7 +245,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
             </html>
         `;
 
-        const win = window.open('', '_blank', 'width=450,height=600');
+        const win = window.open('', '_blank', 'width=340,height=640');
         win.document.write(receiptHTML);
         win.document.close();
         setTimeout(() => {

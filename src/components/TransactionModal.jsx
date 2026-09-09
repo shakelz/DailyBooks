@@ -112,7 +112,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
         const shopAddress = activeShop?.address || '';
         const shopPhone = activeShop?.telephone || activeShop?.phone || '';
 
-        const popup = window.open('', 'transaction-modal-print', 'width=420,height=760');
+        const popup = window.open('', 'transaction-modal-print', 'width=340,height=640');
         if (!popup) return;
 
         popup.document.write(`
@@ -121,47 +121,48 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
                     <title>Kassenbeleg</title>
                     <style>
                         @media print {
-                            html, body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; }
-                            .receipt-wrapper { width: 80mm; margin: 0 auto; }
-                            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                            @page { size: 58mm auto; margin: 0mm; }
+                            html, body { width: 100%; display: flex; align-items: flex-start; justify-content: center; margin: 0; padding: 0; }
+                            .receipt-wrapper { width: 46mm; margin: 0 auto; }
+                            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000 !important; }
                         }
-                        body { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff; font-family: 'Segoe UI', Arial, -apple-system, sans-serif; font-size: 15px; font-weight: 800; color: #000; }
-                        .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 10mm 5mm 30mm 5mm; }
-                        .ticket { border: 2px solid #000; padding: 3mm; width: 100%; box-sizing: border-box; }
+                        body { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 10px 0; background: #fff; font-family: 'Segoe UI', Arial, -apple-system, sans-serif; font-size: 10px; font-weight: 800; color: #000; }
+                        .receipt-wrapper { width: 46mm; max-width: 46mm; padding: 2mm 0.5mm 25mm 0.5mm; }
+                        .ticket { border: 1.5px solid #000; padding: 2mm; width: 100%; box-sizing: border-box; }
                         h2,p { margin: 0; color: #000; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:15px; font-weight:800; gap: 8px; color: #000; }
-                        .row > span:last-child, .row > strong:last-child { white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; text-align: right; }
-                        .line { border-top:2px dashed #000; margin:10px 0; }
+                        .row { display:flex; justify-content:space-between; margin-top:4px; font-size:10px; font-weight:800; gap: 4px; color: #000; }
+                        .row > span:last-child, .row > strong:last-child { white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+                        .line { border-top:1.5px dashed #000; margin:6px 0; }
                         .center { text-align: center; }
-                        .box { border: 1.5px solid #000; padding: 4px; margin: 4px 0; }
+                        .box { border: 1px solid #000; padding: 3px; margin: 3px 0; }
                     </style>
                 </head>
                 <body>
                     <div class="receipt-wrapper">
                     <div class="ticket">
                         <div class="center">
-                            <p style="font-size:15px; text-transform:uppercase; letter-spacing:2px; font-weight:900; color:#000;">KUNDENBELEG</p>
-                            <h2 style="font-size:24px; font-weight:900; margin-bottom:3px; color:#000;">${escapeHtml(shopName)}</h2>
-                            ${shopAddress ? `<p style="font-size:14px; font-weight:800; color:#000;">${escapeHtml(shopAddress)}</p>` : ''}
-                            ${shopPhone ? `<p style="font-size:14px; font-weight:800; color:#000;">Tel: ${escapeHtml(shopPhone)}</p>` : ''}
+                            <p style="font-size:9px; text-transform:uppercase; letter-spacing:1px; font-weight:900; color:#000;">KUNDENBELEG</p>
+                            <h2 style="font-size:16px; font-weight:900; margin-bottom:2px; color:#000; text-transform:uppercase;">${escapeHtml(shopName)}</h2>
+                            ${shopAddress ? `<p style="font-size:9.5px; font-weight:800; color:#000;">${escapeHtml(shopAddress)}</p>` : ''}
+                            ${shopPhone ? `<p style="font-size:9.5px; font-weight:800; color:#000;">Tel: ${escapeHtml(shopPhone)}</p>` : ''}
                         </div>
                         <div class="line"></div>
-                        <div style="text-align: center; margin: 8px 0;">
-                            <p style="font-size: 14px; font-weight: 800; color: #000; margin: 0;">${new Date().toLocaleString('de-DE')}</p>
-                            <p style="font-size: 14px; font-weight: 800; color: #000; margin: 0;">Beleg: ${escapeHtml(transactionId)}</p>
+                        <div style="text-align: center; margin: 4px 0;">
+                            <p style="font-size: 9.5px; font-weight: 800; color: #000; margin: 0;">${new Date().toLocaleString('de-DE')}</p>
+                            <p style="font-size: 9.5px; font-weight: 800; color: #000; margin: 0;">Beleg: ${escapeHtml(transactionId)}</p>
                         </div>
                         <div class="line"></div>
-                        <div class="row" style="font-size:15px; font-weight:900; border-bottom:2px solid #000; padding-bottom:4px; color:#000;"><span>Artikel</span><span>Betrag</span></div>
+                        <div class="row" style="font-size:9.5px; font-weight:900; border-bottom:1.5px solid #000; padding-bottom:3px; color:#000;"><span>Artikel</span><span>Betrag</span></div>
                         <div class="row"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)}</span></div>
                         <div class="row"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
                         <div class="row"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
                         <div class="line"></div>
-                        ${includeTax ? `<div class="row" style="font-size:14px; font-weight:800; color:#000;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
-                        <div class="row" style="font-size:14px; font-weight:800; color:#000;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
+                        ${includeTax ? `<div class="row" style="font-size:9.5px; font-weight:800; color:#000;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
+                        <div class="row" style="font-size:9.5px; font-weight:800; color:#000;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
                         <div class="line"></div>
-                        <div class="row" style="font-size:15px; font-weight:900; color:#000;"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
+                        <div class="row" style="font-size:10.5px; font-weight:900; color:#000;"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
                         <div class="line"></div>
-                        <p style="font-size:12px; font-weight:800; text-align:center; line-height:1.6; color:#000;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
+                        <p style="font-size:8.5px; font-weight:800; text-align:center; line-height:1.4; color:#000;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
                     </div>
                     <!-- Bottom feed spacer to make bill longer -->
                     <div style="height: 25mm; width: 100%;"></div>
