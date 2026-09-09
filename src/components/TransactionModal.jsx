@@ -123,45 +123,48 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
                         @media print {
                             html, body { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; }
                             .receipt-wrapper { width: 80mm; margin: 0 auto; }
+                            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                         }
-                        body { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff; font-family: 'Courier New', monospace; font-size: 15px; font-weight: 700; }
-                        .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 8mm 5mm; }
-                        .ticket { border: 1px solid #000; padding: 1.5mm; width: 100%; box-sizing: border-box; }
-                        h2,p { margin: 0; }
-                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:15px; font-weight:700; gap: 8px; }
+                        body { display: flex; align-items: flex-start; justify-content: center; min-height: 100vh; margin: 0; padding: 20px 0; background: #fff; font-family: 'Segoe UI', Arial, -apple-system, sans-serif; font-size: 15px; font-weight: 800; color: #000; }
+                        .receipt-wrapper { width: 80mm; max-width: 80mm; padding: 10mm 5mm 30mm 5mm; }
+                        .ticket { border: 2px solid #000; padding: 3mm; width: 100%; box-sizing: border-box; }
+                        h2,p { margin: 0; color: #000; }
+                        .row { display:flex; justify-content:space-between; margin-top:6px; font-size:15px; font-weight:800; gap: 8px; color: #000; }
                         .row > span:last-child, .row > strong:last-child { white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; text-align: right; }
-                        .line { border-top:1px solid #000; margin:8px 0; }
+                        .line { border-top:2px dashed #000; margin:10px 0; }
                         .center { text-align: center; }
-                        .box { border: 1px solid #000; padding: 4px; margin: 4px 0; }
+                        .box { border: 1.5px solid #000; padding: 4px; margin: 4px 0; }
                     </style>
                 </head>
                 <body>
                     <div class="receipt-wrapper">
                     <div class="ticket">
                         <div class="center">
-                            <p style="font-size:15px; text-transform:uppercase; letter-spacing:2px; font-weight:900;">KUNDENBELEG</p>
-                            <h2 style="font-size:24px; font-weight:900; margin-bottom:3px;">${escapeHtml(shopName)}</h2>
-                            ${shopAddress ? `<p style="font-size:14px; font-weight:600; color:#333;">${escapeHtml(shopAddress)}</p>` : ''}
-                            ${shopPhone ? `<p style="font-size:14px; font-weight:600; color:#333;">Tel: ${escapeHtml(shopPhone)}</p>` : ''}
+                            <p style="font-size:15px; text-transform:uppercase; letter-spacing:2px; font-weight:900; color:#000;">KUNDENBELEG</p>
+                            <h2 style="font-size:24px; font-weight:900; margin-bottom:3px; color:#000;">${escapeHtml(shopName)}</h2>
+                            ${shopAddress ? `<p style="font-size:14px; font-weight:800; color:#000;">${escapeHtml(shopAddress)}</p>` : ''}
+                            ${shopPhone ? `<p style="font-size:14px; font-weight:800; color:#000;">Tel: ${escapeHtml(shopPhone)}</p>` : ''}
                         </div>
                         <div class="line"></div>
-                        <div style="text-align: center; margin: 6px 0;">
-                            <p style="font-size: 14px; font-weight: 600; color: #333; margin: 0;">${new Date().toLocaleString('de-DE')}</p>
-                            <p style="font-size: 14px; font-weight: 600; color: #333; margin: 0;">Beleg: ${escapeHtml(transactionId)}</p>
+                        <div style="text-align: center; margin: 8px 0;">
+                            <p style="font-size: 14px; font-weight: 800; color: #000; margin: 0;">${new Date().toLocaleString('de-DE')}</p>
+                            <p style="font-size: 14px; font-weight: 800; color: #000; margin: 0;">Beleg: ${escapeHtml(transactionId)}</p>
                         </div>
                         <div class="line"></div>
-                        <div class="row" style="font-size:15px; font-weight:900; border-bottom:1px solid #000; padding-bottom:4px;"><span>Artikel</span><span>Betrag</span></div>
+                        <div class="row" style="font-size:15px; font-weight:900; border-bottom:2px solid #000; padding-bottom:4px; color:#000;"><span>Artikel</span><span>Betrag</span></div>
                         <div class="row"><span>${qty}x ${escapeHtml(product.name || 'Product')}</span><span>${formatMoney(grossTotal)}</span></div>
                         <div class="row"><span>Barcode</span><span>${escapeHtml(product.barcode || '-')}</span></div>
                         <div class="row"><span>Rabatt</span><span>${formatMoney(discountValue)}</span></div>
                         <div class="line"></div>
-                        ${includeTax ? `<div class="row" style="font-size:13px; font-weight:700;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
-                        <div class="row" style="font-size:13px; font-weight:700;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
+                        ${includeTax ? `<div class="row" style="font-size:14px; font-weight:800; color:#000;"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
+                        <div class="row" style="font-size:14px; font-weight:800; color:#000;"><span>USt (19%)</span><span>${formatMoney(taxTotal)}</span></div>` : ''}
                         <div class="line"></div>
-                        <div class="row" style="font-size:15px; font-weight:700;"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
+                        <div class="row" style="font-size:15px; font-weight:900; color:#000;"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
                         <div class="line"></div>
-                        <p style="font-size:12px; font-weight:600; text-align:center; line-height:1.6;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
+                        <p style="font-size:12px; font-weight:800; text-align:center; line-height:1.6; color:#000;">Rückgabe/Umtausch innerhalb 14 Tagen nur in unbeschädigter Originalverpackung. Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur. Vielen Dank. ${escapeHtml(shopName)}</p>
                     </div>
+                    <!-- Bottom feed spacer to make bill longer -->
+                    <div style="height: 25mm; width: 100%;"></div>
                     </div>
                 </body>
             </html>

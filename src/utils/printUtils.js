@@ -44,112 +44,121 @@ export const printRepairJobBill = (job, activeShop) => {
     <meta charset="utf-8"/>
     <title>${billTitle} - #${escapePrintHtml(jobNumber)}</title>
     <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        color: #000 !important;
+        font-weight: 800 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
       
       @media print {
-        @page { size: 58mm auto; margin: 0mm; }
+        @page { size: 80mm auto; margin: 0mm; }
         html, body {
           margin: 0;
           padding: 0;
-          width: 46mm;
+          width: 80mm !important;
         }
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .receipt-wrapper { width: 100%; margin: 0; }
+        .receipt-wrapper { width: 80mm; margin: 0; }
       }
 
       body {
-        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-        width: 46mm;
-        margin: 0;
-        padding: 2mm 0.5mm;
+        font-family: 'Segoe UI', Arial, -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', sans-serif;
+        width: 80mm;
+        margin: 0 auto;
+        padding: 12mm 5mm 30mm 5mm;
         background: #fff;
-        color: #111;
-        font-size: 10px;
-        font-weight: 500;
-        line-height: 1.4;
+        color: #000;
+        font-size: 14px;
+        font-weight: 800;
+        line-height: 1.6;
       }
 
       .receipt-wrapper { width: 100%; max-width: 100%; }
-      .receipt-header { text-align: center; margin-bottom: 4px; }
+      .receipt-header { text-align: center; margin-bottom: 12px; }
       .receipt-badge {
         display: inline-block;
-        font-size: 9px;
-        font-weight: 700;
+        font-size: 12px;
+        font-weight: 900 !important;
         letter-spacing: 1.5px;
         text-transform: uppercase;
-        color: #444;
-        border-bottom: 1px solid #222;
-        padding-bottom: 1px;
-        margin-bottom: 3px;
+        color: #000;
+        border-bottom: 2px solid #000;
+        padding-bottom: 2px;
+        margin-bottom: 6px;
       }
       .shop-title {
-        font-size: 15px;
-        font-weight: 800;
+        font-size: 22px;
+        font-weight: 900 !important;
         text-transform: uppercase;
         letter-spacing: 0.5px;
         color: #000;
-        line-height: 1.2;
-        margin-bottom: 2px;
+        line-height: 1.25;
+        margin-bottom: 4px;
       }
       .shop-info {
-        font-size: 9.5px;
-        color: #333;
-        line-height: 1.35;
-        font-weight: 500;
+        font-size: 13px;
+        color: #000;
+        line-height: 1.4;
+        font-weight: 800 !important;
       }
       .job-box {
         text-align: center;
-        margin: 4px 0;
-        padding: 3px 0;
+        margin: 8px 0;
+        padding: 4px 0;
       }
       .job-number {
-        font-size: 18px;
-        font-weight: 800;
+        font-size: 24px;
+        font-weight: 900 !important;
         letter-spacing: 2px;
         font-family: monospace;
         color: #000;
       }
-      .divider { border: none; border-top: 1px dashed #777; margin: 5px 0; }
+      .divider { border: none; border-top: 2px dashed #000; margin: 12px 0; }
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-      td { font-size: 9.5px; padding: 2px 0; vertical-align: top; }
-      .label { font-weight: 500; color: #555; width: 40%; word-break: break-word; }
-      .value { font-weight: 700; color: #000; text-align: right; width: 60%; word-break: break-word; }
+      td { font-size: 14px; padding: 4px 0; vertical-align: top; font-weight: 800 !important; color: #000; }
+      .label { font-weight: 800 !important; color: #000; width: 35%; word-break: break-word; }
+      .value { font-weight: 900 !important; color: #000; text-align: right; width: 65%; word-break: break-word; }
       .issue-box {
-        border: 1px solid #444;
-        border-radius: 3px;
-        padding: 4px;
-        margin: 4px 0;
-        font-size: 9.5px;
-        font-weight: 600;
-        background: #fdfdfd;
-        line-height: 1.3;
-      }
-      .amount-table { width: 100%; margin: 3px 0; }
-      .amount-table td { padding: 1.5px 0; font-size: 9.5px; }
-      .amount-label { font-weight: 500; color: #444; }
-      .amount-value { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
-      .total-row td {
-        font-size: 12px;
-        font-weight: 800;
+        border: 2px solid #000;
+        border-radius: 4px;
+        padding: 8px;
+        margin: 8px 0;
+        font-size: 14px;
+        font-weight: 800 !important;
         color: #000;
-        padding-top: 4px;
-        border-top: 1.5px solid #000;
+        background: #fff;
+        line-height: 1.4;
+      }
+      .amount-table { width: 100%; margin: 8px 0; }
+      .amount-table td { padding: 4px 0; font-size: 14px; font-weight: 800 !important; color: #000; }
+      .amount-label { font-weight: 800 !important; color: #000; }
+      .amount-value { font-weight: 900 !important; color: #000; text-align: right; font-variant-numeric: tabular-nums; }
+      .total-row td {
+        font-size: 18px !important;
+        font-weight: 900 !important;
+        color: #000;
+        padding-top: 8px;
+        padding-bottom: 4px;
+        border-top: 2px solid #000;
       }
       .footer {
         text-align: center;
-        font-size: 8.5px;
-        color: #444;
-        font-weight: 500;
-        margin-top: 6px;
-        line-height: 1.35;
-        border-top: 1px dashed #777;
-        padding-top: 5px;
+        font-size: 12px;
+        color: #000;
+        font-weight: 800 !important;
+        margin-top: 16px;
+        line-height: 1.6;
+        border-top: 2px dashed #000;
+        padding-top: 10px;
       }
       .footer-thanks {
-        font-size: 9.5px;
-        font-weight: 700;
+        font-size: 14px;
+        font-weight: 900 !important;
         color: #000;
-        margin-top: 3px;
+        margin-top: 6px;
       }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -166,7 +175,7 @@ export const printRepairJobBill = (job, activeShop) => {
       <hr class="divider"/>
       
       <div class="job-box">
-        <div style="font-size: 8.5px; font-weight: 700; letter-spacing: 1px; color: #555; text-transform: uppercase;">Auftragsnummer</div>
+        <div style="font-size: 9.5px; font-weight: 900; letter-spacing: 1px; color: #000; text-transform: uppercase;">Auftragsnummer</div>
         <div class="job-number">#${escapePrintHtml(jobNumber)}</div>
       </div>
       
@@ -176,12 +185,12 @@ export const printRepairJobBill = (job, activeShop) => {
         <tr><td class="label">Kunde:</td><td class="value">${escapePrintHtml(customerName)}</td></tr>
         <tr><td class="label">Telefon:</td><td class="value">${escapePrintHtml(phone)}</td></tr>
         <tr><td class="label">Ger&auml;t:</td><td class="value">${escapePrintHtml(deviceModel)}</td></tr>
-        ${imei ? `<tr><td class="label">IMEI:</td><td class="value" style="font-family: monospace;">${escapePrintHtml(imei)}</td></tr>` : ''}
+        ${imei ? `<tr><td class="label">IMEI:</td><td class="value" style="font-family: monospace; font-weight: 900;">${escapePrintHtml(imei)}</td></tr>` : ''}
         ${!isCompleted ? `<tr><td class="label">Abholung:</td><td class="value">${escapePrintHtml(deliveryDate)}</td></tr>` : ''}
       </table>
 
       <div class="issue-box">
-        <strong style="color: #222;">Fehler:</strong> ${escapePrintHtml(issue)}
+        <strong style="color: #000;">Fehler:</strong> ${escapePrintHtml(issue)}
       </div>
 
       ${!isCompleted ? `<table><tr><td class="label">Status:</td><td class="value">Ausstehend</td></tr></table>` : ''}
@@ -209,11 +218,14 @@ export const printRepairJobBill = (job, activeShop) => {
         ${isCompleted ? 'Reparatur erfolgreich abgeschlossen.' : 'Bitte diesen Kundenbeleg zur Abholung mitbringen.'}
         <div class="footer-thanks">${escapePrintHtml(shopName)}</div>
       </div>
+
+      <!-- Feed spacer to make bill longer and prevent cutting into footer -->
+      <div style="height: 25mm; width: 100%;"></div>
     </div>
   </body>
   </html>`
 
-  const win = window.open('', 'repair-bill', 'width=300,height=500')
+  const win = window.open('', 'repair-bill', 'width=420,height=760')
   if(!win) return;
   win.document.write(html)
   win.document.close()
@@ -315,15 +327,12 @@ function buildKundenbelegHtml({
     const imei = resolveReceiptItemImei(item)
     const rawLabel = resolveReceiptItemLabel(item)
     const label = escapePrintHtml(rawLabel)
-    const len = rawLabel.length
-    const labelSize = len > 36 ? '9px' : len > 22 ? '9.5px' : '10.5px'
-    const lineHeight = len > 36 ? '1.2' : '1.25'
     return `
       <tr>
         <td class="col-qty">${qty}x</td>
         <td class="col-name">
-          <div style="font-size: ${labelSize}; line-height: ${lineHeight}; font-weight: 700; white-space: normal; word-break: break-word; overflow-wrap: break-word; color: #000;">${label}</div>
-          ${imei ? `<div style="font-size: 8.5px; color: #555; font-family: monospace; margin-top: 1.5px; word-break: break-all;">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
+          <div class="item-name">${label}</div>
+          ${imei ? `<div class="item-imei">IMEI: ${escapePrintHtml(imei)}</div>` : ''}
         </td>
         <td class="col-price">
           &euro;&nbsp;${formatReceiptMoney(resolveReceiptItemTotal(item))}
@@ -338,165 +347,273 @@ function buildKundenbelegHtml({
       <meta charset="utf-8"/>
       <title>Beleg - ${escapePrintHtml(transactionId || '')}</title>
       <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+          color: #000 !important;
+          font-weight: 800 !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
         @media print {
-          @page { size: 58mm auto; margin: 0mm; }
-          html, body { margin: 0; padding: 0; width: 46mm; }
-          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          @page { size: 80mm auto; margin: 0; }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 80mm !important;
+          }
+          .receipt-wrapper {
+            width: 80mm !important;
+            margin: 0 !important;
+          }
         }
         body {
-          font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-          width: 46mm;
-          margin: 0;
-          padding: 2mm 0.5mm;
-          line-height: 1.4;
-          color: #111;
+          font-family: 'Segoe UI', Arial, -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', sans-serif;
+          width: 80mm;
+          margin: 0 auto;
+          padding: 12mm 5mm 30mm 5mm;
+          line-height: 1.65;
+          color: #000;
           background: #fff;
-          font-size: 10px;
-          font-weight: 500;
-        }
-        .receipt-header { text-align: center; margin-bottom: 4px; padding-top: 1mm; }
-        .shop-title {
           font-size: 15px;
           font-weight: 800;
+          box-sizing: border-box;
+        }
+        .receipt-wrapper {
+          width: 100%;
+          max-width: 100%;
+        }
+        .receipt-header {
+          text-align: center;
+          margin-bottom: 16px;
+        }
+        .shop-title {
+          font-size: 24px;
+          font-weight: 900 !important;
           text-transform: uppercase;
           letter-spacing: 0.5px;
           color: #000;
-          line-height: 1.2;
-          margin-bottom: 2px;
+          line-height: 1.25;
+          margin-bottom: 4px;
         }
         .shop-info {
-          font-size: 9.5px;
-          color: #333;
-          line-height: 1.35;
-          font-weight: 500;
-        }
-        .divider { border: none; border-top: 1px dashed #777; margin: 5px 0; }
-        .meta-row {
-          display: flex;
-          justify-content: space-between;
-          font-size: 9.5px;
-          font-weight: 600;
-          color: #222;
-          margin: 2px 0;
-        }
-        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th {
-          font-size: 9.5px;
-          font-weight: 700;
-          color: #222;
-          border-bottom: 1px solid #111;
-          padding: 3px 0 4px 0;
-        }
-        td { vertical-align: top; padding: 4px 0; font-size: 10px; }
-        .col-qty { width: 28%; text-align: left; font-weight: 700; color: #222; padding-right: 6px; white-space: nowrap; }
-        .col-name { width: 44%; text-align: left; padding-left: 2px; padding-right: 4px; }
-        .col-price { width: 28%; text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .summary-table { width: 100%; margin: 3px 0; font-size: 9.5px; }
-        .summary-table td { padding: 1.5px 0; }
-        .summary-label { color: #444; font-weight: 500; }
-        .summary-val { text-align: right; font-weight: 700; color: #111; font-variant-numeric: tabular-nums; }
-        .total-row td {
-          font-size: 12px;
-          font-weight: 800;
+          font-size: 14px;
+          font-weight: 800 !important;
           color: #000;
-          padding-top: 4px;
-          border-top: 1.5px solid #000;
+          line-height: 1.4;
+          margin-top: 3px;
+        }
+        .divider {
+          border: none;
+          border-top: 2px dashed #000;
+          margin: 12px 0;
+        }
+        .meta-box {
+          font-size: 14px;
+          font-weight: 800 !important;
+          color: #000;
+          margin-bottom: 10px;
+          line-height: 1.5;
+        }
+        .meta-box div {
+          color: #000;
+          font-weight: 800 !important;
+        }
+        .meta-box strong {
+          font-weight: 900 !important;
+          color: #000;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+          margin-bottom: 10px;
+        }
+        th {
+          font-size: 14px;
+          font-weight: 900 !important;
+          color: #000;
+          border-bottom: 2px solid #000;
+          padding-bottom: 8px;
+        }
+        td {
+          vertical-align: top;
+          padding: 8px 0 4px 0;
+          font-size: 14px;
+          font-weight: 900 !important;
+          color: #000;
+        }
+        .col-qty {
+          width: 22%;
+          text-align: left;
+          font-weight: 900 !important;
+          color: #000;
+          padding-right: 8px;
+          white-space: nowrap;
+        }
+        .col-name {
+          width: 48%;
+          text-align: left;
+          padding-right: 6px;
+          font-weight: 900 !important;
+          color: #000;
+        }
+        .col-name .item-name {
+          font-size: 14px;
+          font-weight: 900 !important;
+          color: #000;
+          line-height: 1.35;
+          word-break: break-word;
+          overflow-wrap: break-word;
+        }
+        .col-name .item-imei {
+          font-size: 11px;
+          font-weight: 800 !important;
+          color: #000;
+          font-family: monospace;
+          margin-top: 3px;
+          word-break: break-all;
+        }
+        .col-price {
+          width: 30%;
+          text-align: right;
+          font-weight: 900 !important;
+          color: #000;
+          white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+        }
+        .summary-table {
+          width: 100%;
+          margin-bottom: 10px;
+          table-layout: fixed;
+        }
+        .summary-table td {
+          padding: 4px 0;
+          color: #000;
+        }
+        .summary-subtotal td {
+          font-size: 16px;
+          font-weight: 900 !important;
+        }
+        .summary-tax td {
+          font-size: 15px;
+          font-weight: 800 !important;
+          padding: 3px 0;
+        }
+        .total-row td {
+          font-size: 18px !important;
+          font-weight: 900 !important;
+          color: #000;
+          padding-top: 8px;
+          padding-bottom: 4px;
+          border-top: 2px solid #000;
         }
         .footer-box {
-          margin-top: 8px;
-          font-size: 8.5px;
-          line-height: 1.35;
-          color: #444;
+          margin-top: 16px;
+          font-size: 11.5px;
+          line-height: 1.6;
+          color: #000;
+          font-weight: 800 !important;
           text-align: center;
-          border-top: 1px dashed #777;
-          padding-top: 5px;
+          border-top: 2px dashed #000;
+          padding-top: 12px;
         }
         .footer-thanks {
-          font-size: 9.5px;
-          font-weight: 700;
+          font-size: 13px;
+          font-weight: 900 !important;
           color: #000;
-          margin-top: 4px;
+          margin-top: 6px;
         }
       </style>
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     </head>
     <body>
-      <div class="receipt-header">
-        <div class="shop-title">${escapePrintHtml(shopName)}</div>
-        ${shopAddress ? `<div class="shop-info">${escapePrintHtml(shopAddress)}</div>` : ''}
-        ${shopPhone ? `<div class="shop-info">Tel: ${escapePrintHtml(shopPhone)}</div>` : ''}
-      </div>
+      <div class="receipt-wrapper">
+        <div class="receipt-header">
+          <div class="shop-title">${escapePrintHtml(shopName)}</div>
+          ${shopAddress ? `<div class="shop-info">${escapePrintHtml(shopAddress)}</div>` : ''}
+          ${shopPhone ? `<div class="shop-info">Tel: ${escapePrintHtml(shopPhone)}</div>` : ''}
+        </div>
 
-      <hr class="divider"/>
+        <div class="divider"></div>
 
-      <div class="meta-row">
-        <span>Datum: ${escapePrintHtml(timestamp.date)} ${escapePrintHtml(timestamp.time)}</span>
-        <span>Beleg: #${escapePrintHtml(transactionId || 'N/A')}</span>
-      </div>
+        <div class="meta-box">
+          <div><strong>Datum:</strong> ${escapePrintHtml(timestamp.date)} ${escapePrintHtml(timestamp.time)}</div>
+          <div><strong>Beleg-Nr:</strong> #${escapePrintHtml(transactionId || 'N/A')}</div>
+        </div>
 
-      <hr class="divider"/>
+        <div class="divider"></div>
 
-      <table style="margin-bottom: 4px;">
-        <colgroup>
-          <col style="width: 28%;"/>
-          <col style="width: 44%;"/>
-          <col style="width: 28%;"/>
-        </colgroup>
-        <thead>
-          <tr>
-            <th style="text-align: left; padding-right: 6px;">Menge</th>
-            <th style="text-align: left; padding-left: 2px; padding-right: 4px;">Artikel</th>
-            <th style="text-align: right;">Betrag</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itemRows || `
+        <table>
+          <colgroup>
+            <col style="width: 22%;"/>
+            <col style="width: 48%;"/>
+            <col style="width: 30%;"/>
+          </colgroup>
+          <thead>
             <tr>
-              <td class="col-qty">1x</td>
-              <td class="col-name"><div style="font-size: 10.5px; font-weight: 700;">Artikel</div></td>
-              <td class="col-price">&euro;&nbsp;0,00</td>
+              <th style="text-align: left; padding-right: 8px; white-space: nowrap;">Menge</th>
+              <th style="text-align: left; padding-right: 6px; white-space: nowrap;">Artikel</th>
+              <th style="text-align: right;">Betrag</th>
             </tr>
-          `}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            ${itemRows || `
+              <tr>
+                <td class="col-qty">1x</td>
+                <td class="col-name"><div class="item-name">Artikel</div></td>
+                <td class="col-price">&euro;&nbsp;0,00</td>
+              </tr>
+            `}
+          </tbody>
+        </table>
 
-      <hr class="divider"/>
+        <div class="divider"></div>
 
-      <table class="summary-table">
-        <tbody>
-          <tr>
-            <td class="summary-label">Zwischensumme</td>
-            <td class="summary-val">&euro;&nbsp;${formatReceiptMoney(grossTotal)}</td>
-          </tr>
-          ${shouldShowTax ? `
-            <tr>
-              <td class="summary-label">Netto (19%)</td>
-              <td class="summary-val">&euro;&nbsp;${formatReceiptMoney(netTotal)}</td>
+        <table class="summary-table">
+          <tbody>
+            <tr class="summary-subtotal">
+              <td style="font-weight: 900 !important;">Zwischensumme</td>
+              <td style="text-align: right; font-weight: 900 !important; font-variant-numeric: tabular-nums;">&euro;&nbsp;${formatReceiptMoney(grossTotal)}</td>
             </tr>
-            <tr>
-              <td class="summary-label">USt. (19%)</td>
-              <td class="summary-val">&euro;&nbsp;${formatReceiptMoney(taxTotal)}</td>
+            ${shouldShowTax ? `
+              <tr class="summary-tax">
+                <td style="font-weight: 800 !important;">Netto (19%)</td>
+                <td style="text-align: right; font-weight: 800 !important; font-variant-numeric: tabular-nums;">&euro;&nbsp;${formatReceiptMoney(netTotal)}</td>
+              </tr>
+              <tr class="summary-tax">
+                <td style="font-weight: 800 !important;">USt. (19%)</td>
+                <td style="text-align: right; font-weight: 800 !important; font-variant-numeric: tabular-nums;">&euro;&nbsp;${formatReceiptMoney(taxTotal)}</td>
+              </tr>
+              <tr>
+                <td colSpan="2" style="padding-top: 8px;">
+                  <div class="divider"></div>
+                </td>
+              </tr>
+            ` : ''}
+            <tr class="total-row">
+              <td>GESAMTBETRAG</td>
+              <td style="text-align: right; font-variant-numeric: tabular-nums;">&euro;&nbsp;${formatReceiptMoney(grossTotal)}</td>
             </tr>
-          ` : ''}
-          <tr class="total-row">
-            <td>GESAMTBETRAG</td>
-            <td style="text-align: right;">&euro;&nbsp;${formatReceiptMoney(grossTotal)}</td>
-          </tr>
-        </tbody>
-      </table>
+          </tbody>
+        </table>
 
-      <div class="footer-box">
-        R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.<br/>
-        Bei Defekt/Mangel erfolgt Erstattung oder Reparatur.
-        <div class="footer-thanks">Vielen Dank f&uuml;r Ihren Einkauf!</div>
+        <div class="footer-box">
+          R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.<br/>
+          Bei Defekt/Mangel erfolgt eine Erstattung oder Reparatur.
+          <div class="footer-thanks">Vielen Dank f&uuml;r Ihren Einkauf! ${escapePrintHtml(shopName)}</div>
+        </div>
+
+        <!-- Feed spacer to make bill longer and prevent thermal paper cutting into the footer -->
+        <div style="height: 30mm; width: 100%;"></div>
       </div>
     </body>
   </html>`
 }
 
 export function printKundenbeleg(items, transactionId, _paymentMethod, shopInfo, options = {}) {
-  const win = window.open('', '_blank', 'width=300,height=600')
+  const win = window.open('', '_blank', 'width=420,height=760')
   if (!win) return
 
   win.document.write(buildKundenbelegHtml({
