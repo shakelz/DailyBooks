@@ -32,6 +32,7 @@ export default function SmartCategoryForm({
 }) {
     const { activeShopId } = useAuth();
     const {
+        products = [],
         lookupBarcode, addProduct, updateProduct,
         getLevel1Categories, getLevel2Categories,
         addLevel1Category, addLevel2Category,
@@ -78,6 +79,104 @@ export default function SmartCategoryForm({
     const [submitted, setSubmitted] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const isSubmittingRef = useRef(false);
+
+    // Suggestions state for product name and barcode
+    const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+    const [showBarcodeSuggestions, setShowBarcodeSuggestions] = useState(false);
+
+    // Stored titles suggestions for Product Name input
+    const titleSuggestions = useMemo(() => {
+        if (!name || name.trim().length < 1) return [];
+        const query = name.trim().toLowerCase();
+        const results = [];
+        const seen = new Set();
+        for (const p of products) {
+            const pName = String(p?.name || '').trim();
+            if (!pName || seen.has(pName.toLowerCase())) continue;
+            if (pName.toLowerCase().includes(query)) {
+                seen.add(pName.toLowerCase());
+                results.push({
+                    name: pName,
+                    barcode: p.barcode || '',
+                    category: p.category || null,
+                    purchasePrice: p.purchasePrice || '',
+                    sellingPrice: p.sellingPrice || '',
+                    stock: p.stock || 0,
+                    attributes: p.attributes || {},
+                    productUrl: p.productUrl || '',
+                    notes: p.notes || '',
+                });
+                if (results.length >= 8) break;
+            }
+        }
+        return results;
+    }, [products, name]);
+
+    // Stored barcodes and titles suggestions for Barcode input
+    const barcodeSuggestions = useMemo(() => {
+        if (!barcode || barcode.trim().length < 1) return [];
+        const query = barcode.trim().toLowerCase();
+        const results = [];
+        const seen = new Set();
+        for (const p of products) {
+            const pBarcode = String(p?.barcode || '').trim();
+            const pName = String(p?.name || '').trim();
+            if (!pBarcode || seen.has(pBarcode.toLowerCase())) continue;
+            if (pBarcode.toLowerCase().includes(query) || pName.toLowerCase().includes(query)) {
+                seen.add(pBarcode.toLowerCase());
+                results.push({
+                    name: pName,
+                    barcode: pBarcode,
+                    category: p.category || null,
+                    purchasePrice: p.purchasePrice || '',
+                    sellingPrice: p.sellingPrice || '',
+                    stock: p.stock || 0,
+                    attributes: p.attributes || {},
+                    productUrl: p.productUrl || '',
+                    notes: p.notes || '',
+                });
+                if (results.length >= 8) break;
+            }
+        }
+        return results;
+    }, [products, barcode]);
+
+    const applyProductSuggestion = (item, source = 'name') => {
+        if (!item) return;
+        if (item.name) setName(item.name);
+        if (item.barcode && (!barcode || source === 'barcode')) setBarcode(item.barcode);
+
+        // Autofill category if not currently set
+        if (item.category && !level1) {
+            if (typeof item.category === 'object' && item.category !== null) {
+                setLevel1(item.category.level1 || '');
+                setLevel2(item.category.level2 || '');
+                setLevel3Model(item.category.level3 || '');
+            } else if (typeof item.category === 'string') {
+                setLevel1(item.category);
+            }
+        }
+        // Autofill prices if empty
+        if (item.purchasePrice && !purchasePrice) {
+            setPurchasePrice(String(item.purchasePrice));
+        }
+        if (item.sellingPrice && !sellingPrice) {
+            setSellingPrice(String(item.sellingPrice));
+        }
+        // Autofill dynamic fields if empty
+        if (item.attributes && Object.keys(item.attributes).length > 0 && Object.keys(dynamicFields).length === 0) {
+            const cleanedAttrs = Object.entries(item.attributes).reduce((acc, [k, v]) => {
+                if (HIDDEN_SPEC_KEYS.includes(k)) return acc;
+                acc[k] = v;
+                return acc;
+            }, {});
+            setDynamicFields(cleanedAttrs);
+            setActiveChips(Object.keys(cleanedAttrs));
+        }
+
+        setShowNameSuggestions(false);
+        setShowBarcodeSuggestions(false);
+    };
 
     useEffect(() => {
         if (isOpen) {
@@ -472,19 +571,122 @@ export default function SmartCategoryForm({
                                 </div>
 
                                 <div className="flex-1 grid grid-cols-2 gap-2">
-                                    <div>
+                                    <div className="relative">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Product Name <span className="text-red-500">*</span></label>
-                                            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. iPhone 13 Pro Max"
-                                            className={`w-full px-3 py-1.5 rounded-lg bg-white border text-sm font-bold focus:outline-none focus:ring-2 transition-all ${errors.name ? 'border-red-300 focus:ring-red-200' : 'border-slate-200 focus:ring-blue-400/30'}`} />
+                                        <input
+                                            list="smartFormProductTitlesList"
+                                            value={name}
+                                            onChange={e => {
+                                                setName(e.target.value);
+                                                setShowNameSuggestions(true);
+                                            }}
+                                            onFocus={() => {
+                                                if (name && name.trim().length > 0) setShowNameSuggestions(true);
+                                            }}
+                                            onBlur={() => {
+                                                setTimeout(() => setShowNameSuggestions(false), 220);
+                                            }}
+                                            placeholder="e.g. iPhone 13 Pro Max"
+                                            className={`w-full px-3 py-1.5 rounded-lg bg-white border text-sm font-bold focus:outline-none focus:ring-2 transition-all ${errors.name ? 'border-red-300 focus:ring-red-200' : 'border-slate-200 focus:ring-blue-400/30'}`}
+                                        />
+                                        <datalist id="smartFormProductTitlesList">
+                                            {products.slice(0, 40).map((p, idx) => (
+                                                p?.name ? <option key={`title-dl-${idx}`} value={p.name} /> : null
+                                            ))}
+                                        </datalist>
+
+                                        {showNameSuggestions && titleSuggestions.length > 0 && (
+                                            <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 max-h-52 overflow-y-auto divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+                                                <div className="px-2.5 py-1 bg-slate-50 text-[9px] font-bold text-slate-400 uppercase tracking-wider sticky top-0 border-b border-slate-100">
+                                                    Stored Titles Suggestions
+                                                </div>
+                                                {titleSuggestions.map((item, idx) => {
+                                                    const catLabel = typeof item.category === 'object'
+                                                        ? [item.category?.level1, item.category?.level2].filter(Boolean).join(' › ')
+                                                        : item.category || '';
+                                                    return (
+                                                        <div
+                                                            key={`name-sug-${idx}`}
+                                                            onMouseDown={(e) => {
+                                                                e.preventDefault();
+                                                                applyProductSuggestion(item, 'name');
+                                                            }}
+                                                            className="px-2.5 py-1.5 hover:bg-blue-50 cursor-pointer flex items-center justify-between gap-2 text-left transition-colors"
+                                                        >
+                                                            <div className="min-w-0">
+                                                                <p className="text-xs font-bold text-slate-800 truncate">{item.name}</p>
+                                                                <p className="text-[10px] text-slate-400 truncate">
+                                                                    {catLabel && `${catLabel} • `}
+                                                                    {item.barcode ? `BC: ${item.barcode}` : 'No barcode'}
+                                                                </p>
+                                                            </div>
+                                                            {item.sellingPrice && (
+                                                                <span className="text-[11px] font-mono font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded shrink-0">
+                                                                    {CURRENCY_CONFIG.symbol}{item.sellingPrice}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
                                         {errors.name && <p className="text-[10px] text-red-500 mt-1 font-bold">{errors.name}</p>}
                                     </div>
-                                    <div>
+
+                                    <div className="relative">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Barcode / SKU</label>
                                         <div className="relative">
-                                            <input value={barcode} onChange={e => setBarcode(e.target.value)} placeholder="Scan Barcode..."
-                                                className={`w-full pl-8 pr-3 py-1.5 rounded-lg bg-white border text-sm font-mono focus:outline-none focus:ring-2 transition-all ${errors.barcode ? 'border-red-300 focus:ring-red-200' : 'border-slate-200 focus:ring-blue-400/30'}`} />
+                                            <input
+                                                list="smartFormProductBarcodesList"
+                                                value={barcode}
+                                                onChange={e => {
+                                                    setBarcode(e.target.value);
+                                                    setShowBarcodeSuggestions(true);
+                                                }}
+                                                onFocus={() => {
+                                                    if (barcode && barcode.trim().length > 0) setShowBarcodeSuggestions(true);
+                                                }}
+                                                onBlur={() => {
+                                                    setTimeout(() => setShowBarcodeSuggestions(false), 220);
+                                                }}
+                                                placeholder="Scan Barcode..."
+                                                className={`w-full pl-8 pr-3 py-1.5 rounded-lg bg-white border text-sm font-mono focus:outline-none focus:ring-2 transition-all ${errors.barcode ? 'border-red-300 focus:ring-red-200' : 'border-slate-200 focus:ring-blue-400/30'}`}
+                                            />
                                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">|</span>
                                         </div>
+                                        <datalist id="smartFormProductBarcodesList">
+                                            {products.slice(0, 40).map((p, idx) => (
+                                                p?.barcode ? <option key={`bc-dl-${idx}`} value={p.barcode}>{p.name}</option> : null
+                                            ))}
+                                        </datalist>
+
+                                        {showBarcodeSuggestions && barcodeSuggestions.length > 0 && (
+                                            <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-200 max-h-52 overflow-y-auto divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+                                                <div className="px-2.5 py-1 bg-slate-50 text-[9px] font-bold text-slate-400 uppercase tracking-wider sticky top-0 border-b border-slate-100">
+                                                    Stored Barcodes &amp; Titles
+                                                </div>
+                                                {barcodeSuggestions.map((item, idx) => (
+                                                    <div
+                                                        key={`bc-sug-${idx}`}
+                                                        onMouseDown={(e) => {
+                                                            e.preventDefault();
+                                                            applyProductSuggestion(item, 'barcode');
+                                                        }}
+                                                        className="px-2.5 py-1.5 hover:bg-blue-50 cursor-pointer flex items-center justify-between gap-2 text-left transition-colors"
+                                                    >
+                                                        <div className="min-w-0">
+                                                            <p className="text-xs font-mono font-bold text-blue-700 truncate">{item.barcode}</p>
+                                                            <p className="text-[10px] text-slate-500 truncate">{item.name}</p>
+                                                        </div>
+                                                        {item.sellingPrice && (
+                                                            <span className="text-[11px] font-mono font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded shrink-0">
+                                                                {CURRENCY_CONFIG.symbol}{item.sellingPrice}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>

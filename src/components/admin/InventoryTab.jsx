@@ -3,6 +3,7 @@ import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
 import SmartCategoryForm from '../SmartCategoryForm';
+import SoldPhonesModal from '../SoldPhonesModal';
 import AdminTabToolbar from './AdminTabToolbar';
 import { useSupplierLinks } from '../../hooks/useSupplierLinks';
 import {
@@ -22,7 +23,8 @@ import {
     Percent,
     Scan,
     CheckCircle,
-    XCircle
+    XCircle,
+    Smartphone
 } from 'lucide-react';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -46,6 +48,7 @@ export default function InventoryTab() {
     const [filterStatus, setFilterStatus] = useState('All');
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [isFormOpen, setIsFormOpen] = useState(false);
+    const [showSoldPhonesModal, setShowSoldPhonesModal] = useState(false);
 
     // ── Date Range State ──
     const [dateSelection, setDateSelection] = useState([
@@ -486,6 +489,14 @@ export default function InventoryTab() {
                                 <option value="All">Alle Kategorien</option>
                                 {getLevel1Categories('sales').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                             </select>
+
+                            <button
+                                onClick={() => setShowSoldPhonesModal(true)}
+                                className="flex items-center gap-2 px-4 py-2 bg-sky-50 text-sky-700 border border-sky-200 rounded-xl text-xs font-bold hover:bg-sky-100 transition-all shadow-xs"
+                            >
+                                <Smartphone size={14} />
+                                Sold Phones
+                            </button>
 
                             <button
                                 onClick={() => setShowBulkModal(true)}
@@ -939,6 +950,12 @@ export default function InventoryTab() {
                 isOpen={isFormOpen}
                 onClose={() => { setIsFormOpen(false); setSelectedProduct(null); }}
                 initialData={selectedProduct}
+            />
+
+            {/* Sold Phones History Modal */}
+            <SoldPhonesModal
+                isOpen={showSoldPhonesModal}
+                onClose={() => setShowSoldPhonesModal(false)}
             />
 
             {/* Bulk Update Modal */}

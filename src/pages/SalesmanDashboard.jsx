@@ -12,6 +12,7 @@ import CategoryManagerModal from '../components/CategoryManagerModal';
 import RepairModal from '../components/RepairModal';
 import SmartCategoryForm from '../components/SmartCategoryForm';
 import TransactionModal from '../components/TransactionModal';
+import SoldPhonesModal from '../components/SoldPhonesModal';
 import { useRepairs } from '../context/RepairsContext';
 import { useCart } from '../context/CartContext';
 import { useNotes } from '../context/NotesContext';
@@ -909,6 +910,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [showSalesProductSuggestions, setShowSalesProductSuggestions] = useState(false);
     const [showPurchaseProductSuggestions, setShowPurchaseProductSuggestions] = useState(false);
     const [showTransactionDetailModal, setShowTransactionDetailModal] = useState(false);
+    const [showSoldPhonesModal, setShowSoldPhonesModal] = useState(false);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [transactionDraft, setTransactionDraft] = useState(null);
     const [isLoadingTransactionDetail, setIsLoadingTransactionDetail] = useState(false);
@@ -5021,6 +5023,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             className="fab-animated"
                             style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}
                         ><span className="fab-icon"><Boxes size={14} /></span><span className="fab-title">Inventory</span></button>
+                        <button
+                            onClick={() => setShowSoldPhonesModal(true)}
+                            title="Sold Phones History & Data"
+                            className="fab-animated"
+                            style={{ '--fab-i': '#0ea5e9', '--fab-j': '#0284c7' }}
+                        ><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Sold Phones</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Reparatur & Abholschein" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Reparatur & Abholschein</span></button>
                         <button
                             onClick={() => setShowNotesModal(true)}
@@ -6254,6 +6262,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 initialProduct={selectedProduct}
             />
 
+            <SoldPhonesModal
+                isOpen={showSoldPhonesModal}
+                onClose={() => setShowSoldPhonesModal(false)}
+                onViewTransaction={openTransactionDetailModal}
+            />
+
             {showInventoryModal && (
                 <div
                     className="fixed inset-0 z-[86] flex items-center justify-center p-2 sm:p-4 md:p-6"
@@ -6290,6 +6304,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             </div>
 
                             <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSoldPhonesModal(true)}
+                                    className="px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
+                                >
+                                    <Smartphone size={14} />
+                                    <span>Sold Phones</span>
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -6966,7 +6988,32 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="p-4 space-y-3">
                             <div className="grid grid-cols-2 md:grid-cols-6 gap-1.5">
                                 <input value={quickSaleForm.barcode} readOnly placeholder="Barcode" className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
-                                <input value={quickSaleForm.name} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Product" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
+                                <input
+                                    list="quickSaleTitlesDatalist"
+                                    value={quickSaleForm.name}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        const matched = products.find(p => p && String(p.name || '').toLowerCase() === val.toLowerCase());
+                                        if (matched) {
+                                            setQuickSaleForm(prev => ({
+                                                ...prev,
+                                                name: matched.name || val,
+                                                barcode: matched.barcode || prev.barcode,
+                                                amount: matched.sellingPrice ? String(matched.sellingPrice) : prev.amount,
+                                                category: typeof matched.category === 'object' ? (matched.category?.level1 || prev.category) : (matched.category || prev.category),
+                                            }));
+                                        } else {
+                                            setQuickSaleForm((prev) => ({ ...prev, name: val }));
+                                        }
+                                    }}
+                                    placeholder="Product"
+                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2"
+                                />
+                                <datalist id="quickSaleTitlesDatalist">
+                                    {products.slice(0, 50).map((p, idx) => (
+                                        p?.name ? <option key={`qs-dl-${idx}`} value={p.name} /> : null
+                                    ))}
+                                </datalist>
                                 <input type="number" min="1" value={quickSaleForm.quantity} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, quantity: e.target.value }))} placeholder="Qty" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700" />
                                 <input type="number" step="0.01" value={quickSaleForm.amount} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700" />
                                 <input value={quickSaleForm.category} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, category: e.target.value }))} placeholder="Category" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
