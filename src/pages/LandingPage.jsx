@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 
 const SHOP = {
@@ -19,8 +19,13 @@ const SHOP = {
   ],
   googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=CareFone+2+Kurt-Schumacher-Damm+1+13405+Berlin',
   bingMapsUrl: 'https://www.bing.com/maps/search?q=carefone+2+handy+laden&cp=52.562897~13.327953&lvl=15',
-  mapsEmbed: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2425.4!2d13.327953!3d52.562897!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNTLCsDMzJzQ2LjQiTiAxM8KwMTknNDAuNiJF!5e0!3m2!1sen!2sde!4v1',
 }
+
+const SHOP_PHOTOS = [
+  { src: '/shop1.jpg', alt: 'CareFone 2 – Shopfront & Reparatur-Center' },
+  { src: '/shop2.jpg', alt: 'Der Clou Mall – Kurt-Schumacher-Platz Berlin' },
+  { src: '/shop3.jpg', alt: 'CareFone 2 – Innenbereich im Einkaufszentrum Der Clou' },
+]
 
 const SERVICES = [
   {
@@ -99,10 +104,9 @@ function resolveRepairStatus(ticket = '') {
 }
 
 function getTodayStatus() {
-  const day = new Date().getDay() // 0=Sun
+  const day = new Date().getDay()
   if (day === 0) return { open: false, label: 'Closed today (Sunday)' }
-  const now = new Date()
-  const hour = now.getHours()
+  const hour = new Date().getHours()
   if (hour >= 10 && hour < 19) return { open: true, label: 'Open now · Closes at 19:00' }
   if (hour < 10) return { open: false, label: 'Opens today at 10:00' }
   return { open: false, label: 'Closed · Opens tomorrow at 10:00' }
@@ -110,52 +114,82 @@ function getTodayStatus() {
 
 export default function LandingPage() {
   const [ticketId, setTicketId] = useState('')
+  const [slide, setSlide] = useState(0)
   const status = useMemo(() => resolveRepairStatus(ticketId), [ticketId])
   const todayStatus = useMemo(() => getTodayStatus(), [])
+
+  // Auto-play carousel every 4.5s
+  useEffect(() => {
+    const t = setInterval(() => setSlide((s) => (s + 1) % SHOP_PHOTOS.length), 4500)
+    return () => clearInterval(t)
+  }, [])
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
 
-      {/* ── HEADER ── */}
-      <header className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-900 text-white">
-        <div className="max-w-6xl mx-auto px-4 py-10 sm:py-14">
+      {/* ── HERO BANNER WITH BACKGROUND PHOTO CAROUSEL ── */}
+      <header className="relative overflow-hidden text-white min-h-[460px] sm:min-h-[500px] flex items-center">
+        {/* Background Images Carousel */}
+        <div className="absolute inset-0 z-0 overflow-hidden">
+          {SHOP_PHOTOS.map((photo, i) => (
+            <img
+              key={photo.src}
+              src={photo.src}
+              alt={photo.alt}
+              className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-in-out ${
+                i === slide ? 'opacity-100 scale-105' : 'opacity-0 scale-100 pointer-events-none'
+              }`}
+            />
+          ))}
+          {/* Deep dark gradient overlay for crystal clear text readability */}
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/95 via-slate-900/85 to-blue-950/75 backdrop-blur-[1px]" />
+          {/* Top & bottom subtle shadow */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-slate-950/60" />
+        </div>
+
+        {/* Foreground Content */}
+        <div className="relative z-10 max-w-6xl mx-auto px-4 py-12 sm:py-16 w-full">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 max-w-2xl">
               {/* Badge */}
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/20 border border-blue-400/30 px-3 py-1 text-[11px] font-bold tracking-widest uppercase text-blue-300 mb-4">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                Berlin, Germany
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/30 border border-blue-400/40 px-3 py-1 text-[11px] font-bold tracking-widest uppercase text-blue-200 mb-4 backdrop-blur-md">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Berlin · Der Clou Mall
               </span>
-              <h1 className="text-3xl sm:text-5xl font-black leading-tight">
+
+              <h1 className="text-3xl sm:text-5xl font-black leading-tight tracking-tight drop-shadow-md">
                 CareFone 2
-                <span className="block text-xl sm:text-2xl font-semibold text-blue-300 mt-1">
+                <span className="block text-xl sm:text-2xl font-semibold text-blue-300 mt-1 drop-shadow">
                   Handy, Mac Reparatur & Zubehör
                 </span>
               </h1>
-              <p className="mt-4 text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
-                Professional mobile & Mac repair in Berlin-Reinickendorf. Fast diagnostics, fair prices, and same-day repair for most issues.
+
+              <p className="mt-4 text-sm sm:text-base text-slate-200 max-w-xl leading-relaxed drop-shadow">
+                Professionelle Smartphone-, Mac- und Tablet-Reparatur im Einkaufszentrum Der Clou (Berlin-Reinickendorf). Schnelle Diagnose, faire Preise und zuverlässiger Express-Service.
               </p>
 
               {/* Quick info pills */}
               <div className="mt-6 flex flex-wrap gap-2 text-xs">
                 <a
                   href={`tel:${SHOP.phone}`}
-                  className="flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 px-3 py-2 font-semibold transition-colors"
+                  className="flex items-center gap-1.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 px-3.5 py-2 font-semibold transition-colors backdrop-blur-md"
                 >
-                  <svg className="w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                   </svg>
                   {SHOP.phone}
                 </a>
-                <span className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 font-semibold ${todayStatus.open ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-300' : 'bg-red-500/15 border-red-400/25 text-red-300'}`}>
+
+                <span className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 font-semibold backdrop-blur-md ${todayStatus.open ? 'bg-emerald-500/25 border-emerald-400/40 text-emerald-200' : 'bg-red-500/20 border-red-400/30 text-red-200'}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${todayStatus.open ? 'bg-emerald-400' : 'bg-red-400'}`} />
                   {todayStatus.label}
                 </span>
+
                 <a
                   href={SHOP.googleMapsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 px-3 py-2 font-semibold transition-colors"
+                  className="flex items-center gap-1.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 px-3.5 py-2 font-semibold transition-colors backdrop-blur-md"
                 >
                   <svg className="w-3.5 h-3.5 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -166,16 +200,62 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Admin Login */}
+            {/* Admin Login Button */}
             <Link
               to="/management-portal-v1"
-              className="flex-shrink-0 flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/20 hover:text-white transition-colors backdrop-blur-sm"
+              className="flex-shrink-0 flex items-center gap-1.5 rounded-xl border border-white/25 bg-white/10 px-3.5 py-2 text-xs font-semibold text-white/80 hover:bg-white/25 hover:text-white transition-colors backdrop-blur-md shadow-sm"
             >
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zM19 21v-1a7 7 0 00-14 0v1" />
               </svg>
               Admin
             </Link>
+          </div>
+
+          {/* Bottom Bar inside Hero: Photo caption & carousel controls */}
+          <div className="mt-8 pt-4 border-t border-white/15 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-slate-200">
+              <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
+              <span className="font-medium drop-shadow">{SHOP_PHOTOS[slide].alt}</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* Dot indicators */}
+              <div className="flex gap-1.5">
+                {SHOP_PHOTOS.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setSlide(i)}
+                    className={`h-2 rounded-full transition-all cursor-pointer ${
+                      i === slide ? 'w-6 bg-white' : 'w-2 bg-white/40 hover:bg-white/70'
+                    }`}
+                    aria-label={`Slide ${i + 1}`}
+                  />
+                ))}
+              </div>
+
+              {/* Prev / Next buttons */}
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setSlide((s) => (s - 1 + SHOP_PHOTOS.length) % SHOP_PHOTOS.length)}
+                  className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/25 border border-white/20 flex items-center justify-center transition cursor-pointer"
+                  aria-label="Previous image"
+                >
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setSlide((s) => (s + 1) % SHOP_PHOTOS.length)}
+                  className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/25 border border-white/20 flex items-center justify-center transition cursor-pointer"
+                  aria-label="Next image"
+                >
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </header>
@@ -247,7 +327,7 @@ export default function LandingPage() {
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-slate-700 group-hover:text-blue-600 transition">{SHOP.address}</p>
-                  <p className="text-xs text-slate-500">{SHOP.city}</p>
+                  <p className="text-xs text-slate-500">{SHOP.city} (Im Einkaufszentrum Der Clou)</p>
                 </div>
               </a>
 
@@ -314,120 +394,20 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── SHOP PHOTOS & STREET VIEW ── */}
+        {/* ── FIND US (CLEAN EMBED) ── */}
         <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xs font-bold tracking-widest uppercase text-slate-500">Shop Photos & Street View</h2>
-            <a
-              href="https://maps.app.goo.gl/xuZwWXBPG4bCrjUq9"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 transition"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              View All Photos on Google Maps
-            </a>
-          </div>
-
-          {/* Two-panel: Street View + Map */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-            {/* Street View */}
-            <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-              <div className="bg-slate-700 px-3 py-2 flex items-center gap-2">
-                <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-                </svg>
-                <span className="text-xs font-semibold text-white">Street View — Kurt-Schumacher-Damm 1</span>
-              </div>
-              <iframe
-                title="CareFone 2 Street View"
-                src="https://www.google.com/maps/embed?pb=!4v1726000000000!6m8!1m7!1sCbgr9B0GFHh0GCPa7E3Heg!2m2!1d13.32796!2d52.56296!3f200!4f0!5f0.7820865974627469"
-                width="100%"
-                height="300"
-                style={{ border: 0, display: 'block' }}
-                allowFullScreen
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-            </div>
-
-            {/* Map View */}
-            <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-              <div className="bg-slate-700 px-3 py-2 flex items-center gap-2">
-                <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                </svg>
-                <span className="text-xs font-semibold text-white">Map View — 13405 Berlin, Reinickendorf</span>
-              </div>
-              <iframe
-                title="CareFone 2 Location"
-                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1212.08!2d13.3270!3d52.5630!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47a8513e0b1d36c7%3A0xa7b3c2d4e5f60718!2sKurt-Schumacher-Damm+1%2C+13405+Berlin!5e0!3m2!1sen!2sde!4v1726000000000!5m2!1sen!2sde"
-                width="100%"
-                height="300"
-                style={{ border: 0, display: 'block' }}
-                allowFullScreen
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-            </div>
-          </div>
-
-          {/* Photo CTA Cards */}
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <a
-              href="https://maps.app.goo.gl/xuZwWXBPG4bCrjUq9"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-blue-300 transition group"
-            >
-              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition">
-                <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition">Shop Photos</p>
-                <p className="text-[11px] text-slate-400">View on Google Maps</p>
-              </div>
-            </a>
-
-            <a
-              href="https://www.google.com/maps/place/CareFone+2/@52.5629599,13.3279587,17z"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-emerald-300 transition group"
-            >
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-100 transition">
-                <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-800 group-hover:text-emerald-600 transition">Reviews</p>
-                <p className="text-[11px] text-slate-400">See Google Reviews</p>
-              </div>
-            </a>
-
-            <a
-              href="https://www.google.com/maps/dir//Kurt-Schumacher-Damm+1,+13405+Berlin"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-orange-300 transition group"
-            >
-              <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0 group-hover:bg-orange-100 transition">
-                <svg className="w-5 h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-800 group-hover:text-orange-600 transition">Get Directions</p>
-                <p className="text-[11px] text-slate-400">Navigate to shop</p>
-              </div>
-            </a>
+          <h2 className="text-xs font-bold tracking-widest uppercase text-slate-500 mb-4">Find Us</h2>
+          <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+            <iframe
+              title="CareFone 2 Location"
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1212.08!2d13.3270!3d52.5630!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47a8513e0b1d36c7%3A0xa7b3c2d4e5f60718!2sKurt-Schumacher-Damm+1%2C+13405+Berlin!5e0!3m2!1sen!2sde!4v1726000000000!5m2!1sen!2sde"
+              width="100%"
+              height="340"
+              style={{ border: 0, display: 'block' }}
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
           </div>
         </section>
 
