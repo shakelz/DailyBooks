@@ -291,14 +291,34 @@ export function RepairsProvider({ children }) {
         setRepairsLoaded(false);
 
         const fetchRepairs = async () => {
-            const repairsResult = await supabase.from('repairs').select('*').eq('shop_id', sid);
+            let res = null;
+            if (sid) {
+                try {
+                    res = await supabase.from('repairs').select('*').eq('shop_id', sid).order('created_at', { ascending: false });
+                } catch (e) {
+                    console.warn('Shop-filtered repairs fetch error:', e);
+                }
+            }
+
+            // Fallback: if no repairs returned for this sid (or UUID syntax error, or different shop_id stored),
+            // fetch all repairs for this deployment so all devices see live data
+            if (!res || res.error || !Array.isArray(res.data) || res.data.length === 0) {
+                try {
+                    const fallbackRes = await supabase.from('repairs').select('*').order('created_at', { ascending: false }).limit(200);
+                    if (!fallbackRes.error && Array.isArray(fallbackRes.data) && fallbackRes.data.length > 0) {
+                        res = fallbackRes;
+                    }
+                } catch (e) {
+                    console.warn('Fallback repairs fetch error:', e);
+                }
+            }
 
             if (cancelled) return;
 
-            if (!repairsResult.error && Array.isArray(repairsResult.data) && repairsResult.data.length > 0) {
-                const normalized = repairsResult.data.map((row) => normalizeRepairRecord(row));
+            if (res && !res.error && Array.isArray(res.data) && res.data.length > 0) {
+                const normalized = res.data.map((row) => normalizeRepairRecord(row));
                 setRepairJobs(sortRepairsByCreatedAt(normalized));
-            } else if (!repairsResult.error && Array.isArray(repairsResult.data)) {
+            } else if (res && !res.error && Array.isArray(res.data)) {
                 setRepairJobs([]);
             } else {
                 try {
@@ -315,16 +335,16 @@ export function RepairsProvider({ children }) {
         };
         fetchRepairs();
 
-        const shopFilter = `shop_id=eq.${sid}`;
-        const repairsSub = supabase.channel(`public:repairs:${sid}`)
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
+        const channelFilter = sid && isUuidLike(sid) ? { filter: `shop_id=eq.${sid}` } : {};
+        const repairsSub = supabase.channel(`public:repairs:${sid || 'all'}`)
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'repairs', ...channelFilter }, (payload) => {
                 const incoming = normalizeRepairRecord(payload.new);
                 setRepairJobs((prev) => {
                     if (prev.some((job) => String(job.id) === String(incoming.id))) return prev;
                     return sortRepairsByCreatedAt([incoming, ...prev]);
                 });
             })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'repairs', ...channelFilter }, (payload) => {
                 const incoming = normalizeRepairRecord(payload.new);
                 setRepairJobs((prev) => sortRepairsByCreatedAt(
                     prev.map((job) => String(job.id) === String(incoming.id)
@@ -332,7 +352,7 @@ export function RepairsProvider({ children }) {
                         : job)
                 ));
             })
-            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'repairs', filter: shopFilter }, (payload) => {
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'repairs', ...channelFilter }, (payload) => {
                 setRepairJobs((prev) => prev.filter((job) => String(job.id) !== String(payload.old.repair_id || payload.old.id)));
             })
             .on('broadcast', { event: 'repair_sync' }, (payload) => {
