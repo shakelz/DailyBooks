@@ -141,7 +141,7 @@ export default function LoginPage({ mode = 'salesman' }) {
                 setAdminError('Not allowed.')
             }
         } catch (error) {
-            setAdminError(`Baigan! Login fail: ${error?.message || 'Invalid credentials.'}`)
+            setAdminError(error?.message || 'Login failed. Please verify your email and password.')
         } finally {
             setIsLoading(false)
         }
