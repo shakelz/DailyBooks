@@ -131,6 +131,30 @@ function formatRepairStatusInfo(job) {
   };
 }
 
+function cleanCustomerProblemDescription(raw = '') {
+  if (!raw) return 'Reparaturservice';
+  let str = String(raw);
+
+  // 1. Remove HTML comments (<!-- ... --> including <!--REPAIR_META:...-->)
+  str = str.replace(/<!--[\s\S]*?-->/g, '');
+
+  // 2. Remove JSON metadata blocks (e.g. {"n": "...", "p": "..."})
+  str = str.replace(/\{[\s\S]*?\}/g, '');
+
+  // 3. Remove any internal notes prefixes and lines
+  str = str.replace(/(?:^|\n|\r|\s*)(?:note|notes|notiz|notizen|hinweis|bemerkung|internal|intern)\s*:[^\n\r]*/gi, '');
+
+  // 4. Remove leading/trailing symbols, quotes, delimiters
+  str = str.replace(/^[\s,;:_\-|/\\#*~`"']+|[\s,;:_\-|/\\#*~`"']+$/g, '').trim();
+
+  // 5. Condense whitespace
+  str = str.replace(/\s+/g, ' ');
+
+  if (!str) return 'Reparaturservice';
+
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
 function getTodayStatus() {
   const day = new Date().getDay()
   if (day === 0) return { open: false, label: 'Closed today (Sunday)' }
@@ -449,7 +473,7 @@ export default function LandingPage() {
                   const statusInfo = formatRepairStatusInfo(job);
                   const invNum = job.invoice_number || job.invoiceNumber || job.ref_id || job.refId || job.id;
                   const device = job.device_model || job.deviceModel || 'Gerät';
-                  const problem = job.problem || job.issueType || 'Reparaturservice';
+                  const problem = cleanCustomerProblemDescription(job.problem || job.issueType);
                   const dateStr = job.created_at || job.createdAt ? new Date(job.created_at || job.createdAt).toLocaleDateString('de-DE') : null;
 
                   return (
