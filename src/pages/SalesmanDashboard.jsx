@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, Edit3, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers, Calendar, Truck, Send, Inbox, RotateCcw, CheckCircle, CheckCircle2, MessageSquare, StickyNote, UserCheck, ArrowRightLeft, Globe } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Printer } from 'lucide-react';
 
 import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
 import { useAuth } from '../context/AuthContext';
@@ -12,12 +12,9 @@ import CategoryManagerModal from '../components/CategoryManagerModal';
 import RepairModal from '../components/RepairModal';
 import SmartCategoryForm from '../components/SmartCategoryForm';
 import TransactionModal from '../components/TransactionModal';
-import SoldPhonesModal from '../components/SoldPhonesModal';
 import { useRepairs } from '../context/RepairsContext';
 import { useCart } from '../context/CartContext';
-import { useNotes } from '../context/NotesContext';
 import CartSidebar from '../components/CartSidebar';
-import NotesDrawer from '../components/NotesDrawer';
 import { supabase } from '../supabaseClient';
 import { useTranslatedTextTree } from '../hooks/useTranslatedTextTree';
 import { buildStageInvoiceNumber, extractInvoiceNumberBase, getCleanTransactionInvoiceNumber, reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
@@ -460,15 +457,11 @@ function buildReceiptHtml({
     const safeRows = rows.map((row) => {
         const qty = Math.max(1, parseInt(row?.quantity || '1', 10) || 1);
         const lineTotal = Number(row?.total) || 0;
-        const rawName = String(row?.name || 'Artikel');
-        const lineName = escapeHtml(rawName);
-        const len = rawName.length;
-        const lineNameSize = len > 36 ? '9px' : len > 22 ? '9.5px' : '10.5px';
-        const lineLeading = len > 36 ? '1.2' : '1.25';
+        const lineName = escapeHtml(row?.name || 'Artikel');
+        const lineNameSize = lineName.length > 34 ? '8px' : lineName.length > 26 ? '9px' : lineName.length > 20 ? '10px' : '11px';
         return `
             <div class="line-item">
-                <div class="line-qty">${qty}x</div>
-                <div class="line-name" style="font-size:${lineNameSize}; line-height:${lineLeading};">${lineName}</div>
+                <div class="line-name" style="font-size:${lineNameSize};">${qty}x ${lineName}</div>
                 <div class="line-price">${formatMoney(lineTotal)}</div>
             </div>
         `;
@@ -477,179 +470,84 @@ function buildReceiptHtml({
     return `
         <html>
             <head>
-                <title>Kundenbeleg</title>
+                <title>Beleg</title>
                 <style>
-                    * {
-                        box-sizing: border-box;
-                        margin: 0;
-                        padding: 0;
-                        color: #000 !important;
-                        font-weight: 800 !important;
-                        -webkit-print-color-adjust: exact !important;
-                        print-color-adjust: exact !important;
-                    }
+                    * { box-sizing: border-box; }
                     @media print {
-                        @page { size: 58mm auto; margin: 0mm; }
-                        html, body { margin: 0 !important; padding: 0 !important; width: 46mm !important; }
-                        .receipt-wrapper { width: 46mm !important; margin: 0 !important; }
+                        @page { size: 58mm auto; margin: 0; }
+                        html, body { margin: 0; padding: 0; width: 46mm; }
+                        .receipt-wrapper { width: 46mm; }
+                        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                     }
-                    body {
-                        font-family: 'Segoe UI', Arial, -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
-                        width: 46mm;
-                        margin: 0 auto;
-                        padding: 2mm 0.5mm 25mm 0.5mm;
-                        line-height: 1.4;
-                        background: #fff;
-                        font-size: 10px;
-                        color: #000;
-                        font-weight: 800;
-                    }
-                    .receipt-wrapper { width: 100%; max-width: 100%; }
-                    .center { text-align: center; margin-bottom: 6px; padding-top: 1mm; }
-                    .receipt-badge {
-                        display: inline-block;
-                        font-size: 9px;
-                        font-weight: 900 !important;
-                        letter-spacing: 1px;
-                        text-transform: uppercase;
-                        color: #000;
-                        border-bottom: 1.5px solid #000;
-                        padding-bottom: 1px;
-                        margin-bottom: 3px;
-                    }
-                    .shop-title {
-                        font-size: 16px;
-                        font-weight: 900 !important;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                        color: #000;
-                        line-height: 1.2;
-                        margin-bottom: 2px;
-                    }
-                    .shop-info {
-                        font-size: 9.5px;
-                        color: #000;
-                        line-height: 1.35;
-                        font-weight: 800 !important;
-                        margin-top: 2px;
-                    }
-                    .divider { border: none; border-top: 1.5px dashed #000; margin: 6px 0; }
-                    .meta-row {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 9.5px;
-                        font-weight: 800 !important;
-                        color: #000;
-                        margin: 2px 0;
-                    }
-                    .head {
-                        font-weight: 900 !important;
-                        font-size: 9.5px;
-                        color: #000;
-                        border-bottom: 1.5px solid #000;
-                        padding-bottom: 4px;
-                        margin-bottom: 2px;
-                        display: flex;
-                        justify-content: space-between;
-                    }
-                    .line-item {
-                        display: flex;
-                        align-items: flex-start;
-                        padding: 3px 0 1px 0;
-                        font-size: 10px;
-                        font-weight: 900 !important;
-                    }
-                    .line-qty { width: 22%; font-weight: 900 !important; color: #000; padding-right: 4px; white-space: nowrap; text-align: left; }
-                    .line-name { width: 48%; font-weight: 900 !important; color: #000; padding-right: 3px; white-space: normal; word-break: break-word; overflow-wrap: break-word; text-align: left; }
-                    .line-price { width: 30%; text-align: right; font-weight: 900 !important; color: #000; white-space: nowrap; font-variant-numeric: tabular-nums; }
-                    .summary-row {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 9.5px;
-                        font-weight: 800 !important;
-                        color: #000;
-                        margin: 2px 0;
-                    }
-                    .summary-row strong, .summary-row span:last-child {
-                        color: #000;
-                        font-weight: 900 !important;
-                        font-variant-numeric: tabular-nums;
-                    }
-                    .total-row {
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 13px !important;
-                        font-weight: 900 !important;
-                        color: #000;
-                        border-top: 2px solid #000;
-                        padding-top: 5px;
-                        padding-bottom: 3px;
-                        margin-top: 4px;
-                    }
-                    .footer-box {
-                        margin-top: 8px;
-                        font-size: 8.5px;
-                        line-height: 1.4;
-                        color: #000;
-                        font-weight: 800 !important;
-                        text-align: center;
-                        border-top: 1.5px dashed #000;
-                        padding-top: 6px;
-                    }
-                    .footer-thanks {
-                        font-size: 9.5px;
-                        font-weight: 900 !important;
-                        color: #000;
-                        margin-top: 3px;
-                    }
+                    body { font-family: 'Arial', 'Helvetica', sans-serif; width: 46mm; margin: 0; padding: 2mm 0.5mm; line-height: 1.4; background: #fff; font-size: 12px; color: #000; font-weight: 900; }
+                    .receipt-wrapper { width: 100%; }
+                    .ticket { padding: 0; width: 100%; }
+                    .center { text-align: center; }
+                    .shop { font-size: 20px; font-weight: 900; margin-bottom: 3px; }
+                    .line { border-top: 1px solid #111; margin: 6px 0; }
+                    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
+                    .row > span:last-child, .row > strong:last-child { white-space: nowrap; text-align: right; flex-shrink: 0; }
+                    .head { font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 3px; font-size: 13px; }
+                    .line-item { display: flex; justify-content: space-between; gap: 6px; margin: 2px 0; font-size: 13px; font-weight: 900; }
+                    .line-name { flex: 1; white-space: nowrap; overflow: hidden; line-height: 1.2; }
+                    .line-price { text-align: right; font-weight: 900; white-space: nowrap; flex-shrink: 0; }
+                    .small { font-size: 11px; line-height: 1.5; font-weight: 800; }
+                    .tax-table { width: 100%; margin-top: 4px; font-size: 11px; border-collapse: collapse; font-weight: 900; table-layout: fixed; }
+                    .tax-table td { font-size: 11px; font-weight: 900; padding: 4px 2px; }
+                    .tax-table td:last-child { text-align: right; }
+                    .tax-table td:first-child { width: 15%; }
+                    .box { border: 1px solid #111; padding: 4px; margin: 4px 0; }
+                    .footer { font-size: 11px; font-weight: 800; color: #000; line-height: 1.5; }
                 </style>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
             </head>
             <body>
                 <div class="receipt-wrapper">
+                <div class="ticket">
                     <div class="center">
-                        <div class="shop-title">${escapeHtml(shopName || 'Shop')}</div>
-                        ${shopAddress ? `<div class="shop-info">${escapeHtml(shopAddress)}</div>` : ''}
-                        ${shopPhone ? `<div class="shop-info">Tel: ${escapeHtml(shopPhone)}</div>` : ''}
+                        <div style="font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:2px;">KUNDENBELEG</div>
+                        <div class="shop">${escapeHtml(shopName || 'Shop')}</div>
+                        ${shopAddress ? `<div class="small" style="font-size: 11px; color: #000; font-weight: 900;">${escapeHtml(shopAddress)}</div>` : ''}
+                        ${shopPhone ? `<div class="small" style="font-size: 11px; color: #000; font-weight: 900;">Tel: ${escapeHtml(shopPhone)}</div>` : ''}
                     </div>
 
-                    <hr class="divider"/>
-
-                    <div class="meta-row">
-                        <span>Datum: ${dt.toLocaleDateString('de-DE')} ${dt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
-                        <span>Beleg: #${escapeHtml(receiptNo || '-')}</span>
+                    <div class="line"></div>
+                    <div class="line"></div>
+                    <div style="text-align: center; margin: 6px 0;">
+                        <p style="font-size: 11px; font-weight: 800; color: #000; margin: 0;">${dt.toLocaleString('de-DE')}</p>
+                        <p style="font-size: 11px; font-weight: 800; color: #000; margin: 0;">Beleg: ${escapeHtml(receiptNo || '-')}</p>
                     </div>
 
-                    <hr class="divider"/>
+                    <div class="line"></div>
+                    <div class="row head"><span>Artikel</span><span>Betrag</span></div>
+                    ${safeRows || '<div class="line-item"><div class="line-name">1x Artikel</div><div class="line-price">0,00 €</div></div>'}
 
-                    <div class="head">
-                        <span style="width: 22%; text-align: left; padding-right: 4px;">Menge</span>
-                        <span style="width: 48%; text-align: left; padding-right: 3px;">Artikel</span>
-                        <span style="width: 30%; text-align: right;">Betrag</span>
-                    </div>
-                    ${safeRows || '<div class="line-item"><div class="line-qty">1x</div><div class="line-name">Artikel</div><div class="line-price">0,00 €</div></div>'}
-
-                    <hr class="divider"/>
-
-                    ${rows.length > 1 ? `<div class="summary-row" style="font-size: 10.5px; font-weight: 900 !important;"><span>Zwischensumme</span><span>${formatMoney(grossTotal)}</span></div>` : ''}
+                    <div class="line"></div>
+                    ${rows.length > 1 ? `<div class="row"><strong>Zwischensumme</strong><strong>${formatMoney(grossTotal)}</strong></div>` : ''}
 
                     ${showTax ? `
-                        <div class="summary-row"><span>Netto (19%)</span><span>${formatMoney(netTotal)}</span></div>
-                        <div class="summary-row"><span>USt. (19%)</span><span>${formatMoney(taxTotal)}</span></div>
+                        <table class="tax-table">
+                            <tbody>
+                                <tr><td>USt. %</td><td>Netto</td><td>USt.</td><td>Brutto</td></tr>
+                                <tr>
+                                    <td>19%</td>
+                                    <td>${formatMoney(netTotal)}</td>
+                                    <td>${formatMoney(taxTotal)}</td>
+                                    <td>${formatMoney(grossTotal)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     ` : ''}
 
-                    <div class="total-row"><span>GESAMTBETRAG</span><span>${formatMoney(grossTotal)}</span></div>
-
-                    <div class="summary-row" style="margin-top: 6px; font-size: 9.5px;"><span>Zahlungsart:</span><span>${escapeHtml(paymentMethod || 'Bar')}</span></div>
-
-                    <div class="footer-box">
+                    <div class="line"></div>
+                    <div class="row"><span>Zahlung</span><span>${escapeHtml(paymentMethod || 'Cash')}</span></div>
+                    <div class="line"></div>
+                    <div class="footer center">
                         R&uuml;ckgabe/Umtausch innerhalb 14 Tagen nur in unbesch&auml;digter Originalverpackung.<br/>
-                        Bei Defekt/Mangel erfolgt Erstattung oder Reparatur.
-                        <div class="footer-thanks">Vielen Dank f&uuml;r Ihren Einkauf!</div>
+                        Bei Defekt/Mangel erfolgt Erstattung oder Reparatur.<br/>
+                        Vielen Dank. ${escapeHtml(shopName || 'Shop')}
                     </div>
-
-                    <!-- Bottom feed spacer to make bill longer -->
-                    <div style="height: 25mm; width: 100%;"></div>
+                </div>
                 </div>
             </body>
         </html>
@@ -674,7 +572,8 @@ function CompactTrendCard({ label, value, colorClass, onClick = null, hint = '' 
                 {iconMap[label] || <BarChart3 size={16} />}
                 <p className="text-[11px] font-semibold">{label}</p>
             </div>
-            <p className={`text-lg font-black mt-1 ${label === 'Total Revenue' ? 'text-emerald-700' :
+            <p className={`text-lg font-black mt-1 ${
+                label === 'Total Revenue' ? 'text-emerald-700' :
                     label === 'Total Expenses' ? 'text-rose-700' :
                         'text-blue-800'
                 }`}>{priceTag(value)}</p>
@@ -774,69 +673,20 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         updateTransaction,
         deleteTransaction,
         adjustStock,
-        updateProduct,
         deleteProduct,
         clearLocalInventoryCache,
         getStockSeverity,
         getLevel1Categories,
         getLevel2Categories,
-        toggleCategoryHidden,
         refreshProducts,
         refreshCategoryCatalog,
     } = useInventory();
     const { repairJobs, repairsLoaded, updateRepairStatus } = useRepairs();
     const { addToCart, cart, editingCartItem, setEditingCartItem } = useCart();
-    const { notes } = useNotes();
-    const [showNotesModal, setShowNotesModal] = useState(false);
-    const [hideConfirmCategory, setHideConfirmCategory] = useState(null);
-    const [isHidingCategory, setIsHidingCategory] = useState(false);
-    const categoryLongPressTimerRef = useRef(null);
-    const categoryLongPressTriggeredRef = useRef(false);
-
-    const startCategoryLongPress = useCallback((name, level = 1, parentName = '', scope = 'sales') => {
-        categoryLongPressTriggeredRef.current = false;
-        if (categoryLongPressTimerRef.current) {
-            clearTimeout(categoryLongPressTimerRef.current);
-        }
-        categoryLongPressTimerRef.current = setTimeout(() => {
-            categoryLongPressTriggeredRef.current = true;
-            try {
-                if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                    navigator.vibrate(60);
-                }
-            } catch {}
-            setHideConfirmCategory({ name, level, parentName, scope });
-        }, 1500);
-    }, []);
-
-    const cancelCategoryLongPress = useCallback(() => {
-        if (categoryLongPressTimerRef.current) {
-            clearTimeout(categoryLongPressTimerRef.current);
-            categoryLongPressTimerRef.current = null;
-        }
-    }, []);
-    const activeNotesCount = useMemo(() => notes.filter((n) => !n.isArchived).length, [notes]);
-    const websiteInquiryCount = useMemo(() => notes.filter((n) => !n.isArchived && n.category === 'inquiry').length, [notes]);
-    const latestInquiry = useMemo(() => notes.find((n) => !n.isArchived && n.category === 'inquiry') || null, [notes]);
     const pendingOrders = useMemo(() => repairJobs.filter((job) => job.status === 'pending'), [repairJobs]);
     const debouncedTransactions = useDebouncedValue(transactions, 140);
     const debouncedProducts = useDebouncedValue(products, 140);
     const debouncedRepairJobs = useDebouncedValue(repairJobs, 140);
-    const loggedTxnSampleRef = useRef(false);
-
-    useEffect(() => {
-        if (loggedTxnSampleRef.current) return;
-        if (!Array.isArray(transactions) || transactions.length === 0) return;
-        loggedTxnSampleRef.current = true;
-        console.log('Dashboard transaction sample (date fields):', transactions.slice(0, 3).map((txn) => ({
-            id: txn?.id || txn?.transaction_id || txn?.transactionId,
-            created_at: txn?.created_at,
-            timestamp: txn?.timestamp,
-            occurred_at: txn?.occurred_at,
-            date: txn?.date,
-            time: txn?.time,
-        })));
-    }, [transactions]);
 
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -858,17 +708,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [showPendingOrders, setShowPendingOrders] = useState(false);
     const [pendingTab, setPendingTab] = useState('orders');
     const [repairSearchQuery, setRepairSearchQuery] = useState('');
-    const [repairStatusTab, setRepairStatusTab] = useState('active'); // 'active' | 'history' | 'all'
-    const [repairPerformerFilter, setRepairPerformerFilter] = useState('all'); // 'all' | 'shop' | <technicianName>
-    const [repairDatePreset, setRepairDatePreset] = useState('all'); // 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month' | 'custom'
-    const [repairCustomStartDate, setRepairCustomStartDate] = useState('');
-    const [repairCustomEndDate, setRepairCustomEndDate] = useState('');
-    const [editingNoteJobId, setEditingNoteJobId] = useState(null);
-    const [editingNoteText, setEditingNoteText] = useState('');
-    const [editingTechJob, setEditingTechJob] = useState(null);
-    const [techFormPerformer, setTechFormPerformer] = useState('shop');
-    const [techFormName, setTechFormName] = useState('');
-    const [techFormCost, setTechFormCost] = useState('');
+    const [repairStatusFilter, setRepairStatusFilter] = useState('active');
     const [onlineOrders, setOnlineOrders] = useState([]);
     const [showOnlineOrderForm, setShowOnlineOrderForm] = useState(false);
     const [onlineOrderForm, setOnlineOrderForm] = useState(newOnlineOrderForm());
@@ -888,29 +728,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [showTransactionModal, setShowTransactionModal] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [showSuccess, setShowSuccess] = useState(false);
-    const [showInventoryModal, setShowInventoryModal] = useState(false);
-    const [editingProduct, setEditingProduct] = useState(null);
-    const [deletingProductId, setDeletingProductId] = useState(null);
-    const [inventorySearch, setInventorySearch] = useState('');
-    const [inventoryCategory, setInventoryCategory] = useState('all');
-    const [inventorySubCategory, setInventorySubCategory] = useState('all');
-    const [inventoryStockFilter, setInventoryStockFilter] = useState('all'); // 'all' | 'in_stock' | 'low_stock' | 'out_of_stock'
-    const [inventorySort, setInventorySort] = useState('default');
-    const [editingStockId, setEditingStockId] = useState(null);
-    const [editingStockVal, setEditingStockVal] = useState('');
-    const [savingStockId, setSavingStockId] = useState(null);
-    const [selectedInventoryItem, setSelectedInventoryItem] = useState(null);
-    // Legacy aliases
-    const showMobileInventoryModal = showInventoryModal;
-    const setShowMobileInventoryModal = setShowInventoryModal;
-    const showOtherInventoryModal = false;
-    const setShowOtherInventoryModal = setShowInventoryModal;
-    const selectedMobileInventoryItem = selectedInventoryItem;
-    const setSelectedMobileInventoryItem = setSelectedInventoryItem;
+    const [showMobileInventoryModal, setShowMobileInventoryModal] = useState(false);
+    const [mobileInventorySearch, setMobileInventorySearch] = useState('');
+    const [mobileInventoryTab, setMobileInventoryTab] = useState('iphone');
+    const [showOtherInventoryModal, setShowOtherInventoryModal] = useState(false);
+    const [otherInventorySearch, setOtherInventorySearch] = useState('');
+    const [selectedMobileInventoryItem, setSelectedMobileInventoryItem] = useState(null);
     const [showSalesProductSuggestions, setShowSalesProductSuggestions] = useState(false);
     const [showPurchaseProductSuggestions, setShowPurchaseProductSuggestions] = useState(false);
     const [showTransactionDetailModal, setShowTransactionDetailModal] = useState(false);
-    const [showSoldPhonesModal, setShowSoldPhonesModal] = useState(false);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [transactionDraft, setTransactionDraft] = useState(null);
     const [isLoadingTransactionDetail, setIsLoadingTransactionDetail] = useState(false);
@@ -924,7 +750,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [contributionModeConfigStatus, setContributionModeConfigStatus] = useState('');
     const [kpiSettingsVersion, setKpiSettingsVersion] = useState(0);
     const [activeKpiBreakdownType, setActiveKpiBreakdownType] = useState('');
-    const [expandedKpiCategoryKeys, setExpandedKpiCategoryKeys] = useState({});
     const [recentlyDeletedTxn, setRecentlyDeletedTxn] = useState(null);
     const [isLocked, setIsLocked] = useState(false);
     const [unlockPin, setUnlockPin] = useState('');
@@ -943,7 +768,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const isLockedRef = useRef(isLocked);
     const modalInteractionOpenRef = useRef(false);
     const pendingKpiSettingsReloadRef = useRef(false);
-    const loadKpiSettingsRef = useRef(async () => { });
+    const loadKpiSettingsRef = useRef(async () => {});
     const unlockPendingRef = useRef(false);
     const transactionDetailRequestRef = useRef(0);
     const salesAmountInputRef = useRef(null);
@@ -961,37 +786,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const debouncedRevenueHistoryInvoiceQuery = useDebouncedValue(revenueHistoryInvoiceQuery, 180);
 
     useTranslatedTextTree(translatedTreeRef);
-
-    const confirmHideCategory = useCallback(async () => {
-        if (!hideConfirmCategory) return;
-        setIsHidingCategory(true);
-        try {
-            const { name, level, parentName, scope } = hideConfirmCategory;
-            await toggleCategoryHidden(level, name, true, parentName, scope);
-            if (scope === 'sales') {
-                if (level === 1 && salesEntry.category === name) {
-                    setSalesEntry((prev) => ({ ...prev, category: '', subCategory: '' }));
-                } else if (level === 2 && salesEntry.subCategory === name) {
-                    setSalesEntry((prev) => ({ ...prev, subCategory: '' }));
-                }
-                if (inventoryCategory === name) {
-                    setInventoryCategory('all');
-                    setInventorySubCategory('all');
-                }
-            } else {
-                if (level === 1 && purchaseEntry.category === name) {
-                    setPurchaseEntry((prev) => ({ ...prev, category: '', subCategory: '' }));
-                } else if (level === 2 && purchaseEntry.subCategory === name) {
-                    setPurchaseEntry((prev) => ({ ...prev, subCategory: '' }));
-                }
-            }
-            setHideConfirmCategory(null);
-        } catch (err) {
-            alert(err?.message || 'Failed to hide category.');
-        } finally {
-            setIsHidingCategory(false);
-        }
-    }, [hideConfirmCategory, toggleCategoryHidden, salesEntry.category, salesEntry.subCategory, purchaseEntry.category, purchaseEntry.subCategory, inventoryCategory]);
 
     const readLastActivityAt = useCallback(() => {
         let raw = volatileLockState.get(lockStateKey);
@@ -1177,7 +971,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return () => {
             cancelled = true;
             if (reloadTimer) clearTimeout(reloadTimer);
-            loadKpiSettingsRef.current = async () => { };
+            loadKpiSettingsRef.current = async () => {};
             supabase.removeChannel(settingsSubscription);
         };
     }, [settingsShopId]);
@@ -1315,7 +1109,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             setShowPurchaseProductSuggestions(false);
             setSelectedMobileInventoryItem(null);
             setActiveKpiBreakdownType('');
-            setExpandedKpiCategoryKeys({});
 
             escCount = 0;
             if (escTimer) {
@@ -1409,24 +1202,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [adminView, clearLocalInventoryCache]);
 
 
-    const [todayAnchor, setTodayAnchor] = useState(() => new Date());
-
-    useEffect(() => {
-        const interval = setInterval(() => setTodayAnchor(new Date()), 60 * 1000);
-        return () => clearInterval(interval);
-    }, []);
-
     const todayStart = useMemo(() => {
-        const start = new Date(todayAnchor);
+        const start = new Date();
         start.setHours(0, 0, 0, 0);
         return start;
-    }, [todayAnchor]);
+    }, []);
 
     const todayEnd = useMemo(() => {
-        const end = new Date(todayAnchor);
+        const end = new Date();
         end.setHours(23, 59, 59, 999);
         return end;
-    }, [todayAnchor]);
+    }, []);
 
     const formatRangeLabel = (start, end) => {
         const fmt = (d) => d.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -1557,8 +1343,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return (products || []).reduce((acc, product) => {
             const key = String(product?.id || '').trim();
             if (key) acc[key] = product;
-            const barcode = String(product?.barcode || '').trim();
-            if (barcode) acc[barcode] = product;
             return acc;
         }, {});
     }, [products]);
@@ -1986,35 +1770,26 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const resolveConfiguredContributionMode = useCallback((categoryName = '', subCategoryName = '', scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
-        const normCat = normalizeCategoryToken(categoryName);
-        const normSub = normalizeCategoryToken(subCategoryName);
 
         // 1. Exact match: scope::category::subcategory
-        const exactKey = makeScopedProfitCategoryKey(normalizedScope, normCat, normSub);
+        const exactKey = makeScopedProfitCategoryKey(normalizedScope, categoryName, subCategoryName);
         if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, exactKey)) {
             return normalizeKpiContributionMode(categoryContributionModeMap[exactKey]);
         }
 
         // 2. Parent-only match: scope::category:: (empty subcategory)
-        const categoryOnlyKey = makeScopedProfitCategoryKey(normalizedScope, normCat, '');
+        const categoryOnlyKey = makeScopedProfitCategoryKey(normalizedScope, categoryName, '');
         if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, categoryOnlyKey)) {
             return normalizeKpiContributionMode(categoryContributionModeMap[categoryOnlyKey]);
         }
 
-        // 3. Subcategory match as parent: if subCategoryName is in map as category
-        if (normSub) {
-            const subOnlyKey = makeScopedProfitCategoryKey(normalizedScope, normSub, '');
-            if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, subOnlyKey)) {
-                return normalizeKpiContributionMode(categoryContributionModeMap[subOnlyKey]);
-            }
-        }
-
-        // 4. Fallback scan: if no parent key exists, scan ALL subcategory-level entries under
+        // 3. Fallback scan: if no parent key exists, scan ALL subcategory-level entries under
         //    this category and return the most restrictive mode found.
         //    Priority: excluded > profit > sales
         //    This handles transactions that have no subcategory but the category has sub-level rules.
-        if (normCat) {
-            const categoryPrefix = `${normalizedScope}::${normCat}::`;
+        if (categoryName) {
+            const normalizedCategoryName = normalizeCategoryToken(categoryName);
+            const categoryPrefix = `${normalizedScope}::${normalizedCategoryName}::`;
             const modesFound = [];
             const mapKeys = Object.keys(categoryContributionModeMap);
             for (let i = 0; i < mapKeys.length; i++) {
@@ -2037,6 +1812,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const resolveTxnContributionMode = useCallback((txn = {}, scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
         const { categoryName, subCategoryName } = resolveTxnCategoryParts(txn);
+        // No early-exit on hasExplicitContributionModeConfig — the map lookup already
+        // returns '' (-> SALES default) when the map is empty or the key is not found.
+        // Removing the flag check prevents a React state timing race where the map is
+        // already populated but the flag hasn't flipped yet, causing wrong SALES fallback.
         const configuredMode = resolveConfiguredContributionMode(categoryName, subCategoryName, normalizedScope);
         if (configuredMode) return configuredMode;
         return KPI_MODE_SALES;
@@ -2061,20 +1840,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const quantity = Math.max(1, parseInt(txn?.quantity || '1', 10) || 1);
         const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
         const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
-        const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
-            ? (productLookup[String(txn.productId)] || productLookup[String(txn.product_id)])
-            : (txn?.barcode ? productLookup[String(txn.barcode)] : null);
-        const linkedPurchase = Number(linkedProduct?.purchasePrice);
+        const linkedPurchase = txn?.productId !== undefined && txn?.productId !== null
+            ? Number(productLookup[String(txn.productId)]?.purchasePrice)
+            : NaN;
 
         const unitCost = Number.isFinite(purchaseAtTime) && purchaseAtTime > 0
             ? purchaseAtTime
             : (Number.isFinite(snapshotPurchase) && snapshotPurchase > 0
                 ? snapshotPurchase
                 : (Number.isFinite(linkedPurchase) && linkedPurchase > 0 ? linkedPurchase : 0));
-
-        if (unitCost === 0 && Number.isFinite(Number(txn?.profit)) && Number(txn?.profit) > 0) {
-            return Number(txn.profit);
-        }
 
         return amount - (unitCost * quantity);
     }, [productLookup, resolveTxnContributionMode]);
@@ -2121,24 +1895,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const displaySub = toTitle(subCategoryName || '');
             const label = displaySub ? `${displayCat} / ${displaySub}` : displayCat;
             const key = label.toLowerCase();
-            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0, transactions: [] };
+            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0 };
             categoryMap[key].amount += contribution;
             categoryMap[key].count += 1;
-            categoryMap[key].transactions.push({
-                ...txn,
-                kpiContribution: contribution,
-            });
         });
         return Object.values(categoryMap)
             .filter((row) => row.amount !== 0)
-            .map((row) => ({
-                ...row,
-                transactions: (row.transactions || []).sort((a, b) => {
-                    const timeA = new Date(a.timestamp || a.created_at || a.date || 0).getTime() || 0;
-                    const timeB = new Date(b.timestamp || b.created_at || b.date || 0).getTime() || 0;
-                    return timeB - timeA;
-                })
-            }))
             .sort((a, b) => b.amount - a.amount);
     }, [debouncedRevenueTransactions, resolveKpiRevenueContribution, resolveTxnContributionMode, resolveTxnCategoryParts]);
 
@@ -2152,51 +1914,28 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const label = displaySub ? `${displayCat} / ${displaySub}` : displayCat;
             const key = label.toLowerCase();
             const amount = parseFloat(txn?.amount) || 0;
-            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0, transactions: [] };
+            if (!categoryMap[key]) categoryMap[key] = { key, label, amount: 0, count: 0 };
             categoryMap[key].amount += amount;
             categoryMap[key].count += 1;
-            categoryMap[key].transactions.push({
-                ...txn,
-                kpiContribution: amount,
-            });
         });
         return Object.values(categoryMap)
             .filter((row) => row.amount > 0)
-            .map((row) => ({
-                ...row,
-                transactions: (row.transactions || []).sort((a, b) => {
-                    const timeA = new Date(a.timestamp || a.created_at || a.date || 0).getTime() || 0;
-                    const timeB = new Date(b.timestamp || b.created_at || b.date || 0).getTime() || 0;
-                    return timeB - timeA;
-                })
-            }))
             .sort((a, b) => b.amount - a.amount);
     }, [kpiExpenseTransactions, resolveTxnCategoryParts]);
 
     const kpiIncomeCategoryBreakdown = useMemo(() => {
         const combinedMap = {};
         kpiRevenueCategoryBreakdown.forEach((row) => {
-            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0, transactions: [] };
+            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0 };
             combinedMap[row.key].amount += row.amount;
             combinedMap[row.key].count += row.count;
-            combinedMap[row.key].transactions.push(...(row.transactions || []));
         });
         kpiExpenseCategoryBreakdown.forEach((row) => {
-            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0, transactions: [] };
+            if (!combinedMap[row.key]) combinedMap[row.key] = { key: row.key, label: row.label, amount: 0, count: 0 };
             combinedMap[row.key].amount -= row.amount;
             combinedMap[row.key].count += row.count;
-            combinedMap[row.key].transactions.push(...(row.transactions || []));
         });
-        return Object.values(combinedMap)
-            .map((row) => ({
-                ...row,
-                transactions: (row.transactions || []).sort((a, b) => {
-                    const timeA = new Date(a.timestamp || a.created_at || a.date || 0).getTime() || 0;
-                    const timeB = new Date(b.timestamp || b.created_at || b.date || 0).getTime() || 0;
-                    return timeB - timeA;
-                })
-            }))
-            .sort((a, b) => b.amount - a.amount);
+        return Object.values(combinedMap).sort((a, b) => b.amount - a.amount);
     }, [kpiRevenueCategoryBreakdown, kpiExpenseCategoryBreakdown]);
 
     const revenueBreakdown = useMemo(() => buildPaymentBreakdown(debouncedRevenueTransactions), [debouncedRevenueTransactions]);
@@ -2524,7 +2263,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const rows = [];
         const seenKeys = new Set();
         const allMainCats = getLevel1Categories('sales') || [];
-
+        
         const sortedMainCats = [...allMainCats].sort((a, b) => {
             const nameA = typeof a === 'object' ? a?.name : String(a || '');
             const nameB = typeof b === 'object' ? b?.name : String(b || '');
@@ -2534,7 +2273,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         sortedMainCats.forEach((catObj) => {
             const categoryName = typeof catObj === 'object' ? (catObj?.name || '') : String(catObj || '');
             if (!categoryName) return;
-
+            
             const mainKey = makeProfitCategoryKey(categoryName, '');
             if (!seenKeys.has(mainKey)) {
                 seenKeys.add(mainKey);
@@ -2636,17 +2375,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         ? expenseKpiContributionCategoryRows
         : salesKpiContributionCategoryRows;
 
-    const resolveDefaultCategoryMode = useCallback((_categoryName = '', _subCategoryName = '', scope = KPI_SCOPE_SALES) => {
-        const normalizedScope = normalizeKpiScope(scope);
-        if (normalizedScope === KPI_SCOPE_EXPENSE) {
-            return KPI_MODE_EXCLUDED;
-        }
+    const resolveDefaultCategoryMode = useCallback((_categoryName = '', _subCategoryName = '', _scope = KPI_SCOPE_SALES) => {
         return KPI_MODE_SALES;
     }, []);
 
     const resolveCategoryRowMode = useCallback((row = {}, scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
-        if (!row?.key) return normalizedScope === KPI_SCOPE_EXPENSE ? KPI_MODE_EXCLUDED : KPI_MODE_SALES;
+        if (!row?.key) return KPI_MODE_SALES;
         if (!hasExplicitContributionModeConfig) {
             return resolveDefaultCategoryMode(row.categoryName, row.subCategoryName, normalizedScope);
         }
@@ -2953,259 +2688,102 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || combinedText.includes('motorola');
     }
 
-    // ── Unified Inventory Memos & Product Management ──
-    const allInventoryItems = useMemo(() => {
-        return (products || []).map((product) => {
-            const snapshot = resolveProductSnapshot(product);
-            const isMobile = isMobileLikeSnapshot(snapshot);
-            return { raw: product, snapshot, isMobile };
-        });
-    }, [products]);
+    const mobileInventoryProducts = useMemo(() => {
+        const query = String(mobileInventorySearch || '').trim().toLowerCase();
 
-    const typeScopedInventoryItems = allInventoryItems;
-
-    const inventoryCategoryOptions = useMemo(() => {
-        const categoryCounts = {};
-        typeScopedInventoryItems.forEach((item) => {
-            const cat = String(item.snapshot.category || 'Allgemein').trim();
-            if (cat) {
-                categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
-            }
-        });
-
-        const catalogL1 = (typeof getLevel1Categories === 'function' ? (getLevel1Categories('sales') || []) : [])
-            .map((c) => (typeof c === 'object' ? c?.name : c))
-            .filter(Boolean);
-
-        const categorySet = new Set([...catalogL1, ...Object.keys(categoryCounts)]);
-        const list = Array.from(categorySet);
-
-        return list
-            .map((name) => ({
-                name,
-                count: categoryCounts[name] || 0,
-            }))
-            .filter((c) => c.count > 0 || catalogL1.includes(c.name))
-            .sort((a, b) => {
-                if (b.count !== a.count) return b.count - a.count;
-                return a.name.localeCompare(b.name);
-            });
-    }, [typeScopedInventoryItems, getLevel1Categories]);
-
-    const inventorySubCategoryOptions = useMemo(() => {
-        if (!inventoryCategory || inventoryCategory === 'all') return [];
-
-        const subCategoryCounts = {};
-        const targetCategoryLower = inventoryCategory.toLowerCase();
-
-        typeScopedInventoryItems
-            .filter((item) => {
-                const cat = String(item.snapshot.category || 'Allgemein').trim().toLowerCase();
-                return cat === targetCategoryLower;
+        return (products || [])
+            .map((product) => {
+                const snapshot = resolveProductSnapshot(product);
+                return { raw: product, snapshot };
             })
-            .forEach((item) => {
-                const sub = String(item.snapshot.subCategory || '').trim();
-                if (sub) {
-                    subCategoryCounts[sub] = (subCategoryCounts[sub] || 0) + 1;
-                }
-            });
-
-        const catalogL2 = (typeof getLevel2Categories === 'function' ? (getLevel2Categories(inventoryCategory, 'sales') || []) : [])
-            .map((c) => (typeof c === 'object' ? c?.name : c))
-            .filter(Boolean);
-
-        const subSet = new Set([...catalogL2, ...Object.keys(subCategoryCounts)]);
-        const list = Array.from(subSet);
-
-        return list
-            .map((name) => ({
-                name,
-                count: subCategoryCounts[name] || 0,
-            }))
+            .filter(({ snapshot }) => isMobileLikeSnapshot(snapshot))
+            .filter(({ snapshot }) => {
+                if (!query) return true;
+                const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
+                return searchable.includes(query);
+            })
             .sort((a, b) => {
-                if (b.count !== a.count) return b.count - a.count;
-                return a.name.localeCompare(b.name);
+                const aMs = Date.parse(String(a.raw?.timestamp || ''));
+                const bMs = Date.parse(String(b.raw?.timestamp || ''));
+                const hasA = Number.isFinite(aMs);
+                const hasB = Number.isFinite(bMs);
+                if (hasA && hasB && aMs !== bMs) return bMs - aMs;
+                if (hasA && !hasB) return -1;
+                if (!hasA && hasB) return 1;
+                return String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' });
             });
-    }, [typeScopedInventoryItems, inventoryCategory, getLevel2Categories]);
+    }, [mobileInventorySearch, products]);
 
-    const filteredInventoryItems = useMemo(() => {
-        const query = String(inventorySearch || '').trim().toLowerCase();
-        const categoryTarget = inventoryCategory !== 'all' ? String(inventoryCategory || '').toLowerCase() : null;
-        const subCategoryTarget = inventorySubCategory !== 'all' ? String(inventorySubCategory || '').toLowerCase() : null;
+    useEffect(() => {
+        if (zeroStockCleanupDoneRef.current) return;
+        if (!Array.isArray(products) || products.length === 0) return;
+        zeroStockCleanupDoneRef.current = true;
 
-        return typeScopedInventoryItems
+        const zeroStockMobiles = (products || [])
+            .map((product) => {
+                const snapshot = resolveProductSnapshot(product);
+                return { raw: product, snapshot };
+            })
             .filter(({ raw, snapshot }) => {
-                // 1. Text Search Filter
-                if (query) {
-                    const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
-                    const attrValues = Object.values(raw?.attributes && typeof raw.attributes === 'object' ? raw.attributes : {}).join(' ').toLowerCase();
-                    if (!searchable.includes(query) && !attrValues.includes(query)) {
-                        return false;
-                    }
-                }
-
-                // 2. Category Filter
-                if (categoryTarget) {
-                    const cat = String(snapshot.category || 'Allgemein').toLowerCase();
-                    if (cat !== categoryTarget) {
-                        return false;
-                    }
-                }
-
-                // 3. Subcategory Filter
-                if (subCategoryTarget) {
-                    const sub = String(snapshot.subCategory || '').toLowerCase();
-                    if (sub !== subCategoryTarget) {
-                        return false;
-                    }
-                }
-
-                // 4. Stock Status Filter
-                const stockVal = Number(snapshot.stock) || 0;
-                const alertCfg = raw?.stockAlert && typeof raw.stockAlert === 'object' ? raw.stockAlert : {};
-                const redThreshold = Number(alertCfg.red) || 2;
-                if (inventoryStockFilter === 'in_stock' && stockVal <= 0) return false;
-                if (inventoryStockFilter === 'out_of_stock' && stockVal > 0) return false;
-                if (inventoryStockFilter === 'low_stock' && (stockVal <= 0 || stockVal > Math.max(5, redThreshold))) return false;
-
-                return true;
-            })
-            .sort((a, b) => {
-                if (inventorySort === 'name_asc') {
-                    return String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''));
-                }
-                if (inventorySort === 'name_desc') {
-                    return String(b.snapshot.name || '').localeCompare(String(a.snapshot.name || ''));
-                }
-                if (inventorySort === 'stock_desc') {
-                    return (Number(b.snapshot.stock) || 0) - (Number(a.snapshot.stock) || 0);
-                }
-                if (inventorySort === 'stock_asc') {
-                    return (Number(a.snapshot.stock) || 0) - (Number(b.snapshot.stock) || 0);
-                }
-                if (inventorySort === 'price_desc') {
-                    return (Number(b.snapshot.sellingPrice) || 0) - (Number(a.snapshot.sellingPrice) || 0);
-                }
-                if (inventorySort === 'price_asc') {
-                    return (Number(a.snapshot.sellingPrice) || 0) - (Number(b.snapshot.sellingPrice) || 0);
-                }
-                // Default: newest timestamp
-                const aMs = Date.parse(String(a.raw?.timestamp || a.raw?.created_at || ''));
-                const bMs = Date.parse(String(b.raw?.timestamp || b.raw?.created_at || ''));
-                if (Number.isFinite(aMs) && Number.isFinite(bMs) && aMs !== bMs) return bMs - aMs;
-                if (Number.isFinite(aMs) && !Number.isFinite(bMs)) return -1;
-                if (!Number.isFinite(aMs) && Number.isFinite(bMs)) return 1;
-                return String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''));
+                const id = String(raw?.id || '').trim();
+                if (!id) return false;
+                if (!isMobileLikeSnapshot(snapshot)) return false;
+                const stockValue = Number(snapshot.stock) || 0;
+                return stockValue <= 0;
             });
-    }, [typeScopedInventoryItems, inventorySearch, inventoryCategory, inventorySubCategory, inventoryStockFilter, inventorySort]);
 
-    // Product & Stock Management Handlers for Salesman
-    const handleEditProduct = useCallback((productOrItem) => {
-        const rawProduct = productOrItem?.raw || productOrItem;
-        if (!rawProduct) return;
-        setEditingProduct(rawProduct);
-        setShowInventoryForm(true);
-    }, []);
+        zeroStockMobiles.forEach(({ raw }) => {
+            const id = String(raw?.id || '').trim();
+            if (!id || deletingZeroMobileIdsRef.current.has(id)) return;
 
-    const handleDeleteProduct = useCallback(async (productOrItem) => {
-        const rawProduct = productOrItem?.raw || productOrItem;
-        const snapshot = productOrItem?.snapshot || resolveProductSnapshot(rawProduct);
-        const productId = String(rawProduct?.id || snapshot?.id || '').trim();
-        if (!productId) return;
+            deletingZeroMobileIdsRef.current.add(id);
+            Promise.resolve(deleteProduct(id))
+                .catch(() => { })
+                .finally(() => {
+                    deletingZeroMobileIdsRef.current.delete(id);
+                });
+        });
+    }, [products, deleteProduct]);
 
-        const productName = snapshot?.name || rawProduct?.name || 'Produkt';
-        if (!window.confirm(`Möchtest du "${productName}" wirklich aus dem Inventar löschen?`)) {
-            return;
-        }
+    const otherInventoryProducts = useMemo(() => {
+        const query = String(otherInventorySearch || '').trim().toLowerCase();
+        return (products || [])
+            .map((product) => {
+                const snapshot = resolveProductSnapshot(product);
+                return { raw: product, snapshot };
+            })
+            .filter(({ snapshot }) => !isMobileLikeSnapshot(snapshot))
+            .filter(({ snapshot }) => {
+                if (!query) return true;
+                const searchable = `${snapshot.name || ''} ${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.barcode || ''}`.toLowerCase();
+                return searchable.includes(query);
+            })
+            .sort((a, b) => String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''), undefined, { sensitivity: 'base' }));
+    }, [otherInventorySearch, products]);
 
-        setDeletingProductId(productId);
-        try {
-            if (typeof deleteProduct === 'function') {
-                await deleteProduct(productId);
-            }
-            setToast(`"${productName}" erfolgreich gelöscht`);
-            setTimeout(() => setToast(''), 2000);
-            if (selectedInventoryItem?.snapshot?.id === productId || selectedInventoryItem?.raw?.id === productId) {
-                setSelectedInventoryItem(null);
-            }
-            if (typeof refreshProducts === 'function') refreshProducts();
-        } catch (err) {
-            showInlineError(err?.message || 'Fehler beim Löschen des Produkts');
-        } finally {
-            setDeletingProductId(null);
-        }
-    }, [deleteProduct, refreshProducts, selectedInventoryItem, showInlineError]);
-
-    const handleSaveStock = useCallback(async (productId, newStockValue) => {
-        const parsedStock = Math.max(0, parseInt(newStockValue, 10) || 0);
-        const strId = String(productId);
-        setSavingStockId(strId);
-        try {
-            if (typeof updateProduct === 'function') {
-                await updateProduct(strId, { stock: parsedStock });
-            } else if (typeof adjustStock === 'function') {
-                const target = products.find((p) => String(p.id) === strId);
-                const current = Number(target?.stock) || 0;
-                await adjustStock(strId, parsedStock - current);
-            }
-            setToast(`Bestand auf ${parsedStock} aktualisiert`);
-            setTimeout(() => setToast(''), 2000);
-            setEditingStockId(null);
-            setEditingStockVal('');
-        } catch (err) {
-            showInlineError(err?.message || 'Fehler beim Speichern des Bestands');
-        } finally {
-            setSavingStockId(null);
-        }
-    }, [updateProduct, adjustStock, products, showInlineError]);
-
-    const handleQuickStockStep = useCallback(async (snapshot, delta) => {
-        const strId = String(snapshot.id);
-        const currentStock = Number(snapshot.stock) || 0;
-        const newStock = Math.max(0, currentStock + delta);
-        setSavingStockId(strId);
-        try {
-            if (typeof updateProduct === 'function') {
-                await updateProduct(strId, { stock: newStock });
-            } else if (typeof adjustStock === 'function') {
-                await adjustStock(strId, delta);
-            }
-            setToast(`Bestand: ${newStock}`);
-            setTimeout(() => setToast(''), 1500);
-        } catch (err) {
-            showInlineError(err?.message || 'Fehler beim Anpassen des Bestands');
-        } finally {
-            setSavingStockId(null);
-        }
-    }, [updateProduct, adjustStock, showInlineError]);
-
-    const startEditingStock = useCallback((item) => {
-        setEditingStockId(String(item.snapshot.id));
-        setEditingStockVal(String(item.snapshot.stock ?? 0));
-    }, []);
-
-    const cancelEditingStock = useCallback(() => {
-        setEditingStockId(null);
-        setEditingStockVal('');
-    }, []);
-
-    // Fallbacks for legacy props
-    const mobileInventoryProducts = allInventoryItems;
-    const otherInventoryProducts = allInventoryItems;
-    const filteredMobileInventoryProducts = filteredInventoryItems;
+    const filteredMobileInventoryProducts = useMemo(() => {
+        const resolveBucket = (snapshot = {}) => {
+            const subCategoryText = String(snapshot.subCategory || '').toLowerCase();
+            const fallbackText = `${snapshot.name || ''} ${snapshot.category || ''}`.toLowerCase();
+            const text = `${subCategoryText} ${fallbackText}`;
+            if (text.includes('iphone')) return 'iphone';
+            if (text.includes('samsung')) return 'samsung';
+            return 'others';
+        };
+        if (mobileInventoryTab === 'all') return mobileInventoryProducts || [];
+        return (mobileInventoryProducts || []).filter((item) => resolveBucket(item.snapshot) === mobileInventoryTab);
+    }, [mobileInventoryProducts, mobileInventoryTab]);
 
     const handleInventoryFormSaveSuccess = useCallback(() => {
-        setToast(editingProduct ? 'Produkt erfolgreich aktualisiert' : 'Produkt erfolgreich hinzugefügt');
+        setToast('Product added successfully');
         setTimeout(() => setToast(''), 1800);
-        setEditingProduct(null);
-        setShowInventoryForm(false);
-        // Refresh products list immediately so new/updated item appears without page reload
+        // Refresh products list immediately so new item appears without page reload
         if (typeof refreshProducts === 'function') refreshProducts();
         if (typeof refreshCategoryCatalog === 'function') refreshCategoryCatalog();
-    }, [editingProduct, refreshCategoryCatalog, refreshProducts]);
+    }, [refreshCategoryCatalog, refreshProducts]);
 
     const handleInventoryFormSaveError = useCallback((error) => {
-        setToast(error?.message || 'Fehler beim Speichern des Produkts');
+        setToast(error?.message || 'Failed to add product');
         setTimeout(() => setToast(''), 2200);
     }, []);
 
@@ -3902,207 +3480,68 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         extractInvoiceNumberBase(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id)
         || String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim()
     ), []);
-
-    const uniqueTechnicianNames = useMemo(() => {
-        const names = new Set();
-        (repairJobs || []).forEach((job) => {
-            const name = String(job?.technicianName || job?.technician_name || '').trim();
-            if (name) names.add(name);
-        });
-        return Array.from(names).sort();
-    }, [repairJobs]);
-
-    const activeRepairsCount = useMemo(() => {
-        return (repairJobs || []).filter((j) => String(j?.status || '').toLowerCase() !== 'completed' && String(j?.status || '').toLowerCase() !== 'cancelled').length;
-    }, [repairJobs]);
-
-    const historyRepairsCount = useMemo(() => {
-        return (repairJobs || []).filter((j) => String(j?.status || '').toLowerCase() === 'completed').length;
-    }, [repairJobs]);
-
-    const shopRepairsCount = useMemo(() => {
-        return (repairJobs || []).filter((j) => {
-            const performer = String(j?.repairPerformer || j?.repair_performer || 'shop').toLowerCase();
-            const tech = String(j?.technicianName || j?.technician_name || '').trim();
-            return performer === 'shop' && !tech;
-        }).length;
-    }, [repairJobs]);
-
-    const techCounts = useMemo(() => {
-        const counts = {};
-        (repairJobs || []).forEach((j) => {
-            const tech = String(j?.technicianName || j?.technician_name || '').trim();
-            if (tech) counts[tech] = (counts[tech] || 0) + 1;
-        });
-        return counts;
-    }, [repairJobs]);
-
-    const filteredRepairJobsList = useMemo(() => {
-        let list = Array.isArray(repairJobs) ? [...repairJobs] : [];
-
-        // 1. Status Filter (Active vs History vs All)
-        if (repairStatusTab === 'active') {
-            list = list.filter((job) => String(job?.status || '').toLowerCase() !== 'completed' && String(job?.status || '').toLowerCase() !== 'cancelled');
-        } else if (repairStatusTab === 'history') {
-            list = list.filter((job) => String(job?.status || '').toLowerCase() === 'completed');
+    const handleSetRepairStatus = useCallback(async (job, newStatus) => {
+        if (!job?.id || !newStatus) return;
+        try {
+            const extras = {};
+            if (newStatus === 'completed') {
+                extras.completedAt = new Date().toISOString();
+            }
+            await updateRepairStatus(job.id, newStatus, extras);
+            const statusLabels = {
+                pending: 'Eingegangen (Pending)',
+                in_progress: 'In Bearbeitung (In Progress)',
+                ready: 'Abholbereit (Ready)',
+                completed: 'Abgeschlossen (Completed)',
+            };
+            setToast(`Status aktualisiert: ${statusLabels[newStatus] || newStatus}`);
+            setTimeout(() => setToast(''), 2000);
+        } catch (error) {
+            showInlineError(error?.message || 'Failed to update repair status');
         }
+    }, [showInlineError, updateRepairStatus]);
 
-        // 2. Performer / Technician Chip Filter
-        if (repairPerformerFilter === 'shop') {
-            list = list.filter((job) => {
-                const performer = String(job?.repairPerformer || job?.repair_performer || 'shop').toLowerCase();
-                const techName = String(job?.technicianName || job?.technician_name || '').trim();
-                return performer === 'shop' && !techName;
-            });
-        } else if (repairPerformerFilter !== 'all') {
-            const targetTech = repairPerformerFilter.toLowerCase().trim();
-            list = list.filter((job) => {
-                const techName = String(job?.technicianName || job?.technician_name || '').toLowerCase().trim();
-                return techName === targetTech;
+    const displayedRepairOrders = useMemo(() => {
+        const jobs = Array.isArray(repairJobs) ? repairJobs : [];
+        if (repairStatusFilter === 'active') {
+            return jobs.filter((job) => String(job.status || '').toLowerCase() !== 'completed');
+        }
+        if (repairStatusFilter === 'in_progress') {
+            return jobs.filter((job) => String(job.status || '').toLowerCase() === 'in_progress');
+        }
+        if (repairStatusFilter === 'ready') {
+            return jobs.filter((job) => {
+                const s = String(job.status || '').toLowerCase();
+                return s === 'ready' || s === 'ready_for_pickup';
             });
         }
-
-        // 3. Date Filter
-        if (repairDatePreset !== 'all') {
-            const now = new Date();
-            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-            list = list.filter((job) => {
-                const rawDate = job?.createdAt || job?.created_at || job?.timestamp;
-                if (!rawDate) return false;
-                const d = new Date(rawDate);
-                if (Number.isNaN(d.getTime())) return false;
-
-                if (repairDatePreset === 'today') {
-                    return d >= startOfToday && d <= endOfToday;
-                }
-                if (repairDatePreset === 'yesterday') {
-                    const startOfYesterday = new Date(startOfToday);
-                    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-                    const endOfYesterday = new Date(endOfToday);
-                    endOfYesterday.setDate(endOfYesterday.getDate() - 1);
-                    return d >= startOfYesterday && d <= endOfYesterday;
-                }
-                if (repairDatePreset === 'this_week') {
-                    const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0
-                    const startOfWeek = new Date(startOfToday);
-                    startOfWeek.setDate(startOfWeek.getDate() - dayOfWeek);
-                    return d >= startOfWeek && d <= endOfToday;
-                }
-                if (repairDatePreset === 'this_month') {
-                    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-                    return d >= startOfMonth && d <= endOfToday;
-                }
-                if (repairDatePreset === 'custom') {
-                    const s = repairCustomStartDate ? new Date(repairCustomStartDate + 'T00:00:00') : null;
-                    const e = repairCustomEndDate ? new Date(repairCustomEndDate + 'T23:59:59.999') : null;
-                    if (s && d < s) return false;
-                    if (e && d > e) return false;
-                    return true;
-                }
-                return true;
-            });
+        if (repairStatusFilter === 'pending') {
+            return jobs.filter((job) => !job.status || String(job.status || '').toLowerCase() === 'pending');
         }
+        if (repairStatusFilter === 'completed') {
+            return jobs.filter((job) => String(job.status || '').toLowerCase() === 'completed');
+        }
+        return jobs;
+    }, [repairJobs, repairStatusFilter]);
 
-        // 4. Search Query
+    const filteredPendingOrders = useMemo(() => {
         const query = String(repairSearchQuery || '').trim().toLowerCase();
-        if (query) {
-            list = list.filter((job) => {
-                const invoice = getRepairInvoiceNumber(job).toLowerCase();
-                const haystack = [
-                    invoice,
-                    String(job?.customerName || '').toLowerCase(),
-                    String(job?.phone || job?.customerPhone || '').toLowerCase(),
-                    String(job?.deviceModel || '').toLowerCase(),
-                    String(job?.imei || '').toLowerCase(),
-                    String(job?.problem || job?.issueType || '').toLowerCase(),
-                    String(job?.notes || '').toLowerCase(),
-                    String(job?.technicianName || job?.technician_name || '').toLowerCase(),
-                ].join(' ');
-                return haystack.includes(query);
-            });
-        }
-
-        return list;
-    }, [repairJobs, repairStatusTab, repairPerformerFilter, repairDatePreset, repairCustomStartDate, repairCustomEndDate, repairSearchQuery, getRepairInvoiceNumber]);
-
-    const handleSaveRepairNote = async (jobId, noteText) => {
-        try {
-            await updateRepairStatus(jobId, undefined, { notes: String(noteText || '').trim() });
-            setEditingNoteJobId(null);
-            setToast('Note saved');
-            setTimeout(() => setToast(''), 1500);
-        } catch (err) {
-            showInlineError(err?.message || 'Failed to save note');
-        }
-    };
-
-    const handleMarkSentToTechnician = async (job) => {
-        try {
-            await updateRepairStatus(job.id, undefined, {
-                deviceLocation: 'sent_to_technician',
-                sentToTechnicianAt: new Date().toISOString(),
-            });
-            setToast('Device marked as sent to technician');
-            setTimeout(() => setToast(''), 1800);
-        } catch (err) {
-            showInlineError(err?.message || 'Failed to update location');
-        }
-    };
-
-    const handleMarkReceivedBackInShop = async (job) => {
-        try {
-            await updateRepairStatus(job.id, undefined, {
-                deviceLocation: 'received_back',
-                receivedFromTechnicianAt: new Date().toISOString(),
-            });
-            setToast('Device marked as received back in shop');
-            setTimeout(() => setToast(''), 1800);
-        } catch (err) {
-            showInlineError(err?.message || 'Failed to update location');
-        }
-    };
-
-    const handleReopenRepair = async (job) => {
-        try {
-            await updateRepairStatus(job.id, 'pending', {
-                completedAt: null,
-                completed_at: null,
-            });
-            setToast('Repair re-opened as active');
-            setTimeout(() => setToast(''), 1800);
-        } catch (err) {
-            showInlineError(err?.message || 'Failed to re-open repair');
-        }
-    };
-
-    const openEditTechModal = (job) => {
-        setEditingTechJob(job);
-        setTechFormPerformer(job?.repairPerformer || job?.repair_performer || (job?.technicianName ? 'external' : 'shop'));
-        setTechFormName(job?.technicianName || job?.technician_name || '');
-        setTechFormCost(job?.externalCost || job?.external_cost ? String(job.externalCost || job.external_cost) : '');
-    };
-
-    const handleSaveTechnicianAssignment = async (e) => {
-        if (e) e.preventDefault();
-        if (!editingTechJob?.id) return;
-        const isExt = techFormPerformer === 'external';
-        try {
-            await updateRepairStatus(editingTechJob.id, undefined, {
-                repairPerformer: techFormPerformer,
-                technicianName: isExt ? techFormName.trim() : '',
-                externalCost: isExt ? (parseFloat(techFormCost) || 0) : 0,
-                deviceLocation: isExt ? (editingTechJob.deviceLocation || 'sent_to_technician') : 'in_shop',
-                sentToTechnicianAt: isExt ? (editingTechJob.sentToTechnicianAt || new Date().toISOString()) : null,
-            });
-            setEditingTechJob(null);
-            setToast('Technician details updated');
-            setTimeout(() => setToast(''), 1800);
-        } catch (err) {
-            showInlineError(err?.message || 'Failed to save technician details');
-        }
-    };
+        if (!query) return displayedRepairOrders;
+        return (displayedRepairOrders || []).filter((job) => {
+            const invoice = getRepairInvoiceNumber(job).toLowerCase();
+            const haystack = [
+                invoice,
+                String(job?.refId || job?.ref_id || '').toLowerCase(),
+                String(job?.customerName || '').toLowerCase(),
+                String(job?.phone || job?.customerPhone || '').toLowerCase(),
+                String(job?.deviceModel || '').toLowerCase(),
+                String(job?.imei || '').toLowerCase(),
+                String(job?.problem || job?.issueType || '').toLowerCase(),
+                String(job?.status || '').toLowerCase(),
+            ].join(' ');
+            return haystack.includes(query);
+        });
+    }, [displayedRepairOrders, getRepairInvoiceNumber, repairSearchQuery]);
 
 
     const printOnlineOrderBill = (order) => {
@@ -4112,7 +3551,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const remainingAmount = Math.max(0, totalPrice - advanceAmount);
         const hasAdvance = advanceAmount > 0;
 
-        const win = window.open('', 'online-order-bill', 'width=340,height=640');
+        const win = window.open('', 'online-order-bill', 'width=300,height=550');
         if (!win) return;
 
         const toSafe = (value) => String(value || '')
@@ -4136,8 +3575,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const row = (label, value) => {
             if (!value || value === '-' || value === '') return '';
             return `<tr>
-            <td style="padding:2px 0;font-size:10px;font-weight:800;color:#000;width:50%;vertical-align:top;">${label}</td>
-            <td style="padding:2px 0;font-size:10px;font-weight:900;color:#000;text-align:right;vertical-align:top;width:50%;word-break:break-all;">${toSafe(String(value))}</td>
+            <td style="padding:2px 0;font-size:11px;font-weight:900;color:#000;width:55%;vertical-align:top;">${label}</td>
+            <td style="padding:2px 0;font-size:11px;font-weight:900;color:#000;text-align:right;vertical-align:top;width:45%;word-break:break-all;">${toSafe(String(value))}</td>
         </tr>`;
         };
 
@@ -4148,75 +3587,51 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Online-Bestellung</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            color: #000 !important;
-            font-weight: 800 !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-        }
         @media print {
-            @page { size: 58mm auto; margin: 0mm; }
-            html, body { margin: 0 !important; padding: 0 !important; width: 46mm !important; }
-            .receipt-wrapper { width: 46mm !important; margin: 0 !important; }
+            @page { size: 58mm auto; margin: 0; }
+            html, body { margin: 0; padding: 0; width: 46mm; }
+            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
-        body {
-            font-family: 'Segoe UI', Arial, -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
-            width: 46mm;
-            margin: 0 auto;
-            padding: 2mm 0.5mm 25mm 0.5mm;
-            line-height: 1.4;
-            background: #fff;
-            color: #000;
-            font-size: 10px;
-            font-weight: 800;
-        }
-        .receipt-wrapper { width: 100%; max-width: 100%; }
-        .shop-name { font-size: 16px; font-weight: 900 !important; text-align: center; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .shop-sub { font-size: 9.5px; font-weight: 800 !important; text-align: center; margin-top: 2px; color: #000; }
-        .divider { border: none; border-top: 1.5px dashed #000; margin: 6px 0; }
-        table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 2px 0; }
-        td { font-size: 10px; color: #000; word-break: break-word; padding: 2px 0; }
-        .footer { text-align: center; font-size: 9.5px; font-weight: 900 !important; color: #000; margin-top: 8px; border-top: 1.5px dashed #000; padding-top: 6px; }
+        * { box-sizing: border-box; }
+        body { font-family: 'Arial', 'Helvetica', sans-serif; width: 46mm; margin: 0; padding: 2mm 0.5mm; background: #fff; color: #000; font-weight: 900; }
+        .shop-name { font-size: 13px; font-weight: 900; text-align: center; margin: 0 0 1px 0; }
+        .shop-sub { font-size: 10px; font-weight: 900; text-align: center; margin: 1px 0; color: #000; }
+        .divider { border: none; border-top: 1px dashed #555; margin: 3px 0; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        td { font-size: 11px; font-weight: 900; color: #000; word-break: break-word; }
+        .footer { text-align: center; font-size: 10px; font-weight: 900; color: #000; margin-top: 3px; }
     </style>
 </head>
 <body>
-    <div class="receipt-wrapper">
-        <p class="shop-name">${toSafe(receiptShopName)}</p>
-        ${receiptShopAddress ? `<p class="shop-sub">${toSafe(receiptShopAddress)}</p>` : ''}
-        ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
+    <p class="shop-name">${toSafe(receiptShopName)}</p>
+    ${receiptShopAddress ? `<p class="shop-sub">${toSafe(receiptShopAddress)}</p>` : ''}
+    ${receiptShopPhone ? `<p class="shop-sub">Tel: ${toSafe(receiptShopPhone)}</p>` : ''}
 
-        <hr class="divider"/>
-        <div style="text-align:center; margin:5px 0;">
-            <p style="font-size:9px;font-weight:900;color:#000;letter-spacing:1px;text-transform:uppercase;margin:0;">Abholung Nr.</p>
-            <p style="font-size:18px;font-weight:900;color:#000;margin:2px 0 0 0;letter-spacing:1.5px;font-family:monospace;">${toSafe(orderId)}</p>
-        </div>
-        <hr class="divider"/>
-
-        <table>
-            ${row('Artikel', order.itemName)}
-            ${order.color ? row('Farbe', order.color) : ''}
-            ${row('Bestelldatum', fmtDate(order.orderDate))}
-            ${order.expectedDeliveryDate ? row('Lieferdatum', fmtDate(order.expectedDeliveryDate)) : ''}
-            ${order.mobileNumber ? row('Tel', order.mobileNumber) : ''}
-        </table>
-
-        <hr class="divider"/>
-
-        <table>
-            ${row('Kosten', fmtMoney(totalPrice))}
-            ${hasAdvance ? row('Anzahlung', fmtMoney(advanceAmount)) : ''}
-            ${hasAdvance ? row('Restbetrag', fmtMoney(remainingAmount)) : ''}
-        </table>
-
-        <hr class="divider"/>
-        <p class="footer">Vielen Dank. ${toSafe(receiptShopName)}</p>
-
-        <!-- Bottom feed spacer to make bill longer and prevent cutting into footer -->
-        <div style="height: 25mm; width: 100%;"></div>
+    <hr class="divider"/>
+    <div style="text-align:center; margin:2px 0;">
+        <p style="font-size:10px;font-weight:900;color:#000;margin:0;">Abholung Nr.</p>
+        <p style="font-size:20px;font-weight:900;color:#000;margin:1px 0 0 0;letter-spacing:2px;">${toSafe(orderId)}</p>
     </div>
+    <hr class="divider"/>
+
+    <table>
+        ${row('Artikel', order.itemName)}
+        ${order.color ? row('Farbe', order.color) : ''}
+        ${row('Bestelldatum', fmtDate(order.orderDate))}
+        ${order.expectedDeliveryDate ? row('Lieferdatum', fmtDate(order.expectedDeliveryDate)) : ''}
+        ${order.mobileNumber ? row('Tel', order.mobileNumber) : ''}
+    </table>
+
+    <hr class="divider"/>
+
+    <table>
+        ${row('Kosten', fmtMoney(totalPrice))}
+        ${hasAdvance ? row('Anzahlung', fmtMoney(advanceAmount)) : ''}
+        ${hasAdvance ? row('Restbetrag', fmtMoney(remainingAmount)) : ''}
+    </table>
+
+    <hr class="divider"/>
+    <p class="footer">Vielen Dank. ${toSafe(receiptShopName)}</p>
 </body>
 </html>`;
 
@@ -4285,43 +3700,17 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             ? (existingNotes ? `SubCategory: ${subCategoryName} | ${existingNotes}` : `SubCategory: ${subCategoryName}`)
             : existingNotes;
 
-        const purchasePriceAtTime = Number(
-            productWithQty?.purchasePriceAtTime
-            ?? productWithQty?.purchasePrice
-            ?? productWithQty?.productSnapshot?.purchasePrice
-            ?? (productId && productLookup[productId]?.purchasePrice ? productLookup[productId].purchasePrice : 0)
-        );
-        const saleAmount = parseFloat(productWithQty?.amount || 0) || 0;
-        const profitValue = Number(
-            productWithQty?.profit
-            ?? (saleAmount - (purchasePriceAtTime * quantityValue))
-        );
-
         try {
             const insertedTxn = await addTransaction({
                 ...productWithQty,
-                productId: productId || null,
-                product_id: productId || null,
-                purchasePriceAtTime: purchasePriceAtTime,
-                purchase_price_at_time: purchasePriceAtTime,
-                profit: profitValue,
-                productSnapshot: productWithQty?.productSnapshot || {
-                    id: productId,
-                    name: productWithQty?.name || productWithQty?.desc || '',
-                    purchasePrice: purchasePriceAtTime,
-                    sellingPrice: quantityValue > 0 ? saleAmount / quantityValue : 0,
-                    category: productWithQty?.category || '',
-                    subCategory: subCategoryName,
-                },
                 desc: productWithQty?.desc || productWithQty?.name || 'Sale',
-                amount: saleAmount,
+                amount: parseFloat(productWithQty?.amount || 0) || 0,
                 quantity: quantityValue,
                 type: 'income',
                 tx_type: 'product_sale',
                 source: 'shop',
                 category: productWithQty?.category || 'General',
                 sub_category: subCategoryName,
-                subCategory: subCategoryName,
                 paymentMethod: productWithQty?.paymentMethod || productWithQty?.paymentMode || 'Cash',
                 notes: finalNotes,
                 salesmanName: user?.name,
@@ -4981,19 +4370,19 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 {topBarcodeMatches.map((product) => {
                                     const resolved = resolveProductSnapshot(product);
                                     return (
-                                        <button
-                                            type="button"
-                                            key={resolved.id || `${resolved.barcode}-${resolved.name}`}
-                                            onMouseDown={(e) => {
-                                                e.preventDefault();
-                                                openSalesFormWithProduct(product);
-                                                setTopBarcodeQuery('');
-                                            }}
-                                            className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
-                                        >
-                                            <p className="text-xs font-bold text-slate-700">{resolved.name || 'Unnamed product'}</p>
-                                            <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} | Stock {resolved.stock} | {priceTag(resolved.sellingPrice || 0)}</p>
-                                        </button>
+                                    <button
+                                        type="button"
+                                        key={resolved.id || `${resolved.barcode}-${resolved.name}`}
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            openSalesFormWithProduct(product);
+                                            setTopBarcodeQuery('');
+                                        }}
+                                        className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-b-0"
+                                    >
+                                        <p className="text-xs font-bold text-slate-700">{resolved.name || 'Unnamed product'}</p>
+                                        <p className="text-[10px] text-slate-400">{resolved.barcode || 'No barcode'} | Stock {resolved.stock} | {priceTag(resolved.sellingPrice || 0)}</p>
+                                    </button>
                                     );
                                 })}
                             </div>
@@ -5004,7 +4393,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <button
                             onClick={() => {
                                 if (isInventoryFormSubmitting) return;
-                                setEditingProduct(null);
                                 setShowInventoryForm(true);
                             }}
                             title="Add Inventory"
@@ -5012,41 +4400,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             className={`fab-animated ${isInventoryFormSubmitting ? 'opacity-60 cursor-not-allowed' : ''}`}
                             style={{ '--fab-i': '#22c55e', '--fab-j': '#16a34a' }}
                         ><span className="fab-icon"><PackagePlus size={14} /></span><span className="fab-title">Add Inventory</span></button>
-                        <button
-                            onClick={() => {
-                                setInventoryCategory('all');
-                                setInventorySubCategory('all');
-                                setInventorySearch('');
-                                setShowInventoryModal(true);
-                            }}
-                            title="Inventory"
-                            className="fab-animated"
-                            style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}
-                        ><span className="fab-icon"><Boxes size={14} /></span><span className="fab-title">Inventory</span></button>
-                        <button
-                            onClick={() => setShowSoldPhonesModal(true)}
-                            title="Sold Phones History & Data"
-                            className="fab-animated"
-                            style={{ '--fab-i': '#0ea5e9', '--fab-j': '#0284c7' }}
-                        ><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Sold Phones</span></button>
+                        <button onClick={() => setShowMobileInventoryModal(true)} title="Mobile Inventory" className="fab-animated" style={{ '--fab-i': '#38bdf8', '--fab-j': '#1d4ed8' }}><span className="fab-icon"><Smartphone size={14} /></span><span className="fab-title">Mobile Inventory</span></button>
+                        <button onClick={() => setShowOtherInventoryModal(true)} title="Other Inventory" className="fab-animated" style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}><span className="fab-icon"><Scale size={14} /></span><span className="fab-title">Other Inventory</span></button>
                         <button onClick={() => setShowPendingOrders(true)} title="Reparatur & Abholschein" className="fab-animated" style={{ '--fab-i': '#06b6d4', '--fab-j': '#2563eb' }}><span className="fab-icon"><ClipboardList size={14} /></span><span className="fab-title">Reparatur & Abholschein</span></button>
-                        <button
-                            onClick={() => setShowNotesModal(true)}
-                            title="Notes & History"
-                            className="fab-animated relative"
-                            style={{ '--fab-i': '#f59e0b', '--fab-j': '#d97706' }}
-                        >
-                            <span className="fab-icon"><StickyNote size={14} /></span>
-                            <span className="fab-title">Notes</span>
-                            {activeNotesCount > 0 && (
-                                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center border-2 border-slate-900 shadow-sm">
-                                    {activeNotesCount}
-                                </span>
-                            )}
-                        </button>
                         <button onClick={() => setShowCalc((prev) => !prev)} title="Calculator" className="fab-animated" style={{ '--fab-i': '#8b5cf6', '--fab-j': '#2563eb' }}><span className="fab-icon"><Calculator size={14} /></span><span className="fab-title">Calc</span></button>
                         <button onClick={() => setShowCategoryModal(true)} title="Add Category" className="fab-animated" style={{ '--fab-i': '#22c55e', '--fab-j': '#06b6d4' }}><span className="fab-icon"><Menu size={14} /></span><span className="fab-title">Add Category</span></button>
-                        <button onClick={() => setShowExcludedCategoriesModal(true)} title="Excluded Categories" className="fab-animated" style={{ '--fab-i': '#ea580c', '--fab-j': '#c2410c' }}><span className="fab-icon"><Tags size={14} /></span><span className="fab-title">Excluded Categories</span></button>
+                        <button onClick={() => setShowExcludedCategoriesModal(true)} title="Excluded Categories" className="fab-animated" style={{ '--fab-i': '#f59e0b', '--fab-j': '#ea580c' }}><span className="fab-icon"><Tags size={14} /></span><span className="fab-title">Excluded Categories</span></button>
                         {adminView && (
                             <button onClick={handleClearLocalCache} title="Clear Local Cache" className="fab-animated" style={{ '--fab-i': '#64748b', '--fab-j': '#334155' }}><span className="fab-icon"><Trash2 size={14} /></span><span className="fab-title">Clear Cache</span></button>
                         )}
@@ -5062,30 +4421,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             </header>
 
             <main className="max-w-7xl mx-auto px-3 pt-4 pb-6 space-y-3">
-                {websiteInquiryCount > 0 && (
-                    <div className="rounded-2xl bg-gradient-to-r from-blue-900 via-indigo-900 to-cyan-950 border border-cyan-400/50 p-3.5 shadow-lg shadow-blue-950/40 flex flex-wrap items-center justify-between gap-3 text-white">
-                        <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-cyan-400/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shrink-0">
-                                <Globe size={18} />
-                            </div>
-                            <div>
-                                <span className="font-bold text-xs text-cyan-300 uppercase tracking-wider block">
-                                    🌐 Neue Website-Anfrage ({websiteInquiryCount})
-                                </span>
-                                <p className="text-xs text-slate-200 mt-0.5">
-                                    {latestInquiry?.title || `${websiteInquiryCount} neue Kunden-Anfrage(n) von carefone.de eingegangen.`}
-                                </p>
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowNotesModal(true)}
-                            className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all shadow-md cursor-pointer whitespace-nowrap"
-                        >
-                            Anfrage ansehen & bearbeiten
-                        </button>
-                    </div>
-                )}
 
                 <section className="grid grid-cols-1 md:grid-cols-[0.72fr_1fr_1fr] gap-2">
                     <CompactTrendCard
@@ -5385,14 +4720,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             <button
                                                 key={`sales-cat-chip-${name}`}
                                                 type="button"
-                                                title="Click to select, hold to hide from dashboard"
-                                                onMouseDown={() => startCategoryLongPress(name, 1, '', 'sales')}
-                                                onMouseUp={cancelCategoryLongPress}
-                                                onMouseLeave={cancelCategoryLongPress}
-                                                onTouchStart={() => startCategoryLongPress(name, 1, '', 'sales')}
-                                                onTouchEnd={cancelCategoryLongPress}
                                                 onClick={() => {
-                                                    if (categoryLongPressTriggeredRef.current) return;
                                                     setSalesEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
                                                     setSalesEntryErrors((prev) => ({ ...prev, category: '' }));
                                                 }}
@@ -5419,16 +4747,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         <button
                                             key={`sales-sub-chip-${name}`}
                                             type="button"
-                                            title="Click to select, hold to hide from dashboard"
-                                            onMouseDown={() => startCategoryLongPress(name, 2, salesEntry.category, 'sales')}
-                                            onMouseUp={cancelCategoryLongPress}
-                                            onMouseLeave={cancelCategoryLongPress}
-                                            onTouchStart={() => startCategoryLongPress(name, 2, salesEntry.category, 'sales')}
-                                            onTouchEnd={cancelCategoryLongPress}
-                                            onClick={() => {
-                                                if (categoryLongPressTriggeredRef.current) return;
-                                                setSalesEntry((prev) => ({ ...prev, subCategory: name }));
-                                            }}
+                                            onClick={() => setSalesEntry((prev) => ({ ...prev, subCategory: name }))}
                                             className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${salesEntry.subCategory === name ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
                                         >
                                             {name}
@@ -5569,14 +4888,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             <button
                                                 key={`purchase-cat-chip-${name}`}
                                                 type="button"
-                                                title="Click to select, hold to hide from dashboard"
-                                                onMouseDown={() => startCategoryLongPress(name, 1, '', 'expense')}
-                                                onMouseUp={cancelCategoryLongPress}
-                                                onMouseLeave={cancelCategoryLongPress}
-                                                onTouchStart={() => startCategoryLongPress(name, 1, '', 'expense')}
-                                                onTouchEnd={cancelCategoryLongPress}
                                                 onClick={() => {
-                                                    if (categoryLongPressTriggeredRef.current) return;
                                                     setPurchaseEntry((prev) => ({ ...prev, category: name, subCategory: '' }));
                                                     setPurchaseEntryErrors((prev) => ({ ...prev, category: '' }));
                                                 }}
@@ -5598,14 +4910,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             <button
                                                 key={`purchase-subcat-chip-${name}`}
                                                 type="button"
-                                                title="Click to select, hold to hide from dashboard"
-                                                onMouseDown={() => startCategoryLongPress(name, 2, purchaseEntry.category, 'expense')}
-                                                onMouseUp={cancelCategoryLongPress}
-                                                onMouseLeave={cancelCategoryLongPress}
-                                                onTouchStart={() => startCategoryLongPress(name, 2, purchaseEntry.category, 'expense')}
-                                                onTouchEnd={cancelCategoryLongPress}
                                                 onClick={() => {
-                                                    if (categoryLongPressTriggeredRef.current) return;
                                                     setPurchaseEntry((prev) => ({
                                                         ...prev,
                                                         subCategory: prev.subCategory === name ? '' : name,
@@ -5719,158 +5024,34 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             </main>
 
             {activeKpiBreakdown && (
-                <div className="fixed inset-0 z-[84]" onClick={() => { setActiveKpiBreakdownType(''); setExpandedKpiCategoryKeys({}); }}>
+                <div className="fixed inset-0 z-[84]" onClick={() => setActiveKpiBreakdownType('')}>
                     <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
-                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between shrink-0 bg-white">
+                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
                             <div>
                                 <h3 className="text-sm font-black text-slate-800">{activeKpiBreakdown.title}</h3>
                                 <p className="text-[11px] text-slate-500">{activeKpiBreakdown.subtitle}</p>
                             </div>
-                            <button
-                                onClick={() => { setActiveKpiBreakdownType(''); setExpandedKpiCategoryKeys({}); }}
-                                className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                            >
-                                <X size={18} />
-                            </button>
+                            <button onClick={() => setActiveKpiBreakdownType('')} className="text-slate-500 hover:text-slate-700">x</button>
                         </div>
-                        <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                        <div className="p-4 space-y-3">
                             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-center justify-between">
                                 <p className="text-xs font-semibold text-slate-600">KPI Total</p>
                                 <p className={`text-sm font-black ${activeKpiBreakdown.total >= 0 ? activeKpiBreakdown.positiveClass : activeKpiBreakdown.negativeClass}`}>{priceTag(activeKpiBreakdown.total)}</p>
                             </div>
 
-                            <div className="space-y-2 pr-1">
+                            <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
                                 {!activeKpiBreakdown.rows.length ? (
                                     <p className="text-xs text-slate-400 text-center py-10">No category contributions in selected period.</p>
-                                ) : activeKpiBreakdown.rows.map((row) => {
-                                    const isExpanded = Boolean(expandedKpiCategoryKeys[row.key]);
-                                    const txns = row.transactions || [];
-
-                                    const toggleCategory = () => {
-                                        setExpandedKpiCategoryKeys((prev) => ({
-                                            ...prev,
-                                            [row.key]: !prev[row.key],
-                                        }));
-                                    };
-
-                                    return (
-                                        <div
-                                            key={`kpi-break-${row.key}`}
-                                            className={`rounded-xl border transition-all duration-200 overflow-hidden ${
-                                                isExpanded ? 'border-blue-300 bg-white shadow-sm ring-1 ring-blue-100' : 'border-slate-200 bg-slate-50/70 hover:bg-slate-100/80 hover:border-slate-300'
-                                            }`}
-                                        >
-                                            <div
-                                                role="button"
-                                                tabIndex={0}
-                                                onClick={toggleCategory}
-                                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCategory(); } }}
-                                                className="px-3.5 py-3 flex items-center justify-between gap-3 cursor-pointer select-none"
-                                            >
-                                                <div className="min-w-0 flex items-center gap-2.5">
-                                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${isExpanded ? 'bg-blue-600 text-white rotate-180 shadow-sm' : 'bg-slate-200/80 text-slate-600'}`}>
-                                                        <ChevronDown size={14} />
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <p className="text-xs font-bold text-slate-800 truncate">{row.label}</p>
-                                                        <p className="text-[10px] text-slate-500 font-medium">
-                                                            {row.count} {row.count === 1 ? 'transaction' : 'transactions'}
-                                                            <span className="text-slate-400"> • {isExpanded ? 'Click to collapse' : 'Click to show details'}</span>
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right shrink-0">
-                                                    <p className={`text-sm font-black font-mono ${row.amount >= 0 ? activeKpiBreakdown.positiveClass : activeKpiBreakdown.negativeClass}`}>
-                                                        {priceTag(row.amount)}
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            {isExpanded && (
-                                                <div className="border-t border-slate-200/70 bg-slate-50/70 p-2.5 space-y-1.5">
-                                                    {txns.length === 0 ? (
-                                                        <p className="text-xs text-slate-400 py-3 text-center">No transaction records found for this category.</p>
-                                                    ) : (
-                                                        <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-                                                            {txns.map((txn, idx) => {
-                                                                const txnKey = getTransactionIdentityKey(txn) || `kpi-txn-${txn.id || idx}-${txn.time || ''}-${idx}`;
-                                                                const invNo = getTransactionInvoiceNumber(txn);
-                                                                const displayName = resolveTransactionDisplayName(txn);
-                                                                const txnAmount = txn.kpiContribution !== undefined ? txn.kpiContribution : (parseFloat(txn.amount) || 0);
-                                                                const isIncomeTxn = normalizeTxnType(txn.type) === 'income';
-
-                                                                return (
-                                                                    <div
-                                                                        key={txnKey}
-                                                                        onClick={() => openTransactionDetailModal(txn)}
-                                                                        className="group w-full text-left rounded-xl border border-slate-200/80 bg-white p-2.5 grid grid-cols-[1fr_auto_auto] items-center gap-2.5 hover:border-blue-300 hover:bg-blue-50/50 hover:shadow-sm transition-all cursor-pointer"
-                                                                        title="Click to view full transaction details"
-                                                                    >
-                                                                        <div className="min-w-0">
-                                                                            <div className="flex items-center gap-1.5 flex-wrap">
-                                                                                <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
-                                                                                    {displayName}
-                                                                                </p>
-                                                                                {txn.type && (
-                                                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
-                                                                                        isIncomeTxn ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
-                                                                                    }`}>
-                                                                                        {txn.type}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                                                                {(txn.date || txn.time) && (
-                                                                                    <span className="font-medium text-slate-600">
-                                                                                        {txn.date || ''} {txn.time || ''}
-                                                                                    </span>
-                                                                                )}
-                                                                                {invNo && (
-                                                                                    <span className="text-slate-500 font-mono">
-                                                                                        • Inv #{invNo}
-                                                                                    </span>
-                                                                                )}
-                                                                                {txn.paymentMethod && (
-                                                                                    <span className="text-slate-500">
-                                                                                        • {txn.paymentMethod}
-                                                                                    </span>
-                                                                                )}
-                                                                                {txn.customerName && (
-                                                                                    <span className="text-slate-500 truncate max-w-[120px]">
-                                                                                        • {txn.customerName}
-                                                                                    </span>
-                                                                                )}
-                                                                                {txn.workerId && (
-                                                                                    <span className="text-slate-500">
-                                                                                        • Staff #{txn.workerId}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-
-                                                                        <div className="text-right shrink-0">
-                                                                            <p className={`text-xs font-black font-mono ${txnAmount >= 0 ? (isIncomeTxn ? 'text-emerald-700' : activeKpiBreakdown.positiveClass) : activeKpiBreakdown.negativeClass}`}>
-                                                                                {priceTag(txnAmount)}
-                                                                            </p>
-                                                                            {txn.quantity && Number(txn.quantity) > 1 && (
-                                                                                <p className="text-[9px] text-slate-400 font-medium">Qty: {txn.quantity}</p>
-                                                                            )}
-                                                                        </div>
-
-                                                                        <div className="text-slate-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all">
-                                                                            <ChevronRight size={14} />
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
+                                ) : activeKpiBreakdown.rows.map((row) => (
+                                    <div key={`kpi-break-${row.key}`} className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold text-slate-700 truncate">{row.label}</p>
+                                            <p className="text-[10px] text-slate-500">{row.count} transaction(s)</p>
                                         </div>
-                                    );
-                                })}
+                                        <p className={`text-sm font-black ${row.amount >= 0 ? activeKpiBreakdown.positiveClass : activeKpiBreakdown.negativeClass}`}>{priceTag(row.amount)}</p>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>
@@ -5914,7 +5095,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     ? `Custom mode active. Sales: ${categoryContributionModeCounts[KPI_MODE_SALES]} | Profit: ${categoryContributionModeCounts[KPI_MODE_PROFIT]} | Excluded: ${categoryContributionModeCounts[KPI_MODE_EXCLUDED]}`
                                     : (activeKpiContributionTab === KPI_SCOPE_SALES
                                         ? 'Default mode active: mobile/laptop/tab-like categories use Profit mode, other categories use Sales mode.'
-                                        : 'Default mode active: new expense categories are Excluded from KPI expenses by default.')}
+                                        : 'Default mode active: expense/purchase categories are included in KPI expenses unless excluded.')} 
                             </div>
 
                             <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 space-y-2">
@@ -6241,11 +5422,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
             <SmartCategoryForm
                 isOpen={showInventoryForm}
-                initialData={editingProduct}
-                onClose={() => {
-                    setShowInventoryForm(false);
-                    setEditingProduct(null);
-                }}
+                onClose={() => setShowInventoryForm(false)}
                 onProcessingChange={setIsInventoryFormSubmitting}
                 onSaveSuccess={handleInventoryFormSaveSuccess}
                 onSaveError={handleInventoryFormSaveError}
@@ -6262,288 +5439,409 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 initialProduct={selectedProduct}
             />
 
-            <SoldPhonesModal
-                isOpen={showSoldPhonesModal}
-                onClose={() => setShowSoldPhonesModal(false)}
-                onViewTransaction={openTransactionDetailModal}
-            />
-
-            {showInventoryModal && (
-                <div
-                    className="fixed inset-0 z-[86] flex items-center justify-center p-2 sm:p-4 md:p-6"
-                    onClick={() => {
-                        setShowInventoryModal(false);
-                        setSelectedInventoryItem(null);
-                        setEditingStockId(null);
-                    }}
-                >
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* ── Modal Header ── */}
-                        <div className="px-4 sm:px-6 py-3.5 border-b border-slate-200 bg-slate-50/90 flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-sm">
-                                    <Boxes size={20} />
-                                </div>
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <h3 className="text-base font-black text-slate-800 tracking-tight">
-                                            Inventory
-                                        </h3>
-                                        <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-mono">
-                                            {filteredInventoryItems.length} {filteredInventoryItems.length === 1 ? 'Artikel' : 'Artikel'}
-                                        </span>
-                                    </div>
-                                    <p className="text-[11px] font-medium text-slate-500">
-                                        Lagerbestände einsehen, filtern, bearbeiten &amp; verwalten
-                                    </p>
-                                </div>
+            {showMobileInventoryModal && (
+                <div className="fixed inset-0 z-[86]" onClick={() => { setShowMobileInventoryModal(false); setSelectedMobileInventoryItem(null); }}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-black text-slate-800">Mobile Inventory</h3>
+                                <p className="text-[11px] text-slate-500">Tap Sell to open sale flow</p>
                             </div>
-
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowSoldPhonesModal(true)}
-                                    className="px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
-                                >
-                                    <Smartphone size={14} />
-                                    <span>Sold Phones</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setEditingProduct(null);
-                                        setShowInventoryForm(true);
-                                    }}
-                                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
-                                >
-                                    <Plus size={14} />
-                                    <span>Artikel hinzufügen</span>
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setShowInventoryModal(false);
-                                        setSelectedInventoryItem(null);
-                                        setEditingStockId(null);
-                                    }}
-                                    className="w-8 h-8 rounded-lg bg-slate-200/60 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors font-bold"
-                                >
-                                    <X size={16} />
-                                </button>
-                            </div>
+                            <button onClick={() => { setShowMobileInventoryModal(false); setSelectedMobileInventoryItem(null); }} className="text-slate-500 hover:text-slate-700">x</button>
                         </div>
 
-                        {/* ── Filter Controls on Top ── */}
-                        <div className="p-4 border-b border-slate-100 bg-white space-y-3">
-                            {/* Search + Stock Status + Sort Controls */}
-                            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
-                                {/* Search Bar */}
-                                <div className="md:col-span-6 relative">
-                                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                    <input
-                                        value={inventorySearch}
-                                        onChange={(e) => setInventorySearch(e.target.value)}
-                                        placeholder="Suche nach Name, Barcode/IMEI, Kategorie, Specs..."
-                                        className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium text-slate-800 placeholder-slate-400 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all outline-none"
-                                    />
-                                    {inventorySearch && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setInventorySearch('')}
-                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
-                                        >
-                                            <X size={13} />
-                                        </button>
-                                    )}
-                                </div>
+                        <div className="p-4 space-y-3">
+                            <input
+                                value={mobileInventorySearch}
+                                onChange={(e) => setMobileInventorySearch(e.target.value)}
+                                placeholder="Search mobile by name/category/barcode..."
+                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                            />
 
-                                {/* Stock Status Filter */}
-                                <div className="md:col-span-3">
-                                    <div className="relative">
-                                        <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                        <select
-                                            value={inventoryStockFilter}
-                                            onChange={(e) => setInventoryStockFilter(e.target.value)}
-                                            className="w-full pl-8 pr-7 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 appearance-none focus:bg-white focus:border-blue-500 outline-none cursor-pointer"
-                                        >
-                                            <option value="all">📦 Alle Bestände</option>
-                                            <option value="in_stock">✅ Auf Lager (&gt;0)</option>
-                                            <option value="low_stock">⚠️ Niedriger Bestand (≤5)</option>
-                                            <option value="out_of_stock">❌ Nicht vorrätig (0)</option>
-                                        </select>
-                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                    </div>
-                                </div>
-
-                                {/* Sort Options */}
-                                <div className="md:col-span-3">
-                                    <div className="relative">
-                                        <ArrowUpDown size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                        <select
-                                            value={inventorySort}
-                                            onChange={(e) => setInventorySort(e.target.value)}
-                                            className="w-full pl-8 pr-7 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 appearance-none focus:bg-white focus:border-blue-500 outline-none cursor-pointer"
-                                        >
-                                            <option value="default">🕒 Neueste zuerst</option>
-                                            <option value="name_asc">🔤 Name (A → Z)</option>
-                                            <option value="name_desc">🔤 Name (Z → A)</option>
-                                            <option value="stock_desc">📈 Bestand: Hoch → Tief</option>
-                                            <option value="stock_asc">📉 Bestand: Tief → Hoch</option>
-                                            <option value="price_desc">💰 Preis: Hoch → Tief</option>
-                                            <option value="price_asc">🏷️ Preis: Tief → Hoch</option>
-                                        </select>
-                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                    </div>
-                                </div>
+                            <div className="flex items-center gap-1.5">
+                                {[
+                                    { id: 'iphone', label: 'iPhone' },
+                                    { id: 'samsung', label: 'Samsung' },
+                                    { id: 'others', label: 'Others' },
+                                    { id: 'all', label: 'All' },
+                                ].map((tab) => (
+                                    <button
+                                        key={`mobile-tab-${tab.id}`}
+                                        type="button"
+                                        onClick={() => setMobileInventoryTab(tab.id)}
+                                        className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${mobileInventoryTab === tab.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:border-blue-300'}`}
+                                    >
+                                        {tab.label}
+                                    </button>
+                                ))}
                             </div>
 
-                            {/* ── Category Chips (Level 1) ── */}
-                            <div className="space-y-2 pt-1">
-                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
-                                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 flex-shrink-0 mr-1">
-                                        <Layers size={13} />
-                                        <span>Kategorien:</span>
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setInventoryCategory('all');
-                                            setInventorySubCategory('all');
-                                        }}
-                                        className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1 flex-shrink-0 ${
-                                            inventoryCategory === 'all'
-                                                ? 'bg-blue-600 text-white shadow-xs'
-                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80'
-                                        }`}
-                                    >
-                                        <span>Alle</span>
-                                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                                            inventoryCategory === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-500'
-                                        }`}>
-                                            {typeScopedInventoryItems.length}
-                                        </span>
-                                    </button>
+                            <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/40">
+                                <div className="sticky top-0 z-10 grid grid-cols-12 gap-2 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 backdrop-blur-sm">
+                                    <div className="col-span-6">Product Info</div>
+                                    <div className="col-span-2 text-center">Stock</div>
+                                    <div className="col-span-2">Pricing &amp; Margin</div>
+                                    <div className="col-span-2 text-right">Actions</div>
+                                </div>
 
-                                    {inventoryCategoryOptions.map((cat) => (
-                                        <button
-                                            key={`cat-chip-${cat.name}`}
-                                            type="button"
-                                            title="Click to filter, hold to hide from dashboard"
-                                            onMouseDown={() => startCategoryLongPress(cat.name, 1, '', 'sales')}
-                                            onMouseUp={cancelCategoryLongPress}
-                                            onMouseLeave={cancelCategoryLongPress}
-                                            onTouchStart={() => startCategoryLongPress(cat.name, 1, '', 'sales')}
-                                            onTouchEnd={cancelCategoryLongPress}
-                                            onClick={() => {
-                                                if (categoryLongPressTriggeredRef.current) return;
-                                                setInventoryCategory(cat.name);
-                                                setInventorySubCategory('all');
-                                            }}
-                                            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 flex-shrink-0 ${
-                                                inventoryCategory.toLowerCase() === cat.name.toLowerCase()
-                                                    ? 'bg-blue-600 text-white shadow-xs'
-                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80'
-                                            }`}
+                                <div className="space-y-1.5 p-2">
+                                {filteredMobileInventoryProducts.length === 0 ? (
+                                    <p className="text-xs text-slate-400 p-2">No mobile products found in inventory.</p>
+                                ) : filteredMobileInventoryProducts.map((item) => (
+                                    <div
+                                        key={item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}
+                                        className={`rounded-lg border px-3 py-2.5 transition-colors hover:bg-blue-50/30 ${(() => {
+                                            const stockValue = Number(item.snapshot.stock) || 0;
+                                            const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                            const redThreshold = Number(alertCfg.red);
+                                            const yellowThreshold = Number(alertCfg.yellow);
+                                            const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                            const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                            const severity = stockValue <= 0
+                                                ? 'red'
+                                                : hasRed && stockValue <= redThreshold
+                                                    ? 'red'
+                                                    : hasYellow && stockValue <= yellowThreshold
+                                                        ? 'yellow'
+                                                        : getStockSeverity(stockValue);
+                                            return severity === 'red'
+                                                ? 'border-red-200 bg-red-50/30'
+                                                : severity === 'yellow'
+                                                    ? 'border-amber-200 bg-amber-50/30'
+                                                    : 'border-slate-200 bg-white';
+                                        })()}`}
+                                    >
+                                        <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-center w-full">
+                                            <div className="md:col-span-6 min-w-0">
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                                        {item.snapshot.image ? (
+                                                            <img src={item.snapshot.image} alt={item.snapshot.name || 'Mobile'} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <span className="text-lg">🛠️</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-bold text-slate-800 truncate">{item.snapshot.name || 'Mobile'}</p>
+                                                        <div className="flex items-center gap-2 mt-1">
+                                                            <p className="text-[10px] font-mono text-slate-400 font-bold truncate">{item.snapshot.barcode || 'NO-BARCODE'}</p>
+                                                            <span className="text-slate-300">•</span>
+                                                            <p className="text-[10px] font-bold text-blue-500 truncate">{item.snapshot.subCategory || item.snapshot.category || 'Uncategorized'}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-wrap gap-1 mt-2">
+                                                    {Object.entries(item.raw?.attributes && typeof item.raw.attributes === 'object' ? item.raw.attributes : {})
+                                                        .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
+                                                        .slice(0, 8)
+                                                        .map(([key, value]) => (
+                                                            <span key={`${item.snapshot.id || item.snapshot.barcode || item.snapshot.name}-${key}`} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
+                                                                {String(key).toUpperCase()}: {String(value)}
+                                                            </span>
+                                                        ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="md:col-span-2 md:text-center">
+                                                <div className={`inline-flex flex-col items-center rounded-2xl border px-3 py-1 ${(() => {
+                                                    const stockValue = Number(item.snapshot.stock) || 0;
+                                                    const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                                    const redThreshold = Number(alertCfg.red);
+                                                    const yellowThreshold = Number(alertCfg.yellow);
+                                                    const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                                    const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                                    const severity = stockValue <= 0
+                                                        ? 'red'
+                                                        : hasRed && stockValue <= redThreshold
+                                                            ? 'red'
+                                                            : hasYellow && stockValue <= yellowThreshold
+                                                                ? 'yellow'
+                                                                : getStockSeverity(stockValue);
+                                                    return severity === 'red'
+                                                        ? 'bg-red-50 text-red-600 border-red-100'
+                                                        : severity === 'yellow'
+                                                            ? 'bg-amber-50 text-amber-600 border-amber-100'
+                                                            : 'bg-emerald-50 text-emerald-600 border-emerald-100';
+                                                })()}`}>
+                                                    <span className="text-2xl leading-none font-black">{item.snapshot.stock}</span>
+                                                    <span className="text-[8px] -mt-0.5 font-bold uppercase tracking-widest opacity-70">Units</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="md:col-span-2">
+                                                <div className="space-y-1 text-xs">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className="text-slate-400 font-bold">Buy:</span>
+                                                        <span className="text-slate-600 font-black">{priceTag(item.snapshot.purchasePrice || 0)}</span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className="text-slate-400 font-bold">Sell:</span>
+                                                        <span className="text-blue-600 font-black">{priceTag(item.snapshot.sellingPrice || 0)}</span>
+                                                    </div>
+                                                    <div className="pt-1 flex items-center md:justify-center">
+                                                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${(() => {
+                                                            const sell = Number(item.snapshot.sellingPrice) || 0;
+                                                            const buy = Number(item.snapshot.purchasePrice) || 0;
+                                                            const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
+                                                            return margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600';
+                                                        })()}`}>
+                                                            {(() => {
+                                                                const sell = Number(item.snapshot.sellingPrice) || 0;
+                                                                const buy = Number(item.snapshot.purchasePrice) || 0;
+                                                                const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
+                                                                return `${margin.toFixed(1)}% MARGIN`;
+                                                            })()}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="md:col-span-2">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => printMobileLabel(item.raw)}
+                                                        title="Print Label"
+                                                        className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
+                                                    >
+                                                        <Tags size={14} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedMobileInventoryItem(item)}
+                                                        title="Details"
+                                                        className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                    >
+                                                        <Eye size={14} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => sellMobileFromInventory(item.raw)}
+                                                        title="Sell"
+                                                        className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
+                                                    >
+                                                        <ShoppingCart size={14} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showOtherInventoryModal && (
+                <div className="fixed inset-0 z-[86]" onClick={() => setShowOtherInventoryModal(false)}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-14 mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-black text-slate-800">Other Inventory</h3>
+                                <p className="text-[11px] text-slate-500">All non-mobile inventory stocks</p>
+                            </div>
+                            <button onClick={() => setShowOtherInventoryModal(false)} className="text-slate-500 hover:text-slate-700">x</button>
+                        </div>
+
+                        <div className="p-4 space-y-3">
+                            <input
+                                value={otherInventorySearch}
+                                onChange={(e) => setOtherInventorySearch(e.target.value)}
+                                placeholder="Search inventory by name/category/barcode..."
+                                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                            />
+
+                            <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/40">
+                                <div className="sticky top-0 z-10 grid grid-cols-12 gap-2 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 backdrop-blur-sm">
+                                    <div className="col-span-6">Product Info</div>
+                                    <div className="col-span-2 text-center">Stock</div>
+                                    <div className="col-span-2">Pricing &amp; Margin</div>
+                                    <div className="col-span-2 text-right">Actions</div>
+                                </div>
+
+                                <div className="space-y-1.5 p-2">
+                                    {otherInventoryProducts.length === 0 ? (
+                                        <p className="text-xs text-slate-400 p-2">No other inventory products found.</p>
+                                    ) : otherInventoryProducts.map((item) => (
+                                        <div
+                                            key={`other-${item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}`}
+                                            className={`rounded-lg border px-3 py-2.5 transition-colors hover:bg-blue-50/30 ${(() => {
+                                                const stockValue = Number(item.snapshot.stock) || 0;
+                                                const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                                const redThreshold = Number(alertCfg.red);
+                                                const yellowThreshold = Number(alertCfg.yellow);
+                                                const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                                const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                                const severity = stockValue <= 0
+                                                    ? 'red'
+                                                    : hasRed && stockValue <= redThreshold
+                                                        ? 'red'
+                                                        : hasYellow && stockValue <= yellowThreshold
+                                                            ? 'yellow'
+                                                            : getStockSeverity(stockValue);
+                                                return severity === 'red'
+                                                    ? 'border-red-200 bg-red-50/30'
+                                                    : severity === 'yellow'
+                                                        ? 'border-amber-200 bg-amber-50/30'
+                                                        : 'border-slate-200 bg-white';
+                                            })()}`}
                                         >
-                                            <span>{cat.name}</span>
-                                            {cat.count > 0 && (
-                                                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                                                    inventoryCategory.toLowerCase() === cat.name.toLowerCase()
-                                                        ? 'bg-blue-700 text-white'
-                                                        : 'bg-slate-200 text-slate-500'
-                                                }`}>
-                                                    {cat.count}
-                                                </span>
-                                            )}
-                                        </button>
+                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-center w-full">
+                                                <div className="md:col-span-6 min-w-0">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                                            {item.snapshot.image ? (
+                                                                <img src={item.snapshot.image} alt={item.snapshot.name || 'Inventory'} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <span className="text-lg">🛠️</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <p className="text-sm font-bold text-slate-800 truncate">{item.snapshot.name || 'Inventory Item'}</p>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                <p className="text-[10px] font-mono text-slate-400 font-bold truncate">{item.snapshot.barcode || 'NO-BARCODE'}</p>
+                                                                <span className="text-slate-300">•</span>
+                                                                <p className="text-[10px] font-bold text-blue-500 truncate">{item.snapshot.subCategory || item.snapshot.category || 'Uncategorized'}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-1 mt-2">
+                                                        {Object.entries(item.raw?.attributes && typeof item.raw.attributes === 'object' ? item.raw.attributes : {})
+                                                            .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
+                                                            .slice(0, 8)
+                                                            .map(([key, value]) => (
+                                                                <span key={`${item.snapshot.id || item.snapshot.barcode || item.snapshot.name}-${key}`} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
+                                                                    {String(key).toUpperCase()}: {String(value)}
+                                                                </span>
+                                                            ))}
+                                                    </div>
+                                                </div>
+
+                                                <div className="md:col-span-2 md:text-center">
+                                                    <div className={`inline-flex flex-col items-center rounded-2xl border px-3 py-1 ${(() => {
+                                                        const stockValue = Number(item.snapshot.stock) || 0;
+                                                        const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                                        const redThreshold = Number(alertCfg.red);
+                                                        const yellowThreshold = Number(alertCfg.yellow);
+                                                        const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                                        const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                                        const severity = stockValue <= 0
+                                                            ? 'red'
+                                                            : hasRed && stockValue <= redThreshold
+                                                                ? 'red'
+                                                                : hasYellow && stockValue <= yellowThreshold
+                                                                    ? 'yellow'
+                                                                    : getStockSeverity(stockValue);
+                                                        return severity === 'red'
+                                                            ? 'bg-red-50 text-red-600 border-red-100'
+                                                            : severity === 'yellow'
+                                                                ? 'bg-amber-50 text-amber-600 border-amber-100'
+                                                                : 'bg-emerald-50 text-emerald-600 border-emerald-100';
+                                                    })()}`}>
+                                                        <span className="text-2xl leading-none font-black">{item.snapshot.stock}</span>
+                                                        <span className="text-[8px] -mt-0.5 font-bold uppercase tracking-widest opacity-70">Units</span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="md:col-span-2">
+                                                    <div className="space-y-1 text-xs">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-slate-400 font-bold">Buy:</span>
+                                                            <span className="text-slate-600 font-black">{priceTag(item.snapshot.purchasePrice || 0)}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-slate-400 font-bold">Sell:</span>
+                                                            <span className="text-blue-600 font-black">{priceTag(item.snapshot.sellingPrice || 0)}</span>
+                                                        </div>
+                                                        <div className="pt-1 flex items-center md:justify-center">
+                                                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${(() => {
+                                                                const sell = Number(item.snapshot.sellingPrice) || 0;
+                                                                const buy = Number(item.snapshot.purchasePrice) || 0;
+                                                                const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
+                                                                return margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600';
+                                                            })()}`}>
+                                                                {(() => {
+                                                                    const sell = Number(item.snapshot.sellingPrice) || 0;
+                                                                    const buy = Number(item.snapshot.purchasePrice) || 0;
+                                                                    const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
+                                                                    return `${margin.toFixed(1)}% MARGIN`;
+                                                                })()}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="md:col-span-2">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => printMobileLabel(item.raw)}
+                                                            title="Print Label"
+                                                            className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <Tags size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openSalesFormWithProduct(item.raw)}
+                                                            title="Details"
+                                                            className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <Eye size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => sellMobileFromInventory(item.raw)}
+                                                            title="Sell"
+                                                            className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <ShoppingCart size={14} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
-
-                                {/* ── Sub Category Chips (Level 2) ── */}
-                                {inventoryCategory !== 'all' && inventorySubCategoryOptions.length > 0 && (
-                                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 no-scrollbar text-xs bg-slate-50/90 px-2.5 py-1.5 rounded-xl border border-slate-100">
-                                        <span className="text-[11px] font-bold text-indigo-500 uppercase tracking-wider flex items-center gap-1 flex-shrink-0 mr-1">
-                                            <ChevronRight size={13} />
-                                            <span>Unterkategorien:</span>
-                                        </span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setInventorySubCategory('all')}
-                                            className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all flex-shrink-0 ${
-                                                inventorySubCategory === 'all'
-                                                    ? 'bg-indigo-600 text-white shadow-xs'
-                                                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                                            }`}
-                                        >
-                                            Alle {inventoryCategory}
-                                        </button>
-
-                                        {inventorySubCategoryOptions.map((sub) => (
-                                            <button
-                                                key={`subcat-chip-${sub.name}`}
-                                                type="button"
-                                                title="Click to filter, hold to hide from dashboard"
-                                                onMouseDown={() => startCategoryLongPress(sub.name, 2, inventoryCategory, 'sales')}
-                                                onMouseUp={cancelCategoryLongPress}
-                                                onMouseLeave={cancelCategoryLongPress}
-                                                onTouchStart={() => startCategoryLongPress(sub.name, 2, inventoryCategory, 'sales')}
-                                                onTouchEnd={cancelCategoryLongPress}
-                                                onClick={() => {
-                                                    if (categoryLongPressTriggeredRef.current) return;
-                                                    setInventorySubCategory(sub.name);
-                                                }}
-                                                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 flex-shrink-0 ${
-                                                    inventorySubCategory.toLowerCase() === sub.name.toLowerCase()
-                                                        ? 'bg-indigo-600 text-white shadow-xs'
-                                                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                                                }`}
-                                            >
-                                                <span>{sub.name}</span>
-                                                {sub.count > 0 && (
-                                                    <span className={`text-[9px] px-1 py-0.2 rounded ${
-                                                        inventorySubCategory.toLowerCase() === sub.name.toLowerCase()
-                                                            ? 'bg-indigo-700 text-white'
-                                                            : 'bg-slate-100 text-slate-500'
-                                                    }`}>
-                                                        {sub.count}
-                                                    </span>
-                                                )}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
                             </div>
                         </div>
+                    </div>
+                </div>
+            )}
 
-                        {/* ── Product List with Stock Edit, Full Edit & Delete ── */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/40">
-                            {filteredInventoryItems.length === 0 ? (
-                                <div className="text-center py-12 px-4 rounded-xl border border-dashed border-slate-200 bg-white">
-                                    <Boxes size={36} className="mx-auto text-slate-300 mb-2" />
-                                    <p className="text-sm font-bold text-slate-700">Keine Produkte gefunden</p>
-                                    <p className="text-xs text-slate-400 mt-0.5">Versuche einen anderen Suchbegriff oder passe die Filter an.</p>
-                                    {(inventorySearch || inventoryCategory !== 'all' || inventorySubCategory !== 'all' || inventoryStockFilter !== 'all') && (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setInventorySearch('');
-                                                setInventoryCategory('all');
-                                                setInventorySubCategory('all');
-                                                setInventoryStockFilter('all');
-                                            }}
-                                            className="mt-3 px-3 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
-                                        >
-                                            Filter zurücksetzen
-                                        </button>
-                                    )}
+            {selectedMobileInventoryItem && (
+                <div className="fixed inset-0 z-[90]" onClick={() => setSelectedMobileInventoryItem(null)}>
+                    <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" />
+                    <div className="absolute inset-x-3 top-16 mx-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                            <h3 className="text-sm font-black text-slate-800">Mobile Details</h3>
+                            <button onClick={() => setSelectedMobileInventoryItem(null)} className="text-slate-500 hover:text-slate-700">x</button>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <div className="flex items-center gap-3">
+                                {selectedMobileInventoryItem.snapshot.image ? (
+                                    <img src={selectedMobileInventoryItem.snapshot.image} alt={selectedMobileInventoryItem.snapshot.name || 'Mobile'} className="w-16 h-16 rounded-lg border border-slate-200 object-cover" />
+                                ) : (
+                                    <div className="w-16 h-16 rounded-lg border border-slate-200 bg-slate-100 text-slate-400 text-xs flex items-center justify-center">No Image</div>
+                                )}
+                                <div className="min-w-0">
+                                    <p className="text-sm font-black text-slate-800 truncate">{selectedMobileInventoryItem.snapshot.name || 'Mobile'}</p>
+                                    <p className="text-xs text-slate-500 truncate">{selectedMobileInventoryItem.snapshot.barcode || 'No barcode'}</p>
                                 </div>
-                            ) : (
-                                filteredInventoryItems.map((item) => {
-                                    const stockValue = Number(item.snapshot.stock) || 0;
-                                    const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Category</p><p className="font-bold text-slate-700">{selectedMobileInventoryItem.snapshot.category || '-'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Sub Category</p><p className="font-bold text-slate-700">{selectedMobileInventoryItem.snapshot.subCategory || '-'}</p></div>
+                                <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Stock</p><p className={`font-black text-base ${(() => {
+                                    const stockValue = Number(selectedMobileInventoryItem.snapshot.stock) || 0;
+                                    const alertCfg = selectedMobileInventoryItem.raw?.stockAlert && typeof selectedMobileInventoryItem.raw.stockAlert === 'object'
+                                        ? selectedMobileInventoryItem.raw.stockAlert
+                                        : {};
                                     const redThreshold = Number(alertCfg.red);
                                     const yellowThreshold = Number(alertCfg.yellow);
                                     const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
@@ -6555,418 +5853,37 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                             : hasYellow && stockValue <= yellowThreshold
                                                 ? 'yellow'
                                                 : getStockSeverity(stockValue);
-
-                                    const isEditingThis = editingStockId === String(item.snapshot.id);
-                                    const isSavingThis = savingStockId === String(item.snapshot.id);
-                                    const isDeletingThis = deletingProductId === String(item.snapshot.id);
-
-                                    return (
-                                        <div
-                                            key={`inv-item-${item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}`}
-                                            className={`rounded-xl border p-3 bg-white transition-all hover:shadow-sm ${
-                                                severity === 'red'
-                                                    ? 'border-red-200/80 bg-red-50/20'
-                                                    : severity === 'yellow'
-                                                        ? 'border-amber-200/80 bg-amber-50/20'
-                                                        : 'border-slate-200/90'
-                                            }`}
-                                        >
-                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                                                {/* 1. Product Info & Thumbnail (col-span-4) */}
-                                                <div className="md:col-span-4 min-w-0">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                            {item.snapshot.image ? (
-                                                                <img src={item.snapshot.image} alt={item.snapshot.name} className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <span className="text-xl">{item.isMobile ? '📱' : '📦'}</span>
-                                                            )}
-                                                        </div>
-                                                        <div className="min-w-0 flex-1">
-                                                            <p className="text-sm font-bold text-slate-800 truncate" title={item.snapshot.name}>
-                                                                {item.snapshot.name || 'Unbenanntes Produkt'}
-                                                            </p>
-                                                            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                                                                {item.snapshot.barcode && (
-                                                                    <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
-                                                                        {item.snapshot.barcode}
-                                                                    </span>
-                                                                )}
-                                                                <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100/60 px-1.5 py-0.2 rounded">
-                                                                    {item.snapshot.category || 'Allgemein'}
-                                                                </span>
-                                                                {item.snapshot.subCategory && (
-                                                                    <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
-                                                                        {item.snapshot.subCategory}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Attributes Pills */}
-                                                    {item.raw?.attributes && typeof item.raw.attributes === 'object' && (
-                                                        <div className="flex flex-wrap gap-1 mt-2">
-                                                            {Object.entries(item.raw.attributes)
-                                                                .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
-                                                                .slice(0, 6)
-                                                                .map(([key, value]) => (
-                                                                    <span
-                                                                        key={`${item.snapshot.id}-${key}`}
-                                                                        className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 text-[9px] font-bold"
-                                                                    >
-                                                                        {String(key).toUpperCase()}: {String(value)}
-                                                                    </span>
-                                                                ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* 2. Stock Management (Salesman Stock Editor) (col-span-3) */}
-                                                <div className="md:col-span-3 flex flex-col items-start md:items-center justify-center">
-                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                                                        Lagerbestand (Stock)
-                                                    </p>
-
-                                                    {isEditingThis ? (
-                                                        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-blue-300 shadow-xs animate-in zoom-in-95 duration-150">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setEditingStockVal((prev) => String(Math.max(0, (parseInt(prev, 10) || 0) - 1)))}
-                                                                className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 border border-slate-200 flex items-center justify-center font-bold text-sm transition-colors"
-                                                            >
-                                                                -
-                                                            </button>
-                                                            <input
-                                                                type="number"
-                                                                min="0"
-                                                                autoFocus
-                                                                value={editingStockVal}
-                                                                onChange={(e) => setEditingStockVal(e.target.value)}
-                                                                onKeyDown={(e) => {
-                                                                    if (e.key === 'Enter') handleSaveStock(item.snapshot.id, editingStockVal);
-                                                                    if (e.key === 'Escape') cancelEditingStock();
-                                                                }}
-                                                                className="w-14 text-center py-0.5 rounded-lg border border-slate-300 bg-white font-black text-sm text-slate-800 outline-none focus:ring-1 focus:ring-blue-500"
-                                                            />
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setEditingStockVal((prev) => String((parseInt(prev, 10) || 0) + 1))}
-                                                                className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-200 flex items-center justify-center font-bold text-sm transition-colors"
-                                                            >
-                                                                +
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                disabled={isSavingThis}
-                                                                onClick={() => handleSaveStock(item.snapshot.id, editingStockVal)}
-                                                                title="Speichern"
-                                                                className="w-7 h-7 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center shadow-xs transition-colors"
-                                                            >
-                                                                <Check size={14} />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={cancelEditingStock}
-                                                                title="Abbrechen"
-                                                                className="w-7 h-7 rounded-lg bg-slate-200 text-slate-600 hover:bg-slate-300 flex items-center justify-center transition-colors"
-                                                            >
-                                                                <X size={14} />
-                                                            </button>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex items-center gap-1.5">
-                                                            {/* Quick Minus */}
-                                                            <button
-                                                                type="button"
-                                                                disabled={isSavingThis || stockValue <= 0}
-                                                                onClick={() => handleQuickStockStep(item.snapshot, -1)}
-                                                                title="1 abziehen"
-                                                                className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 flex items-center justify-center font-bold text-xs transition-colors disabled:opacity-30"
-                                                            >
-                                                                -
-                                                            </button>
-
-                                                            {/* Stock Badge */}
-                                                            <div
-                                                                onClick={() => startEditingStock(item)}
-                                                                title="Klick zum Bearbeiten"
-                                                                className={`cursor-pointer group flex items-center gap-1.5 px-3 py-1 rounded-xl border transition-all hover:scale-105 ${
-                                                                    severity === 'red'
-                                                                        ? 'bg-red-50 text-red-700 border-red-200'
-                                                                        : severity === 'yellow'
-                                                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                                }`}
-                                                            >
-                                                                <span className="text-base font-black leading-none font-mono">
-                                                                    {stockValue}
-                                                                </span>
-                                                                <span className="text-[9px] uppercase font-bold tracking-wider opacity-70">
-                                                                    Stk.
-                                                                </span>
-                                                                <Edit2 size={11} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500" />
-                                                            </div>
-
-                                                            {/* Quick Plus */}
-                                                            <button
-                                                                type="button"
-                                                                disabled={isSavingThis}
-                                                                onClick={() => handleQuickStockStep(item.snapshot, 1)}
-                                                                title="1 hinzufügen"
-                                                                className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 border border-slate-200 flex items-center justify-center font-bold text-xs transition-colors"
-                                                            >
-                                                                +
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* 3. Pricing & Margin (col-span-2) */}
-                                                <div className="md:col-span-2 text-xs space-y-1">
-                                                    <div className="flex items-center justify-between gap-1">
-                                                        <span className="text-slate-400 font-medium">EK:</span>
-                                                        <span className="text-slate-600 font-bold font-mono">
-                                                            {priceTag(item.snapshot.purchasePrice || 0)}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between gap-1">
-                                                        <span className="text-slate-400 font-medium">VK:</span>
-                                                        <span className="text-blue-600 font-bold font-mono">
-                                                            {priceTag(item.snapshot.sellingPrice || 0)}
-                                                        </span>
-                                                    </div>
-                                                    {(() => {
-                                                        const sell = Number(item.snapshot.sellingPrice) || 0;
-                                                        const buy = Number(item.snapshot.purchasePrice) || 0;
-                                                        const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
-                                                        return (
-                                                            <div className="pt-0.5">
-                                                                <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${
-                                                                    margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
-                                                                }`}>
-                                                                    {margin.toFixed(1)}% Marge
-                                                                </span>
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                </div>
-
-                                                {/* 4. Actions: Edit Details, Delete, Label, View, Sell (col-span-3) */}
-                                                <div className="md:col-span-3 flex items-center justify-end gap-1 flex-wrap">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleEditProduct(item)}
-                                                        title="Alle Details bearbeiten"
-                                                        className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <Edit3 size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        disabled={isDeletingThis}
-                                                        onClick={() => handleDeleteProduct(item)}
-                                                        title="Produkt löschen"
-                                                        className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all flex items-center justify-center disabled:opacity-40"
-                                                    >
-                                                        <Trash2 size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => printMobileLabel(item.raw)}
-                                                        title="Etikett drucken"
-                                                        className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <Tags size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedInventoryItem(item)}
-                                                        title="Details anzeigen"
-                                                        className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <Eye size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => sellMobileFromInventory(item.raw)}
-                                                        title="Verkaufen"
-                                                        className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <ShoppingCart size={14} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {selectedInventoryItem && (
-                <div className="fixed inset-0 z-[90] flex items-center justify-center p-3" onClick={() => setSelectedInventoryItem(null)}>
-                    <div className="absolute inset-0 bg-black/50 backdrop-blur-[1px]" />
-                    <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
-                        <div className="px-4 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <Boxes size={18} className="text-blue-600" />
-                                <h3 className="text-sm font-black text-slate-800">Artikeldetails (Product Details)</h3>
-                            </div>
-                            <button onClick={() => setSelectedInventoryItem(null)} className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 flex items-center justify-center">
-                                <X size={16} />
-                            </button>
-                        </div>
-                        <div className="p-4 space-y-3.5 max-h-[78vh] overflow-y-auto">
-                            <div className="flex items-center gap-3.5">
-                                {selectedInventoryItem.snapshot.image ? (
-                                    <img src={selectedInventoryItem.snapshot.image} alt={selectedInventoryItem.snapshot.name || 'Produkt'} className="w-16 h-16 rounded-xl border border-slate-200 object-cover flex-shrink-0" />
-                                ) : (
-                                    <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 text-xs flex items-center justify-center flex-shrink-0">Kein Bild</div>
-                                )}
-                                <div className="min-w-0 flex-1">
-                                    <p className="text-base font-black text-slate-800 truncate">{selectedInventoryItem.snapshot.name || 'Unbenannt'}</p>
-                                    <p className="text-xs font-mono font-bold text-slate-400 truncate">{selectedInventoryItem.snapshot.barcode || 'Kein Barcode'}</p>
-                                </div>
+                                    return severity === 'red'
+                                        ? 'text-red-600'
+                                        : severity === 'yellow'
+                                            ? 'text-amber-600'
+                                            : 'text-emerald-600';
+                                        })()}`}>{selectedMobileInventoryItem.snapshot.stock}</p></div>
+                                        <div className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"><p className="text-[11px] text-slate-400">Selling Price</p><p className="font-black text-emerald-700 text-base">{priceTag(selectedMobileInventoryItem.snapshot.sellingPrice || 0)}</p></div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5"><p className="text-[10px] font-bold text-slate-400 uppercase">Kategorie</p><p className="font-bold text-slate-800 mt-0.5">{selectedInventoryItem.snapshot.category || '-'}</p></div>
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5"><p className="text-[10px] font-bold text-slate-400 uppercase">Unterkategorie</p><p className="font-bold text-slate-800 mt-0.5">{selectedInventoryItem.snapshot.subCategory || '-'}</p></div>
-                                
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Bestand (Stock)</p>
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <button
-                                            type="button"
-                                            disabled={savingStockId === String(selectedInventoryItem.snapshot.id) || (Number(selectedInventoryItem.snapshot.stock) || 0) <= 0}
-                                            onClick={async () => {
-                                                await handleQuickStockStep(selectedInventoryItem.snapshot, -1);
-                                                setSelectedInventoryItem((prev) => prev ? { ...prev, snapshot: { ...prev.snapshot, stock: Math.max(0, (Number(prev.snapshot.stock) || 0) - 1) } } : null);
-                                            }}
-                                            className="w-6 h-6 rounded bg-slate-200 hover:bg-rose-100 text-slate-700 hover:text-rose-700 font-black text-xs flex items-center justify-center disabled:opacity-40 transition-colors"
-                                        >
-                                            -
-                                        </button>
-                                        <span className={`font-black text-base font-mono ${(() => {
-                                            const stockValue = Number(selectedInventoryItem.snapshot.stock) || 0;
-                                            return stockValue <= 0 ? 'text-red-600' : 'text-emerald-600';
-                                        })()}`}>
-                                            {selectedInventoryItem.snapshot.stock}
-                                        </span>
-                                        <button
-                                            type="button"
-                                            disabled={savingStockId === String(selectedInventoryItem.snapshot.id)}
-                                            onClick={async () => {
-                                                await handleQuickStockStep(selectedInventoryItem.snapshot, 1);
-                                                setSelectedInventoryItem((prev) => prev ? { ...prev, snapshot: { ...prev.snapshot, stock: (Number(prev.snapshot.stock) || 0) + 1 } } : null);
-                                            }}
-                                            className="w-6 h-6 rounded bg-slate-200 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 font-black text-xs flex items-center justify-center disabled:opacity-40 transition-colors"
-                                        >
-                                            +
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Verkaufspreis (VK)</p>
-                                    <p className="font-black text-emerald-700 text-base font-mono mt-0.5">{priceTag(selectedInventoryItem.snapshot.sellingPrice || 0)}</p>
-                                </div>
-
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Einkaufspreis (EK)</p>
-                                    <p className="font-bold text-slate-700 font-mono mt-0.5">{priceTag(selectedInventoryItem.snapshot.purchasePrice || 0)}</p>
-                                </div>
-
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Marge</p>
-                                    <p className="font-bold text-blue-600 font-mono mt-0.5">
-                                        {(() => {
-                                            const sell = Number(selectedInventoryItem.snapshot.sellingPrice) || 0;
-                                            const buy = Number(selectedInventoryItem.snapshot.purchasePrice) || 0;
-                                            const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
-                                            return `${margin.toFixed(1)}%`;
-                                        })()}
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* Attributes */}
-                            {selectedInventoryItem.raw?.attributes && Object.keys(selectedInventoryItem.raw.attributes).length > 0 && (
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5 space-y-1.5">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Eigenschaften &amp; Spezifikationen</p>
-                                    <div className="flex flex-wrap gap-1">
-                                        {Object.entries(selectedInventoryItem.raw.attributes)
-                                            .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
-                                            .map(([key, value]) => (
-                                                <span key={`attr-detail-${key}`} className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600 text-[10px] font-bold">
-                                                    {String(key).toUpperCase()}: {String(value)}
-                                                </span>
-                                            ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Notes */}
-                            {selectedInventoryItem.raw?.notes && (
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase">Notizen</p>
-                                    <p className="text-xs text-slate-600 mt-0.5">{selectedInventoryItem.raw.notes}</p>
-                                </div>
-                            )}
-
-                            {/* Action Footer */}
-                            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 flex-wrap">
-                                <div className="flex items-center gap-1.5">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleDeleteProduct(selectedInventoryItem)}
-                                        className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 flex items-center gap-1 transition-colors"
-                                    >
-                                        <Trash2 size={13} />
-                                        <span>Löschen</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            const itm = selectedInventoryItem;
-                                            setSelectedInventoryItem(null);
-                                            handleEditProduct(itm);
-                                        }}
-                                        className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 flex items-center gap-1 transition-colors"
-                                    >
-                                        <Edit3 size={13} />
-                                        <span>Bearbeiten</span>
-                                    </button>
-                                </div>
-
-                                <div className="flex items-center gap-1.5">
-                                    <button
-                                        type="button"
-                                        onClick={() => printMobileLabel(selectedInventoryItem.raw)}
-                                        className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 flex items-center gap-1 transition-colors"
-                                    >
-                                        <Tags size={13} />
-                                        <span>Etikett</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setSelectedInventoryItem(null)}
-                                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
-                                    >
-                                        Schließen
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => sellMobileFromInventory(selectedInventoryItem.raw)}
-                                        className="rounded-xl bg-emerald-600 text-white px-3.5 py-1.5 text-xs font-bold hover:bg-emerald-700 flex items-center gap-1 transition-colors"
-                                    >
-                                        <ShoppingCart size={13} />
-                                        <span>Verkaufen</span>
-                                    </button>
-                                </div>
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => printMobileLabel(selectedMobileInventoryItem.raw)}
+                                    className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                                >
+                                    Print Label
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedMobileInventoryItem(null)}
+                                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                                >
+                                    Close
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => sellMobileFromInventory(selectedMobileInventoryItem.raw)}
+                                    className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-emerald-700"
+                                >
+                                    Sell
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -6988,32 +5905,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="p-4 space-y-3">
                             <div className="grid grid-cols-2 md:grid-cols-6 gap-1.5">
                                 <input value={quickSaleForm.barcode} readOnly placeholder="Barcode" className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
-                                <input
-                                    list="quickSaleTitlesDatalist"
-                                    value={quickSaleForm.name}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        const matched = products.find(p => p && String(p.name || '').toLowerCase() === val.toLowerCase());
-                                        if (matched) {
-                                            setQuickSaleForm(prev => ({
-                                                ...prev,
-                                                name: matched.name || val,
-                                                barcode: matched.barcode || prev.barcode,
-                                                amount: matched.sellingPrice ? String(matched.sellingPrice) : prev.amount,
-                                                category: typeof matched.category === 'object' ? (matched.category?.level1 || prev.category) : (matched.category || prev.category),
-                                            }));
-                                        } else {
-                                            setQuickSaleForm((prev) => ({ ...prev, name: val }));
-                                        }
-                                    }}
-                                    placeholder="Product"
-                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2"
-                                />
-                                <datalist id="quickSaleTitlesDatalist">
-                                    {products.slice(0, 50).map((p, idx) => (
-                                        p?.name ? <option key={`qs-dl-${idx}`} value={p.name} /> : null
-                                    ))}
-                                </datalist>
+                                <input value={quickSaleForm.name} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Product" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
                                 <input type="number" min="1" value={quickSaleForm.quantity} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, quantity: e.target.value }))} placeholder="Qty" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700" />
                                 <input type="number" step="0.01" value={quickSaleForm.amount} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700" />
                                 <input value={quickSaleForm.category} onChange={(e) => setQuickSaleForm((prev) => ({ ...prev, category: e.target.value }))} placeholder="Category" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 md:col-span-2" />
@@ -7088,32 +5980,28 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             {showPendingOrders && (
                 <div className="fixed inset-0 z-[80]" onClick={() => setShowPendingOrders(false)}>
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-                    <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
-                        <div className="bg-gradient-to-r from-rose-500 to-orange-500 p-4 sm:p-5 flex items-center justify-between shadow-sm">
+                    <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="bg-gradient-to-r from-rose-500 to-orange-500 p-5 flex items-center justify-between">
                             <div>
-                                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                                    <ClipboardList size={20} /> Pending Center
-                                </h2>
-                                <p className="text-xs text-rose-100">Repair order tracking & history</p>
+                                <h2 className="text-lg font-bold text-white">Pending Center</h2>
+                                <p className="text-xs text-rose-100">Repair order tracking</p>
                             </div>
-                            <button onClick={() => setShowPendingOrders(false)} className="text-white hover:bg-white/20 p-1.5 rounded-xl transition-colors text-lg">
-                                <X size={20} />
-                            </button>
+                            <button onClick={() => setShowPendingOrders(false)} className="text-white text-lg">x</button>
                         </div>
 
-                        <div className="px-4 pt-3 pb-1 border-b border-slate-100">
+                        <div className="px-4 pt-3">
                             <div className="rounded-xl bg-slate-100 p-1 grid grid-cols-2 gap-1">
                                 <button
                                     onClick={() => setPendingTab('orders')}
-                                    className={`rounded-lg py-2 text-xs font-bold transition-all ${pendingTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                    className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'orders' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
                                 >
-                                    🔧 Reparatur & Abholschein
+                                    Reparatur & Abholschein
                                 </button>
                                 <button
                                     onClick={() => setPendingTab('online')}
-                                    className={`rounded-lg py-2 text-xs font-bold transition-all ${pendingTab === 'online' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                    className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${pendingTab === 'online' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}
                                 >
-                                    📦 Online Orders Abholschein
+                                    Online Orders Abholschein
                                 </button>
                             </div>
                         </div>
@@ -7121,345 +6009,141 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
                             {pendingTab === 'orders' ? (
                                 <>
-                                    {/* Sub-tabs: Active Jobs | Jobs History | All */}
-                                    <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
+                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                    <input
+                                        value={repairSearchQuery}
+                                        onChange={(e) => setRepairSearchQuery(e.target.value)}
+                                        placeholder="Search invoice, customer, phone, device..."
+                                        className="w-full text-xs text-slate-700 placeholder:text-slate-400 bg-transparent outline-none"
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
+                                    {[
+                                        { id: 'active', label: 'Aktiv (Active)' },
+                                        { id: 'in_progress', label: '🔧 In Bearbeitung' },
+                                        { id: 'ready', label: '📦 Abholbereit' },
+                                        { id: 'pending', label: '⏳ Ausstehend' },
+                                        { id: 'completed', label: '✅ Erledigt' },
+                                        { id: 'all', label: 'Alle' },
+                                    ].map((f) => (
                                         <button
+                                            key={f.id}
                                             type="button"
-                                            onClick={() => setRepairStatusTab('active')}
-                                            className={`py-1.5 rounded-lg text-xs font-bold transition-all ${repairStatusTab === 'active' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                            onClick={() => setRepairStatusFilter(f.id)}
+                                            className={`whitespace-nowrap px-2.5 py-1 rounded-lg font-semibold transition-all ${
+                                                repairStatusFilter === f.id
+                                                    ? 'bg-blue-600 text-white shadow-sm'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                            }`}
                                         >
-                                            Active ({activeRepairsCount})
+                                            {f.label}
                                         </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setRepairStatusTab('history')}
-                                            className={`py-1.5 rounded-lg text-xs font-bold transition-all ${repairStatusTab === 'history' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                        >
-                                            History ({historyRepairsCount})
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setRepairStatusTab('all')}
-                                            className={`py-1.5 rounded-lg text-xs font-bold transition-all ${repairStatusTab === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                        >
-                                            All ({repairJobs.length})
-                                        </button>
+                                    ))}
+                                </div>
+
+                                <button
+                                    onClick={() => {
+                                        setShowPendingOrders(false);
+                                        setShowRepairModal(true);
+                                    }}
+                                    className="w-full rounded-xl bg-amber-600 text-white py-2 text-sm font-semibold hover:bg-amber-700 transition-colors"
+                                >
+                                    + Add Repair Job
+                                </button>
+                                {filteredPendingOrders.length === 0 ? (
+                                    <div className="text-center py-12">
+                                        <p className="text-4xl">OK</p>
+                                        <p className="text-sm text-slate-500 mt-2">No repair orders found</p>
                                     </div>
-
-                                    {/* Filter Chips & Date Filter */}
-                                    <div className="space-y-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
-                                        {/* Top Chips: Performer / Handler */}
-                                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-[11px]">
-                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider shrink-0">Handler:</span>
-                                            <button
-                                                type="button"
-                                                onClick={() => setRepairPerformerFilter('all')}
-                                                className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 transition-all ${repairPerformerFilter === 'all' ? 'bg-slate-800 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-                                            >
-                                                All ({repairJobs.length})
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setRepairPerformerFilter('shop')}
-                                                className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 transition-all ${repairPerformerFilter === 'shop' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-                                            >
-                                                🏪 My Shop ({shopRepairsCount})
-                                            </button>
-                                            {uniqueTechnicianNames.map((tech) => (
-                                                <button
-                                                    key={tech}
-                                                    type="button"
-                                                    onClick={() => setRepairPerformerFilter(tech)}
-                                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 transition-all ${repairPerformerFilter === tech ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-                                                >
-                                                    👤 {tech} ({techCounts[tech] || 0})
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        {/* Date Preset Filter */}
-                                        <div className="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar text-[11px]">
-                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider shrink-0">Date:</span>
-                                            {[
-                                                { key: 'all', label: 'All' },
-                                                { key: 'today', label: 'Today' },
-                                                { key: 'yesterday', label: 'Yesterday' },
-                                                { key: 'this_week', label: 'This Week' },
-                                                { key: 'this_month', label: 'This Month' },
-                                                { key: 'custom', label: 'Custom' }
-                                            ].map((item) => (
-                                                <button
-                                                    key={item.key}
-                                                    type="button"
-                                                    onClick={() => setRepairDatePreset(item.key)}
-                                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold shrink-0 transition-all ${repairDatePreset === item.key ? 'bg-amber-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-                                                >
-                                                    {item.label}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        {repairDatePreset === 'custom' && (
-                                            <div className="flex items-center gap-2 pt-1">
-                                                <input
-                                                    type="date"
-                                                    value={repairCustomStartDate}
-                                                    onChange={(e) => setRepairCustomStartDate(e.target.value)}
-                                                    className="px-2 py-1 border border-slate-200 rounded-lg text-[11px] bg-white w-full"
-                                                />
-                                                <span className="text-slate-400 text-xs font-bold">to</span>
-                                                <input
-                                                    type="date"
-                                                    value={repairCustomEndDate}
-                                                    onChange={(e) => setRepairCustomEndDate(e.target.value)}
-                                                    className="px-2 py-1 border border-slate-200 rounded-lg text-[11px] bg-white w-full"
-                                                />
+                                ) : filteredPendingOrders.map((job) => (
+                                    <div key={job.id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm ring-1 ring-slate-100/70 space-y-3">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-extrabold tracking-wide text-blue-700">#{getRepairInvoiceNumber(job) || '-'}</p>
+                                                <p className="text-sm font-bold text-slate-900 truncate">{job.customerName || 'Customer'}</p>
                                             </div>
-                                        )}
-                                    </div>
+                                            <select
+                                                value={String(job.status || 'pending').toLowerCase()}
+                                                onChange={(e) => handleSetRepairStatus(job, e.target.value)}
+                                                className={`text-[11px] font-bold rounded-lg px-2 py-1 border transition-colors cursor-pointer outline-none ${
+                                                    job.status === 'in_progress'
+                                                        ? 'bg-blue-50 text-blue-700 border-blue-300'
+                                                        : job.status === 'ready' || job.status === 'ready_for_pickup'
+                                                        ? 'bg-purple-50 text-purple-700 border-purple-300'
+                                                        : job.status === 'completed'
+                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                                        : 'bg-amber-50 text-amber-700 border-amber-300'
+                                                }`}
+                                            >
+                                                <option value="pending">⏳ Ausstehend (Pending)</option>
+                                                <option value="in_progress">🔧 In Bearbeitung (In Progress)</option>
+                                                <option value="ready">📦 Abholbereit (Ready)</option>
+                                                <option value="completed">✅ Abgeschlossen (Complete)</option>
+                                            </select>
+                                        </div>
 
-                                    {/* Search Bar + Add Repair Job */}
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex-1 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-500/10">
-                                            <Search size={14} className="text-slate-400" />
-                                            <input
-                                                value={repairSearchQuery}
-                                                onChange={(e) => setRepairSearchQuery(e.target.value)}
-                                                placeholder="Search invoice, customer, device, technician, notes..."
-                                                className="w-full text-xs text-slate-700 placeholder:text-slate-400 bg-transparent outline-none"
-                                            />
-                                            {repairSearchQuery && (
-                                                <button onClick={() => setRepairSearchQuery('')} className="text-slate-400 hover:text-slate-600 text-xs font-bold">
-                                                    <X size={12} />
+                                        <div className="grid grid-cols-2 gap-1 text-[11px]">
+                                            <p className="text-slate-500"><span className="text-slate-400">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">IMEI:</span> {job.imei || '-'}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">Device:</span> {job.deviceModel || '-'}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">Delivery:</span> {job.deliveryDate || job.delivery_at || '-'}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
+                                            <p className="text-slate-500"><span className="text-slate-400">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
+                                        </div>
+
+                                        <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                            <span className="text-slate-400">Issue:</span> {job.problem || job.issueType || '-'}
+                                        </p>
+                                        {job.notes ? (
+                                            <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                                <span className="text-slate-400">Notes:</span> {job.notes}
+                                            </p>
+                                        ) : null}
+
+                                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                            <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 text-emerald-700 font-semibold">Cost: {priceTag(job.estimatedCost || 0)}</span>
+                                            <span className="rounded-lg bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-sky-700 font-semibold">Advance: {priceTag(job.advanceAmount || 0)}</span>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
+                                            {job.status !== 'in_progress' && job.status !== 'completed' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSetRepairStatus(job, 'in_progress')}
+                                                    className="rounded-lg bg-blue-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-blue-700 transition-colors cursor-pointer"
+                                                >
+                                                    In Bearbeitung
                                                 </button>
                                             )}
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                setShowPendingOrders(false);
-                                                setShowRepairModal(true);
-                                            }}
-                                            className="rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-3.5 py-2 text-xs font-bold shadow-sm transition-all shrink-0 flex items-center gap-1.5"
-                                        >
-                                            <Plus size={14} /> Add Job
-                                        </button>
-                                    </div>
-
-                                    {/* Repair Cards List */}
-                                    {filteredRepairJobsList.length === 0 ? (
-                                        <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                                            <Wrench size={32} className="text-slate-300 mx-auto mb-2" />
-                                            <p className="text-sm font-bold text-slate-600">No repair jobs found</p>
-                                            <p className="text-xs text-slate-400 mt-1">Try adjusting the filter, date, or search query</p>
-                                        </div>
-                                    ) : filteredRepairJobsList.map((job) => {
-                                        const isCompleted = String(job.status || '').toLowerCase() === 'completed';
-                                        const isExternal = String(job.repairPerformer || job.repair_performer || '').toLowerCase() === 'external' || Boolean(job.technicianName || job.technician_name);
-                                        const techName = job.technicianName || job.technician_name || '';
-                                        const extCost = parseFloat(job.externalCost ?? job.external_cost ?? 0) || 0;
-                                        const deviceLocation = job.deviceLocation || job.device_location || (isExternal ? 'sent_to_technician' : 'in_shop');
-                                        const isEditingNote = editingNoteJobId === job.id;
-
-                                        return (
-                                            <div
-                                                key={job.id}
-                                                className={`rounded-2xl border bg-white p-3.5 shadow-sm space-y-3 transition-all ${isCompleted ? 'border-emerald-200 bg-emerald-50/20' : 'border-slate-200 hover:border-slate-300'}`}
+                                            {job.status === 'in_progress' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSetRepairStatus(job, 'ready')}
+                                                    className="rounded-lg bg-purple-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-purple-700 transition-colors cursor-pointer"
+                                                >
+                                                    Abholbereit
+                                                </button>
+                                            )}
+                                            {job.status !== 'completed' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => completePendingRepair(job)}
+                                                    className="rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[11px] font-semibold hover:bg-emerald-700 transition-colors cursor-pointer"
+                                                >
+                                                    Abschließen
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => printRepairJobBill(job, activeShop)}
+                                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
                                             >
-                                                {/* Card Header */}
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="min-w-0">
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="text-xs font-extrabold tracking-wide text-blue-700">#{getRepairInvoiceNumber(job) || '-'}</p>
-                                                            {isExternal ? (
-                                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center gap-1">
-                                                                    👤 {techName || 'External'} {extCost > 0 ? `(€${extCost.toFixed(2)})` : ''}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold border border-blue-100">
-                                                                    🏪 My Shop
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <p className="text-sm font-bold text-slate-900 truncate mt-0.5">{job.customerName || 'Customer'}</p>
-                                                    </div>
-                                                    <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold capitalize ${isCompleted ? 'bg-emerald-100 text-emerald-800' : job.status === 'in_progress' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
-                                                        {isCompleted ? '✓ Completed' : (job.status || 'Pending')}
-                                                    </span>
-                                                </div>
-
-                                                {/* Details Grid */}
-                                                <div className="grid grid-cols-2 gap-1.5 text-[11px] bg-slate-50/70 p-2.5 rounded-xl border border-slate-100">
-                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Phone:</span> {job.phone || job.customerPhone || '-'}</p>
-                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">IMEI:</span> {job.imei || '-'}</p>
-                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Device:</span> {job.deviceModel || '-'}</p>
-                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Delivery:</span> {job.deliveryDate || job.delivery_at || '-'}</p>
-                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Created:</span> {formatDisplayDate(job.createdAt || '')}</p>
-                                                    <p className="text-slate-600 truncate"><span className="text-slate-400 font-medium">Completed:</span> {formatDisplayDate(job.completedAt || '')}</p>
-                                                </div>
-
-                                                {/* Issue Description */}
-                                                <p className="text-[11px] text-slate-700 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 font-medium">
-                                                    <span className="text-slate-400 font-bold">Issue:</span> {job.problem || job.issueType || '-'}
-                                                </p>
-
-                                                {/* Notes Section with Inline Editor */}
-                                                <div className="rounded-xl border border-amber-200/80 bg-amber-50/40 p-2.5 text-xs space-y-1.5">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 flex items-center gap-1">
-                                                            <StickyNote size={12} className="text-amber-600" /> Notes:
-                                                        </span>
-                                                        {!isEditingNote && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setEditingNoteJobId(job.id);
-                                                                    setEditingNoteText(job.notes || '');
-                                                                }}
-                                                                className="text-[10px] font-bold text-amber-700 hover:text-amber-900 flex items-center gap-0.5 hover:underline"
-                                                            >
-                                                                <Edit3 size={11} /> {job.notes ? 'Edit' : '+ Add Note'}
-                                                            </button>
-                                                        )}
-                                                    </div>
-
-                                                    {isEditingNote ? (
-                                                        <div className="space-y-2 pt-1">
-                                                            <textarea
-                                                                value={editingNoteText}
-                                                                onChange={(e) => setEditingNoteText(e.target.value)}
-                                                                rows={2}
-                                                                className="w-full text-xs p-2 rounded-lg border border-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
-                                                                placeholder="Write important note..."
-                                                                autoFocus
-                                                            />
-                                                            <div className="flex justify-end gap-1.5">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => setEditingNoteJobId(null)}
-                                                                    className="px-2 py-1 rounded-md text-[10px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200"
-                                                                >
-                                                                    Cancel
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleSaveRepairNote(job.id, editingNoteText)}
-                                                                    className="px-2.5 py-1 rounded-md text-[10px] font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-sm"
-                                                                >
-                                                                    Save Note
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <p className="text-[11px] text-slate-700 italic">
-                                                            {job.notes || <span className="text-slate-400">No notes written yet</span>}
-                                                        </p>
-                                                    )}
-                                                </div>
-
-                                                {/* External Technician & Device Tracking Location */}
-                                                {isExternal && (
-                                                    <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-2.5 text-xs space-y-1">
-                                                        <div className="flex items-center justify-between gap-1">
-                                                            <span className="text-[10px] font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1">
-                                                                <Truck size={12} className="text-indigo-600" /> Outsourced Repair Tracking:
-                                                            </span>
-                                                            <span className="text-[10px] font-extrabold text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-200">
-                                                                Paid: €{extCost.toFixed(2)}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-[11px] text-indigo-950 font-semibold">
-                                                            Technician: <span className="font-bold">{techName || 'Unspecified'}</span>
-                                                        </p>
-                                                        <p className="text-[11px] text-slate-600 flex items-center gap-1">
-                                                            <span className="text-slate-400 font-medium">Device Status:</span>
-                                                            {deviceLocation === 'sent_to_technician' ? (
-                                                                <span className="text-amber-700 font-bold bg-amber-100 px-1.5 py-0.5 rounded">
-                                                                    🚚 Sent to Technician {job.sentToTechnicianAt ? `(${formatDisplayDate(job.sentToTechnicianAt)})` : ''}
-                                                                </span>
-                                                            ) : deviceLocation === 'received_back' ? (
-                                                                <span className="text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded">
-                                                                    📥 Received back in shop {job.receivedFromTechnicianAt ? `(${formatDisplayDate(job.receivedFromTechnicianAt)})` : ''}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-blue-700 font-bold bg-blue-50 px-1.5 py-0.5 rounded">
-                                                                    📍 In Shop
-                                                                </span>
-                                                            )}
-                                                        </p>
-                                                    </div>
-                                                )}
-
-                                                {/* Cost & Advance */}
-                                                <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                                    <span className="rounded-xl bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 text-emerald-800 font-bold flex items-center justify-between">
-                                                        <span>Cost:</span> <span>{priceTag(job.estimatedCost || 0)}</span>
-                                                    </span>
-                                                    <span className="rounded-xl bg-sky-50 border border-sky-200 px-2.5 py-1.5 text-sky-800 font-bold flex items-center justify-between">
-                                                        <span>Advance:</span> <span>{priceTag(job.advanceAmount || 0)}</span>
-                                                    </span>
-                                                </div>
-
-                                                {/* Actions */}
-                                                <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
-                                                    {!isCompleted && isExternal && deviceLocation === 'sent_to_technician' && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleMarkReceivedBackInShop(job)}
-                                                            className="rounded-lg bg-cyan-600 text-white px-2.5 py-1.5 text-[10px] font-bold hover:bg-cyan-700 shadow-sm flex items-center gap-1"
-                                                        >
-                                                            <Inbox size={11} /> Mark Received Back
-                                                        </button>
-                                                    )}
-
-                                                    {!isCompleted && isExternal && deviceLocation !== 'sent_to_technician' && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleMarkSentToTechnician(job)}
-                                                            className="rounded-lg bg-indigo-600 text-white px-2.5 py-1.5 text-[10px] font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1"
-                                                        >
-                                                            <Send size={11} /> Mark Sent Out
-                                                        </button>
-                                                    )}
-
-                                                    {!isCompleted && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => openEditTechModal(job)}
-                                                            className="rounded-lg border border-slate-300 bg-white text-slate-700 px-2.5 py-1.5 text-[10px] font-bold hover:bg-slate-100 flex items-center gap-1"
-                                                        >
-                                                            <UserCheck size={11} /> Assign/Tech
-                                                        </button>
-                                                    )}
-
-                                                    {!isCompleted ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => completePendingRepair(job)}
-                                                            className="rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-[10px] font-bold hover:bg-emerald-700 shadow-sm flex items-center gap-1"
-                                                        >
-                                                            <CheckCircle2 size={11} /> Complete
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleReopenRepair(job)}
-                                                            className="rounded-lg border border-amber-300 bg-amber-50 text-amber-800 px-2.5 py-1.5 text-[10px] font-bold hover:bg-amber-100 flex items-center gap-1"
-                                                        >
-                                                            <RotateCcw size={11} /> Re-open
-                                                        </button>
-                                                    )}
-
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => printRepairJobBill(job, activeShop)}
-                                                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-100 flex items-center gap-1"
-                                                    >
-                                                        <Printer size={11} /> Print
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                                                Print
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
                                 </>
                             ) : (
                                 <>
@@ -7700,53 +6384,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             <CategoryManagerModal isOpen={showCategoryModal} onClose={() => setShowCategoryModal(false)} />
             <RepairModal isOpen={showRepairModal} onClose={() => setShowRepairModal(false)} />
 
-            {/* Category Hide Confirmation Modal (Triggered on 1.5s - 5s long press) */}
-            {hideConfirmCategory && (
-                <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150" onClick={() => setHideConfirmCategory(null)}>
-                    <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 space-y-4 animate-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-2xl shadow-sm flex-shrink-0">
-                                🙈
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-slate-800 text-base">Hide Category from Dashboard?</h3>
-                                <p className="text-xs text-slate-500 font-medium">
-                                    {hideConfirmCategory.scope === 'sales' ? 'Sales' : 'Expense'} Category • Level {hideConfirmCategory.level}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-1.5">
-                            <p className="text-xs font-bold text-slate-800">
-                                Category: <span className="text-blue-600">"{hideConfirmCategory.name}"</span>
-                            </p>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">
-                                This category will be hidden from dashboard chips and dropdowns. You can easily unhide it at any time from <strong>Category Manager</strong>.
-                            </p>
-                        </div>
-
-                        <div className="flex items-center justify-end gap-2.5 pt-1">
-                            <button
-                                type="button"
-                                onClick={() => setHideConfirmCategory(null)}
-                                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                disabled={isHidingCategory}
-                                onClick={confirmHideCategory}
-                                className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-500/20 transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                            >
-                                <span>🙈</span>
-                                {isHidingCategory ? 'Hiding...' : 'Hide Category'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {isLocked && !adminView && (
                 <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/75 backdrop-blur-sm">
                     <div className={`w-full max-w-xs mx-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl ${unlockError ? 'animate-pulse' : ''}`}>
@@ -7773,100 +6410,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 </div>
             )}
 
-            {editingTechJob && (
-                <div className="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setEditingTechJob(null)}>
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-                        <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-5 text-white flex items-center justify-between">
-                            <div>
-                                <h3 className="font-bold text-base flex items-center gap-2">
-                                    <UserCheck size={18} /> Assign Repair Handler
-                                </h3>
-                                <p className="text-xs text-indigo-100 mt-0.5">Job #{getRepairInvoiceNumber(editingTechJob)} • {editingTechJob.customerName || 'Customer'}</p>
-                            </div>
-                            <button onClick={() => setEditingTechJob(null)} className="text-white hover:bg-white/20 p-1.5 rounded-xl transition-colors">
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <form onSubmit={handleSaveTechnicianAssignment} className="p-5 space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">Repair Done By</label>
-                                <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
-                                    <button
-                                        type="button"
-                                        onClick={() => setTechFormPerformer('shop')}
-                                        className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${techFormPerformer === 'shop' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                    >
-                                        🏪 My Shop (In-House)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setTechFormPerformer('external')}
-                                        className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${techFormPerformer === 'external' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-                                    >
-                                        👤 Other Person / Shop
-                                    </button>
-                                </div>
-                            </div>
-
-                            {techFormPerformer === 'external' && (
-                                <div className="space-y-3 bg-indigo-50/70 border border-indigo-100 p-3.5 rounded-2xl">
-                                    <div>
-                                        <label className="block text-xs font-bold text-indigo-900 mb-1">Technician / External Shop Name</label>
-                                        <input
-                                            value={techFormName}
-                                            onChange={(e) => setTechFormName(e.target.value)}
-                                            placeholder="e.g. Ali Phone Repair / MasterFix"
-                                            className="w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                                            required
-                                            autoFocus
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-indigo-900 mb-1">Amount Paid to Them (€)</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
-                                            value={techFormCost}
-                                            onChange={(e) => setTechFormCost(e.target.value)}
-                                            placeholder="0.00"
-                                            className="w-full px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs font-medium font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                                        />
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="flex justify-end gap-2 pt-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setEditingTechJob(null)}
-                                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition-colors"
-                                >
-                                    Save Assignment
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
             <CartSidebar
                 onEditItem={handleEditCartItem}
                 onFinalized={() => {
                     setShowSuccess(true);
                     setTimeout(() => setShowSuccess(false), 1800);
                 }}
-            />
-
-            <NotesDrawer
-                isOpen={showNotesModal}
-                onClose={() => setShowNotesModal(false)}
             />
         </div>
     );
