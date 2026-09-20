@@ -102,6 +102,25 @@ function normalizeRepairPart(part = {}) {
     };
 }
 
+function extractRepairMeta(rawProblem, existingNotes) {
+    const raw = cleanText(rawProblem);
+    let problem = raw;
+    let notes = cleanText(existingNotes);
+    const metaMatch = raw.match(/<!--REPAIR_META:([\s\S]*?)-->/i);
+    if (metaMatch) {
+        try {
+            const parsed = JSON.parse(metaMatch[1]);
+            if (parsed && typeof parsed === 'object') {
+                if (parsed.n && !notes) notes = cleanText(parsed.n);
+            }
+        } catch (e) {
+            // ignore JSON error
+        }
+        problem = raw.replace(/<!--[\s\S]*?-->/g, '').trim();
+    }
+    return { problem, notes };
+}
+
 function normalizeRepairRecord(record = {}, partsByRepair = {}) {
     const id = cleanText(record?.repair_id || record?.id) || String(record?.repair_id || record?.id || '');
     const createdIso = parseIsoTimestamp(record?.created_at || record?.createdAt || record?.timestamp) || new Date().toISOString();
@@ -111,6 +130,11 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
     const mappedParts = id && Array.isArray(partsByRepair[id]) && partsByRepair[id].length > 0
         ? partsByRepair[id]
         : (Array.isArray(record?.partsUsed) ? record.partsUsed.map(normalizeRepairPart) : []);
+
+    const { problem: resolvedProblem, notes: resolvedNotes } = extractRepairMeta(
+        record?.problem || record?.issueType,
+        record?.notes
+    );
 
     return {
         ...record,
@@ -122,7 +146,8 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
         phone: cleanText(record?.customer_phone || record?.phone || record?.customerPhone),
         deviceModel: cleanText(record?.deviceModel || record?.device_model),
         imei: cleanText(record?.imei),
-        problem: cleanText(record?.problem || record?.issueType),
+        problem: resolvedProblem,
+        notes: resolvedNotes,
         status: cleanText(record?.status) || 'pending',
         estimatedCost: parseFloat(record?.estimated_cost ?? record?.estimatedCost ?? 0) || 0,
         advanceAmount: parseFloat(record?.advance_amount ?? record?.advanceAmount ?? 0) || 0,
