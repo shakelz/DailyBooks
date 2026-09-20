@@ -1,5 +1,6 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import { supabase } from '../supabaseClient'
 
 const SHOP = {
   name: 'CareFone 2',
@@ -91,16 +92,43 @@ const SERVICES = [
   },
 ]
 
-function resolveRepairStatus(ticket = '') {
-  const normalized = String(ticket || '').trim().toUpperCase()
-  if (!normalized) return null
-  const hash = normalized.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0)
-  const states = [
-    { label: 'Received ✓', note: 'Device received and diagnosis started at CareFone 2 Berlin.' },
-    { label: 'In Progress 🔧', note: 'Repair is currently in progress. We will notify you when done.' },
-    { label: 'Ready for Pickup ✅', note: 'Repair complete! Please visit us at Kurt-Schumacher-Damm 1.' },
-  ]
-  return states[hash % states.length]
+function formatRepairStatusInfo(job) {
+  if (!job) return null;
+  const s = String(job.status || 'pending').toLowerCase();
+  if (s === 'in_progress' || s === 'in progress' || s === 'inbearbeitung') {
+    return {
+      statusKey: 'in_progress',
+      badge: 'In Bearbeitung (In Progress)',
+      color: 'bg-blue-100 text-blue-800 border-blue-300',
+      icon: '🔧',
+      note: 'Ihr Gerät wird aktuell von unserem Techniker geprüft und repariert.',
+    };
+  }
+  if (s === 'ready' || s === 'ready_for_pickup' || s === 'abholbereit') {
+    return {
+      statusKey: 'ready',
+      badge: 'Abholbereit (Ready for Pickup)',
+      color: 'bg-purple-100 text-purple-800 border-purple-300',
+      icon: '📦',
+      note: 'Gute Neuigkeiten! Ihre Reparatur ist fertiggestellt. Ihr Gerät kann bei CareFone 2 (Der Clou, Kurt-Schumacher-Damm 1) abgeholt werden.',
+    };
+  }
+  if (s === 'completed' || s === 'abgeschlossen' || s === 'delivered') {
+    return {
+      statusKey: 'completed',
+      badge: 'Abgeschlossen (Completed)',
+      color: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+      icon: '✅',
+      note: 'Dieser Reparaturauftrag wurde erfolgreich fertiggestellt und übergeben.',
+    };
+  }
+  return {
+    statusKey: 'pending',
+    badge: 'Eingegangen (Received)',
+    color: 'bg-amber-100 text-amber-800 border-amber-300',
+    icon: '⏳',
+    note: 'Gerät ist bei uns eingegangen und befindet sich in der Diagnose-Warteschlange.',
+  };
 }
 
 function getTodayStatus() {
@@ -113,9 +141,9 @@ function getTodayStatus() {
 }
 
 export default function LandingPage() {
-  const [ticketId, setTicketId] = useState('')
+  const [ticketInput, setTicketInput] = useState('')
+  const [searchState, setSearchState] = useState({ loading: false, result: null, searched: false })
   const [slide, setSlide] = useState(0)
-  const status = useMemo(() => resolveRepairStatus(ticketId), [ticketId])
   const todayStatus = useMemo(() => getTodayStatus(), [])
 
   // Auto-play carousel every 4.5s
@@ -123,6 +151,66 @@ export default function LandingPage() {
     const t = setInterval(() => setSlide((s) => (s + 1) % SHOP_PHOTOS.length), 4500)
     return () => clearInterval(t)
   }, [])
+
+  const handleSearchRepair = useCallback(async (query) => {
+    const raw = String(query ?? ticketInput).trim();
+    if (!raw) {
+      setSearchState({ loading: false, result: null, searched: false });
+      return;
+    }
+
+    setSearchState(prev => ({ ...prev, loading: true, searched: true }));
+    const clean = raw.replace(/^[#]/, '').trim().toLowerCase();
+
+    let foundJob = null;
+
+    // 1. Try querying Supabase
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('repairs')
+          .select('*')
+          .or(`invoice_number.ilike.%${clean}%,ref_id.ilike.%${clean}%,repair_id.ilike.%${clean}%`)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (!error && Array.isArray(data) && data.length > 0) {
+          foundJob = data[0];
+        }
+      } catch (err) {
+        console.warn('Supabase query failed:', err);
+      }
+    }
+
+    // 2. Fallback to localStorage cache
+    if (!foundJob) {
+      try {
+        const cached = localStorage.getItem('dailybooks_repairs_cache_v1');
+        if (cached) {
+          const list = JSON.parse(cached);
+          if (Array.isArray(list)) {
+            foundJob = list.find((j) => {
+              const inv = String(j.invoiceNumber || j.invoice_number || j.refId || j.ref_id || j.id || '').toLowerCase();
+              return inv === clean || inv.endsWith(clean) || inv.includes(clean);
+            });
+          }
+        }
+      } catch {}
+    }
+
+    setSearchState({ loading: false, result: foundJob, searched: true });
+  }, [ticketInput]);
+
+  useEffect(() => {
+    if (!ticketInput.trim()) {
+      setSearchState({ loading: false, result: null, searched: false });
+      return;
+    }
+    const timer = setTimeout(() => {
+      handleSearchRepair(ticketInput);
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [ticketInput, handleSearchRepair]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
@@ -284,31 +372,106 @@ export default function LandingPage() {
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Repair Tracker */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
             <div className="flex items-center gap-2 mb-1">
-              <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-              <h3 className="text-sm font-bold text-slate-800">Repair Status Tracker</h3>
+              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Reparatur-Status (Live Tracker)</h3>
+                <p className="text-[11px] text-slate-500">Abholnummer oder Rechnungsnummer eingeben</p>
+              </div>
             </div>
-            <p className="text-xs text-slate-500 mb-3">Enter your repair ticket or invoice ID to check status.</p>
-            <input
-              value={ticketId}
-              onChange={(e) => setTicketId(e.target.value)}
-              placeholder="e.g. RPR-24031"
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
-            />
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 min-h-[60px]">
-              {!ticketId.trim() ? (
-                <p className="text-xs text-slate-400">Status will appear here after entering a valid ticket ID.</p>
-              ) : status ? (
-                <>
-                  <p className="text-sm font-bold text-slate-800">{status.label}</p>
-                  <p className="text-xs text-slate-500 mt-1">{status.note}</p>
-                </>
-              ) : (
-                <p className="text-xs text-rose-500">Ticket not found. Please verify your ID and try again.</p>
-              )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSearchRepair(ticketInput);
+              }}
+              className="flex gap-2"
+            >
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={ticketInput}
+                  onChange={(e) => setTicketInput(e.target.value)}
+                  placeholder="z. B. 101, RPR-24031, #001..."
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 pl-9 pr-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
+                />
+                <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <button
+                type="submit"
+                disabled={searchState.loading}
+                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {searchState.loading ? 'Suche...' : 'Prüfen'}
+              </button>
+            </form>
+
+            {/* Results Area */}
+            <div className="min-h-[70px]">
+              {!ticketInput.trim() ? (
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-center">
+                  <p className="text-xs text-slate-400">Geben Sie Ihre Abholnummer vom Abholschein ein, um den aktuellen Status live zu sehen.</p>
+                </div>
+              ) : searchState.loading ? (
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-center">
+                  <div className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-1" />
+                  <p className="text-xs text-slate-500">Status wird geladen...</p>
+                </div>
+              ) : searchState.result ? (
+                (() => {
+                  const job = searchState.result;
+                  const statusInfo = formatRepairStatusInfo(job);
+                  const invNum = job.invoice_number || job.invoiceNumber || job.ref_id || job.refId || job.id;
+                  const device = job.device_model || job.deviceModel || 'Gerät';
+                  const problem = job.problem || job.issueType || 'Reparaturservice';
+                  const dateStr = job.created_at || job.createdAt ? new Date(job.created_at || job.createdAt).toLocaleDateString('de-DE') : null;
+
+                  return (
+                    <div className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-3 shadow-sm ring-1 ring-slate-100">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-black text-blue-600">Auftrag #{invNum}</p>
+                          <p className="text-sm font-bold text-slate-800">{device}</p>
+                        </div>
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${statusInfo.color}`}>
+                          <span>{statusInfo.icon}</span>
+                          <span>{statusInfo.badge}</span>
+                        </span>
+                      </div>
+
+                      <div className="rounded-lg bg-slate-50 border border-slate-100 p-2.5 text-xs space-y-1">
+                        <p className="text-slate-700 font-medium">{statusInfo.note}</p>
+                        <div className="grid grid-cols-2 gap-1 pt-1 text-[11px] text-slate-500">
+                          <p><span className="text-slate-400">Fehler:</span> {problem}</p>
+                          {dateStr && <p><span className="text-slate-400">Datum:</span> {dateStr}</p>}
+                        </div>
+                      </div>
+
+                      {statusInfo.statusKey === 'ready' && (
+                        <div className="rounded-lg bg-purple-50 border border-purple-200 p-2.5 text-xs text-purple-900 font-medium flex items-center gap-2">
+                          <span className="text-base">📍</span>
+                          <span>Abholung bereit: CareFone 2 im Center Der Clou, Kurt-Schumacher-Damm 1</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : searchState.searched ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3.5 text-xs text-rose-700 space-y-1">
+                  <p className="font-bold">Kein Auftrag gefunden</p>
+                  <p className="text-[11px] text-rose-600">
+                    Unter dieser Abholnummer konnte kein aktiver Reparaturauftrag gefunden werden. Bitte prüfen Sie Ihre Nummer auf dem Abholschein oder rufen Sie uns an unter{' '}
+                    <a href={`tel:${SHOP.phone}`} className="underline font-semibold">{SHOP.phone}</a>.
+                  </p>
+                </div>
+              ) : null}
             </div>
           </div>
 
