@@ -102,78 +102,11 @@ function normalizeRepairPart(part = {}) {
     };
 }
 
-const REPAIR_META_REGEX = /<!--REPAIR_META:([\s\S]*?)-->/;
-
-function packRepairMetadata(problemText = '', meta = {}) {
-    const cleanProblem = String(problemText || '').replace(REPAIR_META_REGEX, '').trim();
-    const hasMeta = Boolean(
-        meta.notes ||
-        (meta.repairPerformer && meta.repairPerformer !== 'shop') ||
-        meta.technicianName ||
-        (meta.externalCost && Number(meta.externalCost) > 0) ||
-        (meta.deviceLocation && meta.deviceLocation !== 'in_shop') ||
-        meta.sentToTechnicianAt ||
-        meta.receivedFromTechnicianAt
-    );
-    if (!hasMeta) return cleanProblem;
-
-    const payload = {
-        n: meta.notes ? String(meta.notes).trim() : undefined,
-        p: meta.repairPerformer || undefined,
-        t: meta.technicianName ? String(meta.technicianName).trim() : undefined,
-        c: meta.externalCost ? Number(meta.externalCost) : undefined,
-        l: meta.deviceLocation || undefined,
-        s: meta.sentToTechnicianAt || undefined,
-        r: meta.receivedFromTechnicianAt || undefined,
-    };
-
-    return `${cleanProblem} <!--REPAIR_META:${JSON.stringify(payload)}-->`.trim();
-}
-
-function unpackRepairMetadata(rawProblem = '') {
-    const text = String(rawProblem || '');
-    const match = text.match(REPAIR_META_REGEX);
-    const cleanProblem = text.replace(REPAIR_META_REGEX, '').trim();
-    if (!match || !match[1]) {
-        return { problem: cleanProblem, meta: {} };
-    }
-    try {
-        const parsed = JSON.parse(match[1]);
-        return {
-            problem: cleanProblem,
-            meta: {
-                notes: parsed.n || parsed.notes || '',
-                repairPerformer: parsed.p || parsed.repairPerformer || 'shop',
-                technicianName: parsed.t || parsed.technicianName || '',
-                externalCost: parseFloat(parsed.c ?? parsed.externalCost ?? 0) || 0,
-                deviceLocation: parsed.l || parsed.deviceLocation || 'in_shop',
-                sentToTechnicianAt: parsed.s || parsed.sentToTechnicianAt || null,
-                receivedFromTechnicianAt: parsed.r || parsed.receivedFromTechnicianAt || null,
-            }
-        };
-    } catch {
-        return { problem: cleanProblem, meta: {} };
-    }
-}
-
 function normalizeRepairRecord(record = {}, partsByRepair = {}) {
     const id = cleanText(record?.repair_id || record?.id) || String(record?.repair_id || record?.id || '');
     const createdIso = parseIsoTimestamp(record?.created_at || record?.createdAt || record?.timestamp) || new Date().toISOString();
     const completedIso = parseIsoTimestamp(record?.completed_at || record?.completedAt);
     const deliveryAt = toDateOnly(record?.delivery_date || record?.delivery_at || record?.deliveryDate);
-
-    // Unpack metadata embedded in problem for schemas without extra columns
-    const rawProblem = record?.problem || record?.issueType || '';
-    const { problem: cleanProblem, meta: unpackedMeta } = unpackRepairMetadata(rawProblem);
-
-    const notes = cleanText(record?.notes || record?.note || unpackedMeta.notes || '');
-    const repairPerformer = cleanText(record?.repair_performer || record?.repairPerformer || unpackedMeta.repairPerformer || 'shop') || 'shop';
-    const technicianName = cleanText(record?.technician_name || record?.technicianName || unpackedMeta.technicianName || '');
-    const externalCost = parseFloat(record?.external_cost ?? record?.externalCost ?? record?.amount_paid_to_technician ?? record?.amountPaidToTechnician ?? unpackedMeta.externalCost ?? 0) || 0;
-    const deviceLocation = cleanText(record?.device_location || record?.deviceLocation || unpackedMeta.deviceLocation || 'in_shop') || 'in_shop';
-
-    const sentAt = parseIsoTimestamp(record?.sent_to_technician_at || record?.sentToTechnicianAt || unpackedMeta.sentToTechnicianAt);
-    const receivedBackAt = parseIsoTimestamp(record?.received_from_technician_at || record?.receivedFromTechnicianAt || unpackedMeta.receivedFromTechnicianAt);
 
     const mappedParts = id && Array.isArray(partsByRepair[id]) && partsByRepair[id].length > 0
         ? partsByRepair[id]
@@ -189,20 +122,7 @@ function normalizeRepairRecord(record = {}, partsByRepair = {}) {
         phone: cleanText(record?.customer_phone || record?.phone || record?.customerPhone),
         deviceModel: cleanText(record?.deviceModel || record?.device_model),
         imei: cleanText(record?.imei),
-        problem: cleanProblem,
-        notes,
-        repairPerformer,
-        repair_performer: repairPerformer,
-        technicianName,
-        technician_name: technicianName,
-        externalCost,
-        external_cost: externalCost,
-        deviceLocation,
-        device_location: deviceLocation,
-        sentToTechnicianAt: sentAt || null,
-        sent_to_technician_at: sentAt || null,
-        receivedFromTechnicianAt: receivedBackAt || null,
-        received_from_technician_at: receivedBackAt || null,
+        problem: cleanText(record?.problem || record?.issueType),
         status: cleanText(record?.status) || 'pending',
         estimatedCost: parseFloat(record?.estimated_cost ?? record?.estimatedCost ?? 0) || 0,
         advanceAmount: parseFloat(record?.advance_amount ?? record?.advanceAmount ?? 0) || 0,
@@ -272,24 +192,6 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
     const createdAt = parseIsoTimestamp(repair?.created_at || repair?.createdAt) || new Date().toISOString();
     const completedAt = parseIsoTimestamp(repair?.completed_at || repair?.completedAt);
     const deliveryAt = toDateOnly(repair?.delivery_date || repair?.delivery_at || repair?.deliveryDate);
-    const sentAt = parseIsoTimestamp(repair?.sent_to_technician_at || repair?.sentToTechnicianAt);
-    const receivedBackAt = parseIsoTimestamp(repair?.received_from_technician_at || repair?.receivedFromTechnicianAt);
-
-    const notes = cleanText(repair?.notes || repair?.note || '');
-    const repairPerformer = cleanText(repair?.repairPerformer || repair?.repair_performer || 'shop') || 'shop';
-    const technicianName = cleanText(repair?.technicianName || repair?.technician_name || '') || null;
-    const externalCost = parseFloat(repair?.externalCost ?? repair?.external_cost ?? 0) || 0;
-    const deviceLocation = cleanText(repair?.deviceLocation || repair?.device_location || 'in_shop') || 'in_shop';
-
-    const packedProblem = packRepairMetadata(repair?.problem, {
-        notes,
-        repairPerformer,
-        technicianName,
-        externalCost,
-        deviceLocation,
-        sentToTechnicianAt: sentAt,
-        receivedFromTechnicianAt: receivedBackAt,
-    });
 
     const providedRepairId = cleanText(repair?.id);
     const payload = {
@@ -297,16 +199,9 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
         customer_phone: cleanText(repair?.phone),
         device_model: cleanText(repair?.deviceModel),
         imei: cleanText(repair?.imei),
-        problem: packedProblem,
-        notes,
-        repair_performer: repairPerformer,
-        technician_name: technicianName,
-        external_cost: externalCost,
-        device_location: deviceLocation,
-        sent_to_technician_at: sentAt || null,
-        received_from_technician_at: receivedBackAt || null,
+        problem: cleanText(repair?.problem),
         advance_amount: parseFloat(repair?.advanceAmount ?? 0) || 0,
-        estimated_cost: parseFloat(repair?.estimatedCost ?? repair?.cost ?? 0) || 0,
+        estimated_cost: parseFloat(repair?.estimatedCost ?? 0) || 0,
         delivery_date: deliveryAt || null,
         used_part_order_ids: normalizeUuidArray(repair?.used_part_order_ids),
         status: cleanText(repair?.status) || 'pending',
@@ -328,9 +223,9 @@ function buildRepairInsertPayload(repair = {}, shopId = '') {
     return payload;
 }
 
-function buildRepairUpdatePayload(status, extras = {}, currentJob = null) {
+function buildRepairUpdatePayload(status, extras = {}) {
     const next = {
-        status: cleanText(status) || cleanText(extras?.status) || (currentJob?.status || 'pending'),
+        status: cleanText(status) || cleanText(extras?.status) || 'pending',
         ...extras,
     };
     delete next.finalAmount;
@@ -363,61 +258,6 @@ function buildRepairUpdatePayload(status, extras = {}, currentJob = null) {
         next.estimated_cost = parseFloat(next.estimatedCost ?? 0) || 0;
         delete next.estimatedCost;
     }
-    if (Object.prototype.hasOwnProperty.call(next, 'externalCost') || Object.prototype.hasOwnProperty.call(next, 'external_cost')) {
-        const extCost = parseFloat(next.externalCost ?? next.external_cost ?? 0) || 0;
-        next.external_cost = extCost;
-        next.externalCost = extCost;
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'repairPerformer') || Object.prototype.hasOwnProperty.call(next, 'repair_performer')) {
-        const performer = cleanText(next.repairPerformer || next.repair_performer || 'shop') || 'shop';
-        next.repair_performer = performer;
-        next.repairPerformer = performer;
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'technicianName') || Object.prototype.hasOwnProperty.call(next, 'technician_name')) {
-        const techName = cleanText(next.technicianName || next.technician_name || '');
-        next.technician_name = techName;
-        next.technicianName = techName;
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'deviceLocation') || Object.prototype.hasOwnProperty.call(next, 'device_location')) {
-        const loc = cleanText(next.deviceLocation || next.device_location || 'in_shop') || 'in_shop';
-        next.device_location = loc;
-        next.deviceLocation = loc;
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'sentToTechnicianAt') || Object.prototype.hasOwnProperty.call(next, 'sent_to_technician_at')) {
-        const sAt = parseIsoTimestamp(next.sentToTechnicianAt || next.sent_to_technician_at);
-        next.sent_to_technician_at = sAt || null;
-        next.sentToTechnicianAt = sAt || null;
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'receivedFromTechnicianAt') || Object.prototype.hasOwnProperty.call(next, 'received_from_technician_at')) {
-        const rAt = parseIsoTimestamp(next.receivedFromTechnicianAt || next.received_from_technician_at);
-        next.received_from_technician_at = rAt || null;
-        next.receivedFromTechnicianAt = rAt || null;
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'notes') || Object.prototype.hasOwnProperty.call(next, 'note')) {
-        const notes = cleanText(next.notes || next.note || '');
-        next.notes = notes;
-    }
-
-    // Always pack metadata into problem for bulletproof persistence across table schemas
-    const rawProblem = next.problem || currentJob?.problem || '';
-    const mergedNotes = next.notes !== undefined ? next.notes : (currentJob?.notes || '');
-    const mergedPerformer = next.repairPerformer || next.repair_performer || currentJob?.repairPerformer || 'shop';
-    const mergedTech = next.technicianName !== undefined ? next.technicianName : (currentJob?.technicianName || '');
-    const mergedCost = next.externalCost !== undefined ? next.externalCost : (currentJob?.externalCost || 0);
-    const mergedLoc = next.deviceLocation || next.device_location || currentJob?.deviceLocation || 'in_shop';
-    const mergedSent = next.sentToTechnicianAt !== undefined ? next.sentToTechnicianAt : (currentJob?.sentToTechnicianAt || null);
-    const mergedRec = next.receivedFromTechnicianAt !== undefined ? next.receivedFromTechnicianAt : (currentJob?.receivedFromTechnicianAt || null);
-
-    next.problem = packRepairMetadata(rawProblem, {
-        notes: mergedNotes,
-        repairPerformer: mergedPerformer,
-        technicianName: mergedTech,
-        externalCost: mergedCost,
-        deviceLocation: mergedLoc,
-        sentToTechnicianAt: mergedSent,
-        receivedFromTechnicianAt: mergedRec,
-    });
-
     if (Array.isArray(next.partsUsed)) {
         next.partsUsed = next.partsUsed.map(normalizeRepairPart);
     }
@@ -451,37 +291,25 @@ export function RepairsProvider({ children }) {
         setRepairsLoaded(false);
 
         const fetchRepairs = async () => {
-            let allRepairs = [];
-            let offset = 0;
-            const PAGE_SIZE = 1000;
-            let lastError = null;
-
-            while (true) {
-                const repairsResult = await supabase
-                    .from('repairs')
-                    .select('*')
-                    .eq('shop_id', sid)
-                    .range(offset, offset + PAGE_SIZE - 1);
-
-                if (repairsResult.error) {
-                    lastError = repairsResult.error;
-                    break;
-                }
-
-                const batch = Array.isArray(repairsResult.data) ? repairsResult.data : [];
-                allRepairs.push(...batch);
-
-                if (batch.length < PAGE_SIZE) break;
-                offset += PAGE_SIZE;
-            }
+            const repairsResult = await supabase.from('repairs').select('*').eq('shop_id', sid);
 
             if (cancelled) return;
 
-            if (!lastError && allRepairs.length >= 0) {
-                const normalized = allRepairs.map((row) => normalizeRepairRecord(row));
+            if (!repairsResult.error && Array.isArray(repairsResult.data) && repairsResult.data.length > 0) {
+                const normalized = repairsResult.data.map((row) => normalizeRepairRecord(row));
                 setRepairJobs(sortRepairsByCreatedAt(normalized));
-            } else {
+            } else if (!repairsResult.error && Array.isArray(repairsResult.data)) {
                 setRepairJobs([]);
+            } else {
+                try {
+                    const cached = localStorage.getItem('dailybooks_repairs_cache_v1');
+                    if (cached) {
+                        const parsed = JSON.parse(cached);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            setRepairJobs(sortRepairsByCreatedAt(parsed));
+                        }
+                    }
+                } catch {}
             }
             setRepairsLoaded(true);
         };
@@ -537,6 +365,14 @@ export function RepairsProvider({ children }) {
             supabase.removeChannel(repairsSub);
         };
     }, [activeShopId]);
+
+    useEffect(() => {
+        if (Array.isArray(repairJobs) && repairJobs.length > 0) {
+            try {
+                localStorage.setItem('dailybooks_repairs_cache_v1', JSON.stringify(repairJobs));
+            } catch {}
+        }
+    }, [repairJobs]);
 
     const generateRefId = useCallback(async () => reserveNextInvoiceNumber(), []);
 
@@ -661,7 +497,7 @@ export function RepairsProvider({ children }) {
         if (!strId) return;
 
         const currentJob = repairJobs.find((job) => String(job.id) === strId) || null;
-        const patch = buildRepairUpdatePayload(status, extras, currentJob);
+        const patch = buildRepairUpdatePayload(status, extras);
         const dbPatch = { ...patch };
         delete dbPatch.partsUsed;
         delete dbPatch.ref_id;
@@ -674,22 +510,8 @@ export function RepairsProvider({ children }) {
             prev.map((job) => String(job.id) === strId ? mergedLocal : job)
         ));
 
-        // Resilient DB updater trying repair_id first, then id
-        const performDbUpdate = async (candidatePayload) => {
-            let res = await supabase.from('repairs').update(candidatePayload).eq('repair_id', strId).eq('shop_id', sid).select('*');
-            if (res.error && (res.error.message?.includes('repair_id') || res.error.code === '42703')) {
-                res = await supabase.from('repairs').update(candidatePayload).eq('id', strId).eq('shop_id', sid).select('*');
-            } else if (!res.error && (!res.data || (Array.isArray(res.data) && res.data.length === 0))) {
-                const fallbackById = await supabase.from('repairs').update(candidatePayload).eq('id', strId).eq('shop_id', sid).select('*');
-                if (!fallbackById.error && fallbackById.data && (!Array.isArray(fallbackById.data) || fallbackById.data.length > 0)) {
-                    res = fallbackById;
-                }
-            }
-            return res;
-        };
-
         const updateResult = await executeWithPrunedColumns(
-            performDbUpdate,
+            (candidate) => supabase.from('repairs').update(candidate).eq('repair_id', strId).eq('shop_id', sid),
             dbPatch
         );
 
@@ -697,14 +519,14 @@ export function RepairsProvider({ children }) {
             const fallbackPatch = { ...dbPatch };
             delete fallbackPatch.advanceAmount;
             const retryResult = await executeWithPrunedColumns(
-                performDbUpdate,
+                (candidate) => supabase.from('repairs').update(candidate).eq('repair_id', strId).eq('shop_id', sid),
                 fallbackPatch
             );
             if (retryResult.error) {
-                console.error('Failed to update repair in DB:', retryResult.error);
+                throw new Error(retryResult.error.message || 'Failed to update repair job.');
             }
         } else if (updateResult.error) {
-            console.error('Failed to update repair in DB:', updateResult.error);
+            throw new Error(updateResult.error.message || 'Failed to update repair job.');
         }
 
         if (Array.isArray(patch.partsUsed)) {
@@ -716,7 +538,6 @@ export function RepairsProvider({ children }) {
         }
 
         broadcastRepairSync({ action: 'UPDATE', data: { id: strId, shop_id: sid, ...mergedLocal } }).catch((error) => console.error(error));
-        return mergedLocal;
     }, [activeShopId, broadcastRepairSync, repairJobs, syncRepairParts]);
 
     const deleteRepair = useCallback(async (id) => {
@@ -728,28 +549,16 @@ export function RepairsProvider({ children }) {
 
         setRepairJobs((prev) => prev.filter((job) => String(job.id) !== strId));
 
-        let res = await supabase.from('repairs').delete().eq('repair_id', strId).eq('shop_id', sid);
-        if (res.error && (res.error.message?.includes('repair_id') || res.error.code === '42703')) {
-            await supabase.from('repairs').delete().eq('id', strId).eq('shop_id', sid);
-        }
+        await supabase.from('repairs').delete().eq('repair_id', strId).eq('shop_id', sid);
 
         broadcastRepairSync({ action: 'DELETE', data: { id: strId, shop_id: sid } }).catch((error) => console.error(error));
     }, [activeShopId, broadcastRepairSync]);
-
-    const updateRepairJob = useCallback(async (id, fields = {}) => {
-        const strId = cleanText(id);
-        if (!strId) return;
-        const currentJob = repairJobs.find((job) => String(job.id) === strId) || null;
-        const status = fields.status || currentJob?.status || 'pending';
-        return updateRepairStatus(strId, status, fields);
-    }, [repairJobs, updateRepairStatus]);
 
     const value = {
         repairJobs,
         repairsLoaded,
         addRepair,
         updateRepairStatus,
-        updateRepairJob,
         deleteRepair,
         generateRefId,
     };
