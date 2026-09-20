@@ -164,18 +164,37 @@ export default function LandingPage() {
 
     let foundJob = null;
 
-    // 1. Try querying Supabase
+    // 1. Try querying Supabase live
     if (supabase) {
       try {
-        const { data, error } = await supabase
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clean);
+        let q = supabase
           .from('repairs')
           .select('*')
-          .or(`invoice_number.ilike.%${clean}%,ref_id.ilike.%${clean}%,repair_id.ilike.%${clean}%`)
           .order('created_at', { ascending: false })
           .limit(1);
 
+        if (isUuid) {
+          q = q.or(`invoice_number.ilike.%${clean}%,ref_id.ilike.%${clean}%,repair_id.eq.${clean}`);
+        } else {
+          q = q.or(`invoice_number.ilike.%${clean}%,ref_id.ilike.%${clean}%,customer_phone.ilike.%${clean}%`);
+        }
+
+        const { data, error } = await q;
+
         if (!error && Array.isArray(data) && data.length > 0) {
           foundJob = data[0];
+        } else if (error) {
+          console.warn('Supabase query returned error, trying fallback:', error);
+          // Fallback: try querying without ilike wildcards if format issues
+          const directRes = await supabase
+            .from('repairs')
+            .select('*')
+            .eq('invoice_number', clean)
+            .limit(1);
+          if (!directRes.error && Array.isArray(directRes.data) && directRes.data.length > 0) {
+            foundJob = directRes.data[0];
+          }
         }
       } catch (err) {
         console.warn('Supabase query failed:', err);
