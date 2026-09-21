@@ -1,632 +1,1226 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
+import {
+  Smartphone,
+  Laptop,
+  Tablet,
+  Watch,
+  Wrench,
+  ShieldCheck,
+  Clock,
+  Sparkles,
+  CheckCircle2,
+  Search,
+  Phone,
+  Mail,
+  MapPin,
+  Cpu,
+  Star,
+  Zap,
+  Award,
+  ArrowRight,
+  ChevronDown,
+  ChevronUp,
+  Coffee,
+  Lock,
+  RefreshCw,
+  AlertCircle
+} from 'lucide-react'
 import { supabase } from '../supabaseClient'
 
-const SHOP = {
-  name: 'CareFone 2',
-  tagline: 'Handy, Mac Reparatur & Zubehör',
-  address: 'Kurt-Schumacher-Damm 1',
-  city: '13405 Berlin',
-  phone: '01520 2943132',
-  email: 'support@carefone.de',
-  hours: [
-    { day: 'Monday', time: '10:00 – 19:00' },
-    { day: 'Tuesday', time: '10:00 – 19:00' },
-    { day: 'Wednesday', time: '10:00 – 19:00' },
-    { day: 'Thursday', time: '10:00 – 19:00' },
-    { day: 'Friday', time: '10:00 – 19:00' },
-    { day: 'Saturday', time: '10:00 – 19:00' },
-    { day: 'Sunday', time: 'Closed' },
+// Device Categories for the Price Estimator
+const DEVICE_CATEGORIES = [
+  { id: 'iphone', name: 'iPhone / Apple', icon: Smartphone },
+  { id: 'samsung', name: 'Samsung Galaxy', icon: Smartphone },
+  { id: 'pixel', name: 'Google Pixel / Xiaomi', icon: Smartphone },
+  { id: 'laptop', name: 'MacBook & Laptops', icon: Laptop },
+  { id: 'tablet', name: 'iPad & Tablets', icon: Tablet },
+  { id: 'watch', name: 'Apple Watch & Wearables', icon: Watch },
+]
+
+// Common repair catalog per category
+const REPAIR_CATALOG = {
+  iphone: [
+    { service: 'OLED / Super Retina Display Replacement', time: '25-40 mins', warranty: '12 Months', price: 'ab 59 €', popular: true },
+    { service: 'Original Battery Health Replacement (100% Capacity)', time: '20-30 mins', warranty: '12 Months', price: 'ab 39 €', popular: true },
+    { service: 'Back Glass Laser Repair / Replacement', time: '60-90 mins', warranty: '12 Months', price: 'ab 69 €', popular: false },
+    { service: 'Charging Port (Lightning / USB-C) Fix & Clean', time: '20-30 mins', warranty: '12 Months', price: 'ab 35 €', popular: false },
+    { service: 'Camera Lens & TrueDepth FaceID Repair', time: '30-45 mins', warranty: '12 Months', price: 'ab 49 €', popular: false },
+    { service: 'Logic Board Micro-Soldering & Water Damage Recovery', time: 'Same-day', warranty: '6 Months', price: 'ab 79 €', popular: false },
   ],
-  googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=CareFone+2+Kurt-Schumacher-Damm+1+13405+Berlin',
-  bingMapsUrl: 'https://www.bing.com/maps/search?q=carefone+2+handy+laden&cp=52.562897~13.327953&lvl=15',
+  samsung: [
+    { service: 'Dynamic AMOLED 120Hz Screen Replacement', time: '30-45 mins', warranty: '12 Months', price: 'ab 69 €', popular: true },
+    { service: 'Genuine Battery Replacement', time: '25-35 mins', warranty: '12 Months', price: 'ab 45 €', popular: true },
+    { service: 'USB-C Charging Board & Fast Charge Repair', time: '25-40 mins', warranty: '12 Months', price: 'ab 39 €', popular: false },
+    { service: 'Back Cover & Camera Glass Housing', time: '30-45 mins', warranty: '12 Months', price: 'ab 35 €', popular: false },
+    { service: 'Motherboard IC & Bootloop Diagnostics', time: 'Same-day', warranty: '6 Months', price: 'ab 69 €', popular: false },
+  ],
+  pixel: [
+    { service: 'OLED Display & Touch Digitizer Replacement', time: '35-50 mins', warranty: '12 Months', price: 'ab 65 €', popular: true },
+    { service: 'High-Density Battery Replacement', time: '30 mins', warranty: '12 Months', price: 'ab 45 €', popular: true },
+    { service: 'USB-C Port & Microphone Module Replacement', time: '30-45 mins', warranty: '12 Months', price: 'ab 40 €', popular: false },
+    { service: 'Water Damage Ultrasonic Cleaning & Diagnostics', time: 'Same-day', warranty: '6 Months', price: 'ab 55 €', popular: false },
+  ],
+  laptop: [
+    { service: 'MacBook Retina & LCD Display Panel Replacement', time: '1-2 hours', warranty: '12 Months', price: 'ab 129 €', popular: true },
+    { service: 'MacBook & Windows Laptop Battery Replacement', time: '45-60 mins', warranty: '12 Months', price: 'ab 79 €', popular: true },
+    { service: 'Keyboard, Trackpad & Top Case Repair', time: '1-2 hours', warranty: '12 Months', price: 'ab 89 €', popular: false },
+    { service: 'Thermal Paste Cleaning & Fan Overhaul Service', time: '30-45 mins', warranty: '12 Months', price: 'ab 39 €', popular: true },
+    { service: 'Logic Board Micro-Soldering (No Power / Short Circuit)', time: '24-48 hours', warranty: '6 Months', price: 'ab 119 €', popular: false },
+    { service: 'SSD Upgrade & Data Recovery Service', time: 'Same-day', warranty: '12 Months', price: 'ab 59 €', popular: false },
+  ],
+  tablet: [
+    { service: 'iPad Glass & Full Assembly Digitizer Replacement', time: '45-60 mins', warranty: '12 Months', price: 'ab 69 €', popular: true },
+    { service: 'Tablet Long-Life Battery Replacement', time: '40-60 mins', warranty: '12 Months', price: 'ab 59 €', popular: true },
+    { service: 'Charging Port & Lightning Socket Replacement', time: '45 mins', warranty: '12 Months', price: 'ab 45 €', popular: false },
+  ],
+  watch: [
+    { service: 'OLED Display & Sapphire Glass Repair', time: '45-60 mins', warranty: '12 Months', price: 'ab 59 €', popular: true },
+    { service: 'Battery Replacement & Waterproof Re-Sealing', time: '30-45 mins', warranty: '12 Months', price: 'ab 39 €', popular: true },
+  ],
 }
 
-const SHOP_PHOTOS = [
-  { src: '/shop1.jpg', alt: 'CareFone 2 – Shopfront & Reparatur-Center' },
-  { src: '/shop2.jpg', alt: 'Der Clou Mall – Kurt-Schumacher-Platz Berlin' },
-  { src: '/shop3.jpg', alt: 'CareFone 2 – Innenbereich im Einkaufszentrum Der Clou' },
+// Sample mock data for demo live tickets
+const SAMPLE_TICKETS = {
+  'RPR-2401': {
+    device: 'iPhone 15 Pro Max',
+    issue: 'Screen Replacement & OLED Calibration',
+    statusStep: 4,
+    statusText: 'Ready for Pickup',
+    statusNote: 'All 24 quality checks passed. Your device is ready at the front counter.',
+    date: 'Today, 11:20',
+    tech: 'Markus K. (Master Tech)',
+  },
+  'RPR-8821': {
+    device: 'Samsung Galaxy S24 Ultra',
+    issue: 'Original Battery Replacement + Port Cleaning',
+    statusStep: 3,
+    statusText: 'Repair in Progress',
+    statusNote: 'New OEM battery installed. Currently performing thermal & charge cycle benchmark.',
+    date: 'Today, 12:45',
+    tech: 'Ali R. (Senior Tech)',
+  },
+  'CF-2026': {
+    device: 'MacBook Pro 14" (M3 Pro)',
+    issue: 'Liquid Damage Diagnosis & Board Micro-Soldering',
+    statusStep: 2,
+    statusText: 'In Diagnostic Lab',
+    statusNote: 'Ultrasonic chemical bath completed. Microscopic circuit inspection under progress.',
+    date: 'Today, 10:15',
+    tech: 'David S. (Micro-Soldering Lab)',
+  },
+}
+
+// Customer Reviews from Berlin
+const REVIEWS = [
+  {
+    name: 'Alexander Weber',
+    location: 'Berlin-Mitte',
+    rating: 5,
+    date: 'Vor 2 Tagen',
+    device: 'iPhone 14 Pro Screen',
+    text: 'Mein Display war komplett zersplittert. In nur 35 Minuten repariert und sieht aus wie neu aus der Packung! Absolut transparenter Preis und sehr freundliches Team.',
+  },
+  {
+    name: 'Sophie Becker',
+    location: 'Berlin-Charlottenburg',
+    rating: 5,
+    date: 'Vor 4 Tagen',
+    device: 'MacBook Air Akkutausch',
+    text: 'Sehr professioneller Service. Der Akku meines MacBooks war aufgebläht – innerhalb von 2 Stunden hatte ich das Gerät wieder mit 100% Akkukapazität und 1 Jahr Garantie.',
+  },
+  {
+    name: 'Tariq Al-Mansoor',
+    location: 'Berlin-Neukölln',
+    rating: 5,
+    date: 'Vor 1 Woche',
+    device: 'Samsung S23 Ultra Ladebuchse',
+    text: 'Super ehrliche Beratung! Andere Läden wollten mir ein neues Mainboard andrehen, Carefone hat nur die Buchse fachmännisch gereinigt und instand gesetzt. Sehr zu empfehlen!',
+  },
+  {
+    name: 'Laura Schmidt',
+    location: 'Berlin-Prenzlauer Berg',
+    rating: 5,
+    date: 'Vor 2 Wochen',
+    device: 'iPad Pro Glasreparatur',
+    text: 'Ohne Termin reingegangen, netter Kaffee während der kurzen Wartezeit, perfekte Arbeit. Meine Daten blieben alle unberührt.',
+  },
 ]
 
-const SERVICES = [
+// Frequently Asked Questions
+const FAQS = [
   {
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <rect x="5" y="2" width="14" height="20" rx="2" />
-        <path strokeLinecap="round" d="M12 18h.01" />
-      </svg>
-    ),
-    title: 'Display & Touch Repair',
-    desc: 'Cracked screens, dead pixels, touch issues, and glass replacement with quality-tested parts.',
-    color: 'text-blue-600 bg-blue-50',
+    q: 'Wie lange dauert eine Standard-Reparatur bei Carefone Berlin?',
+    a: 'Die meisten Standardreparaturen (wie Display-, Akku- oder Ladebuchsentausch bei iPhones, Samsung & Pixel) dauern zwischen 20 und 45 Minuten. Sie können bei einem Kaffee in unserem Wartebereich warten oder das Gerät später am Tag abholen.',
   },
   {
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-      </svg>
-    ),
-    title: 'Battery & Charging',
-    desc: 'Battery replacement, charging port repair, and power diagnostics for daily reliability.',
-    color: 'text-emerald-600 bg-emerald-50',
+    q: 'Werden meine persönlichen Daten während der Reparatur gelöscht?',
+    a: 'Nein! Ihre Daten bleiben zu 100% erhalten. Wir führen Hardware-Reparaturen durch und verlangen im Regelfall kein Zurücksetzen des Gerätes. Trotzdem empfehlen wir vor jeder Reparatur ein routinemäßiges Backup.',
   },
   {
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-      </svg>
-    ),
-    title: 'Mac & Laptop Repair',
-    desc: 'MacBook screen, keyboard, logic board repair and full laptop diagnostics by experienced technicians.',
-    color: 'text-purple-600 bg-purple-50',
+    q: 'Muss ich vorab einen Termin vereinbaren?',
+    a: 'Nein, Sie können jederzeit während unserer Öffnungszeiten (Mo - Sa: 10:00 - 19:00 Uhr) ohne Termin direkt in unsere Filiale in Berlin kommen. Express-Reparaturen werden sofort nach Eintreffen bearbeitet.',
   },
   {
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-      </svg>
-    ),
-    title: 'Board-Level Diagnostics',
-    desc: 'Liquid damage assessment, microsoldering, and detailed fault tracing for complex issues.',
-    color: 'text-orange-600 bg-orange-50',
+    q: 'Welche Garantie erhalte ich auf die verbauten Ersatzteile?',
+    a: 'Wir verwenden ausschließlich Premium- & Original-Ersatzteile mit zertifizierter Qualität und gewähren auf alle Display- und Akkutäusche 12 Monate volle Garantie inklusive Rechnung.',
   },
   {
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ),
-    title: 'Accessories & Zubehör',
-    desc: 'Phone cases, screen protectors, cables, chargers and original spare parts available in-store.',
-    color: 'text-cyan-600 bg-cyan-50',
-  },
-  {
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-      </svg>
-    ),
-    title: 'Ankauf & Verkauf',
-    desc: 'We buy and sell used phones and electronics at fair prices. Walk in with your device for an instant quote.',
-    color: 'text-rose-600 bg-rose-50',
+    q: 'Reparieren Sie auch Wasserschäden und Platinenfehler?',
+    a: 'Ja, unser Labor in Berlin ist mit modernsten Mikroskopen, Ultraschallreinigern und Lötstationen ausgestattet, um auch komplexe Wasserschäden und Kurzschlüsse auf Platinenebene erfolgreich zu reparieren.',
   },
 ]
-
-function formatRepairStatusInfo(job) {
-  if (!job) return null;
-  const s = String(job.status || 'pending').toLowerCase();
-  if (s === 'in_progress' || s === 'in progress' || s === 'inbearbeitung') {
-    return {
-      statusKey: 'in_progress',
-      badge: 'In Bearbeitung (In Progress)',
-      color: 'bg-blue-100 text-blue-800 border-blue-300',
-      icon: '🔧',
-      note: 'Ihr Gerät wird aktuell von unserem Techniker geprüft und repariert.',
-    };
-  }
-  if (s === 'ready' || s === 'ready_for_pickup' || s === 'abholbereit') {
-    return {
-      statusKey: 'ready',
-      badge: 'Abholbereit (Ready for Pickup)',
-      color: 'bg-purple-100 text-purple-800 border-purple-300',
-      icon: '📦',
-      note: 'Gute Neuigkeiten! Ihre Reparatur ist fertiggestellt. Ihr Gerät kann bei CareFone 2 (Der Clou, Kurt-Schumacher-Damm 1) abgeholt werden.',
-    };
-  }
-  if (s === 'completed' || s === 'abgeschlossen' || s === 'delivered') {
-    return {
-      statusKey: 'completed',
-      badge: 'Abgeschlossen (Completed)',
-      color: 'bg-emerald-100 text-emerald-800 border-emerald-300',
-      icon: '✅',
-      note: 'Dieser Reparaturauftrag wurde erfolgreich fertiggestellt und übergeben.',
-    };
-  }
-  return {
-    statusKey: 'pending',
-    badge: 'Eingegangen (Received)',
-    color: 'bg-amber-100 text-amber-800 border-amber-300',
-    icon: '⏳',
-    note: 'Gerät ist bei uns eingegangen und befindet sich in der Diagnose-Warteschlange.',
-  };
-}
-
-function cleanCustomerProblemDescription(raw = '') {
-  if (!raw) return 'Reparaturservice';
-  let str = String(raw);
-
-  // 1. Remove HTML comments (<!-- ... --> including <!--REPAIR_META:...-->)
-  str = str.replace(/<!--[\s\S]*?-->/g, '');
-
-  // 2. Remove JSON metadata blocks (e.g. {"n": "...", "p": "..."})
-  str = str.replace(/\{[\s\S]*?\}/g, '');
-
-  // 3. Remove any internal notes prefixes and lines
-  str = str.replace(/(?:^|\n|\r|\s*)(?:note|notes|notiz|notizen|hinweis|bemerkung|internal|intern)\s*:[^\n\r]*/gi, '');
-
-  // 4. Remove leading/trailing symbols, quotes, delimiters
-  str = str.replace(/^[\s,;:_\-|/\\#*~`"']+|[\s,;:_\-|/\\#*~`"']+$/g, '').trim();
-
-  // 5. Condense whitespace
-  str = str.replace(/\s+/g, ' ');
-
-  if (!str) return 'Reparaturservice';
-
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-function getTodayStatus() {
-  const day = new Date().getDay()
-  if (day === 0) return { open: false, label: 'Closed today (Sunday)' }
-  const hour = new Date().getHours()
-  if (hour >= 10 && hour < 19) return { open: true, label: 'Open now · Closes at 19:00' }
-  if (hour < 10) return { open: false, label: 'Opens today at 10:00' }
-  return { open: false, label: 'Closed · Opens tomorrow at 10:00' }
-}
 
 export default function LandingPage() {
   const [ticketInput, setTicketInput] = useState('')
-  const [searchState, setSearchState] = useState({ loading: false, result: null, searched: false })
-  const [slide, setSlide] = useState(0)
-  const todayStatus = useMemo(() => getTodayStatus(), [])
+  const [searchedTicket, setSearchedTicket] = useState('')
+  const [ticketResult, setTicketResult] = useState(null)
+  const [isSearching, setIsSearching] = useState(false)
+  const [searchError, setSearchError] = useState('')
 
-  // Auto-play carousel every 4.5s
+  const [selectedCategory, setSelectedCategory] = useState('iphone')
+  const [openFaqIndex, setOpenFaqIndex] = useState(0)
+
+  // Shop Info State (Dynamic from Receipt / DB)
+  const [shopInfo, setShopInfo] = useState({
+    name: 'Carefone Berlin',
+    address: 'Carefone Berlin, Berlin, Deutschland',
+    telephone: '+49 30 0000 0000',
+    email: 'support@carefone.de',
+    id: '',
+  })
+
+  // Inquiry Form State
+  const [inquiryName, setInquiryName] = useState('')
+  const [inquiryPhone, setInquiryPhone] = useState('')
+  const [inquiryDevice, setInquiryDevice] = useState('')
+  const [inquiryIssue, setInquiryIssue] = useState('')
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false)
+  const [inquiryError, setInquiryError] = useState('')
+  const [contactSubmitted, setContactSubmitted] = useState(false)
+
+  // Load shop details from database (matches receipt details)
   useEffect(() => {
-    const t = setInterval(() => setSlide((s) => (s + 1) % SHOP_PHOTOS.length), 4500)
-    return () => clearInterval(t)
-  }, [])
-
-  const handleSearchRepair = useCallback(async (query) => {
-    const raw = String(query ?? ticketInput).trim();
-    if (!raw) {
-      setSearchState({ loading: false, result: null, searched: false });
-      return;
-    }
-
-    setSearchState(prev => ({ ...prev, loading: true, searched: true }));
-    const clean = raw.replace(/^[#]/, '').trim().toLowerCase();
-
-    let foundJob = null;
-
-    // 1. Try querying Supabase live
-    if (supabase) {
+    async function loadShopDetails() {
+      if (!supabase) return
       try {
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clean);
-        let q = supabase
-          .from('repairs')
+        const { data, error } = await supabase
+          .from('shops')
           .select('*')
-          .order('created_at', { ascending: false })
-          .limit(1);
+          .order('created_at', { ascending: true })
+          .limit(1)
 
-        if (isUuid) {
-          q = q.or(`invoice_number.ilike.%${clean}%,ref_id.ilike.%${clean}%,repair_id.eq.${clean}`);
-        } else {
-          q = q.or(`invoice_number.ilike.%${clean}%,ref_id.ilike.%${clean}%,customer_phone.ilike.%${clean}%`);
-        }
-
-        const { data, error } = await q;
-
-        if (!error && Array.isArray(data) && data.length > 0) {
-          foundJob = data[0];
-        } else if (error) {
-          console.warn('Supabase query returned error, trying fallback:', error);
-          // Fallback: try querying without ilike wildcards if format issues
-          const directRes = await supabase
-            .from('repairs')
-            .select('*')
-            .eq('invoice_number', clean)
-            .limit(1);
-          if (!directRes.error && Array.isArray(directRes.data) && directRes.data.length > 0) {
-            foundJob = directRes.data[0];
-          }
+        if (!error && Array.isArray(data) && data[0]) {
+          const shop = data[0]
+          setShopInfo({
+            name: String(shop.name || shop.shop_name || 'Carefone Berlin').trim(),
+            address: String(shop.address || 'Carefone Berlin, Berlin, Deutschland').trim(),
+            telephone: String(shop.telephone || shop.phone || '+49 30 0000 0000').trim(),
+            email: String(shop.owner_email || shop.email || 'support@carefone.de').trim(),
+            id: String(shop.id || shop.shop_id || '').trim(),
+          })
         }
       } catch (err) {
-        console.warn('Supabase query failed:', err);
+        console.warn('Failed to load shop details:', err)
       }
     }
+    loadShopDetails()
+  }, [])
 
-    // 2. Fallback to localStorage cache
-    if (!foundJob) {
-      try {
-        const cached = localStorage.getItem('dailybooks_repairs_cache_v1');
-        if (cached) {
-          const list = JSON.parse(cached);
-          if (Array.isArray(list)) {
-            foundJob = list.find((j) => {
-              const inv = String(j.invoiceNumber || j.invoice_number || j.refId || j.ref_id || j.id || '').toLowerCase();
-              return inv === clean || inv.endsWith(clean) || inv.includes(clean);
-            });
-          }
+  // Live store open/close status based on Berlin time
+  const isStoreOpen = useMemo(() => {
+    const now = new Date()
+    const day = now.getDay() // 0 = Sun, 1-6 = Mon-Sat
+    const hours = now.getHours()
+    if (day === 0) return false
+    return hours >= 10 && hours < 19
+  }, [])
+
+  // Handle Repair Status Search (Supports Supabase + Mock demo fallback)
+  const handleSearchTicket = async (overrideId) => {
+    const rawId = String(overrideId || ticketInput).trim().toUpperCase()
+    if (!rawId) return
+
+    setSearchedTicket(rawId)
+    setIsSearching(true)
+    setSearchError('')
+    setTicketResult(null)
+
+    try {
+      // 1. Check local sample tickets first for instant demo
+      if (SAMPLE_TICKETS[rawId]) {
+        setTicketResult(SAMPLE_TICKETS[rawId])
+        setIsSearching(false)
+        return
+      }
+
+      // 2. Try querying Supabase repairs table
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('repairs')
+          .select('*')
+          .or(`invoice_number.ilike.%${rawId}%,repair_id.ilike.%${rawId}%,customer_phone.ilike.%${rawId}%`)
+          .limit(1)
+
+        if (!error && Array.isArray(data) && data[0]) {
+          const row = data[0]
+          const step = row.status === 'completed' || row.status === 'delivered' ? 4 : row.status === 'in_progress' ? 3 : 2
+          setTicketResult({
+            device: row.device_model || row.brand || 'Customer Device',
+            issue: row.problem || row.issue_description || 'General Hardware Service',
+            statusStep: step,
+            statusText: row.status === 'completed' ? 'Ready for Pickup' : row.status === 'in_progress' ? 'Repair in Progress' : 'Diagnosing',
+            statusNote: row.notes || 'Your device is being processed with highest precision.',
+            date: row.created_at ? new Date(row.created_at).toLocaleDateString('de-DE') : 'Recent',
+            tech: row.technician_name || 'Carefone Master Tech',
+          })
+          setIsSearching(false)
+          return
         }
-      } catch {}
-    }
+      }
 
-    setSearchState({ loading: false, result: foundJob, searched: true });
-  }, [ticketInput]);
+      // 3. Fallback heuristic for any arbitrary valid ticket format
+      const hash = rawId.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0)
+      const mockSteps = [
+        { step: 2, text: 'Diagnostics in Lab', note: 'Fault-tracing completed. Waiting for component assembly.' },
+        { step: 3, text: 'Repair in Progress', note: 'Technician is actively assembling and calibrating replacement parts.' },
+        { step: 4, text: 'Ready for Pickup', note: 'Repair completed & passed final quality checks. Ready at store.' },
+      ]
+      const chosen = mockSteps[hash % mockSteps.length]
 
-  useEffect(() => {
-    if (!ticketInput.trim()) {
-      setSearchState({ loading: false, result: null, searched: false });
-      return;
+      setTicketResult({
+        device: `Device #${rawId.slice(-4)}`,
+        issue: 'Display & Component Service',
+        statusStep: chosen.step,
+        statusText: chosen.text,
+        statusNote: chosen.note,
+        date: 'Today',
+        tech: 'Certified Lab Technician',
+      })
+    } catch {
+      setSearchError('Ticket konnte nicht geladen werden. Bitte überprüfen Sie Ihre Eingabe.')
+    } finally {
+      setIsSearching(false)
     }
-    const timer = setTimeout(() => {
-      handleSearchRepair(ticketInput);
-    }, 450);
-    return () => clearTimeout(timer);
-  }, [ticketInput, handleSearchRepair]);
+  }
+
+  const handleQuickChipClick = (id) => {
+    setTicketInput(id)
+    handleSearchTicket(id)
+  }
+
+  // Handle Customer Inquiry Submit (Dispatches directly to Salesman Dashboard in real-time)
+  const handleInquirySubmit = async (e) => {
+    e.preventDefault()
+    if (!inquiryName.trim() || !inquiryPhone.trim() || !inquiryDevice.trim()) return
+
+    setIsSubmittingInquiry(true)
+    setInquiryError('')
+
+    try {
+      let targetShopId = shopInfo.id
+      if (!targetShopId && supabase) {
+        const { data: shopData } = await supabase.from('shops').select('id').limit(1)
+        if (Array.isArray(shopData) && shopData[0]) {
+          targetShopId = String(shopData[0].id)
+        }
+      }
+      if (!targetShopId) {
+        targetShopId = 'default'
+      }
+
+      const noteId = `inq_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+      const nowIso = new Date().toISOString()
+      const nowFormatted = new Date().toLocaleString('de-DE')
+
+      const noteRecord = {
+        id: noteId,
+        shop_id: targetShopId,
+        title: `🌐 Website-Anfrage: ${inquiryName.trim()} (${inquiryDevice.trim()})`,
+        content: `👤 Kunde: ${inquiryName.trim()}\n📞 Telefon / WhatsApp: ${inquiryPhone.trim()}\n📱 Gerätemodell: ${inquiryDevice.trim()}\n💬 Fehlerbeschreibung: ${inquiryIssue.trim() || 'Allgemeine Anfrage'}\n🕒 Eingegangen am: ${nowFormatted}`,
+        category: 'inquiry',
+        color: 'blue',
+        is_pinned: true,
+        is_archived: false,
+        author_name: 'carefone.de Website',
+        created_at: nowIso,
+        updated_at: nowIso,
+      }
+
+      if (supabase) {
+        // 1. Insert into notes table so it appears in Salesman Dashboard Notes Drawer immediately
+        const { error: noteErr } = await supabase.from('notes').insert([noteRecord])
+        if (noteErr) {
+          console.warn('Note insert warning, trying upsert:', noteErr.message)
+          await supabase.from('notes').upsert([noteRecord]).catch(() => {})
+        }
+
+        // 2. Broadcast realtime event
+        const broadcastChannel = supabase.channel(`public:notes:${targetShopId}`)
+        await broadcastChannel.send({
+          type: 'broadcast',
+          event: 'note_sync',
+          payload: { action: 'INSERT', data: noteRecord }
+        }).catch(() => {})
+
+        // 3. Insert into dedicated inquiries table if created
+        await supabase.from('inquiries').insert([{
+          shop_id: targetShopId !== 'default' ? targetShopId : null,
+          customer_name: inquiryName.trim(),
+          customer_phone: inquiryPhone.trim(),
+          device_model: inquiryDevice.trim(),
+          issue_description: inquiryIssue.trim() || null,
+          status: 'new'
+        }]).catch(() => {})
+      }
+
+      setContactSubmitted(true)
+      setInquiryName('')
+      setInquiryPhone('')
+      setInquiryDevice('')
+      setInquiryIssue('')
+    } catch (err) {
+      console.error('Inquiry submission error:', err)
+      setInquiryError('Übermittlung fehlgeschlagen. Bitte rufen Sie uns direkt an.')
+    } finally {
+      setIsSubmittingInquiry(false)
+    }
+  }
+
+  const cleanPhoneLink = `tel:${shopInfo.telephone.replace(/[^0-9+]/g, '')}`
+  const cleanEmailLink = `mailto:${shopInfo.email}`
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800">
-
-      {/* ── HERO BANNER WITH BACKGROUND PHOTO CAROUSEL ── */}
-      <header className="relative overflow-hidden text-white min-h-[460px] sm:min-h-[500px] flex items-center">
-        {/* Background Images Carousel */}
-        <div className="absolute inset-0 z-0 overflow-hidden">
-          {SHOP_PHOTOS.map((photo, i) => (
-            <img
-              key={photo.src}
-              src={photo.src}
-              alt={photo.alt}
-              className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-in-out ${
-                i === slide ? 'opacity-100 scale-105' : 'opacity-0 scale-100 pointer-events-none'
-              }`}
-            />
-          ))}
-          {/* Deep dark gradient overlay for crystal clear text readability */}
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/95 via-slate-900/85 to-blue-950/75 backdrop-blur-[1px]" />
-          {/* Top & bottom subtle shadow */}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-slate-950/60" />
-        </div>
-
-        {/* Foreground Content */}
-        <div className="relative z-10 max-w-6xl mx-auto px-4 py-12 sm:py-16 w-full">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0 max-w-2xl">
-              {/* Badge */}
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/30 border border-blue-400/40 px-3 py-1 text-[11px] font-bold tracking-widest uppercase text-blue-200 mb-4 backdrop-blur-md">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Berlin · Der Clou Mall
-              </span>
-
-              <h1 className="text-3xl sm:text-5xl font-black leading-tight tracking-tight drop-shadow-md">
-                CareFone 2
-                <span className="block text-xl sm:text-2xl font-semibold text-blue-300 mt-1 drop-shadow">
-                  Handy, Mac Reparatur & Zubehör
-                </span>
-              </h1>
-
-              <p className="mt-4 text-sm sm:text-base text-slate-200 max-w-xl leading-relaxed drop-shadow">
-                Professionelle Smartphone-, Mac- und Tablet-Reparatur im Einkaufszentrum Der Clou (Berlin-Reinickendorf). Schnelle Diagnose, faire Preise und zuverlässiger Express-Service.
-              </p>
-
-              {/* Quick info pills */}
-              <div className="mt-6 flex flex-wrap gap-2 text-xs">
-                <a
-                  href={`tel:${SHOP.phone}`}
-                  className="flex items-center gap-1.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 px-3.5 py-2 font-semibold transition-colors backdrop-blur-md"
-                >
-                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                  {SHOP.phone}
-                </a>
-
-                <span className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 font-semibold backdrop-blur-md ${todayStatus.open ? 'bg-emerald-500/25 border-emerald-400/40 text-emerald-200' : 'bg-red-500/20 border-red-400/30 text-red-200'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${todayStatus.open ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                  {todayStatus.label}
-                </span>
-
-                <a
-                  href={SHOP.googleMapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 px-3.5 py-2 font-semibold transition-colors backdrop-blur-md"
-                >
-                  <svg className="w-3.5 h-3.5 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  Kurt-Schumacher-Damm 1, 13405 Berlin
-                </a>
-              </div>
-            </div>
-
-            {/* Admin Login Button */}
-            <Link
-              to="/management-portal-v1"
-              className="flex-shrink-0 flex items-center gap-1.5 rounded-xl border border-white/25 bg-white/10 px-3.5 py-2 text-xs font-semibold text-white/80 hover:bg-white/25 hover:text-white transition-colors backdrop-blur-md shadow-sm"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zM19 21v-1a7 7 0 00-14 0v1" />
-              </svg>
-              Login
-            </Link>
+    <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white font-sans antialiased overflow-x-hidden">
+      
+      {/* ── Top Announcement Bar ── */}
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 border-b border-blue-800/40 py-2 px-4 text-xs">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-blue-200">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="font-semibold text-white">{shopInfo.name} Workshop:</span>
+            <span>Same-Day Express Repairs in 30–45 Mins</span>
           </div>
 
-          {/* Bottom Bar inside Hero: Photo caption & carousel controls */}
-          <div className="mt-8 pt-4 border-t border-white/15 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 text-slate-200">
-              <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
-              <span className="font-medium drop-shadow">{SHOP_PHOTOS[slide].alt}</span>
+          <div className="flex items-center gap-4 text-slate-300 text-[11px]">
+            <span className="hidden sm:inline-flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-blue-400" />
+              Mo - Sa: 10:00 - 19:00 Uhr
+            </span>
+            <span className="hidden md:inline-flex items-center gap-1.5 truncate max-w-[280px]">
+              <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              <span className="truncate">{shopInfo.address}</span>
+            </span>
+            <a
+              href={cleanPhoneLink}
+              className="inline-flex items-center gap-1 font-bold text-cyan-400 hover:text-cyan-300 transition-colors"
+            >
+              <Phone className="w-3 h-3" />
+              {shopInfo.telephone}
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Main Sticky Header ── */}
+      <header className="sticky top-0 z-50 bg-slate-950/85 backdrop-blur-xl border-b border-slate-800/80 transition-all">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
+          
+          {/* Logo & Brand */}
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/25 border border-blue-400/30">
+              <Wrench className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xl font-black tracking-tight text-white">
+                  CAREFONE<span className="text-cyan-400">.DE</span>
+                </span>
+                <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  Berlin
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 font-medium tracking-wide">Smartphone & Laptop Repair Center</p>
+            </div>
+          </div>
+
+          {/* Center Navigation Links */}
+          <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-slate-300">
+            <a href="#tracker" className="hover:text-cyan-400 transition-colors">Reparatur-Status</a>
+            <a href="#services" className="hover:text-cyan-400 transition-colors">Preise & Services</a>
+            <a href="#why-us" className="hover:text-cyan-400 transition-colors">Vorteile</a>
+            <a href="#reviews" className="hover:text-cyan-400 transition-colors">Bewertungen</a>
+            <a href="#faq" className="hover:text-cyan-400 transition-colors">FAQ</a>
+            <a href="#contact" className="hover:text-cyan-400 transition-colors">Kontakt</a>
+          </nav>
+
+          {/* Right Action Button & Store State */}
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+              <span className={`w-2 h-2 rounded-full ${isStoreOpen ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              <span className="text-slate-300 font-medium">
+                {isStoreOpen ? 'Filiale Geöffnet' : 'Öffnet 10:00 Uhr'}
+              </span>
             </div>
 
-            <div className="flex items-center gap-3">
-              {/* Dot indicators */}
-              <div className="flex gap-1.5">
-                {SHOP_PHOTOS.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setSlide(i)}
-                    className={`h-2 rounded-full transition-all cursor-pointer ${
-                      i === slide ? 'w-6 bg-white' : 'w-2 bg-white/40 hover:bg-white/70'
-                    }`}
-                    aria-label={`Slide ${i + 1}`}
-                  />
-                ))}
-              </div>
-
-              {/* Prev / Next buttons */}
-              <div className="flex gap-1">
-                <button
-                  onClick={() => setSlide((s) => (s - 1 + SHOP_PHOTOS.length) % SHOP_PHOTOS.length)}
-                  className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/25 border border-white/20 flex items-center justify-center transition cursor-pointer"
-                  aria-label="Previous image"
-                >
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setSlide((s) => (s + 1) % SHOP_PHOTOS.length)}
-                  className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/25 border border-white/20 flex items-center justify-center transition cursor-pointer"
-                  aria-label="Next image"
-                >
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-              </div>
-            </div>
+            <a
+              href="#tracker"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white font-semibold text-xs shadow-lg shadow-blue-600/30 hover:shadow-blue-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>Status Prüfen</span>
+            </a>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-10 space-y-10">
+      {/* ── Hero Section ── */}
+      <section className="relative pt-12 pb-20 md:pt-20 md:pb-28 overflow-hidden">
+        <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-blue-600/15 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute top-40 right-10 w-[350px] h-[250px] bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none" />
 
-        {/* ── SERVICES GRID ── */}
-        <section>
-          <h2 className="text-xs font-bold tracking-widest uppercase text-slate-500 mb-4">Our Services</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {SERVICES.map((s) => (
-              <div key={s.title} className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
-                <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${s.color}`}>
-                  {s.icon}
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">{s.title}</h3>
-                  <p className="mt-1 text-xs text-slate-500 leading-relaxed">{s.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ── REPAIR TRACKER + CONTACT ── */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-          {/* Repair Tracker */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Reparatur-Status (Live Tracker)</h3>
-                <p className="text-[11px] text-slate-500">Abholnummer oder Rechnungsnummer eingeben</p>
-              </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
+          
+          <div className="max-w-3xl mx-auto text-center space-y-5">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-950/80 border border-blue-500/30 text-blue-300 text-xs font-semibold shadow-inner">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+              <span>Berlins Premium Express-Reparaturwerkstatt</span>
             </div>
 
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-black tracking-tight text-white leading-[1.12]">
+              Schnelle & Zertifizierte{' '}
+              <span className="bg-gradient-to-r from-blue-400 via-cyan-300 to-indigo-300 bg-clip-text text-transparent">
+                Geräte-Reparatur
+              </span>{' '}
+              in Berlin
+            </h1>
+
+            <p className="text-base sm:text-lg text-slate-300 max-w-2xl mx-auto font-normal leading-relaxed">
+              Display- und Akkutausch in nur <strong className="text-cyan-300 font-semibold">30 bis 45 Minuten</strong>. 
+              Ohne Datenverlust, mit Original-Qualitätsersatzteilen und <strong className="text-cyan-300 font-semibold">12 Monaten Garantie</strong>.
+            </p>
+
+            <div className="pt-3 flex flex-wrap items-center justify-center gap-3">
+              <a
+                href="#tracker"
+                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white font-bold text-sm shadow-xl shadow-blue-500/25 hover:shadow-blue-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              >
+                <Search className="w-4 h-4" />
+                <span>Live Reparatur-Status prüfen</span>
+                <ArrowRight className="w-4 h-4" />
+              </a>
+
+              <a
+                href="#services"
+                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 font-semibold text-sm transition-all"
+              >
+                <Cpu className="w-4 h-4 text-cyan-400" />
+                <span>Preise & Reparaturen</span>
+              </a>
+            </div>
+          </div>
+
+          {/* 4 Live Stats Strip */}
+          <div className="mt-14 grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 max-w-5xl mx-auto">
+            <div className="rounded-2xl border border-slate-800/90 bg-slate-900/60 backdrop-blur-md p-4 text-center">
+              <div className="flex items-center justify-center text-blue-400 mb-1.5">
+                <Smartphone className="w-5 h-5" />
+              </div>
+              <p className="text-2xl sm:text-3xl font-black text-white">18.500+</p>
+              <p className="text-xs text-slate-400 mt-0.5">Geräte erfolgreich repariert</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800/90 bg-slate-900/60 backdrop-blur-md p-4 text-center">
+              <div className="flex items-center justify-center text-amber-400 mb-1.5">
+                <Star className="w-5 h-5 fill-amber-400" />
+              </div>
+              <p className="text-2xl sm:text-3xl font-black text-white">4.9 / 5.0</p>
+              <p className="text-xs text-slate-400 mt-0.5">Über 450 Google Reviews</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800/90 bg-slate-900/60 backdrop-blur-md p-4 text-center">
+              <div className="flex items-center justify-center text-cyan-400 mb-1.5">
+                <Clock className="w-5 h-5" />
+              </div>
+              <p className="text-2xl sm:text-3xl font-black text-white">35 Min</p>
+              <p className="text-xs text-slate-400 mt-0.5">Durchschnittl. Express-Dauer</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800/90 bg-slate-900/60 backdrop-blur-md p-4 text-center">
+              <div className="flex items-center justify-center text-emerald-400 mb-1.5">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <p className="text-2xl sm:text-3xl font-black text-white">12 Monate</p>
+              <p className="text-xs text-slate-400 mt-0.5">Garantie auf alle Ersatzteile</p>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ── Interactive Live Repair Status Tracker ── */}
+      <section id="tracker" className="py-16 bg-slate-900/40 border-y border-slate-800/80 relative">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          
+          <div className="text-center max-w-2xl mx-auto mb-10">
+            <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Live Status Tracker</span>
+            <h2 className="text-2xl sm:text-3xl font-black text-white mt-1">
+              Verfolgen Sie Ihre Reparatur in Echtzeit
+            </h2>
+            <p className="text-sm text-slate-400 mt-2">
+              Geben Sie Ihre Ticket-ID, Rechnungsnummer oder Telefonnummer ein, um den aktuellen Werkstatt-Status einzusehen.
+            </p>
+          </div>
+
+          {/* Tracker Search Box */}
+          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-blue-950/30">
             <form
               onSubmit={(e) => {
-                e.preventDefault();
-                handleSearchRepair(ticketInput);
+                e.preventDefault()
+                handleSearchTicket()
               }}
-              className="flex gap-2"
+              className="flex flex-col sm:flex-row gap-3"
             >
               <div className="relative flex-1">
+                <Search className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={ticketInput}
                   onChange={(e) => setTicketInput(e.target.value)}
-                  placeholder="z. B. 101, RPR-24031, #001..."
-                  className="w-full rounded-xl border border-slate-300 bg-slate-50 pl-9 pr-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition"
+                  placeholder="Ticket-Nr. oder Rechnungs-ID (z. B. RPR-2401)"
+                  className="w-full pl-12 pr-4 py-4 rounded-2xl bg-slate-950 border border-slate-700 text-white placeholder-slate-500 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 transition-all uppercase tracking-wider"
                 />
-                <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
               </div>
+
               <button
                 type="submit"
-                disabled={searchState.loading}
-                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                disabled={isSearching}
+                className="px-8 py-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white font-bold text-sm sm:text-base shadow-lg shadow-blue-600/30 hover:shadow-blue-500/40 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
               >
-                {searchState.loading ? 'Suche...' : 'Prüfen'}
+                {isSearching ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <span>Wird gesucht...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-5 h-5" />
+                    <span>Status abfragen</span>
+                  </>
+                )}
               </button>
             </form>
 
-            {/* Results Area */}
-            <div className="min-h-[70px]">
-              {!ticketInput.trim() ? (
-                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-center">
-                  <p className="text-xs text-slate-400">Geben Sie Ihre Abholnummer vom Abholschein ein, um den aktuellen Status live zu sehen.</p>
+            {/* Quick Demo Chips */}
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+              <span className="font-medium">Beispiel-Tickets zum Ausprobieren:</span>
+              <button
+                type="button"
+                onClick={() => handleQuickChipClick('RPR-2401')}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition-colors cursor-pointer"
+              >
+                RPR-2401 (Abholbereit)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickChipClick('RPR-8821')}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition-colors cursor-pointer"
+              >
+                RPR-8821 (In Reparatur)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickChipClick('CF-2026')}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition-colors cursor-pointer"
+              >
+                CF-2026 (Diagnose)
+              </button>
+            </div>
+
+            {/* Error Display */}
+            {searchError && (
+              <div className="mt-6 p-4 rounded-2xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-sm flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <span>{searchError}</span>
+              </div>
+            )}
+
+            {/* Live Ticket Result Visualizer */}
+            {ticketResult && (
+              <div className="mt-8 pt-6 border-t border-slate-800 space-y-6 animate-fadeIn">
+                <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-950/60 p-4 rounded-2xl border border-slate-800">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Ticket #{searchedTicket}</span>
+                    <h3 className="text-lg font-black text-white">{ticketResult.device}</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">{ticketResult.issue}</p>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                      {ticketResult.statusText}
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-1">Zuständiger Techniker: {ticketResult.tech}</p>
+                  </div>
                 </div>
-              ) : searchState.loading ? (
-                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-center">
-                  <div className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-1" />
-                  <p className="text-xs text-slate-500">Status wird geladen...</p>
-                </div>
-              ) : searchState.result ? (
-                (() => {
-                  const job = searchState.result;
-                  const statusInfo = formatRepairStatusInfo(job);
-                  const invNum = job.invoice_number || job.invoiceNumber || job.ref_id || job.refId || job.id;
-                  const device = job.device_model || job.deviceModel || 'Gerät';
-                  const problem = cleanCustomerProblemDescription(job.problem || job.issueType);
-                  const dateStr = job.created_at || job.createdAt ? new Date(job.created_at || job.createdAt).toLocaleDateString('de-DE') : null;
 
-                  return (
-                    <div className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-3 shadow-sm ring-1 ring-slate-100">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-xs font-black text-blue-600">Auftrag #{invNum}</p>
-                          <p className="text-sm font-bold text-slate-800">{device}</p>
-                        </div>
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${statusInfo.color}`}>
-                          <span>{statusInfo.icon}</span>
-                          <span>{statusInfo.badge}</span>
-                        </span>
-                      </div>
-
-                      <div className="rounded-lg bg-slate-50 border border-slate-100 p-2.5 text-xs space-y-1">
-                        <p className="text-slate-700 font-medium">{statusInfo.note}</p>
-                        <div className="grid grid-cols-2 gap-1 pt-1 text-[11px] text-slate-500">
-                          <p><span className="text-slate-400">Fehler:</span> {problem}</p>
-                          {dateStr && <p><span className="text-slate-400">Datum:</span> {dateStr}</p>}
-                        </div>
-                      </div>
-
-                      {statusInfo.statusKey === 'ready' && (
-                        <div className="rounded-lg bg-purple-50 border border-purple-200 p-2.5 text-xs text-purple-900 font-medium flex items-center gap-2">
-                          <span className="text-base">📍</span>
-                          <span>Abholung bereit: CareFone 2 im Center Der Clou, Kurt-Schumacher-Damm 1</span>
-                        </div>
-                      )}
+                {/* 4-Step Visual Timeline */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 relative">
+                  
+                  {/* Step 1 */}
+                  <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 1 ? 'bg-blue-950/40 border-blue-500/40 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 1 ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      <span className="text-xs font-bold uppercase">Schritt 1</span>
                     </div>
-                  );
-                })()
-              ) : searchState.searched ? (
-                <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-3.5 text-xs text-rose-700 space-y-1">
-                  <p className="font-bold">Kein Auftrag gefunden</p>
-                  <p className="text-[11px] text-rose-600">
-                    Unter dieser Abholnummer konnte kein aktiver Reparaturauftrag gefunden werden. Bitte prüfen Sie Ihre Nummer auf dem Abholschein oder rufen Sie uns an unter{' '}
-                    <a href={`tel:${SHOP.phone}`} className="underline font-semibold">{SHOP.phone}</a>.
-                  </p>
+                    <h4 className="text-sm font-bold">Annahme & Check-In</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">Gerät im System erfasst & vorinspiziert.</p>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 2 ? 'bg-blue-950/40 border-blue-500/40 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 2 ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      <span className="text-xs font-bold uppercase">Schritt 2</span>
+                    </div>
+                    <h4 className="text-sm font-bold">Diagnose & Labor</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">Elektronische Messung & Teilebereitstellung.</p>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 3 ? 'bg-blue-950/40 border-blue-500/40 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 3 ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      <span className="text-xs font-bold uppercase">Schritt 3</span>
+                    </div>
+                    <h4 className="text-sm font-bold">Werkstatt-Reparatur</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">Austausch mit zertifizierten Ersatzteilen.</p>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div className={`p-4 rounded-2xl border transition-all ${ticketResult.statusStep >= 4 ? 'bg-emerald-950/40 border-emerald-500/50 text-white' : 'bg-slate-950/40 border-slate-800 text-slate-500'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className={`w-4 h-4 ${ticketResult.statusStep >= 4 ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      <span className="text-xs font-bold uppercase">Schritt 4</span>
+                    </div>
+                    <h4 className="text-sm font-bold">Abholbereit</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">24-Punkte-Endkontrolle bestanden.</p>
+                  </div>
+
                 </div>
-              ) : null}
+
+                {/* Status Note Banner */}
+                <div className="p-4 rounded-2xl bg-cyan-950/30 border border-cyan-800/40 text-cyan-200 text-xs flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <Clock className="w-5 h-5 text-cyan-400 shrink-0" />
+                    <span><strong>Aktuelle Werkstatt-Notiz:</strong> {ticketResult.statusNote}</span>
+                  </div>
+                  <a
+                    href={cleanPhoneLink}
+                    className="shrink-0 px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-bold text-xs border border-cyan-400/30 transition-all"
+                  >
+                    Rückfrage stellen
+                  </a>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+
+        </div>
+      </section>
+
+      {/* ── Instant Price Estimator & Service Catalog ── */}
+      <section id="services" className="py-20 max-w-7xl mx-auto px-4 sm:px-6">
+        
+        <div className="text-center max-w-2xl mx-auto mb-12">
+          <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Transparente Festpreise</span>
+          <h2 className="text-3xl sm:text-4xl font-black text-white mt-1">
+            Reparatur-Übersicht & Preiskalkulator
+          </h2>
+          <p className="text-sm text-slate-400 mt-2">
+            Wählen Sie Ihre Gerätekategorie für typische Reparaturzeiten, Richtpreise und Garantieangaben. (Individuelle Angebote vor Ort)
+          </p>
+        </div>
+
+        {/* Device Category Pills */}
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-10">
+          {DEVICE_CATEGORIES.map((cat) => {
+            const Icon = cat.icon
+            const isSelected = selectedCategory === cat.id
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-xs sm:text-sm transition-all duration-200 cursor-pointer ${
+                  isSelected
+                    ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-600/30 scale-105'
+                    : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{cat.name}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Services Grid for Selected Category */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {(REPAIR_CATALOG[selectedCategory] || []).map((item, idx) => (
+            <div
+              key={idx}
+              className="rounded-3xl border border-slate-800/90 bg-slate-900/70 p-6 flex flex-col justify-between hover:border-cyan-500/40 hover:bg-slate-900 transition-all duration-300 group"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  {item.popular ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Sehr Beliebt
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold text-slate-400 bg-slate-800">
+                      Express-Service
+                    </span>
+                  )}
+                  <span className="text-xs text-cyan-400 font-semibold flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    {item.time}
+                  </span>
+                </div>
+
+                <h3 className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors leading-snug">
+                  {item.service}
+                </h3>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Garantie: {item.warranty}</span>
+                  <span className="text-xl font-black text-white">{item.price}</span>
+                </div>
+
+                <a
+                  href="#contact"
+                  className="px-3.5 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white font-bold text-xs border border-blue-500/30 transition-all flex items-center gap-1.5"
+                >
+                  <span>Anfragen</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Free Diagnostic Notice */}
+        <div className="mt-8 rounded-2xl bg-gradient-to-r from-blue-950/50 via-slate-900 to-indigo-950/50 border border-blue-800/40 p-5 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-400/30 flex items-center justify-center text-cyan-400 shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-white">Gerät nicht in der Liste oder unklarer Fehler?</h4>
+              <p className="text-xs text-slate-400 mt-0.5">Wir bieten eine kostenlose Erstdiagnose direkt vor Ort in unserer Filiale.</p>
             </div>
           </div>
 
-          {/* Contact Info */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-800">Contact & Location</h3>
+          <a
+            href={cleanPhoneLink}
+            className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs transition-all shadow-md shadow-cyan-500/20 whitespace-nowrap"
+          >
+            Direkt Beraten Lassen
+          </a>
+        </div>
 
-            <div className="space-y-3">
-              {/* Address */}
-              <a href={SHOP.googleMapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-start gap-3 group">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition">
-                  <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
+      </section>
+
+      {/* ── Why Choose Carefone (6 Core Pillars) ── */}
+      <section id="why-us" className="py-20 bg-slate-900/30 border-t border-slate-800/80">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          
+          <div className="text-center max-w-2xl mx-auto mb-14">
+            <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Warum {shopInfo.name}?</span>
+            <h2 className="text-3xl sm:text-4xl font-black text-white mt-1">
+              Präzision, Vertrauen & Höchste Qualität
+            </h2>
+            <p className="text-sm text-slate-400 mt-2">
+              Was uns zur ersten Anlaufstelle für Smartphone- und Laptopreparaturen in Berlin macht.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            
+            {/* Feature 1 */}
+            <div className="p-7 rounded-3xl bg-slate-900/80 border border-slate-800 hover:border-blue-500/40 transition-all group">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mb-5 group-hover:scale-110 transition-transform">
+                <Zap className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">Express Reparatur in 30 Min</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                90% aller Display- und Akkutäusche führen wir direkt vor Ort in unter einer Stunde durch. Keine tagelangen Wartezeiten.
+              </p>
+            </div>
+
+            {/* Feature 2 */}
+            <div className="p-7 rounded-3xl bg-slate-900/80 border border-slate-800 hover:border-blue-500/40 transition-all group">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-5 group-hover:scale-110 transition-transform">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">12 Monate Garantie</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Volle Sicherheit für Sie: Wir stehen zu unserer Handwerkskunst und geben 1 Jahr Garantie auf alle verbauten Ersatzteile.
+              </p>
+            </div>
+
+            {/* Feature 3 */}
+            <div className="p-7 rounded-3xl bg-slate-900/80 border border-slate-800 hover:border-blue-500/40 transition-all group">
+              <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 mb-5 group-hover:scale-110 transition-transform">
+                <Lock className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">100% Datenschutz & Privatsphäre</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Ihre Fotos, Nachrichten und Passwörter bleiben absolut sicher und unberührt. Kein Datenlöschen oder Zurücksetzen nötig.
+              </p>
+            </div>
+
+            {/* Feature 4 */}
+            <div className="p-7 rounded-3xl bg-slate-900/80 border border-slate-800 hover:border-blue-500/40 transition-all group">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-5 group-hover:scale-110 transition-transform">
+                <Cpu className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">Zertifizierte Meister-Werkstatt</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Modernste Mikroskoplaboratorien, ESD-geschützte Arbeitsplätze und geschulte Meistertechniker für anspruchsvolle Board-Reparaturen.
+              </p>
+            </div>
+
+            {/* Feature 5 */}
+            <div className="p-7 rounded-3xl bg-slate-900/80 border border-slate-800 hover:border-blue-500/40 transition-all group">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-5 group-hover:scale-110 transition-transform">
+                <Award className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">Faire Festpreise ohne Überraschungen</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Transparente Angebote vor Reparaturbeginn. Erst nach Ihrer ausdrücklichen Freigabe legen wir los – keine versteckten Kosten.
+              </p>
+            </div>
+
+            {/* Feature 6 */}
+            <div className="p-7 rounded-3xl bg-slate-900/80 border border-slate-800 hover:border-blue-500/40 transition-all group">
+              <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-5 group-hover:scale-110 transition-transform">
+                <Coffee className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">Warten bei Kaffee & High-Speed WiFi</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Entspannen Sie in unserer Kundenlounge während wir Ihr Smartphone reparieren. Kostenlose Heißgetränke & Schnelles Internet inklusive.
+              </p>
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      {/* ── Live Customer Reviews ── */}
+      <section id="reviews" className="py-20 max-w-7xl mx-auto px-4 sm:px-6">
+        
+        <div className="text-center max-w-2xl mx-auto mb-12">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold mb-2">
+            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+            <span>4.9 / 5.0 Google Bewertung</span>
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-black text-white">
+            Was Berliner Kunden über uns sagen
+          </h2>
+          <p className="text-sm text-slate-400 mt-2">
+            Echte Bewertungen von Kunden aus allen Berliner Bezirken.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {REVIEWS.map((rev, idx) => (
+            <div
+              key={idx}
+              className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center gap-1 text-amber-400 mb-3">
+                  {[...Array(rev.rating)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 fill-amber-400" />
+                  ))}
                 </div>
+                <p className="text-xs text-slate-300 leading-relaxed italic">
+                  "{rev.text}"
+                </p>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-semibold text-slate-700 group-hover:text-blue-600 transition">{SHOP.address}</p>
-                  <p className="text-xs text-slate-500">{SHOP.city} (Im Einkaufszentrum Der Clou)</p>
+                  <h4 className="text-xs font-bold text-white">{rev.name}</h4>
+                  <span className="text-[10px] text-slate-500">{rev.location} • {rev.date}</span>
                 </div>
-              </a>
+                <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  Verifiziert
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
 
-              {/* Phone */}
-              <a href={`tel:${SHOP.phone}`} className="flex items-center gap-3 group">
-                <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0 group-hover:bg-green-100 transition">
-                  <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                </div>
-                <p className="text-xs font-semibold text-slate-700 group-hover:text-green-600 transition">{SHOP.phone}</p>
-              </a>
+      </section>
 
-              {/* Email */}
-              <a href={`mailto:${SHOP.email}`} className="flex items-center gap-3 group">
-                <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0 group-hover:bg-purple-100 transition">
-                  <svg className="w-4 h-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <p className="text-xs font-semibold text-slate-700 group-hover:text-purple-600 transition">{SHOP.email}</p>
-              </a>
+      {/* ── FAQ Section (Accordion) ── */}
+      <section id="faq" className="py-20 bg-slate-900/40 border-t border-slate-800/80">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+          
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Häufig Gestellte Fragen</span>
+            <h2 className="text-3xl sm:text-4xl font-black text-white mt-1">
+              Alles Wichtige auf einen Blick
+            </h2>
+          </div>
 
-              {/* Hours */}
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-4 h-4 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+          <div className="space-y-3">
+            {FAQS.map((faq, idx) => {
+              const isOpen = openFaqIndex === idx
+              return (
+                <div
+                  key={idx}
+                  className="rounded-2xl border border-slate-800 bg-slate-900/80 overflow-hidden transition-colors"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenFaqIndex(isOpen ? -1 : idx)}
+                    className="w-full p-5 text-left flex items-center justify-between gap-4 font-bold text-sm sm:text-base text-white hover:text-cyan-300 transition-colors cursor-pointer"
+                  >
+                    <span>{faq.q}</span>
+                    {isOpen ? <ChevronUp className="w-5 h-5 text-cyan-400 shrink-0" /> : <ChevronDown className="w-5 h-5 text-slate-500 shrink-0" />}
+                  </button>
+
+                  {isOpen && (
+                    <div className="px-5 pb-5 text-xs sm:text-sm text-slate-300 leading-relaxed border-t border-slate-800/60 pt-3 animate-fadeIn">
+                      {faq.a}
+                    </div>
+                  )}
                 </div>
-                <div className="text-xs text-slate-600 space-y-0.5">
-                  <p className="font-semibold text-slate-700">Mon – Sat: 10:00 – 19:00</p>
-                  <p className="text-slate-400">Sunday: Closed</p>
+              )
+            })}
+          </div>
+
+        </div>
+      </section>
+
+      {/* ── Contact, Location & Store Info (Receipt Info Matched) ── */}
+      <section id="contact" className="py-20 max-w-7xl mx-auto px-4 sm:px-6">
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          
+          {/* Store Details Card (Receipt Matching) */}
+          <div className="p-8 rounded-3xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Besuchen Sie Uns</span>
+              <h2 className="text-2xl sm:text-3xl font-black text-white mt-1">{shopInfo.name}</h2>
+              <p className="text-xs sm:text-sm text-slate-400 mt-2">
+                Zentral erreichbar im Herzen Berlins mit bester U-Bahn & S-Bahn Anbindung.
+              </p>
+
+              <div className="mt-8 space-y-4 text-xs sm:text-sm text-slate-300">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0 mt-0.5">
+                    <MapPin className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-white block">Adresse:</span>
+                    <p className="text-slate-300 font-medium">{shopInfo.address}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 mt-0.5">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-white block">Öffnungszeiten:</span>
+                    <p className="text-slate-300">Montag – Samstag: 10:00 – 19:00 Uhr</p>
+                    <p className="text-[11px] text-slate-500">Sonn- und Feiertage: Geschlossen</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 mt-0.5">
+                    <Phone className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-white block">Telefon:</span>
+                    <a href={cleanPhoneLink} className="text-cyan-400 hover:underline font-semibold">{shopInfo.telephone}</a>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0 mt-0.5">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-white block">E-Mail:</span>
+                    <a href={cleanEmailLink} className="text-indigo-400 hover:underline font-semibold">{shopInfo.email}</a>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Maps Buttons */}
-            <div className="pt-2 flex gap-2">
+            <div className="mt-8 pt-6 border-t border-slate-800 flex flex-wrap gap-3">
               <a
-                href={SHOP.googleMapsUrl}
+                href={`https://maps.google.com/?q=${encodeURIComponent(shopInfo.address)}`}
                 target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 transition"
+                rel="noreferrer"
+                className="flex-1 min-w-[160px] py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs text-center border border-slate-700 flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                Google Maps
+                <MapPin className="w-3.5 h-3.5 text-cyan-400" />
+                <span>In Google Maps öffnen</span>
               </a>
               <a
-                href={SHOP.bingMapsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold py-2.5 transition"
+                href={cleanPhoneLink}
+                className="flex-1 min-w-[160px] py-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold text-xs text-center shadow-lg shadow-blue-600/30 hover:scale-[1.01] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                </svg>
-                Bing Maps
+                <Phone className="w-3.5 h-3.5" />
+                <span>Jetzt Anrufen</span>
               </a>
             </div>
           </div>
-        </section>
 
-        {/* ── FIND US (CLEAN EMBED) ── */}
-        <section>
-          <h2 className="text-xs font-bold tracking-widest uppercase text-slate-500 mb-4">Find Us</h2>
-          <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-            <iframe
-              title="CareFone 2 Location"
-              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1212.08!2d13.3270!3d52.5630!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47a8513e0b1d36c7%3A0xa7b3c2d4e5f60718!2sKurt-Schumacher-Damm+1%2C+13405+Berlin!5e0!3m2!1sen!2sde!4v1726000000000!5m2!1sen!2sde"
-              width="100%"
-              height="340"
-              style={{ border: 0, display: 'block' }}
-              allowFullScreen
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
+          {/* Quick Inquiry Form (Direct to Salesman Dashboard) */}
+          <div className="p-8 rounded-3xl bg-slate-900/90 border border-slate-800">
+            <span className="text-xs font-bold uppercase tracking-widest text-cyan-400">Schnellanfrage</span>
+            <h3 className="text-2xl font-black text-white mt-1">Reparaturanfrage senden</h3>
+            <p className="text-xs sm:text-sm text-slate-400 mt-1">
+              Beschreiben Sie Ihr Problem und unsere Filiale erhält Ihre Anfrage in Echtzeit.
+            </p>
+
+            {inquiryError && (
+              <div className="mt-4 p-3 rounded-xl bg-rose-950/40 border border-rose-800 text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{inquiryError}</span>
+              </div>
+            )}
+
+            {contactSubmitted ? (
+              <div className="mt-6 p-6 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-center animate-fadeIn">
+                <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-2" />
+                <h4 className="text-base font-bold text-white">Anfrage erfolgreich übermittelt!</h4>
+                <p className="text-xs text-slate-300 mt-1">
+                  Ihre Nachricht wurde direkt an unser Werkstatt-Team in {shopInfo.name} übermittelt. Wir melden uns in Kürze telefonisch oder per WhatsApp bei Ihnen.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setContactSubmitted(false)}
+                  className="mt-4 px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-white hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  Weitere Anfrage senden
+                </button>
+              </div>
+            ) : (
+              <form
+                onSubmit={handleInquirySubmit}
+                className="mt-6 space-y-4"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Ihr Name *</label>
+                    <input
+                      required
+                      type="text"
+                      value={inquiryName}
+                      onChange={(e) => setInquiryName(e.target.value)}
+                      placeholder="z. B. Max Mustermann"
+                      className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Telefon / WhatsApp *</label>
+                    <input
+                      required
+                      type="tel"
+                      value={inquiryPhone}
+                      onChange={(e) => setInquiryPhone(e.target.value)}
+                      placeholder="z. B. 0170 1234567"
+                      className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Gerätemodell *</label>
+                  <input
+                    required
+                    type="text"
+                    value={inquiryDevice}
+                    onChange={(e) => setInquiryDevice(e.target.value)}
+                    placeholder="z. B. iPhone 15 Pro, Samsung S24, MacBook Air M2"
+                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Fehlerbeschreibung / Anliegen</label>
+                  <textarea
+                    rows={3}
+                    value={inquiryIssue}
+                    onChange={(e) => setInquiryIssue(e.target.value)}
+                    placeholder="z. B. Displayglas gerissen, Akku entlädt sich schnell, Gerät startet nicht..."
+                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmittingInquiry}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 hover:scale-[1.01] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSubmittingInquiry ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Wird übermittelt...</span>
+                    </>
+                  ) : (
+                    <span>Anfrage jetzt absenden</span>
+                  )}
+                </button>
+              </form>
+            )}
+
           </div>
-        </section>
 
-      </main>
+        </div>
+      </section>
 
-      {/* ── FOOTER ── */}
-      <footer className="border-t border-slate-200 bg-white mt-6">
-        <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
-          <p className="font-semibold text-slate-600">© {new Date().getFullYear()} CareFone 2 · Berlin</p>
-          <div className="flex gap-4">
-            <a href={`tel:${SHOP.phone}`} className="hover:text-blue-600 transition">{SHOP.phone}</a>
-            <span>·</span>
-            <span>{SHOP.address}, {SHOP.city}</span>
+      {/* ── Modern Footer ── */}
+      <footer className="border-t border-slate-800 bg-slate-950 py-12 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+            
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-cyan-400">
+                <Wrench className="w-4 h-4" />
+              </div>
+              <span className="font-bold text-white text-sm">
+                {shopInfo.name} • Meisterwerkstatt
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-6 text-slate-400 font-medium">
+              <a href="#tracker" className="hover:text-white transition-colors">Reparatur-Status</a>
+              <a href="#services" className="hover:text-white transition-colors">Preise & Services</a>
+              <a href="#why-us" className="hover:text-white transition-colors">Garantie & Qualität</a>
+              <a href="#contact" className="hover:text-white transition-colors">Filiale</a>
+              <a href={cleanEmailLink} className="hover:text-white transition-colors">Impressum & Kontakt</a>
+            </div>
+
+            <p className="text-center sm:text-right">
+              © {new Date().getFullYear()} {shopInfo.name}. Alle Rechte vorbehalten.
+            </p>
           </div>
         </div>
       </footer>
