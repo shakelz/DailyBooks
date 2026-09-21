@@ -141,7 +141,7 @@ export default function LoginPage({ mode = 'salesman' }) {
                 setAdminError('Not allowed.')
             }
         } catch (error) {
-            setAdminError(`Baigan! Login fail: ${error?.message || 'Invalid credentials.'}`)
+            setAdminError(error?.message || 'Ungültige Anmeldedaten. Bitte überprüfen Sie Ihre Eingaben.')
         } finally {
             setIsLoading(false)
         }
@@ -151,24 +151,13 @@ export default function LoginPage({ mode = 'salesman' }) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
                 <div className="w-full max-w-sm">
-                    <button
-                        type="button"
-                        id="admin-back-btn"
-                        onClick={() => navigate(SALESMAN_LOGIN_PATH)}
-                        className="mb-4 inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3.5 py-2 text-xs font-semibold text-slate-200 transition-all hover:border-blue-400/60 hover:text-white"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                        </svg>
-                        Back to Salesman Login
-                    </button>
                     <div className="text-center mb-8">
                         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-400 shadow-lg shadow-blue-500/30 mb-4">
                             <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                             </svg>
                         </div>
-                        <h2 className="text-2xl font-bold text-white">Admin Login</h2>
+                        <h2 className="text-2xl font-bold text-white">Login</h2>
                         <p className="text-slate-400 text-sm mt-1">Email + Password</p>
                     </div>
 

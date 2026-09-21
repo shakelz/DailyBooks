@@ -178,6 +178,7 @@ function App() {
                   <Routes>
                     <Route path="/" element={<LandingPage />} />
                     <Route path={SALESMAN_LOGIN_PATH} element={<LoginPage mode="salesman" />} />
+                    <Route path="/login" element={<LoginPage mode="admin" />} />
                     <Route path={ADMIN_LOGIN_PATH} element={<LoginPage mode="admin" />} />
 
                     <Route path={`${ADMIN_LOGIN_PATH}/*`} element={<AdminRouteShell />}>
