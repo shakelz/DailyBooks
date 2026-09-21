@@ -3205,7 +3205,9 @@ export function AuthProvider({ children }) {
     const logout = () => {
         void supabase.auth.signOut();
         resetAuthState({ redirect: false });
-        return { success: true, redirectTo: SALESMAN_LOGIN_ROUTE };
+        const origin = (typeof window !== 'undefined' ? (sessionStorage.getItem('dailybooks_login_origin') || localStorage.getItem('dailybooks_login_origin')) : '') || '';
+        const redirectTo = (origin === 'carefone' || origin === 'carefone_login') ? '/login' : SALESMAN_LOGIN_ROUTE;
+        return { success: true, redirectTo };
     };
 
     const verifySalesmanUnlockPin = useCallback(async (pinValue) => {

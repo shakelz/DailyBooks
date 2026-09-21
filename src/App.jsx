@@ -125,7 +125,9 @@ function AdminRouteShell() {
   }
 
   if (!allowed) {
-    return <Navigate to={SALESMAN_LOGIN_PATH} replace />
+    const origin = (typeof window !== 'undefined' ? (sessionStorage.getItem('dailybooks_login_origin') || localStorage.getItem('dailybooks_login_origin')) : '') || '';
+    const fallbackPath = (origin === 'carefone' || origin === 'carefone_login') ? '/login' : SALESMAN_LOGIN_PATH;
+    return <Navigate to={fallbackPath} replace />
   }
 
   return <AdminPanel />

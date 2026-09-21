@@ -341,6 +341,12 @@ export default function LandingPage() {
             {/* Login Button */}
             <Link
               to={loginDestination}
+              onClick={() => {
+                try {
+                  sessionStorage.setItem('dailybooks_login_origin', 'carefone');
+                  localStorage.setItem('dailybooks_login_origin', 'carefone');
+                } catch {}
+              }}
               className="flex-shrink-0 flex items-center gap-1.5 rounded-xl border border-white/30 bg-white/15 hover:bg-white/30 px-4 py-2 text-xs font-bold text-white transition-colors backdrop-blur-md shadow-sm cursor-pointer"
             >
               <svg className="h-4 w-4 text-blue-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

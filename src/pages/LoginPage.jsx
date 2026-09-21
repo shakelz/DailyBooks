@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../supabaseClient'
 
@@ -20,6 +20,7 @@ function adminTargetByRole(role = '') {
 
 export default function LoginPage({ mode = 'salesman' }) {
     const navigate = useNavigate()
+    const location = useLocation()
     const {
         login,
         role: authRole,
@@ -55,6 +56,20 @@ export default function LoginPage({ mode = 'salesman' }) {
 
         navigate(isAdminMode ? ADMIN_LOGIN_PATH : SALESMAN_LOGIN_PATH, { replace: true })
     }, [authLoading, authRole, authUser, isAdminMode, navigate])
+
+    useEffect(() => {
+        if (location.pathname === '/login') {
+            try {
+                sessionStorage.setItem('dailybooks_login_origin', 'carefone');
+                localStorage.setItem('dailybooks_login_origin', 'carefone');
+            } catch {}
+        } else if (location.pathname === SALESMAN_LOGIN_PATH) {
+            try {
+                sessionStorage.setItem('dailybooks_login_origin', 'terminal');
+                localStorage.setItem('dailybooks_login_origin', 'terminal');
+            } catch {}
+        }
+    }, [location.pathname])
 
     const handlePinInput = useCallback(async (digit) => {
         if (authLoading || pinLoading || isAdminMode) return
@@ -314,7 +329,13 @@ export default function LoginPage({ mode = 'salesman' }) {
                     <button
                         type="button"
                         id="admin-portal-cta"
-                        onClick={() => navigate(ADMIN_LOGIN_PATH)}
+                        onClick={() => {
+                            try {
+                                sessionStorage.setItem('dailybooks_login_origin', 'terminal');
+                                localStorage.setItem('dailybooks_login_origin', 'terminal');
+                            } catch {}
+                            navigate(ADMIN_LOGIN_PATH);
+                        }}
                         className="w-full rounded-xl border border-blue-400/40 bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 transition-all hover:from-blue-500 hover:to-cyan-400"
                     >
                         Admin Portal

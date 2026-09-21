@@ -81,8 +81,10 @@ export default function AdminPanel() {
         { label: 'Reparaturen', route: `${ADMIN_BASE_ROUTE}/repairs`, icon: <Wrench size={18} /> },
     ];
     const handleLogout = () => {
+        const origin = (typeof window !== 'undefined' ? (sessionStorage.getItem('dailybooks_login_origin') || localStorage.getItem('dailybooks_login_origin')) : '') || '';
         const result = logout();
-        navigate(result?.redirectTo || SALESMAN_LOGIN_ROUTE, { replace: true });
+        const dest = (origin === 'carefone' || origin === 'carefone_login') ? '/login' : (result?.redirectTo || SALESMAN_LOGIN_ROUTE);
+        navigate(dest, { replace: true });
     };
 
     const navigateTo = (route) => {
