@@ -109,7 +109,7 @@ export default function LoginPage({ mode = 'salesman' }) {
 
     const handleAdminLogin = async (event) => {
         event.preventDefault()
-        if (authLoading) return
+        if (authLoading || isLoading) return
         setAdminError('')
 
         const identifier = adminUser.trim()
@@ -125,21 +125,19 @@ export default function LoginPage({ mode = 'salesman' }) {
 
         setIsLoading(true)
         try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email: identifier.toLowerCase(),
+            const result = await login({
+                role: 'admin',
+                identifier,
                 password,
             })
-            if (error) throw error
 
-            const authUser = data?.session?.user || data?.user || null
-            const userRole = normalizeRole(
-                authUser?.user_metadata?.role
-                || authUser?.app_metadata?.role
-            )
-            if (userRole && userRole !== 'super_admin' && userRole !== 'owner') {
-                await supabase.auth.signOut()
-                setAdminError('Not allowed.')
+            if (result?.success) {
+                const target = result.redirectTo || (ADMIN_LOGIN_PATH + '/dashboard')
+                navigate(target, { replace: true })
+                return
             }
+
+            setAdminError(result?.message || 'Ungültige Anmeldedaten. Bitte überprüfen Sie Ihre Eingaben.')
         } catch (error) {
             setAdminError(error?.message || 'Ungültige Anmeldedaten. Bitte überprüfen Sie Ihre Eingaben.')
         } finally {

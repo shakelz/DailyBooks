@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { supabase } from '../supabaseClient'
 
 const SHOP = {
@@ -165,6 +166,12 @@ function getTodayStatus() {
 }
 
 export default function LandingPage() {
+  const auth = useAuth()
+  const authRole = String(auth?.role || '').toLowerCase()
+  const isAdminLoggedIn = authRole === 'super_admin' || authRole === 'owner' || authRole === 'admin'
+  const adminTarget = authRole === 'super_admin' ? '/management-portal-v1/dashboard' : '/management-portal-v1/owner-dashboard'
+  const loginDestination = isAdminLoggedIn ? adminTarget : '/login'
+
   const [ticketInput, setTicketInput] = useState('')
   const [searchState, setSearchState] = useState({ loading: false, result: null, searched: false })
   const [slide, setSlide] = useState(0)
@@ -333,13 +340,13 @@ export default function LandingPage() {
 
             {/* Login Button */}
             <Link
-              to="/login"
+              to={loginDestination}
               className="flex-shrink-0 flex items-center gap-1.5 rounded-xl border border-white/30 bg-white/15 hover:bg-white/30 px-4 py-2 text-xs font-bold text-white transition-colors backdrop-blur-md shadow-sm cursor-pointer"
             >
               <svg className="h-4 w-4 text-blue-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
-              Login
+              {isAdminLoggedIn ? 'Admin Dashboard' : 'Login'}
             </Link>
           </div>
 
