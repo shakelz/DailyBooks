@@ -69,16 +69,9 @@ function normalizeKpiContributionMode(value = '') {
     return KPI_MODE_SALES;
 }
 
-function matchesDeviceLikeCategoryText(value = '') {
-    const haystack = String(value || '').toLowerCase();
-    return haystack.includes('mobile')
-        || haystack.includes('phone')
-        || haystack.includes('laptop')
-        || haystack.includes('notebook')
-        || haystack.includes('tab')
-        || haystack.includes('tablet')
-        || haystack.includes('ipad')
-        || haystack.includes('macbook');
+function getRepairInvoiceNumber(job = {}) {
+    return extractInvoiceNumberBase(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id)
+        || String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim();
 }
 
 function isMissingDbObjectError(error = null) {
@@ -116,16 +109,7 @@ function buildPaymentBreakdown(transactions = []) {
     }, {});
 }
 
-function toBreakdownRows(map = {}) {
-    const rows = Object.entries(map)
-        .map(([key, total]) => ({
-            key,
-            label: key === 'sumup' ? 'SumUp' : key.charAt(0).toUpperCase() + key.slice(1),
-            total,
-        }))
-        .sort((a, b) => b.total - a.total);
-    return rows.length ? rows : [{ key: 'cash', label: 'Cash', total: 0 }];
-}
+
 
 function todayIsoDate() {
     return formatLocalDateInput(new Date());
@@ -1331,7 +1315,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             if (escTimer) clearTimeout(escTimer);
             window.removeEventListener('keydown', handleEscapeReset);
         };
-    }, []);
+    }, [setSelectedMobileInventoryItem, setShowMobileInventoryModal, setShowOtherInventoryModal]);
 
     const attemptUnlockWithPin = useCallback(async (pinValue = '') => {
         const enteredPin = String(pinValue || '').trim();
@@ -1798,7 +1782,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return withTransactionDisplayData(hydratedTxn);
     }, [user?.shop_id, withTransactionDisplayData]);
 
-    const isMobileTransaction = (txn = {}) => {
+    const isMobileTransaction = useCallback((txn = {}) => {
         const source = String(txn?.source || '').toLowerCase();
         if (source === 'repair' || source.startsWith('repair-') || source.startsWith('repair_')) {
             return false;
@@ -1822,16 +1806,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || haystack.includes('phone')
             || haystack.includes('iphone')
             || haystack.includes('samsung');
-    };
+    }, [productLookup]);
 
     const nonMobileRevenueTransactions = useMemo(
         () => revenueTransactions.filter((txn) => !isMobileTransaction(txn)),
-        [revenueTransactions, productLookup]
+        [revenueTransactions, isMobileTransaction]
     );
 
     const nonMobilePurchaseTransactions = useMemo(
         () => purchaseTransactions.filter((txn) => !isMobileTransaction(txn)),
-        [purchaseTransactions, productLookup]
+        [purchaseTransactions, isMobileTransaction]
     );
 
     const isRepairHistoryTransaction = (txn = {}) => {
@@ -2101,7 +2085,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             categoryContributionModeMap,
             includeAdminFixedExpenses: false,
         });
-    }, [debouncedTransactions, debouncedProducts, debouncedRepairJobs, dashboardRange, categoryContributionModeMap, kpiSettingsVersion]);
+    }, [debouncedTransactions, debouncedProducts, debouncedRepairJobs, dashboardRange, categoryContributionModeMap]);
 
     const fallbackStats = useMemo(() => ({
         totals: {
@@ -2817,13 +2801,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 negativeClass: 'text-rose-700',
             },
         };
-    }, [activeStats.totals.expenses, activeStats.totals.income, activeStats.totals.revenue, kpiExpenseCategoryBreakdown, kpiIncomeCategoryBreakdown, kpiRevenueCategoryBreakdown]);
+    }, [activeStats.totals.income, activeStats.totals.revenue, kpiExpenseCategoryBreakdown, kpiIncomeCategoryBreakdown, kpiRevenueCategoryBreakdown]);
 
     const activeKpiBreakdown = activeKpiBreakdownType
         ? (kpiBreakdownByType[activeKpiBreakdownType] || null)
         : null;
 
-    const resolveProductSuggestions = (query, level1, level2) => {
+    const resolveProductSuggestions = useCallback((query, level1, level2) => {
         const trimmed = String(query || '').trim();
         if (!trimmed) return [];
         return searchProducts(trimmed)
@@ -2834,11 +2818,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 return sameLevel1 && sameLevel2;
             })
             .slice(0, 8);
-    };
+    }, [searchProducts]);
 
     const salesProductSuggestions = useMemo(
         () => resolveProductSuggestions(debouncedSalesProductQuery, salesEntry.category, salesEntry.subCategory),
-        [debouncedSalesProductQuery, salesEntry.category, salesEntry.subCategory, searchProducts]
+        [debouncedSalesProductQuery, salesEntry.category, salesEntry.subCategory, resolveProductSuggestions]
     );
     const purchaseProductSuggestions = useMemo(
         () => {
@@ -2928,7 +2912,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
             return suggestions.slice(0, 8);
         },
-        [debouncedPurchaseProductQuery, purchaseEntry.category, purchaseEntry.subCategory, searchProducts, getLevel1Categories, getLevel2Categories, debouncedTransactions, resolveTransactionDisplayName]
+        [debouncedPurchaseProductQuery, purchaseEntry.category, purchaseEntry.subCategory, resolveProductSuggestions, getLevel1Categories, getLevel2Categories, debouncedTransactions, resolveTransactionDisplayName]
     );
     const isSalesProductSuggestionsLoading = Boolean(String(salesEntry.productName || '').trim())
         && String(salesEntry.productName || '').trim() !== String(debouncedSalesProductQuery || '').trim();
@@ -3232,7 +3216,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         input.focus();
     };
 
-    const applyEntryProduct = (mode, product) => {
+    const applyEntryProduct = useCallback((mode, product) => {
         const resolved = resolveProductSnapshot(product);
         const nextAmount = mode === 'purchase'
             ? (resolved.purchasePrice || resolved.sellingPrice || 0)
@@ -3253,7 +3237,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             setPurchaseEntryErrors((prev) => ({ ...prev, category: '', amount: '' }));
             setShowPurchaseProductSuggestions(false);
         }
-    };
+    }, []);
 
     const handleEntryProductQueryChange = (mode, value) => {
         const nextValue = String(value || '');
@@ -3900,10 +3884,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return dt.toLocaleString('de-DE');
     };
 
-    const getRepairInvoiceNumber = useCallback((job = {}) => (
-        extractInvoiceNumberBase(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id)
-        || String(job?.invoiceNumber || job?.invoice_number || job?.refId || job?.id || '').trim()
-    ), []);
+    // getRepairInvoiceNumber hoisted to module level
 
     const uniqueTechnicianNames = useMemo(() => {
         const names = new Set();
@@ -4027,7 +4008,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         return list;
-    }, [repairJobs, repairStatusTab, repairPerformerFilter, repairDatePreset, repairCustomStartDate, repairCustomEndDate, repairSearchQuery, getRepairInvoiceNumber]);
+    }, [repairJobs, repairStatusTab, repairPerformerFilter, repairDatePreset, repairCustomStartDate, repairCustomEndDate, repairSearchQuery]);
 
     const handleSaveRepairNote = async (jobId, noteText) => {
         try {

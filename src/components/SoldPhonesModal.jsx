@@ -35,7 +35,6 @@ import {
     CreditCard
 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
-import { useAuth } from '../context/AuthContext';
 import { priceTag, CURRENCY_CONFIG } from '../utils/currency';
 import { getCleanTransactionInvoiceNumber } from '../utils/invoiceNumbers';
 
@@ -60,7 +59,6 @@ export default function SoldPhonesModal({ isOpen, onClose, onViewTransaction }) 
         getLevel1Categories,
         getLevel2Categories
     } = useInventory();
-    const { activeShop } = useAuth();
 
     // ── Point 1: Ankauf vs. Verkauf Quick Tabs ──
     const [activeTab, setActiveTab] = useState('all'); // 'all' | 'sale' | 'purchase'
@@ -120,14 +118,6 @@ export default function SoldPhonesModal({ isOpen, onClose, onViewTransaction }) 
                 || rawTxType === 'product_purchase'
                 || source === 'purchase'
                 || String(txn.desc || txn.name || '').toLowerCase().startsWith('purchase -');
-
-            const isSale = !isPurchase && (
-                rawTxType === 'product_sale'
-                || rawTxType === 'income'
-                || rawTxType === 'sale'
-                || source === 'shop'
-                || !rawTxType
-            );
 
             // Exclude shop overhead/repairs unless repair sold a phone
             if (rawTxType === 'shop_expense' || rawTxType === 'fixed_expense') return;

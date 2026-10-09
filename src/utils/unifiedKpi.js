@@ -56,7 +56,7 @@ function parseTransactionDate(txn = {}) {
   return null;
 }
 
-function parseProductDate(product = {}) {
+function _parseProductDate(product = {}) {
   const candidates = [product?.timestamp, product?.created_at, product?.updated_at];
   for (const value of candidates) {
     if (!value) continue;
@@ -66,7 +66,7 @@ function parseProductDate(product = {}) {
   return null;
 }
 
-function parseRepairDate(job = {}) {
+function _parseRepairDate(job = {}) {
   const candidates = [job?.completedAt, job?.completed_at, job?.createdAt, job?.created_at, job?.timestamp];
   for (const value of candidates) {
     if (!value) continue;
@@ -391,7 +391,7 @@ function resolveConfiguredMode(categoryContributionModeMap = {}, scope = KPI_SCO
   return KPI_MODE_SALES;
 }
 
-function resolveTxnContributionMode(txn = {}, scope = KPI_SCOPE_SALES, categoryContributionModeMap = {}, productById = {}) {
+function _resolveTxnContributionMode(txn = {}, scope = KPI_SCOPE_SALES, categoryContributionModeMap = {}, productById = {}) {
   const { categoryId, categoryName, subCategoryName } = resolveTxnCategoryParts(txn, productById);
   return resolveConfiguredMode(categoryContributionModeMap, scope, categoryName, subCategoryName, categoryId);
 }
@@ -498,7 +498,7 @@ function ensurePeriod(periodMap, date, periodType) {
   return periodMap[periodKey];
 }
 
-function calculateRepairProfit(job = {}) {
+function _calculateRepairProfit(job = {}) {
   const estimated = safeNumber(job?.estimatedCost ?? job?.estimated_cost, 0);
   const partsCost = (Array.isArray(job?.partsUsed) ? job.partsUsed : []).reduce((sum, part) => {
     const qty = safeNumber(part?.quantity ?? part?.qty, 1);
@@ -564,7 +564,7 @@ export function calculateFilteredTotal({
 export function computeUnifiedKpiSnapshot({
   transactions = [],
   products = [],
-  repairJobs = [],
+  repairJobs: _repairJobs = [],
   rangeStart,
   rangeEnd,
   periodType = 'monthly',

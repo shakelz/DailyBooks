@@ -11,7 +11,7 @@ import AdminTabToolbar from './AdminTabToolbar';
 
 export default function RepairsTab() {
     const { repairJobs, updateRepairStatus, deleteRepair } = useRepairs();
-    const { products, transactions, adjustStock } = useInventory();
+    const { transactions, adjustStock } = useInventory();
 
     const [statusFilter, setStatusFilter] = useState('all'); // all | pending | completed
     const [searchTerm, setSearchTerm] = useState('');
