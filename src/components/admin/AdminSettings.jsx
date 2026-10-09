@@ -243,7 +243,6 @@ export default function AdminSettings() {
         const nextHourlyRate = parseFloat(editHourlyRate);
         const nextMonthlySalary = parseFloat(editMonthlySalary);
         const nextNumber = parseInt(editSalesmanNumber, 10) || 0;
-        const currentRate = parseFloat(current.hourlyRate) || 12.50;
         const currentNumber = parseInt(current.salesmanNumber, 10) || 0;
         const currentPhoto = String(current.photo || '');
         const nextPhotoInput = String(editPhoto || '').trim();

@@ -245,7 +245,9 @@ export default function LandingPage() {
             });
           }
         }
-      } catch {}
+      } catch {
+        // Ignore cache parse error
+      }
     }
 
     setSearchState({ loading: false, result: foundJob, searched: true });
@@ -345,7 +347,9 @@ export default function LandingPage() {
                 try {
                   sessionStorage.setItem('dailybooks_login_origin', 'carefone');
                   localStorage.setItem('dailybooks_login_origin', 'carefone');
-                } catch {}
+                } catch {
+                  // Storage may be blocked or restricted
+                }
               }}
               className="flex-shrink-0 flex items-center gap-1.5 rounded-xl border border-white/30 bg-white/15 hover:bg-white/30 px-4 py-2 text-xs font-bold text-white transition-colors backdrop-blur-md shadow-sm cursor-pointer"
             >

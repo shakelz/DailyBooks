@@ -127,7 +127,7 @@ export default function CartSidebar({ onEditItem, onFinalized }) {
 
                     {/* Cart Items */}
                     <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                        {cart.map((item, idx) => (
+                        {cart.map((item) => (
                             <div key={item.cartItemId} className="bg-slate-50 rounded-xl border border-slate-100 p-3">
                                 <div className="flex items-start gap-3 justify-between">
                                     {/* Product Image */}

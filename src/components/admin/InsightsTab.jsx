@@ -425,7 +425,7 @@ export default function InsightsTab() {
                 const modeFromContributionColumn = row?.contribution_mode ?? row?.contributionMode;
                 const modeFromLegacyBool = row?.profit_only ?? row?.profitOnly ?? row?.is_profit_only;
                 const resolvedMode = (modeFromContributionColumn === undefined || modeFromContributionColumn === null || String(modeFromContributionColumn).trim() === '')
-                    ? (Boolean(modeFromLegacyBool) ? KPI_MODE_PROFIT : KPI_MODE_SALES)
+                    ? (modeFromLegacyBool ? KPI_MODE_PROFIT : KPI_MODE_SALES)
                     : normalizeContributionMode(modeFromContributionColumn);
 
                 acc[scopedCategoryKey(scope, categoryName, subCategoryName)] = resolvedMode;
@@ -708,7 +708,7 @@ export default function InsightsTab() {
             ],
             slowMovingValue,
         };
-    }, [transactions, products, filteredRepairJobs, rangeStart, rangeEnd, timeView, salesmen, slowMovingDays, categoryContributionModeMap]);
+    }, [transactions, products, productById, filteredRepairJobs, rangeStart, rangeEnd, timeView, salesmen, slowMovingDays, categoryContributionModeMap]);
 
     const revenueTimelineSnapshot = useMemo(() => {
         return computeUnifiedKpiSnapshot({
@@ -798,16 +798,13 @@ export default function InsightsTab() {
         const divisor = peakHourMode === '7d' ? 7 : 1;
 
         // Find Peak for highlighting
-        let maxVal = 0;
-        const data = hourlyCounts.map((count, idx) => {
-            const val = count / divisor;
-            if (val > maxVal) maxVal = val;
-            return {
-                hour: `${idx + 9}:00`,
-                count: val,
-                rawCount: count
-            };
-        });
+        const scaledCounts = hourlyCounts.map((count) => count / divisor);
+        const maxVal = Math.max(0, ...scaledCounts);
+        const data = hourlyCounts.map((count, idx) => ({
+            hour: `${idx + 9}:00`,
+            count: count / divisor,
+            rawCount: count
+        }));
 
         // Add fill color
         return data.map(d => ({
@@ -1008,14 +1005,16 @@ export default function InsightsTab() {
     }, [analytics]);
 
     const selectedExpenses = useMemo(() => {
-        return Number(analytics.unifiedTotals?.expenses ?? (analytics.totalFixedExpenses + analytics.totalNonFixedExpenses + analytics.totalInventoryPurchases) ?? 0);
+        const fallback = (analytics.totalFixedExpenses || 0) + (analytics.totalNonFixedExpenses || 0) + (analytics.totalInventoryPurchases || 0);
+        return Number(analytics.unifiedTotals?.expenses ?? fallback);
     }, [analytics]);
 
     const selectedIncome = useMemo(() => {
-        return Number(analytics.unifiedTotals?.income ?? (selectedRevenue - selectedExpenses) ?? 0);
+        const fallback = selectedRevenue - selectedExpenses;
+        return Number(analytics.unifiedTotals?.income ?? fallback);
     }, [analytics, selectedRevenue, selectedExpenses]);
 
-    const revenueMargin = selectedRevenue > 0 ? (selectedIncome / selectedRevenue) * 100 : 0;
+    const _revenueMargin = selectedRevenue > 0 ? (selectedIncome / selectedRevenue) * 100 : 0;
 
     const formattedPeriodLabel = useMemo(() => {
         const isSingleDay = rangeStart.toDateString() === rangeEnd.toDateString();

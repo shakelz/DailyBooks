@@ -11,7 +11,7 @@ import AdminTabToolbar from './AdminTabToolbar';
 
 export default function RepairsTab() {
     const { repairJobs, updateRepairStatus, deleteRepair } = useRepairs();
-    const { products, transactions } = useInventory();
+    const { products, transactions, adjustStock } = useInventory();
 
     const [statusFilter, setStatusFilter] = useState('all'); // all | pending | completed
     const [searchTerm, setSearchTerm] = useState('');
@@ -118,27 +118,17 @@ export default function RepairsTab() {
         const job = completingJob;
 
         // 1. Deduct Stock for Used Parts
-        partsUsed.forEach(part => {
-            const product = products.find(p => p.id === part.productId);
-            if (product) {
-                // Determine new stock
-                const currentStock = parseInt(product.stock) || 0;
-                const newStock = Math.max(0, currentStock - part.quantity);
-
-                // We need to use updateProductStock from InventoryContext, 
-                // but InventoryContext passes updateStock as updateProduct. Let's assume it has an update function.
-                // Note: The context exposes `updateProduct`. So we'll use that if `updateProductStock` isn't available, 
-                // but actually, let's just use `updateProduct(product.id, { ...product, stock: newStock })`
-                // Wait, InventoryContext exposes updateCartItem? No it's InventoryContext not CartContext
-                // We'll dispatch a custom event or check context later. Assuming updateProductStock exists as added above.
-            }
-        });
-
-        // Use custom window event to trigger stock update across contexts to avoid circular dependencies if any
-        window.dispatchEvent(new CustomEvent('update-inventory-stock', { detail: { partsUsed } }));
+        if (Array.isArray(partsUsed)) {
+            partsUsed.forEach(part => {
+                if (part.productId) {
+                    adjustStock(part.productId, -(part.quantity || 1));
+                }
+            });
+        }
 
         // 2. Update Repair Job
         updateRepairStatus(job.id, 'completed', {
+            finalAmount: completionData.finalAmount,
             partsUsed
         });
 

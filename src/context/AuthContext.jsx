@@ -3038,7 +3038,7 @@ export function AuthProvider({ children }) {
         }
 
         await fetchAttendanceState(activeUserShopId, role, activeUserId);
-    }, [activeUserId, activeUserShopId, attendanceLogs, fetchAttendanceState, role]);
+    }, [activeShopId, activeUserId, activeUserShopId, attendanceLogs, fetchAttendanceState, role]);
 
     const deleteAttendanceLog = useCallback(async (id) => {
         const sid = asString(activeShopId);
@@ -3086,7 +3086,7 @@ export function AuthProvider({ children }) {
         }
 
         await fetchAttendanceState(activeUserShopId, role, activeUserId);
-    }, [activeUserId, activeUserShopId, attendanceLogs, fetchAttendanceState, role]);
+    }, [activeShopId, activeUserId, activeUserShopId, attendanceLogs, fetchAttendanceState, role]);
 
     // ── Auth Logic ──
     const login = useCallback(async (userData) => {

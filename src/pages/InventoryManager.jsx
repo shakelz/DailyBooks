@@ -51,6 +51,36 @@ export default function InventoryManager() {
         setProducts(getAllProducts());
     }, [getAllProducts]);
 
+    // ── Handle Barcode Scan ──
+    const handleBarcodeScan = useCallback((rawBarcode) => {
+        const sanitized = sanitizeBarcode(rawBarcode);
+        if (!sanitized) {
+            setScanError('❌ Invalid barcode! Sirf 8-13 digits allowed hain.');
+            setScannedProduct(null);
+            setTimeout(() => setScanError(''), 3000);
+            return;
+        }
+
+        const product = lookupBarcode(sanitized);
+        if (product) {
+            setScannedProduct(product);
+            setScanInput(sanitized);
+            setScanError('');
+            setShowManualForm(false);
+
+            // Check stock severity → trigger admin alert if red
+            if (product.stock < 3) {
+                addLowStockAlert(product);
+            }
+        } else {
+            setScannedProduct(null);
+            setScanInput(sanitized);
+            setScanError(`⚠️ Barcode "${sanitized}" database mein nahi mila!`);
+            setShowManualForm(true); // Show manual form
+            setManualForm((prev) => ({ ...prev, barcode: sanitized }));
+        }
+    }, [lookupBarcode, sanitizeBarcode, addLowStockAlert]);
+
     // ── Scanner Detection: rapid keystrokes → barcode ──
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -85,37 +115,7 @@ export default function InventoryManager() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
-
-    // ── Handle Barcode Scan ──
-    const handleBarcodeScan = (rawBarcode) => {
-        const sanitized = sanitizeBarcode(rawBarcode);
-        if (!sanitized) {
-            setScanError('❌ Invalid barcode! Sirf 8-13 digits allowed hain.');
-            setScannedProduct(null);
-            setTimeout(() => setScanError(''), 3000);
-            return;
-        }
-
-        const product = lookupBarcode(sanitized);
-        if (product) {
-            setScannedProduct(product);
-            setScanInput(sanitized);
-            setScanError('');
-            setShowManualForm(false);
-
-            // Check stock severity → trigger admin alert if red
-            if (product.stock < 3) {
-                addLowStockAlert(product);
-            }
-        } else {
-            setScannedProduct(null);
-            setScanInput(sanitized);
-            setScanError(`⚠️ Barcode "${sanitized}" database mein nahi mila!`);
-            setShowManualForm(true); // Show manual form
-            setManualForm((prev) => ({ ...prev, barcode: sanitized }));
-        }
-    };
+    }, [handleBarcodeScan]);
 
     // ── Manual Input Submit ──
     const handleManualScan = () => {

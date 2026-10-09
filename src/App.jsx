@@ -85,17 +85,18 @@ function AuthLoadingScreen() {
 
 function AdminGuard({ children }) {
   const { user, role, logout, authLoading } = useAuth()
-  if (authLoading) {
-    return <AuthLoadingScreen />
-  }
   const hasUser = Boolean(user)
   const allowed = hasUser && isAdminRole(role)
 
   useEffect(() => {
-    if (hasUser && !allowed) {
+    if (!authLoading && hasUser && !allowed) {
       logout()
     }
-  }, [allowed, hasUser, logout])
+  }, [allowed, authLoading, hasUser, logout])
+
+  if (authLoading) {
+    return <AuthLoadingScreen />
+  }
 
   if (!allowed) {
     return <Navigate to={SALESMAN_LOGIN_PATH} replace />
@@ -108,17 +109,18 @@ function AdminRouteShell() {
   const { user, role, logout, authLoading } = useAuth()
   const location = useLocation()
   const isAdminLoginPath = location.pathname === ADMIN_LOGIN_PATH || location.pathname === `${ADMIN_LOGIN_PATH}/`
-  if (authLoading) {
-    return <AuthLoadingScreen />
-  }
   const hasUser = Boolean(user)
   const allowed = hasUser && isAdminRole(role)
 
   useEffect(() => {
-    if (hasUser && !allowed) {
+    if (!authLoading && hasUser && !allowed) {
       logout()
     }
-  }, [allowed, hasUser, logout])
+  }, [allowed, authLoading, hasUser, logout])
+
+  if (authLoading) {
+    return <AuthLoadingScreen />
+  }
 
   if (isAdminLoginPath) {
     return allowed ? <LegacyDashboardRedirect /> : <LoginPage mode="admin" />

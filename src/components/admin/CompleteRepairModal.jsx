@@ -118,6 +118,8 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
             : '<tr><td colspan="3" style="text-align:center;color:#666;">No parts used</td></tr>';
 
         const serviceAmount = parseFloat(printData.finalAmount) || 0;
+        const advancePaid = parseFloat(printData.advanceAmount || printData.advance_amount || 0) || 0;
+        const balanceDue = Math.max(0, serviceAmount - advancePaid);
         const partsCost = parseFloat(printData.totalPartsCost) || 0;
         const netEarning = serviceAmount - partsCost;
         const completedAt = printData.completedAt || new Date().toISOString();
@@ -186,6 +188,10 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         <div class="problem"><strong>Fehler:</strong> ${esc(printData.problem || 'N/A')}</div>
         <div class="divider"></div>
         <div class="row" style="font-size:13px; font-weight:900;"><span class="label-text" style="font-size:12px; font-weight:900; color:#000;">Endbetrag:</span><span>${toAmount(serviceAmount)}</span></div>
+        ${advancePaid > 0 ? `
+        <div class="row"><span class="label-text">Anzahlung (Bereits bezahlt):</span><span>-${toAmount(advancePaid)}</span></div>
+        <div class="row" style="font-size:12px; font-weight:900;"><span class="label-text" style="font-size:11px; font-weight:900; color:#000;">Restbetrag zu zahlen:</span><span>${toAmount(balanceDue)}</span></div>
+        ` : ''}
         <div class="divider"></div>
         <div class="title" style="text-align:left; margin-bottom:1mm; font-size:10px;">Verwendete Teile</div>
         <table>
@@ -212,6 +218,10 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         <div class="problem"><strong>Fehler:</strong> ${esc(printData.problem || 'N/A')}</div>
         <div class="divider"></div>
         <div class="row"><span class="label-text">Servicebetrag:</span><span>${toAmount(serviceAmount)}</span></div>
+        ${advancePaid > 0 ? `
+        <div class="row"><span class="label-text">Anzahlung:</span><span>-${toAmount(advancePaid)}</span></div>
+        <div class="row" style="font-size:11px; font-weight:800;"><span class="label-text" style="font-size:10px; font-weight:800; color:#000;">Offen (Kunde):</span><span>${toAmount(balanceDue)}</span></div>
+        ` : ''}
         <div class="row"><span class="label-text">Teilekosten:</span><span>${toAmount(partsCost)}</span></div>
         <div class="row" style="font-size:13px; font-weight:900;"><span class="label-text" style="font-size:12px; font-weight:900; color:#000;">Nettoertrag:</span><span>${toAmount(netEarning)}</span></div>
         <div style="height: 25mm; width: 100%;"></div>
@@ -310,6 +320,20 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
                                 placeholder="0.00"
                             />
                         </div>
+                        {Boolean(parseFloat(job?.advanceAmount || job?.advance_amount || 0)) && (
+                            <div className="mt-2.5 p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl flex items-center justify-between text-xs">
+                                <div>
+                                    <span className="font-semibold text-amber-800">Advance Paid: </span>
+                                    <span className="font-mono font-bold text-amber-900">{priceTag(job?.advanceAmount || job?.advance_amount || 0)}</span>
+                                </div>
+                                <div>
+                                    <span className="font-semibold text-slate-600">Balance Due: </span>
+                                    <span className="font-mono font-black text-emerald-700 text-sm">
+                                        {priceTag(Math.max(0, (parseFloat(finalAmount) || 0) - (parseFloat(job?.advanceAmount || job?.advance_amount || 0))))}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="border-t border-slate-100 my-4"></div>

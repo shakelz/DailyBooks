@@ -10,7 +10,7 @@ import { getCleanTransactionInvoiceNumber } from '../utils/invoiceNumbers';
 // ══════════════════════════════════════════════════════════
 
 export default function TransactionDetailModal({ isOpen, onClose, txn, initialEditMode = false }) {
-    const { isAdminLike, activeShop, billShowTax, salesmen } = useAuth();
+    const { isAdminLike, activeShop, billShowTax, salesmen, user } = useAuth();
     const { updateTransaction, deleteTransaction, products, getLevel1Categories } = useInventory();
 
     const [isEditing, setIsEditing] = useState(initialEditMode);
@@ -25,7 +25,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
 
     if (!isOpen || !txn || !editData) return null;
 
-    const isAdmin = isAdminLike;
+    const canEdit = isAdminLike || Boolean(user?.canEditTransactions ?? user?.permissions?.canEditTransactions ?? false);
 
     const isIncome = txn.type === 'income';
     const groupedItems = Array.isArray(txn.groupedItems) && txn.groupedItems.length > 0 ? txn.groupedItems : [txn];
@@ -563,7 +563,7 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                                 Re-print Receipt
                             </button>
 
-                            {isAdmin && (
+                            {canEdit && (
                                 <button
                                     onClick={() => setIsEditing(true)}
                                     className="px-6 py-3 bg-blue-50 text-blue-600 rounded-xl font-bold hover:bg-blue-100 border-2 border-blue-100/50 transition-all flex items-center justify-center gap-2"

@@ -652,7 +652,6 @@ export function computeUnifiedKpiSnapshot({
     if (!date || date < start || date > end) return;
 
     const period = ensurePeriod(periodMap, date, periodType);
-    const { linkedProduct, categoryName, subCategoryName } = resolveTxnCategoryParts(txn, productById);
     const txType = getTxType(txn);
     const sourceText = normalizeToken(txn?.source || txn?.tx_source || '');
 

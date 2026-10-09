@@ -409,7 +409,7 @@ export default function SoldPhonesModal({ isOpen, onClose, onViewTransaction }) 
             } else if (smartFilter === 'low_margin') {
                 if (!phone.isSale || (phone.marginPercent > 10 && phone.profit > 0)) return false;
             } else if (smartFilter === 'missing_imei') {
-                if (Boolean(phone.imei)) return false;
+                if (phone.imei) return false;
             } else if (smartFilter === 'cash') {
                 const pm = (phone.paymentMethod || '').toLowerCase();
                 if (!pm.includes('cash') && !pm.includes('bar')) return false;

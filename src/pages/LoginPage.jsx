@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../supabaseClient'
 
 const SALESMAN_LOGIN_PATH = '/terminal-access-v1'
 const ADMIN_LOGIN_PATH = '/management-portal-v1'
@@ -62,12 +61,16 @@ export default function LoginPage({ mode = 'salesman' }) {
             try {
                 sessionStorage.setItem('dailybooks_login_origin', 'carefone');
                 localStorage.setItem('dailybooks_login_origin', 'carefone');
-            } catch {}
+            } catch {
+                // Storage may be restricted
+            }
         } else if (location.pathname === SALESMAN_LOGIN_PATH) {
             try {
                 sessionStorage.setItem('dailybooks_login_origin', 'terminal');
                 localStorage.setItem('dailybooks_login_origin', 'terminal');
-            } catch {}
+            } catch {
+                // Storage may be restricted
+            }
         }
     }, [location.pathname])
 
@@ -333,7 +336,9 @@ export default function LoginPage({ mode = 'salesman' }) {
                             try {
                                 sessionStorage.setItem('dailybooks_login_origin', 'terminal');
                                 localStorage.setItem('dailybooks_login_origin', 'terminal');
-                            } catch {}
+                            } catch {
+                                // Storage may be restricted
+                            }
                             navigate(ADMIN_LOGIN_PATH);
                         }}
                         className="w-full rounded-xl border border-blue-400/40 bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 transition-all hover:from-blue-500 hover:to-cyan-400"

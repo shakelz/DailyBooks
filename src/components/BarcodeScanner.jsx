@@ -21,7 +21,7 @@ function playBeep() {
 
         // Cleanup
         setTimeout(() => ctx.close(), 200);
-    } catch (e) {
+    } catch {
         // Audio not available, silently fail
     }
 }
@@ -32,7 +32,7 @@ function triggerVibration() {
         if (navigator.vibrate) {
             navigator.vibrate([100, 50, 100]); // Short buzz pattern
         }
-    } catch (e) {
+    } catch {
         // Vibration not available
     }
 }
@@ -41,18 +41,31 @@ export default function BarcodeScanner({ onScanSuccess, onScanError }) {
     const [isScanning, setIsScanning] = useState(false);
     const [lastScanned, setLastScanned] = useState('');
     const [scanFeedback, setScanFeedback] = useState('');
-    const scannerRef = useRef(null);
     const html5QrCodeRef = useRef(null);
     const cooldownRef = useRef(false); // Prevent rapid duplicate scans
 
     const SCANNER_ID = 'barcode-camera-reader';
+
+    const stopScanner = useCallback(async () => {
+        try {
+            if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+                await html5QrCodeRef.current.stop();
+                html5QrCodeRef.current.clear();
+            }
+        } catch {
+            // Already stopped
+        }
+        html5QrCodeRef.current = null;
+        setIsScanning(false);
+        setScanFeedback('');
+    }, []);
 
     // Cleanup on unmount
     useEffect(() => {
         return () => {
             stopScanner();
         };
-    }, []);
+    }, [stopScanner]);
 
     const startScanner = useCallback(async () => {
         try {
@@ -86,7 +99,7 @@ export default function BarcodeScanner({ onScanSuccess, onScanError }) {
                         setScanFeedback('');
                     }, 2000);
                 },
-                (errorMessage) => {
+                () => {
                     // QR scan errors are normal (happens every frame without a code), ignore
                 }
             );
@@ -98,20 +111,6 @@ export default function BarcodeScanner({ onScanSuccess, onScanError }) {
             setIsScanning(false);
         }
     }, [onScanSuccess, onScanError]);
-
-    const stopScanner = useCallback(async () => {
-        try {
-            if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-                await html5QrCodeRef.current.stop();
-                html5QrCodeRef.current.clear();
-            }
-        } catch (e) {
-            // Already stopped
-        }
-        html5QrCodeRef.current = null;
-        setIsScanning(false);
-        setScanFeedback('');
-    }, []);
 
     const toggleScanner = () => {
         if (isScanning) {

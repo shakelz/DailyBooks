@@ -10,7 +10,6 @@ import { printKundenbeleg } from '../utils/printUtils';
 export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompleteSale, initialProduct, editingItem }) {
     const { user, activeShop, billShowTax } = useAuth();
     const { addToCart, updateCartItem, setEditingCartItem } = useCart();
-    const [status, setStatus] = useState('idle'); // idle, success
     const isEditMode = !!editingItem;
 
     const [product, setProduct] = useState(null);
@@ -29,6 +28,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
     const [includeTax, setIncludeTax] = useState(Boolean(billShowTax));
 
     const [transactionId, setTransactionId] = useState('');
+    const [status, setStatus] = useState('idle');
 
     useEffect(() => {
         if (isOpen && editingItem) {
@@ -45,7 +45,6 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
             setCustomerType(editingItem.customerInfo?.type || 'New');
             setPaymentMethod(editingItem.paymentMethod || 'Cash');
             setIncludeTax(editingItem.includeTax === undefined ? Boolean(billShowTax) : Boolean(editingItem.includeTax));
-            setStatus('idle');
         } else if (isOpen && initialProduct) {
             // ADD MODE: Fresh from product
             setProduct(initialProduct);
@@ -69,7 +68,6 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
             setCustomerPhone('');
             setCustomerType('New');
             setIncludeTax(Boolean(billShowTax));
-            setStatus('idle');
         }
     }, [isOpen, initialProduct, editingItem, billShowTax]);
 

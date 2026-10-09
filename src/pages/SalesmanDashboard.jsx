@@ -804,7 +804,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 if (typeof navigator !== 'undefined' && navigator.vibrate) {
                     navigator.vibrate(60);
                 }
-            } catch {}
+            } catch {
+                // Vibration not supported
+            }
             setHideConfirmCategory({ name, level, parentName, scope });
         }, 1500);
     }, []);
@@ -1054,7 +1056,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         writeLockStateRef.current = writeLockState;
     }, [writeLockState]);
     const stableWriteLockState = useCallback((...args) => writeLockStateRef.current?.(...args), []);
-    const canEditTransactions = true || adminView || Boolean(
+    const canEditTransactions = adminView || Boolean(
         user?.canEditTransactions
         ?? user?.permissions?.canEditTransactions
         ?? false

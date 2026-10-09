@@ -10,7 +10,7 @@ export default function AdminInsights() {
     // We can pull real data for some stats, but for charts we might need to mock 
     // history if we don't have a transaction log with dates yet.
     // InventoryContext has 'transactions' but maybe not fully populated in this demo.
-    const { getAllProducts, transactions } = useInventory();
+    const { getAllProducts } = useInventory();
 
     // ── Metric Cards Data ──
     const products = getAllProducts();

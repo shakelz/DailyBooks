@@ -333,6 +333,12 @@ function buildRepairUpdatePayload(status, extras = {}, currentJob = null) {
         status: cleanText(status) || cleanText(extras?.status) || (currentJob?.status || 'pending'),
         ...extras,
     };
+    if (extras?.finalAmount !== undefined) {
+        const finalCost = parseFloat(extras.finalAmount) || 0;
+        next.estimated_cost = finalCost;
+        next.estimatedCost = finalCost;
+        next.cost = finalCost;
+    }
     delete next.finalAmount;
     delete next.partsCost;
 
@@ -651,7 +657,7 @@ export function RepairsProvider({ children }) {
         broadcastRepairSync({ action: 'INSERT', data: savedJob }).catch((error) => console.error(error));
 
         return savedJob;
-    }, [activeShopId, broadcastRepairSync, generateRefId, syncRepairParts, user?.id]);
+    }, [activeShopId, broadcastRepairSync, generateRefId, syncRepairParts, user]);
 
     const updateRepairStatus = useCallback(async (id, status, extras = {}) => {
         const sid = cleanText(activeShopId);

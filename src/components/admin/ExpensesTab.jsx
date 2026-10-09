@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Users } from 'lucide-react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
@@ -133,7 +133,6 @@ export default function ExpensesTab() {
     const [entryType, setEntryType] = useState('expense');
     const [desc, setDesc] = useState('');
     const [amount, setAmount] = useState('');
-    const [category, setCategory] = useState('General');
     const [categoryOption, setCategoryOption] = useState('General');
     const [customCategory, setCustomCategory] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('Cash');
@@ -143,7 +142,6 @@ export default function ExpensesTab() {
     const [editType, setEditType] = useState('expense');
     const [editDesc, setEditDesc] = useState('');
     const [editAmount, setEditAmount] = useState('');
-    const [editCategory, setEditCategory] = useState('General');
     const [editCategoryOption, setEditCategoryOption] = useState('General');
     const [editCustomCategory, setEditCustomCategory] = useState('');
     const [editPaymentMethod, setEditPaymentMethod] = useState('Cash');
@@ -451,7 +449,6 @@ export default function ExpensesTab() {
     const resetForm = () => {
         setDesc('');
         setAmount('');
-        setCategory('General');
         setCategoryOption('General');
         setCustomCategory('');
         setPaymentMethod('Cash');
@@ -589,7 +586,6 @@ export default function ExpensesTab() {
         setEditDesc(String(txn.desc || '').replace(/^Income:\s*/i, '').replace(/^Expense:\s*/i, ''));
         setEditAmount(String(parseFloat(txn.amount) || 0));
         const rawCategory = String(txn.category || 'General');
-        setEditCategory(rawCategory);
         if (EXPENSE_CATEGORY_OPTIONS.includes(rawCategory)) {
             setEditCategoryOption(rawCategory);
             setEditCustomCategory('');
@@ -786,12 +782,7 @@ export default function ExpensesTab() {
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Kategorie</label>
                         <select
                             value={categoryOption}
-                            onChange={(e) => {
-                                setCategoryOption(e.target.value);
-                                if (e.target.value !== '__custom__') {
-                                    setCategory(e.target.value);
-                                }
-                            }}
+                            onChange={(e) => setCategoryOption(e.target.value)}
                             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                         >
                             {EXPENSE_CATEGORY_OPTIONS.map((item) => (
@@ -802,10 +793,7 @@ export default function ExpensesTab() {
                         {categoryOption === '__custom__' && (
                             <input
                                 value={customCategory}
-                                onChange={(e) => {
-                                    setCustomCategory(e.target.value);
-                                    setCategory(e.target.value);
-                                }}
+                                onChange={(e) => setCustomCategory(e.target.value)}
                                 placeholder="Eigene Kategorie eingeben"
                                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                             />
@@ -857,12 +845,7 @@ export default function ExpensesTab() {
                                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Kategorie</label>
                                         <select
                                             value={editCategoryOption}
-                                            onChange={(e) => {
-                                                setEditCategoryOption(e.target.value);
-                                                if (e.target.value !== '__custom__') {
-                                                    setEditCategory(e.target.value);
-                                                }
-                                            }}
+                                            onChange={(e) => setEditCategoryOption(e.target.value)}
                                             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                                         >
                                             {EXPENSE_CATEGORY_OPTIONS.map((item) => (
@@ -873,10 +856,7 @@ export default function ExpensesTab() {
                                         {editCategoryOption === '__custom__' && (
                                             <input
                                                 value={editCustomCategory}
-                                                onChange={(e) => {
-                                                    setEditCustomCategory(e.target.value);
-                                                    setEditCategory(e.target.value);
-                                                }}
+                                                onChange={(e) => setEditCustomCategory(e.target.value)}
                                                 placeholder="Eigene Kategorie eingeben"
                                                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
                                             />
