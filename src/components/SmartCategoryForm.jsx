@@ -67,6 +67,7 @@ export default function SmartCategoryForm({
 
     const [activeChips, setActiveChips] = useState([]);
     const [dynamicFields, setDynamicFields] = useState({});
+    const [phoneCondition, setPhoneCondition] = useState('New');
 
     const [customChips, setCustomChips] = useState([]);
     const [showCustomChipInput, setShowCustomChipInput] = useState(false);
@@ -85,16 +86,20 @@ export default function SmartCategoryForm({
     const [showNameSuggestions, setShowNameSuggestions] = useState(false);
     const [showBarcodeSuggestions, setShowBarcodeSuggestions] = useState(false);
 
-    // Stored titles suggestions for Product Name input
+    // Stored titles suggestions for Product Name input (intelligent multi-token search)
     const titleSuggestions = useMemo(() => {
         if (!name || name.trim().length < 1) return [];
         const query = name.trim().toLowerCase();
+        const tokens = query.split(/\s+/).filter(Boolean);
         const results = [];
         const seen = new Set();
         for (const p of products) {
             const pName = String(p?.name || '').trim();
             if (!pName || seen.has(pName.toLowerCase())) continue;
-            if (pName.toLowerCase().includes(query)) {
+            const pNameLower = pName.toLowerCase();
+            const pBarcodeLower = String(p?.barcode || '').toLowerCase();
+            const haystack = `${pNameLower} ${pBarcodeLower}`;
+            if (tokens.every(t => haystack.includes(t))) {
                 seen.add(pName.toLowerCase());
                 results.push({
                     name: pName,
@@ -117,13 +122,15 @@ export default function SmartCategoryForm({
     const barcodeSuggestions = useMemo(() => {
         if (!barcode || barcode.trim().length < 1) return [];
         const query = barcode.trim().toLowerCase();
+        const tokens = query.split(/\s+/).filter(Boolean);
         const results = [];
         const seen = new Set();
         for (const p of products) {
             const pBarcode = String(p?.barcode || '').trim();
             const pName = String(p?.name || '').trim();
             if (!pBarcode || seen.has(pBarcode.toLowerCase())) continue;
-            if (pBarcode.toLowerCase().includes(query) || pName.toLowerCase().includes(query)) {
+            const haystack = `${pBarcode.toLowerCase()} ${pName.toLowerCase()}`;
+            if (tokens.every(t => haystack.includes(t))) {
                 seen.add(pBarcode.toLowerCase());
                 results.push({
                     name: pName,
@@ -256,6 +263,11 @@ export default function SmartCategoryForm({
                     setDynamicFields({});
                 }
 
+                // Phone Condition (New vs Old)
+                const rawAttrs = initialData.attributes || {};
+                const loadedCondition = rawAttrs.phoneCondition || (rawAttrs.condition === 'Used' ? 'Old' : 'New');
+                setPhoneCondition(loadedCondition);
+
             } else {
                 setLevel1(''); setLevel2(''); setLevel3Model('');
                 setName(''); setBarcode('');
@@ -270,16 +282,31 @@ export default function SmartCategoryForm({
                 setImageFile(null);
                 setErrors({}); setSubmitted(false);
                 setCustomChips([]);
+                setPhoneCondition('New');
             }
             isSubmittingRef.current = false;
             setIsSubmitting(false);
         }
     }, [isOpen, initialData]);
 
+    // Default alert thresholds for Zubehör only (Red: 2, Yellow: 3, Green: 4)
+    useEffect(() => {
+        if (initialData) return;
+        const catStr = `${level1 || customL1} ${level2 || customL2} ${name}`.toLowerCase();
+        const isZubehoer = /zubeh|access/i.test(catStr);
+        if (isZubehoer) {
+            setStockRed(prev => (!prev || prev === '0') ? '2' : prev);
+            setStockYellow(prev => (!prev || prev === '0') ? '3' : prev);
+            setStockGreen(prev => (!prev || prev === '0') ? '4' : prev);
+        }
+    }, [level1, customL1, level2, customL2, name, initialData]);
+
     const l1Categories = getLevel1Categories('sales');
     const l2Categories = level1 ? getLevel2Categories(level1, 'sales') : [];
     const allChips = [...CHIP_LIBRARY, ...customChips];
     const profit = (parseFloat(sellingPrice) || 0) - (parseFloat(purchasePrice) || 0);
+    const combinedCategoryName = `${level1 || customL1} ${level2 || customL2} ${name}`.toLowerCase();
+    const isMobileCategory = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(combinedCategoryName);
 
     const toggleChip = (chipKey) => {
         if (activeChips.includes(chipKey)) {
@@ -492,7 +519,11 @@ export default function SmartCategoryForm({
                     yellow: parseInt(stockYellow) || 0,
                     green: parseInt(stockGreen) || 0,
                 },
-                attributes: { ...dynamicFields },
+                attributes: {
+                    ...dynamicFields,
+                    phoneCondition,
+                    condition: phoneCondition === 'Old' ? 'Used' : 'New',
+                },
                 productUrl: productUrl.trim() || null,
                 notes: notes.trim(),
                 image: resolvedImageUrl,
@@ -784,6 +815,53 @@ export default function SmartCategoryForm({
                                 )}
                             </div>
                         </div>
+
+                        {/* Dynamic Handy Condition (Neu vs Gebraucht) */}
+                        {isMobileCategory && (
+                            <div className="p-3 rounded-2xl bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-100 space-y-2 animate-in fade-in duration-200">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>📱</span>
+                                        <span>Handy Zustand</span>
+                                        <span className="text-red-500">*</span>
+                                    </label>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${phoneCondition === 'New' ? 'bg-blue-600 text-white' : 'bg-amber-600 text-white'}`}>
+                                        {phoneCondition === 'New' ? '✨ Neu (OVP)' : '🔄 Gebraucht (Kunde)'}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPhoneCondition('New')}
+                                        className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 border ${
+                                            phoneCondition === 'New'
+                                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <span>✨</span>
+                                        <span>Neu</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPhoneCondition('Old')}
+                                        className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 border ${
+                                            phoneCondition === 'Old'
+                                                ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <span>🔄</span>
+                                        <span>Gebraucht</span>
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+                                    {phoneCondition === 'New'
+                                        ? 'ℹ️ Neu: Erscheint bei Niedrigbestand auf dem Dashboard zum Nachbestellen.'
+                                        : 'ℹ️ Gebraucht: Vom Kunden gekauft — erscheint nicht im Dashboard-Niedrigbestand (nicht nachbestellbar).'}
+                                </p>
+                            </div>
+                        )}
 
                         {errors.imei && (
                             <p className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 animate-pulse">

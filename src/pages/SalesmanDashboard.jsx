@@ -856,6 +856,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [lightboxImage, setLightboxImage] = useState(null);
     const [isLowStockShortcutOpen, setIsLowStockShortcutOpen] = useState(false);
     const [lowStockFilterMode, setLowStockFilterMode] = useState('all'); // 'all' | 'out_of_stock' | 'low_stock'
+    const [editingTileStockId, setEditingTileStockId] = useState(null);
+    const [editingTileStockVal, setEditingTileStockVal] = useState('');
     const [realtimeStats, setRealtimeStats] = useState(null);
     const [showPendingOrders, setShowPendingOrders] = useState(false);
     const [pendingTab, setPendingTab] = useState('orders');
@@ -1568,7 +1570,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const lowAndOutStockProducts = useMemo(() => {
         return (products || []).filter((p) => {
             const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${p.category || ''} ${p.sub_category || ''} ${p.name || ''}`);
-            if (isMobile && Number(p.stock) <= 0) return false;
+            if (isMobile) {
+                // When mobile stock reaches 0, it shouldn't appear in low stock
+                if (Number(p.stock) <= 0) return false;
+
+                // Only show NEW mobiles in low stock on dashboard (we bought new from company and can restock)
+                // Don't show old phones or phones with no box, opened filter (bought from customer, cannot restock)
+                const attrs = p.attributes || {};
+                const cond = String(attrs.phoneCondition || attrs.condition || p.condition || '').toLowerCase();
+                const pkg = String(attrs.packagingCond || attrs.packaging || '').toLowerCase();
+                const textDesc = `${p.name || ''} ${p.desc || ''}`.toLowerCase();
+
+                const isOld = cond.includes('old') || cond.includes('used') || cond.includes('gebraucht') || textDesc.includes('gebraucht');
+                const isNoBoxOrOpened = pkg.includes('no box') || pkg.includes('open') || pkg.includes('ohne box') || pkg.includes('geöffnet') || textDesc.includes('no box') || textDesc.includes('open box');
+
+                if (isOld || isNoBoxOrOpened) {
+                    return false;
+                }
+            }
             const stockNum = parseFloat(p.stock) || 0;
             return stockNum < 3;
         });
@@ -3217,6 +3236,27 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setEditingStockId(null);
         setEditingStockVal('');
     }, []);
+
+    const handleSaveTileStock = useCallback(async (productId) => {
+        const parsedStock = Math.max(0, parseInt(editingTileStockVal, 10) || 0);
+        const strId = String(productId);
+        try {
+            if (typeof updateProduct === 'function') {
+                await updateProduct(strId, { stock: parsedStock });
+            } else if (typeof adjustStock === 'function') {
+                const target = products.find(p => String(p.id) === strId);
+                const current = Number(target?.stock) || 0;
+                await adjustStock(strId, parsedStock - current);
+            }
+            setToast(`Bestand aktualisiert: ${parsedStock}`);
+            setTimeout(() => setToast(''), 1500);
+        } catch (err) {
+            showInlineError(err?.message || 'Fehler beim Aktualisieren des Bestands');
+        } finally {
+            setEditingTileStockId(null);
+            setEditingTileStockVal('');
+        }
+    }, [editingTileStockVal, updateProduct, adjustStock, products, showInlineError]);
 
     // Fallbacks for legacy props
     const mobileInventoryProducts = allInventoryItems;
@@ -5930,36 +5970,91 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                     </div>
                                                 </div>
 
-                                                {/* Quick Edit - / + Controls */}
+                                                {/* Quick Edit - Direct Edit & - / + Controls */}
                                                 <div className="p-1.5 pt-0">
-                                                    <div className="flex items-center justify-between bg-slate-50 border border-slate-200/80 rounded-xl p-0.5">
-                                                        <button
-                                                            type="button"
-                                                            disabled={stockVal <= 0}
-                                                            onClick={async (e) => {
-                                                                e.stopPropagation();
-                                                                await adjustStock(prod.id, -1);
-                                                            }}
-                                                            className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-black text-xs flex items-center justify-center disabled:opacity-30 transition-colors shadow-2xs"
-                                                            title="Decrease stock by 1"
-                                                        >
-                                                            -
-                                                        </button>
-                                                        <span className={`text-xs font-black px-1 ${isZero ? 'text-rose-600' : 'text-amber-600'}`}>
-                                                            {stockVal}
-                                                        </span>
-                                                        <button
-                                                            type="button"
-                                                            onClick={async (e) => {
-                                                                e.stopPropagation();
-                                                                await adjustStock(prod.id, 1);
-                                                            }}
-                                                            className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 font-black text-xs flex items-center justify-center transition-colors shadow-2xs"
-                                                            title="Increase stock by 1"
-                                                        >
-                                                            +
-                                                        </button>
-                                                    </div>
+                                                    {editingTileStockId === String(prod.id) ? (
+                                                        <div className="flex items-center gap-1 bg-blue-50 border border-blue-300 rounded-xl p-0.5" onClick={(e) => e.stopPropagation()}>
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                value={editingTileStockVal}
+                                                                onChange={(e) => setEditingTileStockVal(e.target.value)}
+                                                                onKeyDown={async (e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        e.preventDefault();
+                                                                        await handleSaveTileStock(prod.id);
+                                                                    } else if (e.key === 'Escape') {
+                                                                        setEditingTileStockId(null);
+                                                                        setEditingTileStockVal('');
+                                                                    }
+                                                                }}
+                                                                autoFocus
+                                                                className="w-full h-6 px-1 text-center font-black text-xs rounded-lg border border-blue-200 bg-white text-slate-800 outline-none focus:ring-1 focus:ring-blue-400"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={async (e) => {
+                                                                    e.stopPropagation();
+                                                                    await handleSaveTileStock(prod.id);
+                                                                }}
+                                                                className="w-6 h-6 rounded-lg bg-emerald-500 text-white flex items-center justify-center hover:bg-emerald-600 transition-colors shrink-0 shadow-2xs"
+                                                                title="Speichern"
+                                                            >
+                                                                <Check size={12} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setEditingTileStockId(null);
+                                                                    setEditingTileStockVal('');
+                                                                }}
+                                                                className="w-6 h-6 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center hover:bg-slate-300 transition-colors shrink-0 shadow-2xs"
+                                                                title="Abbrechen"
+                                                            >
+                                                                <X size={12} />
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200/80 rounded-xl p-0.5">
+                                                            <button
+                                                                type="button"
+                                                                disabled={stockVal <= 0}
+                                                                onClick={async (e) => {
+                                                                    e.stopPropagation();
+                                                                    await adjustStock(prod.id, -1);
+                                                                }}
+                                                                className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-black text-xs flex items-center justify-center disabled:opacity-30 transition-colors shadow-2xs"
+                                                                title="Bestand um 1 verringern"
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setEditingTileStockId(String(prod.id));
+                                                                    setEditingTileStockVal(String(stockVal));
+                                                                }}
+                                                                className={`text-xs font-black px-1.5 py-0.5 rounded hover:bg-white hover:shadow-2xs transition-all cursor-pointer flex items-center gap-0.5 group/stock ${isZero ? 'text-rose-600' : 'text-amber-600'}`}
+                                                                title="Klicken, um Bestand direkt einzugeben"
+                                                            >
+                                                                <span>{stockVal}</span>
+                                                                <Edit2 size={9} className="opacity-40 group-hover/stock:opacity-100 text-slate-400 group-hover/stock:text-blue-600" />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={async (e) => {
+                                                                    e.stopPropagation();
+                                                                    await adjustStock(prod.id, 1);
+                                                                }}
+                                                                className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 font-black text-xs flex items-center justify-center transition-colors shadow-2xs"
+                                                                title="Bestand um 1 erhöhen"
+                                                            >
+                                                                +
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         );

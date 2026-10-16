@@ -2221,6 +2221,15 @@ export function InventoryProvider({ children }) {
         if (!previousProduct) return null;
 
         const mergedProduct = { ...previousProduct, ...updatedData, id: strId, shop_id: sid };
+        const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${mergedProduct.category || ''} ${mergedProduct.sub_category || ''} ${mergedProduct.name || ''}`);
+        const nextStockVal = parseInt(mergedProduct.stock, 10);
+        if (isMobile && nextStockVal <= 0) {
+            setProducts(prev => prev.filter(p => String(p.id) !== strId));
+            supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid).then();
+            broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
+            return null;
+        }
+
         setProducts(prev => prev.map(p => String(p.id) === strId ? mergedProduct : p));
 
         const payload = buildInventoryPayload(mergedProduct, false, sid, categoryNameToId);
@@ -2260,13 +2269,15 @@ export function InventoryProvider({ children }) {
         const strId = String(matchedProduct.id);
         const previousStock = parseInt(matchedProduct.stock, 10) || 0;
         const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${matchedProduct.category || ''} ${matchedProduct.sub_category || ''} ${matchedProduct.name || ''}`);
-        const shouldHide = isMobile && nextStock <= 0;
-        const updatePayload = { stock: nextStock };
-        if (shouldHide) {
-            updatePayload.is_hidden = true;
+        if (isMobile && nextStock <= 0) {
+            setProducts(prev => prev.filter(p => String(p.id) !== strId));
+            supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid).then();
+            broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
+            return null;
         }
 
-        setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: nextStock, ...(shouldHide ? { is_hidden: true, isHidden: true } : {}) } : p));
+        const updatePayload = { stock: nextStock };
+        setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: nextStock } : p));
         const { error } = await supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid);
 
         if (error) {
@@ -2274,9 +2285,9 @@ export function InventoryProvider({ children }) {
             throw new Error(error.message || 'Failed to update stock.');
         }
 
-        broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: nextStock, shop_id: sid, ...(shouldHide ? { is_hidden: true } : {}) } }).catch(e => console.error(e));
+        broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: nextStock, shop_id: sid } }).catch(e => console.error(e));
 
-        return { ...matchedProduct, stock: nextStock, ...(shouldHide ? { is_hidden: true, isHidden: true } : {}) };
+        return { ...matchedProduct, stock: nextStock };
     }, [products, activeShopId, broadcastUnifiedSync]);
 
     const adjustStock = useCallback(async (productId, delta) => {
@@ -2291,19 +2302,21 @@ export function InventoryProvider({ children }) {
 
             const updatedStockVal = Math.max(0, (parseFloat(product.stock) || 0) + (parseFloat(delta) || 0));
             const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${product.category || ''} ${product.sub_category || ''} ${product.name || ''}`);
-            const shouldHide = isMobile && updatedStockVal <= 0;
+
+            if (isMobile && updatedStockVal <= 0) {
+                supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid).then();
+                broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
+                return prev.filter(p => String(p.id) !== strId);
+            }
 
             const updatePayload = { stock: updatedStockVal };
-            if (shouldHide) {
-                updatePayload.is_hidden = true;
-            }
 
             // Fire off Supabase and Broadcast asynchronously
             supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid).then();
 
-            broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: updatedStockVal, shop_id: sid, ...(shouldHide ? { is_hidden: true } : {}) } }).catch(e => console.error(e));
+            broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: updatedStockVal, shop_id: sid } }).catch(e => console.error(e));
 
-            return prev.map(p => String(p.id) === strId ? { ...p, stock: updatedStockVal, ...(shouldHide ? { is_hidden: true, isHidden: true } : {}) } : p);
+            return prev.map(p => String(p.id) === strId ? { ...p, stock: updatedStockVal } : p);
         });
     }, [activeShopId, broadcastUnifiedSync]);
 
@@ -2690,15 +2703,20 @@ export function InventoryProvider({ children }) {
 
     const searchProducts = useCallback((query) => {
         if (!query) return [...products];
-        const q = String(query).toLowerCase();
+        const q = String(query).toLowerCase().trim();
+        if (!q) return [...products];
+        const tokens = q.split(/\s+/).filter(Boolean);
+
         return products.filter(p => {
             if (!p) return false;
-            return (
-                String(p.name || '').toLowerCase().includes(q) ||
-                String(p.model || '').toLowerCase().includes(q) ||
-                String(p.barcode || '').toLowerCase().includes(q) ||
-                String(p.desc || '').toLowerCase().includes(q)
-            );
+            const categoryStr = typeof p.category === 'object' && p.category !== null
+                ? `${p.category.level1 || ''} ${p.category.level2 || ''}`
+                : String(p.category || '');
+            const attrValues = p.attributes && typeof p.attributes === 'object'
+                ? Object.values(p.attributes).filter(v => v !== null && typeof v !== 'object').join(' ')
+                : '';
+            const haystack = `${p.name || ''} ${p.model || ''} ${p.barcode || ''} ${p.desc || ''} ${categoryStr} ${p.sub_category || ''} ${attrValues}`.toLowerCase();
+            return tokens.every(token => haystack.includes(token));
         });
     }, [products]);
 

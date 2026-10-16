@@ -37,6 +37,7 @@ export default function InventoryTab() {
         products,
         transactions,
         deleteProduct,
+        adjustStock,
         getLevel1Categories,
         getCategoryImage,
         bulkUpdateCategoryPricing,
@@ -621,117 +622,183 @@ export default function InventoryTab() {
                                         Keine Produkte für die ausgewählten Filter gefunden.
                                     </div>
                                 ) : (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
                                         {filteredProducts.map(product => {
                                             const slowMoving = isSlowMoving(product.timestamp);
                                             const margin = calculateMargin(product.sellingPrice, product.purchasePrice);
                                             const isAudited = auditScans.has(product.id);
+                                            const cond = String(product.attributes?.phoneCondition || product.attributes?.condition || '').toLowerCase();
+                                            const isNew = cond.includes('new') || cond.includes('neu');
+                                            const isOld = cond.includes('old') || cond.includes('used') || cond.includes('gebraucht');
+                                            const stockNum = parseFloat(product.stock) || 0;
+                                            const isOutOfStock = stockNum <= 0;
+
                                             return (
                                                 <div
                                                     key={`gallery-${product.id}`}
-                                                    className={`rounded-2xl border p-4 flex flex-col justify-between hover:shadow-md transition-all ${showAuditMode && isAudited
-                                                        ? 'border-emerald-200 bg-emerald-50/40'
-                                                        : slowMoving
-                                                            ? 'border-orange-200 bg-orange-50/20'
-                                                            : 'border-slate-100 bg-white'
+                                                    className={`group rounded-2xl border bg-white overflow-hidden shadow-2xs hover:shadow-md hover:border-blue-300 transition-all flex flex-col justify-between ${
+                                                        showAuditMode && isAudited
+                                                            ? 'border-emerald-300 ring-2 ring-emerald-100 bg-emerald-50/20'
+                                                            : slowMoving
+                                                                ? 'border-orange-200'
+                                                                : 'border-slate-200/80'
                                                     }`}
                                                 >
                                                     <div>
-                                                        <div className="relative aspect-video w-full rounded-xl bg-slate-100 overflow-hidden border border-slate-200 flex items-center justify-center mb-3">
+                                                        {/* OLX Image Tile */}
+                                                        <div className="relative aspect-square w-full bg-slate-100 overflow-hidden flex items-center justify-center border-b border-slate-100">
                                                             {product.image ? (
                                                                 <img
                                                                     src={product.image}
-                                                                    className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
+                                                                    className="w-full h-full object-cover cursor-pointer group-hover:scale-105 transition-transform duration-200"
                                                                     alt={product.name}
                                                                     onClick={() => setLightboxImage({ src: product.image, title: product.name })}
                                                                 />
                                                             ) : (
-                                                                <span className="text-3xl">🛠️</span>
+                                                                <span className="text-3xl opacity-50">📦</span>
                                                             )}
+
+                                                            {/* Stock Badge (Top Right) */}
                                                             <div className="absolute top-2 right-2">
-                                                                <span className={`inline-flex px-2 py-0.5 rounded-lg text-xs font-black shadow-sm ${product.stock < 3 ? 'bg-red-500 text-white' :
-                                                                    product.stock < 6 ? 'bg-amber-500 text-white' :
-                                                                        'bg-emerald-500 text-white'
+                                                                <span className={`inline-flex px-1.5 py-0.5 rounded-lg text-[10px] font-black shadow-xs ${
+                                                                    isOutOfStock
+                                                                        ? 'bg-rose-500 text-white'
+                                                                        : stockNum < 3
+                                                                            ? 'bg-amber-500 text-white'
+                                                                            : 'bg-emerald-600 text-white'
                                                                 }`}>
-                                                                    {product.stock} Stk.
+                                                                    {stockNum} Stk.
                                                                 </span>
                                                             </div>
-                                                            {slowMoving && (
-                                                                <div className="absolute top-2 left-2">
-                                                                    <span className="px-2 py-0.5 rounded-full bg-orange-500 text-white text-[9px] font-black uppercase tracking-wider shadow-sm">Slow</span>
-                                                                </div>
-                                                            )}
-                                                            {showAuditMode && (
-                                                                <div className={`absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] ${isAudited ? 'text-emerald-500' : 'text-slate-300'}`}>
-                                                                    {isAudited ? <CheckCircle size={28} className="drop-shadow-sm" /> : <div className="w-5 h-5 rounded-full border-2 border-slate-300" />}
-                                                                </div>
-                                                            )}
-                                                        </div>
 
-                                                        <div className="mb-2">
-                                                            <h4 className="text-sm font-bold text-slate-800 line-clamp-1" title={product.name}>{product.name}</h4>
-                                                            <div className="flex items-center gap-1.5 mt-0.5">
-                                                                <span className="text-[10px] font-mono text-slate-400 font-bold truncate">{product.barcode || 'KEIN-BARCODE'}</span>
-                                                                <span className="text-slate-300">•</span>
-                                                                <span className="text-[10px] font-bold text-blue-500 truncate">{getProductCategoryL1(product) || 'Ohne Kategorie'}</span>
+                                                            {/* Condition / Slow / Audit Badges (Top Left) */}
+                                                            <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+                                                                {isNew && (
+                                                                    <span className="px-1.5 py-0.5 rounded-md bg-blue-600 text-white text-[9px] font-black uppercase tracking-wider shadow-xs">Neu</span>
+                                                                )}
+                                                                {isOld && (
+                                                                    <span className="px-1.5 py-0.5 rounded-md bg-amber-600 text-white text-[9px] font-black uppercase tracking-wider shadow-xs">Gebraucht</span>
+                                                                )}
+                                                                {slowMoving && (
+                                                                    <span className="px-1.5 py-0.5 rounded-md bg-orange-500 text-white text-[9px] font-black uppercase tracking-wider shadow-xs">Slow</span>
+                                                                )}
                                                             </div>
+
+                                                            {showAuditMode && (
+                                                                <div className={`absolute inset-0 flex items-center justify-center bg-black/15 backdrop-blur-[1px] ${isAudited ? 'text-emerald-500' : 'text-slate-300'}`}>
+                                                                    {isAudited ? <CheckCircle size={32} className="drop-shadow-md text-emerald-400" /> : <div className="w-6 h-6 rounded-full border-2 border-white shadow-sm" />}
+                                                                </div>
+                                                            )}
                                                         </div>
 
-                                                        <div className="flex flex-wrap gap-1 mb-3">
-                                                            {Object.entries(product.attributes || {})
-                                                                .filter(([key, val]) => !String(key).startsWith('__') && val !== null && val !== undefined && formatAttrValue(val) !== '')
-                                                                .slice(0, 3)
-                                                                .map(([key, val]) => (
-                                                                    <span key={`${product.id}-g-${key}`} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[9px] font-bold">
-                                                                        {key.toUpperCase()}: {formatAttrValue(val)}
-                                                                    </span>
-                                                                ))}
+                                                        {/* OLX Body */}
+                                                        <div className="p-2.5 space-y-1">
+                                                            {/* Price First (OLX Signature) */}
+                                                            <div className="flex items-baseline justify-between gap-1">
+                                                                <span className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
+                                                                    {priceTag(product.sellingPrice)}
+                                                                </span>
+                                                                <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                                                                    {margin}%
+                                                                </span>
+                                                            </div>
+
+                                                            <div className="text-[10px] font-medium text-slate-400">
+                                                                EK: {priceTag(product.purchasePrice)}
+                                                            </div>
+
+                                                            {/* Title */}
+                                                            <h4 className="text-xs font-bold text-slate-800 line-clamp-2 leading-tight" title={product.name}>
+                                                                {product.name}
+                                                            </h4>
+
+                                                            {/* Category & Barcode */}
+                                                            <div className="flex items-center gap-1 text-[10px] text-slate-400 pt-0.5 truncate">
+                                                                <span className="text-blue-600 font-semibold truncate">{getProductCategoryL1(product) || 'Allgemein'}</span>
+                                                                {product.barcode && <span className="font-mono text-slate-400 truncate">• {product.barcode}</span>}
+                                                            </div>
+
+                                                            {/* Attributes Chips */}
+                                                            {product.attributes && typeof product.attributes === 'object' && (
+                                                                <div className="flex flex-wrap gap-1 pt-1">
+                                                                    {Object.entries(product.attributes)
+                                                                        .filter(([key, val]) => !String(key).startsWith('__') && val !== null && val !== undefined && formatAttrValue(val) !== '' && key !== 'phoneCondition' && key !== 'condition')
+                                                                        .slice(0, 2)
+                                                                        .map(([key, val]) => (
+                                                                            <span key={`${product.id}-olx-${key}`} className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[9px] font-bold">
+                                                                                {key.toUpperCase()}: {formatAttrValue(val)}
+                                                                            </span>
+                                                                        ))}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
 
-                                                    <div className="pt-3 border-t border-slate-100">
-                                                        <div className="flex items-center justify-between text-xs mb-3">
-                                                            <div>
-                                                                <div className="text-[10px] text-slate-400 font-bold">EK / VK</div>
-                                                                <div className="font-black text-slate-700">{priceTag(product.purchasePrice)} / <span className="text-blue-600">{priceTag(product.sellingPrice)}</span></div>
-                                                            </div>
-                                                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
-                                                                {margin}%
+                                                    {/* Footer Quick Controls */}
+                                                    <div className="p-2 pt-0 border-t border-slate-100 mt-2 space-y-1.5">
+                                                        {/* Stock Step Controls */}
+                                                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200/80 rounded-xl p-0.5">
+                                                            <button
+                                                                type="button"
+                                                                disabled={stockNum <= 0}
+                                                                onClick={async (e) => {
+                                                                    e.stopPropagation();
+                                                                    if (typeof adjustStock === 'function') await adjustStock(product.id, -1);
+                                                                }}
+                                                                className="w-5 h-5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-black text-xs flex items-center justify-center disabled:opacity-30 transition-colors shadow-2xs"
+                                                                title="Bestand -1"
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <span className={`text-xs font-black px-1 ${isOutOfStock ? 'text-rose-600' : 'text-slate-700'}`}>
+                                                                {stockNum} Stk.
                                                             </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={async (e) => {
+                                                                    e.stopPropagation();
+                                                                    if (typeof adjustStock === 'function') await adjustStock(product.id, 1);
+                                                                }}
+                                                                className="w-5 h-5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 font-black text-xs flex items-center justify-center transition-colors shadow-2xs"
+                                                                title="Bestand +1"
+                                                            >
+                                                                +
+                                                            </button>
                                                         </div>
 
-                                                        <div className="flex items-center justify-end gap-1.5">
+                                                        {/* Action Buttons */}
+                                                        <div className="flex items-center justify-end gap-1">
                                                             <button
                                                                 onClick={() => printLabel(product)}
-                                                                className="p-2 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all"
+                                                                className="p-1.5 rounded-lg bg-indigo-50 text-indigo-500 hover:bg-indigo-600 hover:text-white transition-all shadow-2xs"
                                                                 title="QR-Etikett drucken"
                                                             >
-                                                                <Tags size={14} />
+                                                                <Tags size={12} />
                                                             </button>
                                                             {product.productUrl && (
                                                                 <a
                                                                     href={product.productUrl}
                                                                     target="_blank"
                                                                     rel="noreferrer"
-                                                                    className="p-2 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all"
+                                                                    className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-blue-600 hover:text-white transition-all shadow-2xs"
                                                                     title="Lieferantenlink"
                                                                 >
-                                                                    <ExternalLink size={14} />
+                                                                    <ExternalLink size={12} />
                                                                 </a>
                                                             )}
                                                             <button
                                                                 onClick={() => handleEditProduct(product)}
-                                                                className="p-2 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all"
+                                                                className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-blue-600 hover:text-white transition-all shadow-2xs"
                                                                 title="Produkt bearbeiten"
                                                             >
-                                                                <Edit2 size={14} />
+                                                                <Edit2 size={12} />
                                                             </button>
                                                             <button
                                                                 onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
-                                                                className="p-2 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all"
+                                                                className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-red-600 hover:text-white transition-all shadow-2xs"
                                                                 title="Produkt löschen"
                                                             >
-                                                                <Trash2 size={14} />
+                                                                <Trash2 size={12} />
                                                             </button>
                                                         </div>
                                                     </div>
