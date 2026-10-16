@@ -1693,9 +1693,9 @@ export default function InsightsTab() {
                                             {product.name}
                                         </p>
                                         <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                                            {product.category && (
+                                            {Boolean(product.category) && (
                                                 <span className="text-[10px] font-semibold text-slate-500 bg-white border border-slate-200/80 px-1.5 py-0.2 rounded shadow-2xs">
-                                                    {product.category}
+                                                    {typeof product.category === 'object' ? (product.category?.level1 || product.category?.name || '') : String(product.category)}
                                                 </span>
                                             )}
                                             <span className="text-[10px] font-medium text-slate-400">

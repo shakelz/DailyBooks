@@ -38,6 +38,14 @@ function normalizeCategoryToken(value = '') {
     return String(value || '').trim().toLowerCase();
 }
 
+function formatCategorySafely(cat, fallback = '') {
+    if (!cat) return fallback;
+    if (typeof cat === 'object') {
+        return String(cat?.level1 || cat?.name || cat?.level2 || fallback).trim();
+    }
+    return String(cat).trim() || fallback;
+}
+
 function dedupeCategoryNameList(list = []) {
     const seen = new Set();
     return (Array.isArray(list) ? list : []).reduce((acc, value) => {
@@ -230,8 +238,9 @@ function isPartOrderStatusEnumError(error) {
 
 function extractCategoryName(category) {
     if (!category) return '';
-    if (typeof category === 'string') return category;
-    return category.level1 || '';
+    if (typeof category === 'string') return category.trim();
+    if (typeof category === 'object') return String(category.level1 || category.name || category.level2 || '').trim();
+    return String(category).trim();
 }
 
 function normalizeTxnType(value = '') {
@@ -5263,138 +5272,6 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     </section>
                 )}
 
-                {/* ── Low & Out of Stock Shortcut Widget ── */}
-                <section className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50/70 via-orange-50/40 to-amber-50/70 p-3 shadow-sm backdrop-blur-sm transition-all">
-                    <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => setIsLowStockShortcutOpen(prev => !prev)}>
-                        <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
-                                <AlertTriangle size={16} />
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-2">
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                                        Low &amp; Out of Stock Shortcut
-                                    </h3>
-                                    <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-bold text-amber-800">
-                                        {lowAndOutStockProducts.length} items
-                                    </span>
-                                </div>
-                                <p className="text-[10px] text-slate-500">Quickly adjust or replenish inventory directly from here</p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button
-                                type="button"
-                                className="p-1 rounded-lg text-slate-500 hover:bg-amber-100 transition-colors"
-                                aria-label="Toggle shortcut"
-                            >
-                                {isLowStockShortcutOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                            </button>
-                        </div>
-                    </div>
-
-                    {isLowStockShortcutOpen && (
-                        <div className="mt-3 pt-3 border-t border-amber-200/80 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
-                            <div className="flex items-center gap-2 text-xs">
-                                <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setLowStockFilterMode('all'); }}
-                                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${lowStockFilterMode === 'all' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-slate-600 border border-amber-200 hover:bg-amber-50'}`}
-                                >
-                                    All ({lowAndOutStockProducts.length})
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setLowStockFilterMode('out_of_stock'); }}
-                                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${lowStockFilterMode === 'out_of_stock' ? 'bg-red-600 text-white shadow-xs' : 'bg-white text-slate-600 border border-amber-200 hover:bg-amber-50'}`}
-                                >
-                                    Out of Stock ({lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) <= 0).length})
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setLowStockFilterMode('low_stock'); }}
-                                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${lowStockFilterMode === 'low_stock' ? 'bg-amber-500 text-white shadow-xs' : 'bg-white text-slate-600 border border-amber-200 hover:bg-amber-50'}`}
-                                >
-                                    Low Stock &lt; 3 ({lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) > 0 && (parseFloat(p.stock) || 0) < 3).length})
-                                </button>
-                            </div>
-
-                            {filteredLowStockItems.length === 0 ? (
-                                <p className="text-xs text-slate-500 py-3 text-center italic">No items match the selected stock filter 🎉</p>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-60 overflow-y-auto pr-1">
-                                    {filteredLowStockItems.map((prod) => {
-                                        const stockVal = parseFloat(prod.stock) || 0;
-                                        const isZero = stockVal <= 0;
-                                        return (
-                                            <div
-                                                key={`shortcut-prod-${prod.id}`}
-                                                className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-amber-100 shadow-xs"
-                                            >
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                    {prod.image ? (
-                                                        <img
-                                                            src={prod.image}
-                                                            alt=""
-                                                            className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-80"
-                                                            onClick={() => setLightboxImage(prod.image)}
-                                                            title="Click to enlarge"
-                                                        />
-                                                    ) : (
-                                                        <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-xs shrink-0">
-                                                            📦
-                                                        </div>
-                                                    )}
-                                                    <div className="min-w-0">
-                                                        <p className="text-xs font-bold text-slate-800 truncate" title={prod.name}>
-                                                            {prod.name}
-                                                        </p>
-                                                        <div className="flex items-center gap-1.5 text-[10px]">
-                                                            <span className={`font-black px-1.5 py-0.2 rounded ${isZero ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>
-                                                                Stock: {stockVal}
-                                                            </span>
-                                                            {prod.category && <span className="text-slate-400 truncate">{prod.category}</span>}
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-1 shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        disabled={stockVal <= 0}
-                                                        onClick={async (e) => {
-                                                            e.stopPropagation();
-                                                            await adjustStock(prod.id, -1);
-                                                        }}
-                                                        className="w-6 h-6 rounded-md bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 font-bold flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
-                                                        title="Decrease stock by 1"
-                                                    >
-                                                        -
-                                                    </button>
-                                                    <span className="w-7 text-center font-black text-xs text-slate-700">
-                                                        {stockVal}
-                                                    </span>
-                                                    <button
-                                                        type="button"
-                                                        onClick={async (e) => {
-                                                            e.stopPropagation();
-                                                            await adjustStock(prod.id, 1);
-                                                        }}
-                                                        className="w-6 h-6 rounded-md bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-700 font-bold flex items-center justify-center text-xs transition-colors"
-                                                        title="Increase stock by 1"
-                                                    >
-                                                        +
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </section>
-
                 <section className="grid grid-cols-2 gap-2 items-start">
                     <form
                         onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('sales'); }}
@@ -5937,6 +5814,160 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             ))}
                         </div>
                     </div>
+                </section>
+
+                {/* ── Low & Out of Stock Shortcut: OLX-Style Small Gallery Tiles at Bottom of Page ── */}
+                <section className="rounded-3xl border border-amber-200/80 bg-white p-4 shadow-sm space-y-3">
+                    <div
+                        className="flex items-center justify-between gap-3 flex-wrap cursor-pointer select-none"
+                        onClick={() => setIsLowStockShortcutOpen(prev => !prev)}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                                <AlertTriangle size={18} />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-sm font-black text-slate-800 tracking-tight">
+                                        ⚡ Low &amp; Out of Stock Shortcut (Quick Edit)
+                                    </h3>
+                                    <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-black text-amber-800">
+                                        {lowAndOutStockProducts.length} items
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-slate-400">OLX-style small gallery tiles with 1-click stock replenishment</p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={() => setLowStockFilterMode('all')}
+                                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${lowStockFilterMode === 'all' ? 'bg-amber-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    All ({lowAndOutStockProducts.length})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setLowStockFilterMode('out_of_stock')}
+                                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${lowStockFilterMode === 'out_of_stock' ? 'bg-rose-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    = 0 Out of Stock ({lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) <= 0).length})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setLowStockFilterMode('low_stock')}
+                                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${lowStockFilterMode === 'low_stock' ? 'bg-amber-500 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    &lt; 3 Low Stock ({lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) > 0 && (parseFloat(p.stock) || 0) < 3).length})
+                                </button>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setIsLowStockShortcutOpen(prev => !prev)}
+                                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                                aria-label="Toggle shortcut"
+                            >
+                                {isLowStockShortcutOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                            </button>
+                        </div>
+                    </div>
+
+                    {isLowStockShortcutOpen && (
+                        <div className="pt-2 border-t border-slate-100 animate-in fade-in duration-150">
+                            {filteredLowStockItems.length === 0 ? (
+                                <p className="text-xs text-slate-400 py-6 text-center italic">No items match the selected stock filter 🎉</p>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2.5 max-h-96 overflow-y-auto p-0.5">
+                                    {filteredLowStockItems.map((prod) => {
+                                        const stockVal = parseFloat(prod.stock) || 0;
+                                        const isZero = stockVal <= 0;
+                                        const catName = formatCategorySafely(prod.category);
+                                        return (
+                                            <div
+                                                key={`olx-shortcut-${prod.id}`}
+                                                className="group rounded-2xl border border-slate-200/80 bg-white hover:border-amber-300 hover:shadow-md transition-all flex flex-col justify-between overflow-hidden shadow-2xs"
+                                            >
+                                                {/* OLX Image Tile */}
+                                                <div>
+                                                    <div className="relative aspect-square w-full bg-slate-100 overflow-hidden flex items-center justify-center border-b border-slate-100">
+                                                        {prod.image ? (
+                                                            <img
+                                                                src={prod.image}
+                                                                alt={prod.name}
+                                                                className="w-full h-full object-cover cursor-pointer group-hover:scale-105 transition-transform duration-200"
+                                                                onClick={() => setLightboxImage({ src: prod.image, title: prod.name })}
+                                                                title="Click to enlarge"
+                                                            />
+                                                        ) : (
+                                                            <span className="text-2xl opacity-60">📦</span>
+                                                        )}
+                                                        {/* Floating Stock Badge */}
+                                                        <div className="absolute top-1.5 right-1.5">
+                                                            <span className={`inline-flex px-1.5 py-0.5 rounded-lg text-[10px] font-black shadow-xs ${isZero ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>
+                                                                {stockVal}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Tile Body */}
+                                                    <div className="p-2 space-y-1">
+                                                        <h4 className="text-xs font-bold text-slate-800 line-clamp-2 leading-tight" title={prod.name}>
+                                                            {prod.name}
+                                                        </h4>
+                                                        <div className="flex items-center justify-between gap-1">
+                                                            <span className="text-xs font-black text-blue-600">
+                                                                {priceTag(prod.sellingPrice || 0)}
+                                                            </span>
+                                                            {catName && (
+                                                                <span className="text-[9px] font-bold text-slate-400 truncate max-w-[70px]">
+                                                                    {catName}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Quick Edit - / + Controls */}
+                                                <div className="p-1.5 pt-0">
+                                                    <div className="flex items-center justify-between bg-slate-50 border border-slate-200/80 rounded-xl p-0.5">
+                                                        <button
+                                                            type="button"
+                                                            disabled={stockVal <= 0}
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                await adjustStock(prod.id, -1);
+                                                            }}
+                                                            className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-black text-xs flex items-center justify-center disabled:opacity-30 transition-colors shadow-2xs"
+                                                            title="Decrease stock by 1"
+                                                        >
+                                                            -
+                                                        </button>
+                                                        <span className={`text-xs font-black px-1 ${isZero ? 'text-rose-600' : 'text-amber-600'}`}>
+                                                            {stockVal}
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                await adjustStock(prod.id, 1);
+                                                            }}
+                                                            className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 font-black text-xs flex items-center justify-center transition-colors shadow-2xs"
+                                                            title="Increase stock by 1"
+                                                        >
+                                                            +
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </section>
 
             </main>
@@ -6816,7 +6847,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                                     </span>
                                                                 )}
                                                                 <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100/60 px-1.5 py-0.2 rounded">
-                                                                    {item.snapshot.category || 'Allgemein'}
+                                                                    {formatCategorySafely(item.snapshot.category, 'Allgemein')}
                                                                 </span>
                                                                 {item.snapshot.subCategory && (
                                                                     <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
@@ -7056,8 +7087,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             </div>
 
                             <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5"><p className="text-[10px] font-bold text-slate-400 uppercase">Kategorie</p><p className="font-bold text-slate-800 mt-0.5">{selectedInventoryItem.snapshot.category || '-'}</p></div>
-                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5"><p className="text-[10px] font-bold text-slate-400 uppercase">Unterkategorie</p><p className="font-bold text-slate-800 mt-0.5">{selectedInventoryItem.snapshot.subCategory || '-'}</p></div>
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5"><p className="text-[10px] font-bold text-slate-400 uppercase">Kategorie</p><p className="font-bold text-slate-800 mt-0.5">{formatCategorySafely(selectedInventoryItem.snapshot.category, '-')}</p></div>
+                                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5"><p className="text-[10px] font-bold text-slate-400 uppercase">Unterkategorie</p><p className="font-bold text-slate-800 mt-0.5">{formatCategorySafely(selectedInventoryItem.snapshot.subCategory, '-')}</p></div>
                                 
                                 <div className="rounded-xl bg-slate-50 border border-slate-200 p-2.5">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase">Bestand (Stock)</p>

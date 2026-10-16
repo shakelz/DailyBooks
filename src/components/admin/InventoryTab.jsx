@@ -99,9 +99,9 @@ export default function InventoryTab() {
     const getProductCategoryL1 = useCallback((product) => {
         if (!product) return '';
         if (typeof product.category === 'object' && product.category !== null) {
-            return product.category.level1 || '';
+            return String(product.category.level1 || product.category.name || '').trim();
         }
-        if (typeof product.category === 'string') return product.category;
+        if (typeof product.category === 'string') return product.category.trim();
         return '';
     }, []);
 
@@ -183,6 +183,7 @@ export default function InventoryTab() {
                 const target = parseFloat(customStockValue);
                 if (!Number.isNaN(target)) {
                     if (customStockOperator === '=') matchesStockFilter = stockVal === target;
+                    else if (customStockOperator === '!=') matchesStockFilter = stockVal !== target;
                     else if (customStockOperator === '>') matchesStockFilter = stockVal > target;
                     else if (customStockOperator === '<') matchesStockFilter = stockVal < target;
                     else if (customStockOperator === '>=') matchesStockFilter = stockVal >= target;
@@ -522,19 +523,19 @@ export default function InventoryTab() {
                                 {getLevel1Categories('sales').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                             </select>
 
-                            {/* Custom Stock Filter */}
-                            <div className="flex items-center gap-1.5">
+                            {/* Quick Stock Filter */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
                                 <select
                                     value={filterStockMode}
                                     onChange={e => setFilterStockMode(e.target.value)}
-                                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/10 cursor-pointer"
+                                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/10 cursor-pointer shadow-xs"
                                     title="Bestandsfilter"
                                 >
                                     <option value="all">📦 Alle Bestände</option>
-                                    <option value="in_stock">✅ Auf Lager (&gt; 0)</option>
-                                    <option value="out_of_stock">❌ Ausverkauft (= 0)</option>
-                                    <option value="negative">⚠️ Negativer Bestand (&lt; 0)</option>
-                                    <option value="low_stock">🔥 Niedrigbestand (&lt; 3)</option>
+                                    <option value="out_of_stock">❌ = 0 (Ausverkauft)</option>
+                                    <option value="in_stock">✅ &gt; 0 (Auf Lager)</option>
+                                    <option value="low_stock">🔥 &lt; 3 (Niedrigbestand)</option>
+                                    <option value="negative">⚠️ &lt; 0 (Negativ)</option>
                                     <option value="custom">⚙️ Eigener Filter...</option>
                                 </select>
 
@@ -543,9 +544,10 @@ export default function InventoryTab() {
                                         <select
                                             value={customStockOperator}
                                             onChange={e => setCustomStockOperator(e.target.value)}
-                                            className="px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black focus:outline-none"
+                                            className="px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black focus:outline-none shadow-xs"
                                         >
                                             <option value="=">=</option>
+                                            <option value="!=">!=</option>
                                             <option value=">">&gt;</option>
                                             <option value="<">&lt;</option>
                                             <option value=">=">&gt;=</option>
@@ -553,10 +555,10 @@ export default function InventoryTab() {
                                         </select>
                                         <input
                                             type="number"
-                                            placeholder="Menge"
+                                            placeholder="Wert (z.B. 5)"
                                             value={customStockValue}
                                             onChange={e => setCustomStockValue(e.target.value)}
-                                            className="w-16 px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
+                                            className="w-24 px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none shadow-xs"
                                         />
                                     </div>
                                 )}

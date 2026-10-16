@@ -1553,9 +1553,9 @@ export default function SoldPhonesModal({ isOpen, onClose, onViewTransaction }) 
                                                             </span>
                                                         )}
                                                         {/* Category from Database */}
-                                                        {phone.category && (
+                                                        {Boolean(phone.category) && (
                                                             <span className="text-[10px] font-semibold px-2 py-0.2 rounded bg-slate-100 text-slate-600">
-                                                                {phone.category}
+                                                                {typeof phone.category === 'object' ? (phone.category?.level1 || phone.category?.name || '') : String(phone.category)}
                                                             </span>
                                                         )}
                                                     </div>
@@ -1736,7 +1736,7 @@ export default function SoldPhonesModal({ isOpen, onClose, onViewTransaction }) 
                                         </span>
                                     </div>
                                     <p className="text-xs text-white/90 font-medium">
-                                        {selectedDetailPhone.category} • {selectedDetailPhone.subCategory}
+                                        {typeof selectedDetailPhone.category === 'object' ? (selectedDetailPhone.category?.level1 || selectedDetailPhone.category?.name || '') : String(selectedDetailPhone.category || '')} • {String(selectedDetailPhone.subCategory || '')}
                                     </p>
                                 </div>
                             </div>
