@@ -22,6 +22,7 @@ import NotesDrawer from '../components/NotesDrawer';
 import { supabase } from '../supabaseClient';
 import { useTranslatedTextTree } from '../hooks/useTranslatedTextTree';
 import { buildStageInvoiceNumber, extractInvoiceNumberBase, getCleanTransactionInvoiceNumber, reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
+import { isHandyProduct } from '../utils/categoryUtils';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
@@ -1572,7 +1573,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     const lowAndOutStockProducts = useMemo(() => {
         return (products || []).filter((p) => {
-            const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${p.category || ''} ${p.sub_category || ''} ${p.name || ''}`);
+            const isMobile = isHandyProduct(p);
             if (isMobile) {
                 // When mobile stock reaches 0, it shouldn't appear in low stock
                 if (Number(p.stock) <= 0) return false;
@@ -2875,8 +2876,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (!trimmed) return [];
         return searchProducts(trimmed)
             .map((product) => ({ raw: product, snapshot: resolveProductSnapshot(product) }))
-            .filter(({ snapshot }) => {
-                const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.name || ''}`);
+            .filter(({ raw, snapshot }) => {
+                const isMobile = isHandyProduct(raw || snapshot);
                 if (isMobile && Number(snapshot.stock) <= 0) return false;
                 const sameLevel1 = !level1 || String(snapshot.category || '').toLowerCase() === String(level1).toLowerCase();
                 const sameLevel2 = !level2 || String(snapshot.subCategory || '').toLowerCase() === String(level2).toLowerCase();

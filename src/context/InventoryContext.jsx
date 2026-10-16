@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 import { buildProductJSON, generateId, getStockSeverity } from '../data/inventoryStore';
 import { getCleanTransactionInvoiceNumber, reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
+import { isHandyProduct } from '../utils/categoryUtils';
 
 const InventoryContext = createContext(null);
 const CATEGORY_HIERARCHY_KEY = '__categoryHierarchy';
@@ -2233,7 +2234,7 @@ export function InventoryProvider({ children }) {
         if (!previousProduct) return null;
 
         const mergedProduct = { ...previousProduct, ...updatedData, id: strId, shop_id: sid };
-        const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${mergedProduct.category || ''} ${mergedProduct.sub_category || ''} ${mergedProduct.name || ''}`);
+        const isMobile = isHandyProduct(mergedProduct);
         const nextStockVal = parseInt(mergedProduct.stock, 10);
         if (isMobile && nextStockVal <= 0) {
             setProducts(prev => prev.filter(p => String(p.id) !== strId && String(p.product_id || '') !== strId));
@@ -2296,7 +2297,7 @@ export function InventoryProvider({ children }) {
 
         const strId = String(matchedProduct.id);
         const previousStock = parseInt(matchedProduct.stock, 10) || 0;
-        const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${matchedProduct.category || ''} ${matchedProduct.sub_category || ''} ${matchedProduct.name || ''}`);
+        const isMobile = isHandyProduct(matchedProduct);
         if (isMobile && nextStock <= 0) {
             setProducts(prev => prev.filter(p => String(p.id) !== strId && String(p.product_id || '') !== strId));
             (async () => {
@@ -2345,7 +2346,7 @@ export function InventoryProvider({ children }) {
             if (!product) return prev;
 
             const updatedStockVal = Math.max(0, (parseFloat(product.stock) || 0) + deltaNum);
-            const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${product.category || ''} ${product.sub_category || ''} ${product.name || ''}`);
+            const isMobile = isHandyProduct(product);
 
             if (isMobile && updatedStockVal <= 0) {
                 shouldDelete = true;

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
+import { isHandyProduct } from '../../utils/categoryUtils';
 import SmartCategoryForm from '../SmartCategoryForm';
 import SoldPhonesModal from '../SoldPhonesModal';
 import ImageLightboxModal from '../ImageLightboxModal';
@@ -158,7 +159,7 @@ export default function InventoryTab() {
 
     const filteredProducts = useMemo(() => {
         return productsInRange.filter(p => {
-            const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${getProductCategoryL1(p)} ${p.sub_category || ''} ${p.name || ''}`);
+            const isMobile = isHandyProduct(p);
             if (isMobile && Number(p.stock) <= 0) return false;
 
             const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||

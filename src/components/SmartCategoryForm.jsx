@@ -4,6 +4,7 @@ import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import { CURRENCY_CONFIG } from '../utils/currency';
+import { isHandyMainCategory } from '../utils/categoryUtils';
 
 // 3-Level Hierarchy + 14 Chips + Custom Chips + Stock Alert
 
@@ -315,10 +316,33 @@ export default function SmartCategoryForm({
 
     const l1Categories = getLevel1Categories('sales');
     const l2Categories = level1 ? getLevel2Categories(level1, 'sales') : [];
-    const allChips = [...CHIP_LIBRARY, ...customChips];
     const profit = (parseFloat(sellingPrice) || 0) - (parseFloat(purchasePrice) || 0);
-    const combinedCategoryName = `${level1 || customL1} ${level2 || customL2} ${name}`.toLowerCase();
-    const isMobileCategory = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(combinedCategoryName);
+
+    // Handy is strictly determined by the MAIN category (Level 1)
+    const activeL1 = (level1 || customL1 || '').trim();
+    const isHandyCategory = isHandyMainCategory(activeL1);
+
+    // Visible chips: Hide IMEI unless Main Category is Handy or IMEI has an existing value
+    const visibleChips = useMemo(() => {
+        return [...CHIP_LIBRARY, ...customChips].filter(chip => {
+            if (chip.key === 'imei') {
+                return isHandyCategory || Boolean(dynamicFields.imei);
+            }
+            return true;
+        });
+    }, [customChips, isHandyCategory, dynamicFields.imei]);
+    const allChips = visibleChips;
+
+    // Auto-clear IMEI errors if user changes category away from Handy
+    useEffect(() => {
+        if (!isHandyCategory && errors.imei) {
+            setErrors(prev => {
+                const copy = { ...prev };
+                delete copy.imei;
+                return copy;
+            });
+        }
+    }, [isHandyCategory, errors.imei]);
 
     const toggleChip = (chipKey) => {
         if (activeChips.includes(chipKey)) {
@@ -393,13 +417,11 @@ export default function SmartCategoryForm({
             }
         }
 
-        // 5. Mandatory IMEI for Handy (mobiles) — with exception for keyboard / small feature phones
-        const combinedCategoryName = `${level1 || customL1} ${level2 || customL2} ${name}`.toLowerCase();
-        const isMobileCategory = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(combinedCategoryName);
-        if (isMobileCategory && !noImeiRequired) {
+        // 5. Mandatory IMEI ONLY for Handy in Main Category (unless "Ohne IMEI" exception is active)
+        if (isHandyCategory && !noImeiRequired) {
             const imeiVal = String(dynamicFields.imei || '').trim();
             if (!imeiVal) {
-                errs.imei = 'IMEI-Nummer ist für Handys erforderlich! (Oder "Ohne IMEI" Ausnahme aktivieren)';
+                errs.imei = 'IMEI-Nummer ist für Handys erforderlich! (Oder "Ohne IMEI" wählen)';
                 if (!activeChips.includes('imei')) {
                     setActiveChips(prev => prev.includes('imei') ? prev : ['imei', ...prev]);
                 }
@@ -533,9 +555,11 @@ export default function SmartCategoryForm({
                 },
                 attributes: {
                     ...dynamicFields,
-                    phoneCondition,
-                    condition: phoneCondition === 'Old' ? 'Used' : 'New',
-                    ...(noImeiRequired ? { noImeiRequired: true, isKeyboardPhone: true } : {}),
+                    ...(isHandyCategory ? {
+                        phoneCondition,
+                        condition: phoneCondition === 'Old' ? 'Used' : 'New',
+                        ...(noImeiRequired ? { noImeiRequired: true, isKeyboardPhone: true } : {}),
+                    } : {}),
                 },
                 productUrl: productUrl.trim() || null,
                 notes: notes.trim(),
@@ -829,99 +853,111 @@ export default function SmartCategoryForm({
                             </div>
                         </div>
 
-                        {/* Dynamic Handy Condition (Neu vs Gebraucht) */}
-                        {isMobileCategory && (
-                            <div className="p-3 rounded-2xl bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-100 space-y-2 animate-in fade-in duration-200">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-[10px] font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
-                                        <span>📱</span>
-                                        <span>Handy Zustand</span>
-                                        <span className="text-red-500">*</span>
-                                    </label>
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${phoneCondition === 'New' ? 'bg-blue-600 text-white' : 'bg-amber-600 text-white'}`}>
-                                        {phoneCondition === 'New' ? '✨ Neu (OVP)' : '🔄 Gebraucht (Kunde)'}
-                                    </span>
+                        {/* Dynamic Handy Condition & IMEI Option (ONLY shown when Handy is selected in Main Category) */}
+                        {isHandyCategory && (
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-50/90 to-indigo-50/90 border border-blue-200/80 space-y-3 animate-in fade-in duration-200 shadow-2xs">
+                                {/* Option 1: Handy Zustand (Neu vs Gebraucht) */}
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[10px] font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>📱</span>
+                                            <span>Handy Zustand</span>
+                                            <span className="text-red-500">*</span>
+                                        </label>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${phoneCondition === 'New' ? 'bg-blue-600 text-white' : 'bg-amber-600 text-white'}`}>
+                                            {phoneCondition === 'New' ? '✨ Neu (OVP)' : '🔄 Gebraucht (Kunde)'}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setPhoneCondition('New')}
+                                            className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 border ${
+                                                phoneCondition === 'New'
+                                                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            <span>✨</span>
+                                            <span>Neu</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPhoneCondition('Old')}
+                                            className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 border ${
+                                                phoneCondition === 'Old'
+                                                    ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            <span>🔄</span>
+                                            <span>Gebraucht</span>
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+                                        {phoneCondition === 'New'
+                                            ? 'ℹ️ Neu: Erscheint bei Niedrigbestand auf dem Dashboard zum Nachbestellen.'
+                                            : 'ℹ️ Gebraucht: Vom Kunden gekauft — erscheint nicht im Dashboard-Niedrigbestand (nicht nachbestellbar).'}
+                                    </p>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setPhoneCondition('New')}
-                                        className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 border ${
-                                            phoneCondition === 'New'
-                                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                                        }`}
-                                    >
-                                        <span>✨</span>
-                                        <span>Neu</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setPhoneCondition('Old')}
-                                        className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 border ${
-                                            phoneCondition === 'Old'
-                                                ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                                        }`}
-                                    >
-                                        <span>🔄</span>
-                                        <span>Gebraucht</span>
-                                    </button>
-                                </div>
-                                <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
-                                    {phoneCondition === 'New'
-                                        ? 'ℹ️ Neu: Erscheint bei Niedrigbestand auf dem Dashboard zum Nachbestellen.'
-                                        : 'ℹ️ Gebraucht: Vom Kunden gekauft — erscheint nicht im Dashboard-Niedrigbestand (nicht nachbestellbar).'}
-                                </p>
 
-                                {/* ── Exception: Add without IMEI (Keyboard / Feature phone) ── */}
-                                <div className="pt-2 border-t border-blue-100/80">
-                                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                                        <div className="min-w-0">
-                                            <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                                                <span>⌨️</span>
-                                                <span>Ausnahme: Ohne IMEI hinzufügen</span>
-                                            </p>
-                                            <p className="text-[10px] text-slate-500">
-                                                Für Tastenhandys oder Kleingeräte, die keine IMEI besitzen/erfordern
-                                            </p>
-                                        </div>
+                                {/* Option 2: IMEI Pflicht vs Ohne IMEI (Tastenhandy / Kleingerät) */}
+                                <div className="pt-2.5 border-t border-blue-100/90 space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[10px] font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>🔢</span>
+                                            <span>IMEI Option</span>
+                                            <span className="text-red-500">*</span>
+                                        </label>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${noImeiRequired ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white'}`}>
+                                            {noImeiRequired ? 'Ohne IMEI (Optional)' : 'IMEI Pflicht'}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                setNoImeiRequired(prev => {
-                                                    const next = !prev;
-                                                    if (next) {
-                                                        setErrors(errs => {
-                                                            const copy = { ...errs };
-                                                            delete copy.imei;
-                                                            return copy;
-                                                        });
-                                                    }
-                                                    return next;
-                                                });
+                                                setNoImeiRequired(false);
                                             }}
-                                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border shadow-2xs ${
-                                                noImeiRequired
-                                                    ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-200 shadow-sm'
-                                                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 hover:text-slate-900'
+                                            className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 border ${
+                                                !noImeiRequired
+                                                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                                             }`}
                                         >
-                                            <span>{noImeiRequired ? '✅' : '⚡'}</span>
-                                            <span>{noImeiRequired ? 'Ohne IMEI erlaubt (Aktiv)' : 'Ohne IMEI erlauben'}</span>
+                                            <span>📱</span>
+                                            <span>IMEI Pflicht</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setNoImeiRequired(true);
+                                                setErrors(errs => {
+                                                    const copy = { ...errs };
+                                                    delete copy.imei;
+                                                    return copy;
+                                                });
+                                            }}
+                                            className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 border ${
+                                                noImeiRequired
+                                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            <span>⌨️</span>
+                                            <span>Ohne IMEI (Optional)</span>
                                         </button>
                                     </div>
-                                    {noImeiRequired && (
-                                        <div className="mt-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold flex items-center gap-1.5">
-                                            <span>✓</span>
-                                            <span>Ausnahme aktiv: Dieses Handy kann ohne IMEI-Pflicht gespeichert werden.</span>
-                                        </div>
-                                    )}
+                                    <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+                                        {noImeiRequired
+                                            ? 'ℹ️ Ohne IMEI: Für Tastenhandys oder Kleingeräte — Speichern ist ohne IMEI möglich.'
+                                            : 'ℹ️ IMEI Pflicht: Standard für Smartphones — IMEI-Nummer ist für Verkauf und Garantie zwingend erforderlich.'}
+                                    </p>
                                 </div>
                             </div>
                         )}
 
-                        {errors.imei && !noImeiRequired && (
+                        {errors.imei && isHandyCategory && !noImeiRequired && (
                             <div className="flex items-center justify-between gap-2 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-xs flex-wrap animate-in fade-in duration-150">
                                 <span className="font-bold text-rose-700 flex items-center gap-1.5">
                                     <span>⚠️</span>
@@ -948,12 +984,14 @@ export default function SmartCategoryForm({
                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 block">Specifications & Details</label>
                             <div className="flex flex-wrap gap-2">
                                 {/* Built-in + Custom Chips */}
-                                {[...CHIP_LIBRARY, ...customChips].map(chip => (
+                                {visibleChips.map(chip => (
                                     <div key={chip.key} className="relative group">
                                         <div className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-all flex items-center gap-1 ${dynamicFields[chip.key] ? 'bg-blue-100 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}`}>
                                             <span>{chip.icon}</span>
-                                            {chip.key === 'imei' && noImeiRequired && (
-                                                <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">Opt</span>
+                                            {chip.key === 'imei' && (
+                                                <span className={`text-[9px] font-bold px-1 rounded ${noImeiRequired ? 'text-emerald-700 bg-emerald-100/80' : 'text-blue-700 bg-blue-100/80'}`}>
+                                                    {noImeiRequired ? 'Opt' : 'Pflicht'}
+                                                </span>
                                             )}
                                             {chip.type === 'select' ? (
                                                 <div className="relative">
@@ -966,7 +1004,7 @@ export default function SmartCategoryForm({
                                                 </div>
                                             ) : (
                                                 <input className="bg-transparent border-none outline-none min-w-[80px] max-w-[130px] placeholder-slate-400"
-                                                    placeholder={chip.key === 'imei' && noImeiRequired ? 'IMEI (optional)' : chip.label}
+                                                    placeholder={chip.key === 'imei' ? (noImeiRequired ? 'IMEI (optional)' : 'IMEI (Pflicht)') : chip.label}
                                                     value={dynamicFields[chip.key] || ''}
                                                     onChange={(e) => setDynamicFields(prev => ({ ...prev, [chip.key]: e.target.value }))} />
                                             )}
