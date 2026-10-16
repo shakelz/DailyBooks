@@ -902,6 +902,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [inventoryCustomStockOperator, setInventoryCustomStockOperator] = useState('>');
     const [inventoryCustomStockValue, setInventoryCustomStockValue] = useState('');
     const [inventorySort, setInventorySort] = useState('default');
+    const [inventoryModalViewMode, setInventoryModalViewMode] = useState('gallery'); // 'gallery' | 'list'
     const [editingStockId, setEditingStockId] = useState(null);
     const [editingStockVal, setEditingStockVal] = useState('');
     const [savingStockId, setSavingStockId] = useState(null);
@@ -6645,7 +6646,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 >
                     <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
                     <div
-                        className="relative w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                        className={`relative w-full ${inventoryModalViewMode === 'gallery' ? 'max-w-6xl' : 'max-w-5xl'} max-h-[92vh] flex flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200`}
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* ── Modal Header ── */}
@@ -6670,6 +6671,36 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             </div>
 
                             <div className="flex items-center gap-2">
+                                {/* View Mode Switcher: Galerie vs Liste */}
+                                <div className="flex items-center bg-slate-200/70 p-0.5 rounded-xl border border-slate-200">
+                                    <button
+                                        type="button"
+                                        onClick={() => setInventoryModalViewMode('gallery')}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                            inventoryModalViewMode === 'gallery'
+                                                ? 'bg-white text-blue-600 shadow-xs'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                        }`}
+                                        title="OLX Galerieansicht"
+                                    >
+                                        <LayoutDashboard size={13} />
+                                        <span>Galerie</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setInventoryModalViewMode('list')}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                            inventoryModalViewMode === 'list'
+                                                ? 'bg-white text-blue-600 shadow-xs'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                        }`}
+                                        title="Listenansicht"
+                                    >
+                                        <ClipboardList size={13} />
+                                        <span>Liste</span>
+                                    </button>
+                                </div>
+
                                 <button
                                     type="button"
                                     onClick={() => setShowSoldPhonesModal(true)}
@@ -6923,8 +6954,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             </div>
                         </div>
 
-                        {/* ── Product List with Stock Edit, Full Edit & Delete ── */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/40">
+                        {/* ── Product List / OLX Gallery View with Stock Edit, Full Edit & Delete ── */}
+                        <div className="flex-1 overflow-y-auto p-4 bg-slate-50/40">
                             {filteredInventoryItems.length === 0 ? (
                                 <div className="text-center py-12 px-4 rounded-xl border border-dashed border-slate-200 bg-white">
                                     <Boxes size={36} className="mx-auto text-slate-300 mb-2" />
@@ -6946,100 +6977,151 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         </button>
                                     )}
                                 </div>
-                            ) : (
-                                filteredInventoryItems.map((item) => {
-                                    const stockValue = Number(item.snapshot.stock) || 0;
-                                    const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
-                                    const redThreshold = Number(alertCfg.red);
-                                    const yellowThreshold = Number(alertCfg.yellow);
-                                    const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
-                                    const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
-                                    const severity = stockValue <= 0
-                                        ? 'red'
-                                        : hasRed && stockValue <= redThreshold
+                            ) : inventoryModalViewMode === 'gallery' ? (
+                                /* ── OLX Gallery Grid View ── */
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                                    {filteredInventoryItems.map((item) => {
+                                        const stockValue = Number(item.snapshot.stock) || 0;
+                                        const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                        const redThreshold = Number(alertCfg.red);
+                                        const yellowThreshold = Number(alertCfg.yellow);
+                                        const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                        const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                        const severity = stockValue <= 0
                                             ? 'red'
-                                            : hasYellow && stockValue <= yellowThreshold
-                                                ? 'yellow'
-                                                : getStockSeverity(stockValue);
+                                            : hasRed && stockValue <= redThreshold
+                                                ? 'red'
+                                                : hasYellow && stockValue <= yellowThreshold
+                                                    ? 'yellow'
+                                                    : getStockSeverity(stockValue);
 
-                                    const isEditingThis = editingStockId === String(item.snapshot.id);
-                                    const isSavingThis = savingStockId === String(item.snapshot.id);
-                                    const isDeletingThis = deletingProductId === String(item.snapshot.id);
+                                        const isEditingThis = editingStockId === String(item.snapshot.id);
+                                        const isSavingThis = savingStockId === String(item.snapshot.id);
+                                        const isDeletingThis = deletingProductId === String(item.snapshot.id);
 
-                                    return (
-                                        <div
-                                            key={`inv-item-${item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}`}
-                                            className={`rounded-xl border p-3 bg-white transition-all hover:shadow-sm ${
-                                                severity === 'red'
-                                                    ? 'border-red-200/80 bg-red-50/20'
-                                                    : severity === 'yellow'
-                                                        ? 'border-amber-200/80 bg-amber-50/20'
-                                                        : 'border-slate-200/90'
-                                            }`}
-                                        >
-                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                                                {/* 1. Product Info & Thumbnail (col-span-4) */}
-                                                <div className="md:col-span-4 min-w-0">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                                            {item.snapshot.image ? (
-                                                                <img src={item.snapshot.image} alt={item.snapshot.name} className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <span className="text-xl">{item.isMobile ? '📱' : '📦'}</span>
-                                                            )}
+                                        const phoneCond = item.raw?.phoneCondition || item.raw?.attributes?.phoneCondition || item.raw?.condition || item.raw?.attributes?.condition;
+                                        const isNew = phoneCond === 'New';
+                                        const isOld = phoneCond === 'Old';
+
+                                        const sell = Number(item.snapshot.sellingPrice) || 0;
+                                        const buy = Number(item.snapshot.purchasePrice) || 0;
+                                        const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
+
+                                        return (
+                                            <div
+                                                key={`inv-grid-${item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}`}
+                                                className={`group rounded-2xl border bg-white hover:shadow-md transition-all flex flex-col justify-between overflow-hidden shadow-2xs ${
+                                                    severity === 'red'
+                                                        ? 'border-red-200/80 bg-red-50/10 hover:border-red-300'
+                                                        : severity === 'yellow'
+                                                            ? 'border-amber-200/80 bg-amber-50/10 hover:border-amber-300'
+                                                            : 'border-slate-200/80 hover:border-blue-300'
+                                                }`}
+                                            >
+                                                <div>
+                                                    {/* OLX Image Tile */}
+                                                    <div className="relative aspect-square w-full bg-slate-100 overflow-hidden flex items-center justify-center border-b border-slate-100">
+                                                        {item.snapshot.image ? (
+                                                            <img
+                                                                src={item.snapshot.image}
+                                                                alt={item.snapshot.name}
+                                                                className="w-full h-full object-cover cursor-pointer group-hover:scale-105 transition-transform duration-200"
+                                                                onClick={() => setLightboxImage({ src: item.snapshot.image, title: item.snapshot.name })}
+                                                                title="Klick zum Vergrößern"
+                                                            />
+                                                        ) : (
+                                                            <span className="text-3xl opacity-50">{item.isMobile ? '📱' : '📦'}</span>
+                                                        )}
+
+                                                        {/* Floating Stock Badge (Top Right) */}
+                                                        <div className="absolute top-2 right-2">
+                                                            <span className={`inline-flex px-1.5 py-0.5 rounded-lg text-[10px] font-black shadow-xs ${
+                                                                stockValue <= 0
+                                                                    ? 'bg-rose-500 text-white'
+                                                                    : severity === 'yellow'
+                                                                        ? 'bg-amber-500 text-white'
+                                                                        : 'bg-emerald-600 text-white'
+                                                            }`}>
+                                                                {stockValue} Stk.
+                                                            </span>
                                                         </div>
-                                                        <div className="min-w-0 flex-1">
-                                                            <p className="text-sm font-bold text-slate-800 truncate" title={item.snapshot.name}>
-                                                                {item.snapshot.name || 'Unbenanntes Produkt'}
-                                                            </p>
-                                                            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                                                                {item.snapshot.barcode && (
-                                                                    <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
-                                                                        {item.snapshot.barcode}
-                                                                    </span>
-                                                                )}
-                                                                <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100/60 px-1.5 py-0.2 rounded">
-                                                                    {formatCategorySafely(item.snapshot.category, 'Allgemein')}
+
+                                                        {/* Condition / Type Badges (Top Left) */}
+                                                        <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+                                                            {isNew && (
+                                                                <span className="px-1.5 py-0.5 rounded-md bg-blue-600 text-white text-[9px] font-black uppercase tracking-wider shadow-xs">
+                                                                    Neu
                                                                 </span>
-                                                                {item.snapshot.subCategory && (
-                                                                    <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
-                                                                        {item.snapshot.subCategory}
-                                                                    </span>
-                                                                )}
-                                                            </div>
+                                                            )}
+                                                            {isOld && (
+                                                                <span className="px-1.5 py-0.5 rounded-md bg-amber-600 text-white text-[9px] font-black uppercase tracking-wider shadow-xs">
+                                                                    Gebraucht
+                                                                </span>
+                                                            )}
+                                                            {item.isMobile && !isNew && !isOld && (
+                                                                <span className="px-1.5 py-0.5 rounded-md bg-sky-600 text-white text-[9px] font-black uppercase tracking-wider shadow-xs">
+                                                                    Handy
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
 
-                                                    {/* Attributes Pills */}
-                                                    {item.raw?.attributes && typeof item.raw.attributes === 'object' && (
-                                                        <div className="flex flex-wrap gap-1 mt-2">
-                                                            {Object.entries(item.raw.attributes)
-                                                                .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
-                                                                .slice(0, 6)
-                                                                .map(([key, value]) => (
-                                                                    <span
-                                                                        key={`${item.snapshot.id}-${key}`}
-                                                                        className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 text-[9px] font-bold"
-                                                                    >
-                                                                        {String(key).toUpperCase()}: {String(value)}
-                                                                    </span>
-                                                                ))}
+                                                    {/* OLX Card Body */}
+                                                    <div className="p-2.5 space-y-1">
+                                                        {/* Price First (OLX Signature) */}
+                                                        <div className="flex items-baseline justify-between gap-1">
+                                                            <span className="text-sm sm:text-base font-black text-slate-900 tracking-tight font-mono">
+                                                                {priceTag(item.snapshot.sellingPrice || 0)}
+                                                            </span>
+                                                            <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                                                                {margin.toFixed(0)}%
+                                                            </span>
                                                         </div>
-                                                    )}
+
+                                                        <div className="text-[10px] font-medium text-slate-400 font-mono">
+                                                            EK: {priceTag(item.snapshot.purchasePrice || 0)}
+                                                        </div>
+
+                                                        {/* Product Title */}
+                                                        <h4 className="text-xs font-bold text-slate-800 line-clamp-2 leading-tight" title={item.snapshot.name}>
+                                                            {item.snapshot.name || 'Unbenanntes Produkt'}
+                                                        </h4>
+
+                                                        {/* Category & Barcode */}
+                                                        <div className="flex items-center gap-1 text-[10px] text-slate-400 pt-0.5 truncate">
+                                                            <span className="text-blue-600 font-semibold truncate">
+                                                                {formatCategorySafely(item.snapshot.category, 'Allgemein')}
+                                                            </span>
+                                                            {item.snapshot.barcode && (
+                                                                <span className="font-mono text-slate-400 truncate">• {item.snapshot.barcode}</span>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Attributes Chips */}
+                                                        {item.raw?.attributes && typeof item.raw.attributes === 'object' && (
+                                                            <div className="flex flex-wrap gap-1 pt-1">
+                                                                {Object.entries(item.raw.attributes)
+                                                                    .filter(([k, v]) => !String(k).startsWith('__') && v !== null && v !== undefined && String(v).trim() !== '' && k !== 'phoneCondition' && k !== 'condition')
+                                                                    .slice(0, 2)
+                                                                    .map(([k, v]) => (
+                                                                        <span key={`${item.snapshot.id}-attr-${k}`} className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[9px] font-bold">
+                                                                            {String(k).toUpperCase()}: {String(v)}
+                                                                        </span>
+                                                                    ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
 
-                                                {/* 2. Stock Management (Salesman Stock Editor) (col-span-3) */}
-                                                <div className="md:col-span-3 flex flex-col items-start md:items-center justify-center">
-                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                                                        Lagerbestand (Stock)
-                                                    </p>
-
+                                                {/* Card Footer: Stock Adjust & Action Buttons */}
+                                                <div className="p-2 pt-0 border-t border-slate-100 mt-2 space-y-1.5">
+                                                    {/* Stock Stepper & Quick Edit */}
                                                     {isEditingThis ? (
-                                                        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-blue-300 shadow-xs animate-in zoom-in-95 duration-150">
+                                                        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-blue-300">
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setEditingStockVal((prev) => String(Math.max(0, (parseInt(prev, 10) || 0) - 1)))}
-                                                                className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 border border-slate-200 flex items-center justify-center font-bold text-sm transition-colors"
+                                                                className="w-6 h-6 rounded-lg bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 border border-slate-200 flex items-center justify-center font-bold text-xs"
                                                             >
                                                                 -
                                                             </button>
@@ -7053,12 +7135,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                                     if (e.key === 'Enter') handleSaveStock(item.snapshot.id, editingStockVal);
                                                                     if (e.key === 'Escape') cancelEditingStock();
                                                                 }}
-                                                                className="w-14 text-center py-0.5 rounded-lg border border-slate-300 bg-white font-black text-sm text-slate-800 outline-none focus:ring-1 focus:ring-blue-500"
+                                                                className="w-10 text-center py-0.5 rounded-md border border-slate-300 bg-white font-black text-xs text-slate-800 outline-none"
                                                             />
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setEditingStockVal((prev) => String((parseInt(prev, 10) || 0) + 1))}
-                                                                className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-200 flex items-center justify-center font-bold text-sm transition-colors"
+                                                                className="w-6 h-6 rounded-lg bg-white text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-200 flex items-center justify-center font-bold text-xs"
                                                             >
                                                                 +
                                                             </button>
@@ -7067,145 +7149,369 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                                 disabled={isSavingThis}
                                                                 onClick={() => handleSaveStock(item.snapshot.id, editingStockVal)}
                                                                 title="Speichern"
-                                                                className="w-7 h-7 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center shadow-xs transition-colors"
+                                                                className="w-6 h-6 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center shadow-xs"
                                                             >
-                                                                <Check size={14} />
+                                                                <Check size={12} />
                                                             </button>
                                                             <button
                                                                 type="button"
                                                                 onClick={cancelEditingStock}
                                                                 title="Abbrechen"
-                                                                className="w-7 h-7 rounded-lg bg-slate-200 text-slate-600 hover:bg-slate-300 flex items-center justify-center transition-colors"
+                                                                className="w-6 h-6 rounded-lg bg-slate-200 text-slate-600 hover:bg-slate-300 flex items-center justify-center"
                                                             >
-                                                                <X size={14} />
+                                                                <X size={12} />
                                                             </button>
                                                         </div>
                                                     ) : (
-                                                        <div className="flex items-center gap-1.5">
-                                                            {/* Quick Minus */}
+                                                        <div className="flex items-center justify-between bg-slate-50 border border-slate-200/80 rounded-xl p-0.5">
                                                             <button
                                                                 type="button"
                                                                 disabled={isSavingThis || stockValue <= 0}
                                                                 onClick={() => handleQuickStockStep(item.snapshot, -1)}
                                                                 title="1 abziehen"
-                                                                className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 flex items-center justify-center font-bold text-xs transition-colors disabled:opacity-30"
+                                                                className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-black text-xs flex items-center justify-center disabled:opacity-30 transition-colors shadow-2xs"
                                                             >
                                                                 -
                                                             </button>
-
-                                                            {/* Stock Badge */}
-                                                            <div
+                                                            <button
+                                                                type="button"
                                                                 onClick={() => startEditingStock(item)}
                                                                 title="Klick zum Bearbeiten"
-                                                                className={`cursor-pointer group flex items-center gap-1.5 px-3 py-1 rounded-xl border transition-all hover:scale-105 ${
-                                                                    severity === 'red'
-                                                                        ? 'bg-red-50 text-red-700 border-red-200'
-                                                                        : severity === 'yellow'
-                                                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                className={`px-1.5 py-0.5 rounded-lg text-xs font-black transition-colors hover:bg-slate-200/60 ${
+                                                                    severity === 'red' ? 'text-rose-600' : severity === 'yellow' ? 'text-amber-700' : 'text-slate-800'
                                                                 }`}
                                                             >
-                                                                <span className="text-base font-black leading-none font-mono">
-                                                                    {stockValue}
-                                                                </span>
-                                                                <span className="text-[9px] uppercase font-bold tracking-wider opacity-70">
-                                                                    Stk.
-                                                                </span>
-                                                                <Edit2 size={11} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500" />
-                                                            </div>
-
-                                                            {/* Quick Plus */}
+                                                                {stockValue} Stk.
+                                                            </button>
                                                             <button
                                                                 type="button"
                                                                 disabled={isSavingThis}
                                                                 onClick={() => handleQuickStockStep(item.snapshot, 1)}
                                                                 title="1 hinzufügen"
-                                                                className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 border border-slate-200 flex items-center justify-center font-bold text-xs transition-colors"
+                                                                className="w-6 h-6 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 font-black text-xs flex items-center justify-center transition-colors shadow-2xs"
                                                             >
                                                                 +
                                                             </button>
                                                         </div>
                                                     )}
-                                                </div>
 
-                                                {/* 3. Pricing & Margin (col-span-2) */}
-                                                <div className="md:col-span-2 text-xs space-y-1">
-                                                    <div className="flex items-center justify-between gap-1">
-                                                        <span className="text-slate-400 font-medium">EK:</span>
-                                                        <span className="text-slate-600 font-bold font-mono">
-                                                            {priceTag(item.snapshot.purchasePrice || 0)}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between gap-1">
-                                                        <span className="text-slate-400 font-medium">VK:</span>
-                                                        <span className="text-blue-600 font-bold font-mono">
-                                                            {priceTag(item.snapshot.sellingPrice || 0)}
-                                                        </span>
-                                                    </div>
-                                                    {(() => {
-                                                        const sell = Number(item.snapshot.sellingPrice) || 0;
-                                                        const buy = Number(item.snapshot.purchasePrice) || 0;
-                                                        const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
-                                                        return (
-                                                            <div className="pt-0.5">
-                                                                <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${
-                                                                    margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
-                                                                }`}>
-                                                                    {margin.toFixed(1)}% Marge
-                                                                </span>
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                </div>
+                                                    {/* Action Buttons Toolbar */}
+                                                    <div className="flex items-center justify-between gap-1 pt-0.5">
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleEditProduct(item)}
+                                                                title="Alle Details bearbeiten"
+                                                                className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center shadow-2xs"
+                                                            >
+                                                                <Edit3 size={12} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={isDeletingThis}
+                                                                onClick={() => handleDeleteProduct(item)}
+                                                                title="Produkt löschen"
+                                                                className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all flex items-center justify-center disabled:opacity-40 shadow-2xs"
+                                                            >
+                                                                <Trash2 size={12} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => printMobileLabel(item.raw)}
+                                                                title="Etikett drucken"
+                                                                className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center shadow-2xs"
+                                                            >
+                                                                <Tags size={12} />
+                                                            </button>
+                                                        </div>
 
-                                                {/* 4. Actions: Edit Details, Delete, Label, View, Sell (col-span-3) */}
-                                                <div className="md:col-span-3 flex items-center justify-end gap-1 flex-wrap">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleEditProduct(item)}
-                                                        title="Alle Details bearbeiten"
-                                                        className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <Edit3 size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        disabled={isDeletingThis}
-                                                        onClick={() => handleDeleteProduct(item)}
-                                                        title="Produkt löschen"
-                                                        className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all flex items-center justify-center disabled:opacity-40"
-                                                    >
-                                                        <Trash2 size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => printMobileLabel(item.raw)}
-                                                        title="Etikett drucken"
-                                                        className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <Tags size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedInventoryItem(item)}
-                                                        title="Details anzeigen"
-                                                        className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <Eye size={14} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => sellMobileFromInventory(item.raw)}
-                                                        title="Verkaufen"
-                                                        className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
-                                                    >
-                                                        <ShoppingCart size={14} />
-                                                    </button>
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSelectedInventoryItem(item)}
+                                                                title="Details anzeigen"
+                                                                className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center shadow-2xs"
+                                                            >
+                                                                <Eye size={12} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => sellMobileFromInventory(item.raw)}
+                                                                title="Verkaufen"
+                                                                className="w-7 h-7 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-all flex items-center justify-center shadow-2xs font-bold"
+                                                            >
+                                                                <ShoppingCart size={12} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    );
-                                })
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                /* ── Traditional List View ── */
+                                <div className="space-y-2">
+                                    {filteredInventoryItems.map((item) => {
+                                        const stockValue = Number(item.snapshot.stock) || 0;
+                                        const alertCfg = item.raw?.stockAlert && typeof item.raw.stockAlert === 'object' ? item.raw.stockAlert : {};
+                                        const redThreshold = Number(alertCfg.red);
+                                        const yellowThreshold = Number(alertCfg.yellow);
+                                        const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+                                        const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+                                        const severity = stockValue <= 0
+                                            ? 'red'
+                                            : hasRed && stockValue <= redThreshold
+                                                ? 'red'
+                                                : hasYellow && stockValue <= yellowThreshold
+                                                    ? 'yellow'
+                                                    : getStockSeverity(stockValue);
+
+                                        const isEditingThis = editingStockId === String(item.snapshot.id);
+                                        const isSavingThis = savingStockId === String(item.snapshot.id);
+                                        const isDeletingThis = deletingProductId === String(item.snapshot.id);
+
+                                        return (
+                                            <div
+                                                key={`inv-item-${item.snapshot.id || `${item.snapshot.barcode}-${item.snapshot.name}`}`}
+                                                className={`rounded-xl border p-3 bg-white transition-all hover:shadow-sm ${
+                                                    severity === 'red'
+                                                        ? 'border-red-200/80 bg-red-50/20'
+                                                        : severity === 'yellow'
+                                                            ? 'border-amber-200/80 bg-amber-50/20'
+                                                            : 'border-slate-200/90'
+                                                }`}
+                                            >
+                                                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                                                    {/* 1. Product Info & Thumbnail (col-span-4) */}
+                                                    <div className="md:col-span-4 min-w-0">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                                                {item.snapshot.image ? (
+                                                                    <img src={item.snapshot.image} alt={item.snapshot.name} className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <span className="text-xl">{item.isMobile ? '📱' : '📦'}</span>
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="text-sm font-bold text-slate-800 truncate" title={item.snapshot.name}>
+                                                                    {item.snapshot.name || 'Unbenanntes Produkt'}
+                                                                </p>
+                                                                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                                                    {item.snapshot.barcode && (
+                                                                        <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
+                                                                            {item.snapshot.barcode}
+                                                                        </span>
+                                                                    )}
+                                                                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100/60 px-1.5 py-0.2 rounded">
+                                                                        {formatCategorySafely(item.snapshot.category, 'Allgemein')}
+                                                                    </span>
+                                                                    {item.snapshot.subCategory && (
+                                                                        <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                                                                            {item.snapshot.subCategory}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Attributes Pills */}
+                                                        {item.raw?.attributes && typeof item.raw.attributes === 'object' && (
+                                                            <div className="flex flex-wrap gap-1 mt-2">
+                                                                {Object.entries(item.raw.attributes)
+                                                                    .filter(([key, value]) => !String(key).startsWith('__') && value !== null && value !== undefined && String(value).trim() !== '')
+                                                                    .slice(0, 6)
+                                                                    .map(([key, value]) => (
+                                                                        <span
+                                                                            key={`${item.snapshot.id}-${key}`}
+                                                                            className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 text-[9px] font-bold"
+                                                                        >
+                                                                            {String(key).toUpperCase()}: {String(value)}
+                                                                        </span>
+                                                                    ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* 2. Stock Management (Salesman Stock Editor) (col-span-3) */}
+                                                    <div className="md:col-span-3 flex flex-col items-start md:items-center justify-center">
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                                            Lagerbestand (Stock)
+                                                        </p>
+
+                                                        {isEditingThis ? (
+                                                            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-blue-300 shadow-xs animate-in zoom-in-95 duration-150">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setEditingStockVal((prev) => String(Math.max(0, (parseInt(prev, 10) || 0) - 1)))}
+                                                                    className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 border border-slate-200 flex items-center justify-center font-bold text-sm transition-colors"
+                                                                >
+                                                                    -
+                                                                </button>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    autoFocus
+                                                                    value={editingStockVal}
+                                                                    onChange={(e) => setEditingStockVal(e.target.value)}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') handleSaveStock(item.snapshot.id, editingStockVal);
+                                                                        if (e.key === 'Escape') cancelEditingStock();
+                                                                    }}
+                                                                    className="w-14 text-center py-0.5 rounded-lg border border-slate-300 bg-white font-black text-sm text-slate-800 outline-none focus:ring-1 focus:ring-blue-500"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setEditingStockVal((prev) => String((parseInt(prev, 10) || 0) + 1))}
+                                                                    className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 border border-slate-200 flex items-center justify-center font-bold text-sm transition-colors"
+                                                                >
+                                                                    +
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={isSavingThis}
+                                                                    onClick={() => handleSaveStock(item.snapshot.id, editingStockVal)}
+                                                                    title="Speichern"
+                                                                    className="w-7 h-7 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center shadow-xs transition-colors"
+                                                                >
+                                                                    <Check size={14} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={cancelEditingStock}
+                                                                    title="Abbrechen"
+                                                                    className="w-7 h-7 rounded-lg bg-slate-200 text-slate-600 hover:bg-slate-300 flex items-center justify-center transition-colors"
+                                                                >
+                                                                    <X size={14} />
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-center gap-1.5">
+                                                                {/* Quick Minus */}
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={isSavingThis || stockValue <= 0}
+                                                                    onClick={() => handleQuickStockStep(item.snapshot, -1)}
+                                                                    title="1 abziehen"
+                                                                    className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 flex items-center justify-center font-bold text-xs transition-colors disabled:opacity-30"
+                                                                >
+                                                                    -
+                                                                </button>
+
+                                                                {/* Stock Badge */}
+                                                                <div
+                                                                    onClick={() => startEditingStock(item)}
+                                                                    title="Klick zum Bearbeiten"
+                                                                    className={`cursor-pointer group flex items-center gap-1.5 px-3 py-1 rounded-xl border transition-all hover:scale-105 ${
+                                                                        severity === 'red'
+                                                                            ? 'bg-red-50 text-red-700 border-red-200'
+                                                                            : severity === 'yellow'
+                                                                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                    }`}
+                                                                >
+                                                                    <span className="text-base font-black leading-none font-mono">
+                                                                        {stockValue}
+                                                                    </span>
+                                                                    <span className="text-[9px] uppercase font-bold tracking-wider opacity-70">
+                                                                        Stk.
+                                                                    </span>
+                                                                    <Edit2 size={11} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500" />
+                                                                </div>
+
+                                                                {/* Quick Plus */}
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={isSavingThis}
+                                                                    onClick={() => handleQuickStockStep(item.snapshot, 1)}
+                                                                    title="1 hinzufügen"
+                                                                    className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 border border-slate-200 flex items-center justify-center font-bold text-xs transition-colors"
+                                                                >
+                                                                    +
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* 3. Pricing & Margin (col-span-2) */}
+                                                    <div className="md:col-span-2 text-xs space-y-1">
+                                                        <div className="flex items-center justify-between gap-1">
+                                                            <span className="text-slate-400 font-medium">EK:</span>
+                                                            <span className="text-slate-600 font-bold font-mono">
+                                                                {priceTag(item.snapshot.purchasePrice || 0)}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between gap-1">
+                                                            <span className="text-slate-400 font-medium">VK:</span>
+                                                            <span className="text-blue-600 font-bold font-mono">
+                                                                {priceTag(item.snapshot.sellingPrice || 0)}
+                                                            </span>
+                                                        </div>
+                                                        {(() => {
+                                                            const sell = Number(item.snapshot.sellingPrice) || 0;
+                                                            const buy = Number(item.snapshot.purchasePrice) || 0;
+                                                            const margin = sell > 0 ? ((sell - buy) / sell) * 100 : 0;
+                                                            return (
+                                                                <div className="pt-0.5">
+                                                                    <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${
+                                                                        margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                                                                    }`}>
+                                                                        {margin.toFixed(1)}% Marge
+                                                                    </span>
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </div>
+
+                                                    {/* 4. Actions: Edit Details, Delete, Label, View, Sell (col-span-3) */}
+                                                    <div className="md:col-span-3 flex items-center justify-end gap-1 flex-wrap">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleEditProduct(item)}
+                                                            title="Alle Details bearbeiten"
+                                                            className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <Edit3 size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={isDeletingThis}
+                                                            onClick={() => handleDeleteProduct(item)}
+                                                            title="Produkt löschen"
+                                                            className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all flex items-center justify-center disabled:opacity-40"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => printMobileLabel(item.raw)}
+                                                            title="Etikett drucken"
+                                                            className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <Tags size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSelectedInventoryItem(item)}
+                                                            title="Details anzeigen"
+                                                            className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <Eye size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => sellMobileFromInventory(item.raw)}
+                                                            title="Verkaufen"
+                                                            className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center"
+                                                        >
+                                                            <ShoppingCart size={14} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             )}
                         </div>
                     </div>
