@@ -68,6 +68,7 @@ export default function SmartCategoryForm({
     const [activeChips, setActiveChips] = useState([]);
     const [dynamicFields, setDynamicFields] = useState({});
     const [phoneCondition, setPhoneCondition] = useState('New');
+    const [noImeiRequired, setNoImeiRequired] = useState(false);
 
     const [customChips, setCustomChips] = useState([]);
     const [showCustomChipInput, setShowCustomChipInput] = useState(false);
@@ -263,10 +264,20 @@ export default function SmartCategoryForm({
                     setDynamicFields({});
                 }
 
-                // Phone Condition (New vs Old)
+                // Phone Condition (New vs Old) & IMEI Exception
                 const rawAttrs = initialData.attributes || {};
                 const loadedCondition = rawAttrs.phoneCondition || (rawAttrs.condition === 'Used' ? 'Old' : 'New');
                 setPhoneCondition(loadedCondition);
+                const loadedNoImei = Boolean(
+                    rawAttrs.noImeiRequired ||
+                    rawAttrs.isKeyboardPhone ||
+                    rawAttrs.noImei ||
+                    initialData.noImeiRequired ||
+                    rawAttrs.imei === 'KEINE_IMEI' ||
+                    rawAttrs.imei === 'N/A' ||
+                    rawAttrs.imei === 'OHNE_IMEI'
+                );
+                setNoImeiRequired(loadedNoImei);
 
             } else {
                 setLevel1(''); setLevel2(''); setLevel3Model('');
@@ -283,6 +294,7 @@ export default function SmartCategoryForm({
                 setErrors({}); setSubmitted(false);
                 setCustomChips([]);
                 setPhoneCondition('New');
+                setNoImeiRequired(false);
             }
             isSubmittingRef.current = false;
             setIsSubmitting(false);
@@ -381,13 +393,13 @@ export default function SmartCategoryForm({
             }
         }
 
-        // 5. Mandatory IMEI for Handy (mobiles)
+        // 5. Mandatory IMEI for Handy (mobiles) — with exception for keyboard / small feature phones
         const combinedCategoryName = `${level1 || customL1} ${level2 || customL2} ${name}`.toLowerCase();
         const isMobileCategory = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(combinedCategoryName);
-        if (isMobileCategory) {
+        if (isMobileCategory && !noImeiRequired) {
             const imeiVal = String(dynamicFields.imei || '').trim();
             if (!imeiVal) {
-                errs.imei = 'IMEI-Nummer ist für Handys erforderlich!';
+                errs.imei = 'IMEI-Nummer ist für Handys erforderlich! (Oder "Ohne IMEI" Ausnahme aktivieren)';
                 if (!activeChips.includes('imei')) {
                     setActiveChips(prev => prev.includes('imei') ? prev : ['imei', ...prev]);
                 }
@@ -523,6 +535,7 @@ export default function SmartCategoryForm({
                     ...dynamicFields,
                     phoneCondition,
                     condition: phoneCondition === 'Old' ? 'Used' : 'New',
+                    ...(noImeiRequired ? { noImeiRequired: true, isKeyboardPhone: true } : {}),
                 },
                 productUrl: productUrl.trim() || null,
                 notes: notes.trim(),
@@ -860,13 +873,75 @@ export default function SmartCategoryForm({
                                         ? 'ℹ️ Neu: Erscheint bei Niedrigbestand auf dem Dashboard zum Nachbestellen.'
                                         : 'ℹ️ Gebraucht: Vom Kunden gekauft — erscheint nicht im Dashboard-Niedrigbestand (nicht nachbestellbar).'}
                                 </p>
+
+                                {/* ── Exception: Add without IMEI (Keyboard / Feature phone) ── */}
+                                <div className="pt-2 border-t border-blue-100/80">
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                                <span>⌨️</span>
+                                                <span>Ausnahme: Ohne IMEI hinzufügen</span>
+                                            </p>
+                                            <p className="text-[10px] text-slate-500">
+                                                Für Tastenhandys oder Kleingeräte, die keine IMEI besitzen/erfordern
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setNoImeiRequired(prev => {
+                                                    const next = !prev;
+                                                    if (next) {
+                                                        setErrors(errs => {
+                                                            const copy = { ...errs };
+                                                            delete copy.imei;
+                                                            return copy;
+                                                        });
+                                                    }
+                                                    return next;
+                                                });
+                                            }}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border shadow-2xs ${
+                                                noImeiRequired
+                                                    ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-200 shadow-sm'
+                                                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 hover:text-slate-900'
+                                            }`}
+                                        >
+                                            <span>{noImeiRequired ? '✅' : '⚡'}</span>
+                                            <span>{noImeiRequired ? 'Ohne IMEI erlaubt (Aktiv)' : 'Ohne IMEI erlauben'}</span>
+                                        </button>
+                                    </div>
+                                    {noImeiRequired && (
+                                        <div className="mt-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold flex items-center gap-1.5">
+                                            <span>✓</span>
+                                            <span>Ausnahme aktiv: Dieses Handy kann ohne IMEI-Pflicht gespeichert werden.</span>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
 
-                        {errors.imei && (
-                            <p className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 animate-pulse">
-                                ⚠️ {errors.imei}
-                            </p>
+                        {errors.imei && !noImeiRequired && (
+                            <div className="flex items-center justify-between gap-2 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-xs flex-wrap animate-in fade-in duration-150">
+                                <span className="font-bold text-rose-700 flex items-center gap-1.5">
+                                    <span>⚠️</span>
+                                    <span>{errors.imei}</span>
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setNoImeiRequired(true);
+                                        setErrors(errs => {
+                                            const copy = { ...errs };
+                                            delete copy.imei;
+                                            return copy;
+                                        });
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-black hover:bg-rose-700 transition-colors whitespace-nowrap shadow-xs"
+                                >
+                                    Als Tastenhandy ohne IMEI fortfahren
+                                </button>
+                            </div>
                         )}
 
                         <div>
@@ -877,6 +952,9 @@ export default function SmartCategoryForm({
                                     <div key={chip.key} className="relative group">
                                         <div className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-all flex items-center gap-1 ${dynamicFields[chip.key] ? 'bg-blue-100 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}`}>
                                             <span>{chip.icon}</span>
+                                            {chip.key === 'imei' && noImeiRequired && (
+                                                <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">Opt</span>
+                                            )}
                                             {chip.type === 'select' ? (
                                                 <div className="relative">
                                                     <select className="bg-transparent border-none outline-none appearance-none cursor-pointer pr-4 w-full"
@@ -887,8 +965,8 @@ export default function SmartCategoryForm({
                                                     </select>
                                                 </div>
                                             ) : (
-                                                <input className="bg-transparent border-none outline-none min-w-[80px] max-w-[120px] placeholder-slate-400"
-                                                    placeholder={chip.label}
+                                                <input className="bg-transparent border-none outline-none min-w-[80px] max-w-[130px] placeholder-slate-400"
+                                                    placeholder={chip.key === 'imei' && noImeiRequired ? 'IMEI (optional)' : chip.label}
                                                     value={dynamicFields[chip.key] || ''}
                                                     onChange={(e) => setDynamicFields(prev => ({ ...prev, [chip.key]: e.target.value }))} />
                                             )}
