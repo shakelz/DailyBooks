@@ -897,6 +897,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [deletingProductId, setDeletingProductId] = useState(null);
     const [inventorySearch, setInventorySearch] = useState('');
     const [inventoryCategory, setInventoryCategory] = useState('all');
+    const [inventorySubCategory, setInventorySubCategory] = useState('all');
     const [inventoryStockFilter, setInventoryStockFilter] = useState('all'); // 'all' | 'custom' | 'in_stock' | 'low_stock' | 'out_of_stock'
     const [inventoryCustomStockOperator, setInventoryCustomStockOperator] = useState('>');
     const [inventoryCustomStockValue, setInventoryCustomStockValue] = useState('');
