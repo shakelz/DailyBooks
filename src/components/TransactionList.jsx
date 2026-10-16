@@ -168,15 +168,19 @@ export default function TransactionList({ transactions = [], searchTerm = '', is
         setIsDetailOpen(true);
     };
 
-    const handleDelete = (e, txnId) => {
+    const handleDelete = async (e, txnId) => {
         e.stopPropagation();
         if (window.confirm('Delete this transaction record?')) {
-            deleteTransaction(txnId);
-            setSelectedIds((prev) => {
-                const next = { ...prev };
-                delete next[String(txnId)];
-                return next;
-            });
+            try {
+                await deleteTransaction(txnId);
+                setSelectedIds((prev) => {
+                    const next = { ...prev };
+                    delete next[String(txnId)];
+                    return next;
+                });
+            } catch (err) {
+                console.error('Failed to delete transaction:', err);
+            }
         }
     };
 

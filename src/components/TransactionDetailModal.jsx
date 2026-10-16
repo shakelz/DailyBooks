@@ -522,9 +522,13 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                     {isEditing ? (
                         <>
                             <button
-                                onClick={() => {
+                                onClick={async () => {
                                     if (window.confirm('Are you sure you want to delete this transaction record?')) {
-                                        deleteTransaction(txn.id);
+                                        try {
+                                            await deleteTransaction(txn.id);
+                                        } catch (e) {
+                                            console.error('Failed to delete transaction:', e);
+                                        }
                                         onClose();
                                     }
                                 }}

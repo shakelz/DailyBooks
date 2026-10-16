@@ -3185,22 +3185,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         setDeletingProductId(productId);
+        if (selectedInventoryItem?.snapshot?.id === productId || selectedInventoryItem?.raw?.id === productId) {
+            setSelectedInventoryItem(null);
+        }
+
         try {
             if (typeof deleteProduct === 'function') {
                 await deleteProduct(productId);
             }
             setToast(`"${productName}" erfolgreich gelöscht`);
             setTimeout(() => setToast(''), 2000);
-            if (selectedInventoryItem?.snapshot?.id === productId || selectedInventoryItem?.raw?.id === productId) {
-                setSelectedInventoryItem(null);
-            }
-            if (typeof refreshProducts === 'function') refreshProducts();
         } catch (err) {
             showInlineError(err?.message || 'Fehler beim Löschen des Produkts');
         } finally {
             setDeletingProductId(null);
         }
-    }, [deleteProduct, refreshProducts, selectedInventoryItem, showInlineError]);
+    }, [deleteProduct, selectedInventoryItem, showInlineError]);
 
     const handleSaveStock = useCallback(async (productId, newStockValue) => {
         const parsedStock = Math.max(0, parseInt(newStockValue, 10) || 0);

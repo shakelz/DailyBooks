@@ -1730,8 +1730,10 @@ export function InventoryProvider({ children }) {
                     ));
                 })
                 .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'inventory', filter: shopFilter }, (payload) => {
-                    const deleted = normalizeInventoryRecord(payload.old, categoryLookupsRef.current);
-                    setProducts(prev => prev.filter(p => String(p.id) !== String(deleted.id)));
+                    const targetId = String(payload.old?.product_id || payload.old?.id || '');
+                    if (targetId) {
+                        setProducts(prev => prev.filter(p => String(p.id) !== targetId && String(p.product_id || '') !== targetId));
+                    }
                 })
                 // CATEGORIES
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'categories', filter: shopFilter }, (payload) => {
@@ -2205,11 +2207,21 @@ export function InventoryProvider({ children }) {
         if (!sid) return;
 
         const strId = String(id);
-        setProducts(prev => prev.filter(p => String(p.id) !== strId));
+        setProducts(prev => prev.filter(p => String(p.id) !== strId && String(p.product_id || '') !== strId));
 
-        broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
+        broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error('Broadcast deleteProduct error:', e));
 
-        await supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid);
+        try {
+            let res = await supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid);
+            if (res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) {
+                res = await supabase.from('inventory').delete().eq('id', strId).eq('shop_id', sid);
+            }
+            if (res?.error) {
+                console.warn('Failed to delete product from inventory in cloud:', res.error.message);
+            }
+        } catch (err) {
+            console.error('Error in deleteProduct:', err);
+        }
     }, [activeShopId, broadcastUnifiedSync]);
 
     const updateProduct = useCallback(async (id, updatedData) => {
@@ -2217,37 +2229,53 @@ export function InventoryProvider({ children }) {
         if (!sid) throw new Error('No active shop selected.');
 
         const strId = String(id);
-        const previousProduct = products.find(p => String(p.id) === strId);
+        const previousProduct = products.find(p => String(p.id) === strId || String(p.product_id || '') === strId);
         if (!previousProduct) return null;
 
         const mergedProduct = { ...previousProduct, ...updatedData, id: strId, shop_id: sid };
         const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${mergedProduct.category || ''} ${mergedProduct.sub_category || ''} ${mergedProduct.name || ''}`);
         const nextStockVal = parseInt(mergedProduct.stock, 10);
         if (isMobile && nextStockVal <= 0) {
-            setProducts(prev => prev.filter(p => String(p.id) !== strId));
-            supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid).then();
+            setProducts(prev => prev.filter(p => String(p.id) !== strId && String(p.product_id || '') !== strId));
+            (async () => {
+                try {
+                    let res = await supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid);
+                    if (res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) {
+                        await supabase.from('inventory').delete().eq('id', strId).eq('shop_id', sid);
+                    }
+                } catch (e) {
+                    console.error('Failed to auto-delete sold mobile in updateProduct:', e);
+                }
+            })();
             broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
             return null;
         }
 
-        setProducts(prev => prev.map(p => String(p.id) === strId ? mergedProduct : p));
+        setProducts(prev => prev.map(p => (String(p.id) === strId || String(p.product_id || '') === strId) ? mergedProduct : p));
 
         const payload = buildInventoryPayload(mergedProduct, false, sid, categoryNameToId);
-        const updateResult = await executeWithPrunedColumns(
+        let updateResult = await executeWithPrunedColumns(
             (candidate) => supabase.from('inventory').update(candidate).eq('product_id', strId).eq('shop_id', sid).select().single(),
             payload
         );
 
+        if (updateResult.error && (updateResult.error.message?.includes('product_id') || updateResult.error.code === '42703')) {
+            updateResult = await executeWithPrunedColumns(
+                (candidate) => supabase.from('inventory').update(candidate).eq('id', strId).eq('shop_id', sid).select().single(),
+                payload
+            );
+        }
+
         if (updateResult.error) {
             // Rollback optimistic update when cloud save fails
-            setProducts(prev => prev.map(p => String(p.id) === strId ? previousProduct : p));
+            setProducts(prev => prev.map(p => (String(p.id) === strId || String(p.product_id || '') === strId) ? previousProduct : p));
             throw new Error(updateResult.error.message || 'Failed to update product.');
         }
 
         const savedProduct = normalizeInventoryRecord(
             updateResult.data ? { ...mergedProduct, ...updateResult.data, id: strId } : mergedProduct
         );
-        setProducts(prev => prev.map(p => String(p.id) === strId ? savedProduct : p));
+        setProducts(prev => prev.map(p => (String(p.id) === strId || String(p.product_id || '') === strId) ? savedProduct : p));
 
         broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { ...savedProduct, shop_id: sid } }).catch(e => console.error(e));
 
@@ -2262,7 +2290,7 @@ export function InventoryProvider({ children }) {
         const parsedStock = parseInt(newStock, 10);
         const nextStock = Number.isNaN(parsedStock) ? 0 : Math.max(0, parsedStock);
         const matchedProduct = products.find(
-            p => cleanText(p.shop_id || sid) === sid && (String(p.id) === searchRef || String(p.barcode || '') === searchRef)
+            p => cleanText(p.shop_id || sid) === sid && (String(p.id) === searchRef || String(p.product_id || '') === searchRef || String(p.barcode || '') === searchRef)
         );
         if (!matchedProduct) return null;
 
@@ -2270,18 +2298,31 @@ export function InventoryProvider({ children }) {
         const previousStock = parseInt(matchedProduct.stock, 10) || 0;
         const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${matchedProduct.category || ''} ${matchedProduct.sub_category || ''} ${matchedProduct.name || ''}`);
         if (isMobile && nextStock <= 0) {
-            setProducts(prev => prev.filter(p => String(p.id) !== strId));
-            supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid).then();
+            setProducts(prev => prev.filter(p => String(p.id) !== strId && String(p.product_id || '') !== strId));
+            (async () => {
+                try {
+                    let res = await supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid);
+                    if (res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) {
+                        await supabase.from('inventory').delete().eq('id', strId).eq('shop_id', sid);
+                    }
+                } catch (e) {
+                    console.error('Failed to auto-delete sold mobile in updateStock:', e);
+                }
+            })();
             broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
             return null;
         }
 
         const updatePayload = { stock: nextStock };
-        setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: nextStock } : p));
-        const { error } = await supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid);
+        setProducts(prev => prev.map(p => (String(p.id) === strId || String(p.product_id || '') === strId) ? { ...p, stock: nextStock } : p));
+        let { error } = await supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid);
+        if (error && (error.message?.includes('product_id') || error.code === '42703')) {
+            const fallback = await supabase.from('inventory').update(updatePayload).eq('id', strId).eq('shop_id', sid);
+            error = fallback.error;
+        }
 
         if (error) {
-            setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: previousStock } : p));
+            setProducts(prev => prev.map(p => (String(p.id) === strId || String(p.product_id || '') === strId) ? { ...p, stock: previousStock } : p));
             throw new Error(error.message || 'Failed to update stock.');
         }
 
@@ -2295,29 +2336,52 @@ export function InventoryProvider({ children }) {
         if (!sid) return;
 
         const strId = String(productId);
+        const deltaNum = parseFloat(delta) || 0;
+        let shouldDelete = false;
+        let nextStockVal = 0;
 
         setProducts(prev => {
-            const product = prev.find(p => cleanText(p.shop_id || sid) === sid && String(p.id) === strId);
+            const product = prev.find(p => cleanText(p.shop_id || sid) === sid && (String(p.id) === strId || String(p.product_id || '') === strId));
             if (!product) return prev;
 
-            const updatedStockVal = Math.max(0, (parseFloat(product.stock) || 0) + (parseFloat(delta) || 0));
+            const updatedStockVal = Math.max(0, (parseFloat(product.stock) || 0) + deltaNum);
             const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${product.category || ''} ${product.sub_category || ''} ${product.name || ''}`);
 
             if (isMobile && updatedStockVal <= 0) {
-                supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid).then();
-                broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
-                return prev.filter(p => String(p.id) !== strId);
+                shouldDelete = true;
+                return prev.filter(p => String(p.id) !== strId && String(p.product_id || '') !== strId);
             }
 
-            const updatePayload = { stock: updatedStockVal };
-
-            // Fire off Supabase and Broadcast asynchronously
-            supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid).then();
-
-            broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: updatedStockVal, shop_id: sid } }).catch(e => console.error(e));
-
-            return prev.map(p => String(p.id) === strId ? { ...p, stock: updatedStockVal } : p);
+            nextStockVal = updatedStockVal;
+            return prev.map(p => (String(p.id) === strId || String(p.product_id || '') === strId) ? { ...p, stock: updatedStockVal } : p);
         });
+
+        if (shouldDelete) {
+            (async () => {
+                try {
+                    let res = await supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid);
+                    if (res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) {
+                        await supabase.from('inventory').delete().eq('id', strId).eq('shop_id', sid);
+                    }
+                } catch (e) {
+                    console.error('Failed to auto-delete sold mobile in adjustStock:', e);
+                }
+            })();
+            broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
+        } else {
+            const updatePayload = { stock: nextStockVal };
+            (async () => {
+                try {
+                    let res = await supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid);
+                    if (res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) {
+                        await supabase.from('inventory').update(updatePayload).eq('id', strId).eq('shop_id', sid);
+                    }
+                } catch (e) {
+                    console.error('Failed to update stock in adjustStock:', e);
+                }
+            })();
+            broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: nextStockVal, shop_id: sid } }).catch(e => console.error(e));
+        }
     }, [activeShopId, broadcastUnifiedSync]);
 
     // ── Transactions ──
@@ -2640,20 +2704,25 @@ export function InventoryProvider({ children }) {
             const delta = txnToDelete.type === 'income'
                 ? (parseInt(txnToDelete.quantity) || 1) // Sale deleted -> add back to stock
                 : -(parseInt(txnToDelete.quantity) || 1); // Purchase deleted -> remove from stock
-            adjustStock(txnToDelete.productId, delta);
+            adjustStock(txnToDelete.productId, delta).catch((e) => console.error('adjustStock in deleteTransaction error:', e));
         }
 
         setTransactions((prev) => removeTransactionByIdentity(prev, identityProbe));
         removeTransactionSnapshot(strId);
+        broadcastUnifiedSync('transaction_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch((e) => console.error(e));
 
-        const deleteResult = await executeByColumnCandidates(
-            (column) => supabase.from('transactions').delete().eq(column, strId).eq('shop_id', sid),
-            ['transaction_id', 'id', 'transactionId']
-        );
-        if (deleteResult.error) {
-            throw new Error(deleteResult.error.message || 'Failed to delete transaction.');
+        try {
+            const deleteResult = await executeByColumnCandidates(
+                (column) => supabase.from('transactions').delete().eq(column, strId).eq('shop_id', sid),
+                ['transaction_id', 'id', 'transactionId']
+            );
+            if (deleteResult.error) {
+                console.error('Failed to delete transaction on cloud:', deleteResult.error);
+            }
+        } catch (err) {
+            console.error('Error in deleteTransaction:', err);
         }
-    }, [transactions, adjustStock, activeShopId]);
+    }, [transactions, adjustStock, activeShopId, broadcastUnifiedSync]);
 
     const clearTransactions = useCallback(async () => {
         setTransactions([]);

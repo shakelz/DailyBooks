@@ -794,7 +794,7 @@ export default function InventoryTab() {
                                                                 <Edit2 size={12} />
                                                             </button>
                                                             <button
-                                                                onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
+                                                                onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id).catch(e => console.error(e)); }}
                                                                 className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-red-600 hover:text-white transition-all shadow-2xs"
                                                                 title="Produkt löschen"
                                                             >
@@ -924,7 +924,7 @@ export default function InventoryTab() {
                                                         <Edit2 size={14} />
                                                     </button>
                                                     <button
-                                                        onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
+                                                        onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id).catch(e => console.error(e)); }}
                                                         className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center"
                                                         title="Produkt löschen"
                                                     >
@@ -1070,7 +1070,7 @@ export default function InventoryTab() {
                                                                     <Edit2 size={14} />
                                                                 </button>
                                                                 <button
-                                                                    onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
+                                                                    onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id).catch(e => console.error(e)); }}
                                                                     className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center"
                                                                 >
                                                                     <Trash2 size={14} />
