@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
@@ -350,6 +351,19 @@ export default function SmartCategoryForm({
             const existing = lookupBarcode(barcode.trim());
             if (existing && (!initialData || existing.id !== initialData.id)) {
                 errs.barcode = `Duplicate used by: ${existing.name}`;
+            }
+        }
+
+        // 5. Mandatory IMEI for Handy (mobiles)
+        const combinedCategoryName = `${level1 || customL1} ${level2 || customL2} ${name}`.toLowerCase();
+        const isMobileCategory = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(combinedCategoryName);
+        if (isMobileCategory) {
+            const imeiVal = String(dynamicFields.imei || '').trim();
+            if (!imeiVal) {
+                errs.imei = 'IMEI-Nummer ist für Handys erforderlich!';
+                if (!activeChips.includes('imei')) {
+                    setActiveChips(prev => prev.includes('imei') ? prev : ['imei', ...prev]);
+                }
             }
         }
 
@@ -754,20 +768,28 @@ export default function SmartCategoryForm({
                                     </select>
                                     {showCustomL1 && <input value={customL1} onChange={e => setCustomL1(e.target.value)} placeholder="Enter Name" className="mt-2 w-full px-3 py-2 rounded-xl bg-white border border-blue-200 text-xs focus:ring-2 focus:ring-blue-400/30" autoFocus />}
                                 </div>
-                                {/* Level 2 */}
-                                <div>
-                                    <select value={showCustomL2 ? 'custom' : level2} onChange={(e) => {
-                                        if (e.target.value === 'custom') { setShowCustomL2(true); setLevel2(''); }
-                                        else { setLevel2(e.target.value); setShowCustomL2(false); }
-                                    }} disabled={!level1 && !customL1} className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2">
-                                        <option value="">Sub Category...</option>
-                                        {l2Categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                                        <option value="custom" className="font-bold text-blue-600">+ Add New</option>
-                                    </select>
-                                    {showCustomL2 && <input value={customL2} onChange={e => setCustomL2(e.target.value)} placeholder="Enter Name" className="mt-2 w-full px-3 py-2 rounded-xl bg-white border border-blue-200 text-xs focus:ring-2 focus:ring-blue-400/30" autoFocus />}
-                                </div>
+                                {/* Level 2: Only visible when Main Category selected */}
+                                {Boolean(level1 || customL1) && (
+                                    <div>
+                                        <select value={showCustomL2 ? 'custom' : level2} onChange={(e) => {
+                                            if (e.target.value === 'custom') { setShowCustomL2(true); setLevel2(''); }
+                                            else { setLevel2(e.target.value); setShowCustomL2(false); }
+                                        }} className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2">
+                                            <option value="">Sub Category...</option>
+                                            {l2Categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                            <option value="custom" className="font-bold text-blue-600">+ Add New</option>
+                                        </select>
+                                        {showCustomL2 && <input value={customL2} onChange={e => setCustomL2(e.target.value)} placeholder="Enter Name" className="mt-2 w-full px-3 py-2 rounded-xl bg-white border border-blue-200 text-xs focus:ring-2 focus:ring-blue-400/30" autoFocus />}
+                                    </div>
+                                )}
                             </div>
                         </div>
+
+                        {errors.imei && (
+                            <p className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 animate-pulse">
+                                ⚠️ {errors.imei}
+                            </p>
+                        )}
 
                         <div>
                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 block">Specifications & Details</label>
@@ -867,8 +889,15 @@ export default function SmartCategoryForm({
                         )}
                         <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
                             <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 rounded-lg text-slate-500 font-bold hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">Cancel</button>
-                            <button type="submit" disabled={isSubmitting} className="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
-                                Save Product
+                            <button type="submit" disabled={isSubmitting} className="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
+                                {isSubmitting ? (
+                                    <>
+                                        <Loader2 size={15} className="animate-spin" />
+                                        <span>Saving...</span>
+                                    </>
+                                ) : (
+                                    <span>Save Product</span>
+                                )}
                             </button>
                         </div>
                     </form>

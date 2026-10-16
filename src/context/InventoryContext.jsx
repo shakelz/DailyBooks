@@ -2259,17 +2259,24 @@ export function InventoryProvider({ children }) {
 
         const strId = String(matchedProduct.id);
         const previousStock = parseInt(matchedProduct.stock, 10) || 0;
-        setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: nextStock } : p));
-        const { error } = await supabase.from('inventory').update({ stock: nextStock }).eq('product_id', strId).eq('shop_id', sid);
+        const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${matchedProduct.category || ''} ${matchedProduct.sub_category || ''} ${matchedProduct.name || ''}`);
+        const shouldHide = isMobile && nextStock <= 0;
+        const updatePayload = { stock: nextStock };
+        if (shouldHide) {
+            updatePayload.is_hidden = true;
+        }
+
+        setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: nextStock, ...(shouldHide ? { is_hidden: true, isHidden: true } : {}) } : p));
+        const { error } = await supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid);
 
         if (error) {
             setProducts(prev => prev.map(p => String(p.id) === strId ? { ...p, stock: previousStock } : p));
             throw new Error(error.message || 'Failed to update stock.');
         }
 
-        broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: nextStock, shop_id: sid } }).catch(e => console.error(e));
+        broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: nextStock, shop_id: sid, ...(shouldHide ? { is_hidden: true } : {}) } }).catch(e => console.error(e));
 
-        return { ...matchedProduct, stock: nextStock };
+        return { ...matchedProduct, stock: nextStock, ...(shouldHide ? { is_hidden: true, isHidden: true } : {}) };
     }, [products, activeShopId, broadcastUnifiedSync]);
 
     const adjustStock = useCallback(async (productId, delta) => {
@@ -2283,13 +2290,20 @@ export function InventoryProvider({ children }) {
             if (!product) return prev;
 
             const updatedStockVal = Math.max(0, (parseFloat(product.stock) || 0) + (parseFloat(delta) || 0));
+            const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${product.category || ''} ${product.sub_category || ''} ${product.name || ''}`);
+            const shouldHide = isMobile && updatedStockVal <= 0;
+
+            const updatePayload = { stock: updatedStockVal };
+            if (shouldHide) {
+                updatePayload.is_hidden = true;
+            }
 
             // Fire off Supabase and Broadcast asynchronously
-            supabase.from('inventory').update({ stock: updatedStockVal }).eq('product_id', strId).eq('shop_id', sid).then();
+            supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid).then();
 
-            broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: updatedStockVal, shop_id: sid } }).catch(e => console.error(e));
+            broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: updatedStockVal, shop_id: sid, ...(shouldHide ? { is_hidden: true } : {}) } }).catch(e => console.error(e));
 
-            return prev.map(p => String(p.id) === strId ? { ...p, stock: updatedStockVal } : p);
+            return prev.map(p => String(p.id) === strId ? { ...p, stock: updatedStockVal, ...(shouldHide ? { is_hidden: true, isHidden: true } : {}) } : p);
         });
     }, [activeShopId, broadcastUnifiedSync]);
 
@@ -3094,7 +3108,11 @@ export function InventoryProvider({ children }) {
         if (!trimmed) return;
 
         if (level === 1) {
-            setL1Categories(prev => prev.filter(c => (typeof c === 'object' ? c?.name : c) !== trimmed));
+            setL1Categories(prev => prev.filter(c => {
+                const cName = typeof c === 'object' ? c?.name : c;
+                const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                return !(normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(trimmed) && cScope === normalizedScope);
+            }));
             setL2Map(prev => {
                 const next = { ...prev };
                 delete next[trimmed];
@@ -3108,28 +3126,120 @@ export function InventoryProvider({ children }) {
             } else {
                 await supabase.from('categories').delete().eq('shop_id', sid).eq('category_name', trimmed).eq('category_purpose', normalizedScope).is('parent_category_id', null);
             }
-            // Delete associated L2 categories in DB
-            
         } else if (level === 2 && parentName) {
             setL2Map(prev => {
                 const currentList = prev[parentName] || [];
-                return { ...prev, [parentName]: currentList.filter(c => (typeof c === 'object' ? c?.name : c) !== trimmed) };
+                return {
+                    ...prev,
+                    [parentName]: currentList.filter(c => {
+                        const cName = typeof c === 'object' ? c?.name : c;
+                        const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                        return !(normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(trimmed) && cScope === normalizedScope);
+                    })
+                };
             });
             removeCategoryScopeEntry(sid, 2, trimmed, parentName);
             const parentId = cleanText(categoryNameToId[parentName]);
-            if (!parentId) {
-                throw new Error('Parent category not found for deletion.');
-            }
-            const deleteByParentName = await supabase
+            let query = supabase
                 .from('categories')
                 .delete()
                 .eq('shop_id', sid)
                 .eq('category_name', trimmed)
-                .eq('category_purpose', normalizedScope)
-                .eq('parent_category_id', parentId);
-            if (deleteByParentName.error) {
-                throw new Error(deleteByParentName.error.message || 'Failed to delete sub-category.');
+                .eq('category_purpose', normalizedScope);
+            if (parentId) {
+                query = query.eq('parent_category_id', parentId);
             }
+            const deleteRes = await query;
+            if (deleteRes.error) {
+                console.warn('Failed to delete sub-category:', deleteRes.error.message);
+            }
+        }
+    }, [activeShopId, categoryNameToId]);
+
+    const updateCategory = useCallback(async (level, oldName, newName, image = null, scope = CATEGORY_SCOPE_SALES, isHidden = false, parentName = null) => {
+        const sid = cleanText(activeShopId);
+        if (!sid) return;
+        const normalizedScope = normalizeCategoryScope(scope);
+        const trimmedOld = String(oldName || '').trim();
+        const trimmedNew = String(newName || '').trim();
+        if (!trimmedOld || !trimmedNew) return;
+        const hiddenBool = Boolean(isHidden);
+
+        const payload = {
+            category_name: trimmedNew,
+            is_hidden: hiddenBool,
+        };
+        if (image !== undefined && image !== null) {
+            payload.image_url = image;
+        }
+
+        if (Number(level) === 1) {
+            const parentId = cleanText(categoryNameToId[trimmedOld]);
+            let query = supabase.from('categories').update(payload).eq('shop_id', sid).eq('category_purpose', normalizedScope).is('parent_category_id', null);
+            if (parentId) {
+                query = query.or(`category_id.eq.${parentId},category_name.ilike.${trimmedOld}`);
+            } else {
+                query = query.ilike('category_name', trimmedOld);
+            }
+            await query;
+
+            if (trimmedOld !== trimmedNew) {
+                setCategoryNameToId(prev => {
+                    const next = { ...prev };
+                    if (next[trimmedOld]) {
+                        next[trimmedNew] = next[trimmedOld];
+                        delete next[trimmedOld];
+                    }
+                    return next;
+                });
+            }
+
+            setL1Categories(prev => prev.map(c => {
+                const cName = typeof c === 'object' ? c?.name : c;
+                const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                if (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(trimmedOld) && cScope === normalizedScope) {
+                    return typeof c === 'object'
+                        ? { ...c, name: trimmedNew, image: image ?? c.image ?? '', is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope }
+                        : { name: trimmedNew, image: image ?? '', is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope };
+                }
+                return c;
+            }));
+
+            if (trimmedOld !== trimmedNew) {
+                setL2Map(prev => {
+                    const next = { ...prev };
+                    if (next[trimmedOld]) {
+                        next[trimmedNew] = next[trimmedOld].map(sub => typeof sub === 'object' ? { ...sub, parent: trimmedNew } : sub);
+                        delete next[trimmedOld];
+                    }
+                    return next;
+                });
+            }
+        } else if (Number(level) === 2 && parentName) {
+            const parentId = cleanText(categoryNameToId[parentName]);
+            let query = supabase.from('categories').update(payload).eq('shop_id', sid).eq('category_purpose', normalizedScope);
+            if (parentId) {
+                query = query.eq('parent_category_id', parentId);
+            }
+            query = query.ilike('category_name', trimmedOld);
+            await query;
+
+            setL2Map(prev => {
+                const currentList = prev[parentName] || [];
+                return {
+                    ...prev,
+                    [parentName]: currentList.map(c => {
+                        const cName = typeof c === 'object' ? c?.name : c;
+                        const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                        if (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(trimmedOld) && cScope === normalizedScope) {
+                            return typeof c === 'object'
+                                ? { ...c, name: trimmedNew, image: image ?? c.image ?? '', is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope }
+                                : { name: trimmedNew, image: image ?? '', parent: parentName, is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope };
+                        }
+                        return c;
+                    })
+                };
+            });
         }
     }, [activeShopId, categoryNameToId]);
 
@@ -3177,6 +3287,7 @@ export function InventoryProvider({ children }) {
         addLevel2Category: addL2Category,
         toggleCategoryHidden,
         deleteCategory,
+        updateCategory,
         getCategoryImage: getCatImage,
         buildProductJSON,
         generateId,

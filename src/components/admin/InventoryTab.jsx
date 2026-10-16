@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
 import SmartCategoryForm from '../SmartCategoryForm';
 import SoldPhonesModal from '../SoldPhonesModal';
+import ImageLightboxModal from '../ImageLightboxModal';
 import AdminTabToolbar from './AdminTabToolbar';
 import { useSupplierLinks } from '../../hooks/useSupplierLinks';
 import {
@@ -24,7 +25,9 @@ import {
     Scan,
     CheckCircle,
     XCircle,
-    Smartphone
+    Smartphone,
+    LayoutGrid,
+    List
 } from 'lucide-react';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -46,6 +49,11 @@ export default function InventoryTab() {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCategory, setFilterCategory] = useState('All');
     const [filterStatus, setFilterStatus] = useState('All');
+    const [viewMode, setViewMode] = useState('table');
+    const [filterStockMode, setFilterStockMode] = useState('all');
+    const [customStockOperator, setCustomStockOperator] = useState('=');
+    const [customStockValue, setCustomStockValue] = useState('');
+    const [lightboxImage, setLightboxImage] = useState(null);
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [showSoldPhonesModal, setShowSoldPhonesModal] = useState(false);
@@ -149,6 +157,9 @@ export default function InventoryTab() {
 
     const filteredProducts = useMemo(() => {
         return productsInRange.filter(p => {
+            const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${getProductCategoryL1(p)} ${p.sub_category || ''} ${p.name || ''}`);
+            if (isMobile && Number(p.stock) <= 0) return false;
+
             const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                 (p.barcode || '').toLowerCase().includes(searchTerm.toLowerCase());
             const matchesCategory = filterCategory === 'All' || getProductCategoryL1(p) === filterCategory;
@@ -158,9 +169,30 @@ export default function InventoryTab() {
             else if (filterStatus === 'Yellow') matchesStatus = p.stock >= 3 && p.stock < 6;
             else if (filterStatus === 'Green') matchesStatus = p.stock >= 6;
 
-            return matchesSearch && matchesCategory && matchesStatus;
+            let matchesStockFilter = true;
+            const stockVal = parseFloat(p.stock) || 0;
+            if (filterStockMode === 'in_stock') {
+                matchesStockFilter = stockVal > 0;
+            } else if (filterStockMode === 'out_of_stock') {
+                matchesStockFilter = stockVal === 0;
+            } else if (filterStockMode === 'negative') {
+                matchesStockFilter = stockVal < 0;
+            } else if (filterStockMode === 'low_stock') {
+                matchesStockFilter = stockVal < 3;
+            } else if (filterStockMode === 'custom') {
+                const target = parseFloat(customStockValue);
+                if (!Number.isNaN(target)) {
+                    if (customStockOperator === '=') matchesStockFilter = stockVal === target;
+                    else if (customStockOperator === '>') matchesStockFilter = stockVal > target;
+                    else if (customStockOperator === '<') matchesStockFilter = stockVal < target;
+                    else if (customStockOperator === '>=') matchesStockFilter = stockVal >= target;
+                    else if (customStockOperator === '<=') matchesStockFilter = stockVal <= target;
+                }
+            }
+
+            return matchesSearch && matchesCategory && matchesStatus && matchesStockFilter;
         });
-    }, [productsInRange, searchTerm, filterCategory, filterStatus, getProductCategoryL1]);
+    }, [productsInRange, searchTerm, filterCategory, filterStatus, getProductCategoryL1, filterStockMode, customStockOperator, customStockValue]);
 
     const categoryAnalysis = useMemo(() => {
         const analysis = {};
@@ -480,19 +512,81 @@ export default function InventoryTab() {
                             />
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2.5">
                             <select
                                 value={filterCategory}
                                 onChange={e => setFilterCategory(e.target.value)}
-                                className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+                                className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/10 cursor-pointer"
                             >
                                 <option value="All">Alle Kategorien</option>
                                 {getLevel1Categories('sales').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                             </select>
 
+                            {/* Custom Stock Filter */}
+                            <div className="flex items-center gap-1.5">
+                                <select
+                                    value={filterStockMode}
+                                    onChange={e => setFilterStockMode(e.target.value)}
+                                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-4 focus:ring-blue-500/10 cursor-pointer"
+                                    title="Bestandsfilter"
+                                >
+                                    <option value="all">📦 Alle Bestände</option>
+                                    <option value="in_stock">✅ Auf Lager (&gt; 0)</option>
+                                    <option value="out_of_stock">❌ Ausverkauft (= 0)</option>
+                                    <option value="negative">⚠️ Negativer Bestand (&lt; 0)</option>
+                                    <option value="low_stock">🔥 Niedrigbestand (&lt; 3)</option>
+                                    <option value="custom">⚙️ Eigener Filter...</option>
+                                </select>
+
+                                {filterStockMode === 'custom' && (
+                                    <div className="flex items-center gap-1 animate-in fade-in duration-150">
+                                        <select
+                                            value={customStockOperator}
+                                            onChange={e => setCustomStockOperator(e.target.value)}
+                                            className="px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black focus:outline-none"
+                                        >
+                                            <option value="=">=</option>
+                                            <option value=">">&gt;</option>
+                                            <option value="<">&lt;</option>
+                                            <option value=">=">&gt;=</option>
+                                            <option value="<=">&lt;=</option>
+                                        </select>
+                                        <input
+                                            type="number"
+                                            placeholder="Menge"
+                                            value={customStockValue}
+                                            onChange={e => setCustomStockValue(e.target.value)}
+                                            className="w-16 px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* View Switcher: Table vs Gallery */}
+                            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode('table')}
+                                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'table' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-500 hover:text-slate-700'}`}
+                                    title="Tabellenansicht"
+                                >
+                                    <List size={14} />
+                                    <span>Tabelle</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode('gallery')}
+                                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'gallery' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-500 hover:text-slate-700'}`}
+                                    title="Galerieansicht"
+                                >
+                                    <LayoutGrid size={14} />
+                                    <span>Galerie</span>
+                                </button>
+                            </div>
+
                             <button
                                 onClick={() => setShowSoldPhonesModal(true)}
-                                className="flex items-center gap-2 px-4 py-2 bg-sky-50 text-sky-700 border border-sky-200 rounded-xl text-xs font-bold hover:bg-sky-100 transition-all shadow-xs"
+                                className="flex items-center gap-2 px-3 py-2 bg-sky-50 text-sky-700 border border-sky-200 rounded-xl text-xs font-bold hover:bg-sky-100 transition-all shadow-xs"
                             >
                                 <Smartphone size={14} />
                                 Sold Phones
@@ -500,7 +594,7 @@ export default function InventoryTab() {
 
                             <button
                                 onClick={() => setShowBulkModal(true)}
-                                className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-all"
+                                className="flex items-center gap-2 px-3 py-2 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-all"
                             >
                                 <Percent size={14} />
                                 Massenupdate
@@ -508,7 +602,7 @@ export default function InventoryTab() {
 
                             <button
                                 onClick={handleDownloadCSV}
-                                className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-700 transition-all shadow-md shadow-slate-200"
+                                className="flex items-center gap-2 px-3 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-700 transition-all shadow-md shadow-slate-200"
                             >
                                 <Download size={14} />
                                 Exportieren
@@ -516,271 +610,412 @@ export default function InventoryTab() {
                         </div>
                     </div>
 
-                    {/* Table */}
+                    {/* Table / Gallery */}
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden min-h-[500px]">
-                        <div className="md:hidden p-4 space-y-3">
-                            {filteredProducts.length === 0 ? (
-                                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-400 font-medium">
-                                    Keine Produkte für die ausgewählten Filter gefunden.
-                                </div>
-                            ) : filteredProducts.map((product) => {
-                                const slowMoving = isSlowMoving(product.timestamp);
-                                const margin = calculateMargin(product.sellingPrice, product.purchasePrice);
-                                const isAudited = auditScans.has(product.id);
-
-                                return (
-                                    <div
-                                        key={`mobile-${product.id}`}
-                                        className={`rounded-2xl border p-3 space-y-3 ${showAuditMode && isAudited
-                                            ? 'border-emerald-200 bg-emerald-50/50'
-                                            : slowMoving
-                                                ? 'border-orange-200 bg-orange-50/30'
-                                                : 'border-slate-100 bg-white'
-                                            }`}
-                                    >
-                                        <div className="flex items-start gap-3">
-                                            <div className="relative w-14 h-14 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 flex items-center justify-center shrink-0">
-                                                {product.image ? (
-                                                    <img src={product.image} className="w-full h-full object-cover" alt="" />
-                                                ) : (
-                                                    <span className="text-xl">🛠️</span>
-                                                )}
-                                                {showAuditMode && (
-                                                    <div className={`absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] ${isAudited ? 'text-emerald-500' : 'text-slate-300'}`}>
-                                                        {isAudited ? <CheckCircle size={22} className="drop-shadow-sm" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300" />}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-2">
-                                                    <h4 className="text-sm font-bold text-slate-800 truncate">{product.name}</h4>
-                                                    {slowMoving && (
-                                                        <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[9px] font-black uppercase tracking-tighter">Slow</span>
-                                                    )}
-                                                </div>
-                                                <p className="text-[10px] font-mono text-slate-400 mt-1 truncate">{product.barcode || 'KEIN-BARCODE'}</p>
-                                                <p className="text-[10px] font-bold text-blue-500 mt-0.5">{getProductCategoryL1(product) || 'Ohne Kategorie'}</p>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div className={`inline-flex flex-col px-3 py-1 rounded-xl items-center ${product.stock < 3 ? 'bg-red-50 text-red-600 border border-red-100' :
-                                                product.stock < 6 ? 'bg-amber-50 text-amber-600 border border-amber-100' :
-                                                    'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                                                }`}>
-                                                <span className="text-lg font-black">{product.stock}</span>
-                                                <span className="text-[8px] font-bold uppercase tracking-widest -mt-1 opacity-60">Stk.</span>
-                                            </div>
-                                            <div className="flex-1 text-xs space-y-1">
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400 font-bold">Einkauf</span>
-                                                    <span className="text-slate-700 font-black">{priceTag(product.purchasePrice)}</span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400 font-bold">Verkauf</span>
-                                                    <span className="text-blue-600 font-black">{priceTag(product.sellingPrice)}</span>
-                                                </div>
-                                                <div className="flex justify-end">
-                                                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
-                                                        }`}>
-                                                        {margin}% MARGE
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex flex-wrap gap-1">
-                                            {Object.entries(product.attributes || {})
-                                                .filter(([key, val]) => !String(key).startsWith('__') && val !== null && val !== undefined && formatAttrValue(val) !== '')
-                                                .slice(0, 5)
-                                                .map(([key, val]) => (
-                                                    <span key={`${product.id}-${key}`} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
-                                                        {key.toUpperCase()}: {formatAttrValue(val)}
-                                                    </span>
-                                                ))}
-                                        </div>
-
-                                        <div className="flex items-center justify-end gap-2">
-                                            <button
-                                                onClick={() => printLabel(product)}
-                                                className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
-                                                title="QR-Etikett drucken"
-                                            >
-                                                <Tags size={14} />
-                                            </button>
-                                            {product.productUrl && (
-                                                <a
-                                                    href={product.productUrl}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                    title="Lieferantenlink"
-                                                >
-                                                    <ExternalLink size={14} />
-                                                </a>
-                                            )}
-                                            <button
-                                                onClick={() => handleEditProduct(product)}
-                                                className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                title="Produkt bearbeiten"
-                                            >
-                                                <Edit2 size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
-                                                className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center"
-                                                title="Produkt löschen"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
+                        {viewMode === 'gallery' ? (
+                            <div className="p-4 sm:p-6">
+                                {filteredProducts.length === 0 ? (
+                                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-12 text-center text-sm text-slate-400 font-medium">
+                                        Keine Produkte für die ausgewählten Filter gefunden.
                                     </div>
-                                );
-                            })}
-                        </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                        {filteredProducts.map(product => {
+                                            const slowMoving = isSlowMoving(product.timestamp);
+                                            const margin = calculateMargin(product.sellingPrice, product.purchasePrice);
+                                            const isAudited = auditScans.has(product.id);
+                                            return (
+                                                <div
+                                                    key={`gallery-${product.id}`}
+                                                    className={`rounded-2xl border p-4 flex flex-col justify-between hover:shadow-md transition-all ${showAuditMode && isAudited
+                                                        ? 'border-emerald-200 bg-emerald-50/40'
+                                                        : slowMoving
+                                                            ? 'border-orange-200 bg-orange-50/20'
+                                                            : 'border-slate-100 bg-white'
+                                                    }`}
+                                                >
+                                                    <div>
+                                                        <div className="relative aspect-video w-full rounded-xl bg-slate-100 overflow-hidden border border-slate-200 flex items-center justify-center mb-3">
+                                                            {product.image ? (
+                                                                <img
+                                                                    src={product.image}
+                                                                    className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
+                                                                    alt={product.name}
+                                                                    onClick={() => setLightboxImage({ src: product.image, title: product.name })}
+                                                                />
+                                                            ) : (
+                                                                <span className="text-3xl">🛠️</span>
+                                                            )}
+                                                            <div className="absolute top-2 right-2">
+                                                                <span className={`inline-flex px-2 py-0.5 rounded-lg text-xs font-black shadow-sm ${product.stock < 3 ? 'bg-red-500 text-white' :
+                                                                    product.stock < 6 ? 'bg-amber-500 text-white' :
+                                                                        'bg-emerald-500 text-white'
+                                                                }`}>
+                                                                    {product.stock} Stk.
+                                                                </span>
+                                                            </div>
+                                                            {slowMoving && (
+                                                                <div className="absolute top-2 left-2">
+                                                                    <span className="px-2 py-0.5 rounded-full bg-orange-500 text-white text-[9px] font-black uppercase tracking-wider shadow-sm">Slow</span>
+                                                                </div>
+                                                            )}
+                                                            {showAuditMode && (
+                                                                <div className={`absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] ${isAudited ? 'text-emerald-500' : 'text-slate-300'}`}>
+                                                                    {isAudited ? <CheckCircle size={28} className="drop-shadow-sm" /> : <div className="w-5 h-5 rounded-full border-2 border-slate-300" />}
+                                                                </div>
+                                                            )}
+                                                        </div>
 
-                        <div className="hidden md:block overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-slate-50/50 border-b border-slate-100">
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Produktinfo</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Bestand</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Preis &amp; Marge</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Aktionen</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {filteredProducts.map(product => {
+                                                        <div className="mb-2">
+                                                            <h4 className="text-sm font-bold text-slate-800 line-clamp-1" title={product.name}>{product.name}</h4>
+                                                            <div className="flex items-center gap-1.5 mt-0.5">
+                                                                <span className="text-[10px] font-mono text-slate-400 font-bold truncate">{product.barcode || 'KEIN-BARCODE'}</span>
+                                                                <span className="text-slate-300">•</span>
+                                                                <span className="text-[10px] font-bold text-blue-500 truncate">{getProductCategoryL1(product) || 'Ohne Kategorie'}</span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex flex-wrap gap-1 mb-3">
+                                                            {Object.entries(product.attributes || {})
+                                                                .filter(([key, val]) => !String(key).startsWith('__') && val !== null && val !== undefined && formatAttrValue(val) !== '')
+                                                                .slice(0, 3)
+                                                                .map(([key, val]) => (
+                                                                    <span key={`${product.id}-g-${key}`} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[9px] font-bold">
+                                                                        {key.toUpperCase()}: {formatAttrValue(val)}
+                                                                    </span>
+                                                                ))}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="pt-3 border-t border-slate-100">
+                                                        <div className="flex items-center justify-between text-xs mb-3">
+                                                            <div>
+                                                                <div className="text-[10px] text-slate-400 font-bold">EK / VK</div>
+                                                                <div className="font-black text-slate-700">{priceTag(product.purchasePrice)} / <span className="text-blue-600">{priceTag(product.sellingPrice)}</span></div>
+                                                            </div>
+                                                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                                                                {margin}%
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="flex items-center justify-end gap-1.5">
+                                                            <button
+                                                                onClick={() => printLabel(product)}
+                                                                className="p-2 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all"
+                                                                title="QR-Etikett drucken"
+                                                            >
+                                                                <Tags size={14} />
+                                                            </button>
+                                                            {product.productUrl && (
+                                                                <a
+                                                                    href={product.productUrl}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="p-2 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all"
+                                                                    title="Lieferantenlink"
+                                                                >
+                                                                    <ExternalLink size={14} />
+                                                                </a>
+                                                            )}
+                                                            <button
+                                                                onClick={() => handleEditProduct(product)}
+                                                                className="p-2 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all"
+                                                                title="Produkt bearbeiten"
+                                                            >
+                                                                <Edit2 size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
+                                                                className="p-2 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all"
+                                                                title="Produkt löschen"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <>
+                                <div className="md:hidden p-4 space-y-3">
+                                    {filteredProducts.length === 0 ? (
+                                        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-400 font-medium">
+                                            Keine Produkte für die ausgewählten Filter gefunden.
+                                        </div>
+                                    ) : filteredProducts.map((product) => {
                                         const slowMoving = isSlowMoving(product.timestamp);
                                         const margin = calculateMargin(product.sellingPrice, product.purchasePrice);
                                         const isAudited = auditScans.has(product.id);
 
                                         return (
-                                            <tr key={product.id} className={`group hover:bg-blue-50/30 transition-all 
-                                                ${slowMoving ? 'bg-orange-50/30' : ''} 
-                                                ${showAuditMode && isAudited ? 'bg-emerald-50/50' : ''}
-                                            `}>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="relative w-12 h-12 rounded-xl bg-slate-100 flex-shrink-0 flex items-center justify-center overflow-hidden border border-slate-200">
-                                                            {product.image ? (
-                                                                <img src={product.image} className="w-full h-full object-cover" alt="" />
-                                                            ) : (
-                                                                <span className="text-xl">🛠️</span>
-                                                            )}
-                                                            {showAuditMode && (
-                                                                <div className={`absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] ${isAudited ? 'text-emerald-500' : 'text-slate-300'}`}>
-                                                                    {isAudited ? <CheckCircle size={24} className="drop-shadow-sm" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300" />}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            <div className="flex items-center gap-2">
-                                                                <h4 className="text-sm font-bold text-slate-800">{product.name}</h4>
-                                                                {slowMoving && (
-                                                                    <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[8px] font-black uppercase tracking-tighter shadow-sm">Slow Moving</span>
-                                                                )}
+                                            <div
+                                                key={`mobile-${product.id}`}
+                                                className={`rounded-2xl border p-3 space-y-3 ${showAuditMode && isAudited
+                                                    ? 'border-emerald-200 bg-emerald-50/50'
+                                                    : slowMoving
+                                                        ? 'border-orange-200 bg-orange-50/30'
+                                                        : 'border-slate-100 bg-white'
+                                                    }`}
+                                            >
+                                                <div className="flex items-start gap-3">
+                                                    <div className="relative w-14 h-14 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 flex items-center justify-center shrink-0">
+                                                        {product.image ? (
+                                                            <img
+                                                                src={product.image}
+                                                                className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                                                                alt=""
+                                                                onClick={() => setLightboxImage({ src: product.image, title: product.name })}
+                                                            />
+                                                        ) : (
+                                                            <span className="text-xl">🛠️</span>
+                                                        )}
+                                                        {showAuditMode && (
+                                                            <div className={`absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] ${isAudited ? 'text-emerald-500' : 'text-slate-300'}`}>
+                                                                {isAudited ? <CheckCircle size={22} className="drop-shadow-sm" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300" />}
                                                             </div>
-                                                            <div className="flex items-center gap-2 mt-1">
-                                                                <p className="text-[10px] font-mono text-slate-400 font-bold">{product.barcode || 'NO-BARCODE'}</p>
-                                                                <span className="text-slate-300">•</span>
-                                                                <p className="text-[10px] font-bold text-blue-500">{getProductCategoryL1(product) || 'Ohne Kategorie'}</p>
-                                                            </div>
-                                                            {/* Attribute Chips */}
-                                                            <div className="flex flex-wrap gap-1 mt-2">
-                                                                {Object.entries(product.attributes || {})
-                                                                    .filter(([key, val]) => !String(key).startsWith('__') && val !== null && val !== undefined && formatAttrValue(val) !== '')
-                                                                    .map(([key, val]) => (
-                                                                        <span key={key} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
-                                                                            {key.toUpperCase()}: {formatAttrValue(val)}
-                                                                        </span>
-                                                                    ))}
-                                                            </div>
-                                                        </div>
+                                                        )}
                                                     </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <div className="flex flex-col items-center gap-2">
-                                                        <div className={`inline-flex flex-col px-3 py-1 rounded-2xl items-center ${product.stock < 3 ? 'bg-red-50 text-red-600 border border-red-100' :
-                                                            product.stock < 6 ? 'bg-amber-50 text-amber-600 border border-amber-100' :
-                                                                'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                                                            }`}>
-                                                            <span className="text-lg font-black">{product.stock}</span>
-                                                            <span className="text-[8px] font-bold uppercase tracking-widest -mt-1 opacity-60">UNITS</span>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <h4 className="text-sm font-bold text-slate-800 truncate">{product.name}</h4>
+                                                            {slowMoving && (
+                                                                <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[9px] font-black uppercase tracking-tighter">Slow</span>
+                                                            )}
                                                         </div>
-                                                        {(() => {
-                                                            const unitsSold = salesVelocityMap[product.id] || 0;
-                                                            const dailyVelocity = unitsSold / rangeDays;
-                                                            if (dailyVelocity > 0 && product.stock > 0) {
-                                                                const daysRemaining = product.stock / dailyVelocity;
-                                                                if (daysRemaining < 5) {
-                                                                    return (
-                                                                        <div className="px-2 py-0.5 rounded-lg bg-orange-100 border border-orange-200 text-orange-600 flex items-center gap-1 shadow-sm whitespace-nowrap animate-pulse mt-1" title={`${unitsSold} sold in ${rangeDays} days`}>
-                                                                            <span className="text-xs">🔮</span>
-                                                                            <span className="text-[10px] font-black uppercase tracking-wider">{Math.ceil(daysRemaining)} Days Left!</span>
-                                                                        </div>
-                                                                    );
-                                                                }
-                                                            }
-                                                            return null;
-                                                        })()}
+                                                        <p className="text-[10px] font-mono text-slate-400 mt-1 truncate">{product.barcode || 'KEIN-BARCODE'}</p>
+                                                        <p className="text-[10px] font-bold text-blue-500 mt-0.5">{getProductCategoryL1(product) || 'Ohne Kategorie'}</p>
                                                     </div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="space-y-1">
-                                                        <div className="flex justify-between items-center text-xs">
-                                                            <span className="text-slate-400 font-bold">Einkauf:</span>
-                                                            <span className="text-slate-600 font-black">{priceTag(product.purchasePrice)}</span>
+                                                </div>
+
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className={`inline-flex flex-col px-3 py-1 rounded-xl items-center ${product.stock < 3 ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                        product.stock < 6 ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                                            'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                        }`}>
+                                                        <span className="text-lg font-black">{product.stock}</span>
+                                                        <span className="text-[8px] font-bold uppercase tracking-widest -mt-1 opacity-60">Stk.</span>
+                                                    </div>
+                                                    <div className="flex-1 text-xs space-y-1">
+                                                        <div className="flex justify-between">
+                                                            <span className="text-slate-400 font-bold">Einkauf</span>
+                                                            <span className="text-slate-700 font-black">{priceTag(product.purchasePrice)}</span>
                                                         </div>
-                                                        <div className="flex justify-between items-center text-xs">
-                                                            <span className="text-slate-400 font-bold">Verkauf:</span>
+                                                        <div className="flex justify-between">
+                                                            <span className="text-slate-400 font-bold">Verkauf</span>
                                                             <span className="text-blue-600 font-black">{priceTag(product.sellingPrice)}</span>
                                                         </div>
-                                                        <div className="pt-1 flex items-center justify-center">
+                                                        <div className="flex justify-end">
                                                             <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
                                                                 }`}>
                                                                 {margin}% MARGE
                                                             </span>
                                                         </div>
                                                     </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <div className="flex items-center justify-end gap-2">
-                                                        <button
-                                                            onClick={() => printLabel(product)}
-                                                            className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
-                                                            title="QR-Etikett drucken"
-                                                        >
-                                                            <Tags size={14} />
-                                                        </button>
-                                                        {product.productUrl && (
-                                                            <a href={product.productUrl} target="_blank" rel="noreferrer"
-                                                                className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
-                                                                title="Lieferantenlink"
-                                                            >
-                                                                <ExternalLink size={14} />
-                                                            </a>
-                                                        )}
-                                                        <button
-                                                            onClick={() => handleEditProduct(product)}
+                                                </div>
+
+                                                <div className="flex flex-wrap gap-1">
+                                                    {Object.entries(product.attributes || {})
+                                                        .filter(([key, val]) => !String(key).startsWith('__') && val !== null && val !== undefined && formatAttrValue(val) !== '')
+                                                        .slice(0, 5)
+                                                        .map(([key, val]) => (
+                                                            <span key={`${product.id}-${key}`} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
+                                                                {key.toUpperCase()}: {formatAttrValue(val)}
+                                                            </span>
+                                                        ))}
+                                                </div>
+
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        onClick={() => printLabel(product)}
+                                                        className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
+                                                        title="QR-Etikett drucken"
+                                                    >
+                                                        <Tags size={14} />
+                                                    </button>
+                                                    {product.productUrl && (
+                                                        <a
+                                                            href={product.productUrl}
+                                                            target="_blank"
+                                                            rel="noreferrer"
                                                             className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                            title="Lieferantenlink"
                                                         >
-                                                            <Edit2 size={14} />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
-                                                            className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
+                                                            <ExternalLink size={14} />
+                                                        </a>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleEditProduct(product)}
+                                                        className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                        title="Produkt bearbeiten"
+                                                    >
+                                                        <Edit2 size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
+                                                        className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center"
+                                                        title="Produkt löschen"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </div>
                                         );
                                     })}
-                                </tbody>
-                            </table>
-                        </div>
+                                </div>
+
+                                <div className="hidden md:block overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-50/50 border-b border-slate-100">
+                                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Produktinfo</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Bestand</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Preis &amp; Marge</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Aktionen</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-50">
+                                            {filteredProducts.map(product => {
+                                                const slowMoving = isSlowMoving(product.timestamp);
+                                                const margin = calculateMargin(product.sellingPrice, product.purchasePrice);
+                                                const isAudited = auditScans.has(product.id);
+
+                                                return (
+                                                    <tr key={product.id} className={`group hover:bg-blue-50/30 transition-all 
+                                                        ${slowMoving ? 'bg-orange-50/30' : ''} 
+                                                        ${showAuditMode && isAudited ? 'bg-emerald-50/50' : ''}
+                                                    `}>
+                                                        <td className="px-6 py-4">
+                                                            <div className="flex items-center gap-4">
+                                                                <div className="relative w-12 h-12 rounded-xl bg-slate-100 flex-shrink-0 flex items-center justify-center overflow-hidden border border-slate-200">
+                                                                    {product.image ? (
+                                                                        <img
+                                                                            src={product.image}
+                                                                            className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                                                                            alt=""
+                                                                            onClick={() => setLightboxImage({ src: product.image, title: product.name })}
+                                                                        />
+                                                                    ) : (
+                                                                        <span className="text-xl">🛠️</span>
+                                                                    )}
+                                                                    {showAuditMode && (
+                                                                        <div className={`absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px] ${isAudited ? 'text-emerald-500' : 'text-slate-300'}`}>
+                                                                            {isAudited ? <CheckCircle size={24} className="drop-shadow-sm" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300" />}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <h4 className="text-sm font-bold text-slate-800">{product.name}</h4>
+                                                                        {slowMoving && (
+                                                                            <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 text-[8px] font-black uppercase tracking-tighter shadow-sm">Slow Moving</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 mt-1">
+                                                                        <p className="text-[10px] font-mono text-slate-400 font-bold">{product.barcode || 'NO-BARCODE'}</p>
+                                                                        <span className="text-slate-300">•</span>
+                                                                        <p className="text-[10px] font-bold text-blue-500">{getProductCategoryL1(product) || 'Ohne Kategorie'}</p>
+                                                                    </div>
+                                                                    {/* Attribute Chips */}
+                                                                    <div className="flex flex-wrap gap-1 mt-2">
+                                                                        {Object.entries(product.attributes || {})
+                                                                            .filter(([key, val]) => !String(key).startsWith('__') && val !== null && val !== undefined && formatAttrValue(val) !== '')
+                                                                            .map(([key, val]) => (
+                                                                                <span key={key} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-bold">
+                                                                                    {key.toUpperCase()}: {formatAttrValue(val)}
+                                                                                </span>
+                                                                            ))}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <div className="flex flex-col items-center gap-2">
+                                                                <div className={`inline-flex flex-col px-3 py-1 rounded-2xl items-center ${product.stock < 3 ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                                    product.stock < 6 ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                                                        'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                                    }`}>
+                                                                    <span className="text-lg font-black">{product.stock}</span>
+                                                                    <span className="text-[8px] font-bold uppercase tracking-widest -mt-1 opacity-60">UNITS</span>
+                                                                </div>
+                                                                {(() => {
+                                                                    const unitsSold = salesVelocityMap[product.id] || 0;
+                                                                    const dailyVelocity = unitsSold / rangeDays;
+                                                                    if (dailyVelocity > 0 && product.stock > 0) {
+                                                                        const daysRemaining = product.stock / dailyVelocity;
+                                                                        if (daysRemaining < 5) {
+                                                                            return (
+                                                                                <div className="px-2 py-0.5 rounded-lg bg-orange-100 border border-orange-200 text-orange-600 flex items-center gap-1 shadow-sm whitespace-nowrap animate-pulse mt-1" title={`${unitsSold} sold in ${rangeDays} days`}>
+                                                                                    <span className="text-xs">🔮</span>
+                                                                                    <span className="text-[10px] font-black uppercase tracking-wider">{Math.ceil(daysRemaining)} Days Left!</span>
+                                                                                </div>
+                                                                            );
+                                                                        }
+                                                                    }
+                                                                    return null;
+                                                                })()}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <div className="space-y-1">
+                                                                <div className="flex justify-between items-center text-xs">
+                                                                    <span className="text-slate-400 font-bold">Einkauf:</span>
+                                                                    <span className="text-slate-600 font-black">{priceTag(product.purchasePrice)}</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center text-xs">
+                                                                    <span className="text-slate-400 font-bold">Verkauf:</span>
+                                                                    <span className="text-blue-600 font-black">{priceTag(product.sellingPrice)}</span>
+                                                                </div>
+                                                                <div className="pt-1 flex items-center justify-center">
+                                                                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${margin > 20 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'
+                                                                        }`}>
+                                                                        {margin}% MARGE
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                <button
+                                                                    onClick={() => printLabel(product)}
+                                                                    className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
+                                                                    title="QR-Etikett drucken"
+                                                                >
+                                                                    <Tags size={14} />
+                                                                </button>
+                                                                {product.productUrl && (
+                                                                    <a href={product.productUrl} target="_blank" rel="noreferrer"
+                                                                        className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                                        title="Lieferantenlink"
+                                                                    >
+                                                                        <ExternalLink size={14} />
+                                                                    </a>
+                                                                )}
+                                                                <button
+                                                                    onClick={() => handleEditProduct(product)}
+                                                                    className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
+                                                                >
+                                                                    <Edit2 size={14} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => { if (window.confirm('Dieses Produkt löschen?')) deleteProduct(product.id); }}
+                                                                    className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:bg-red-600 hover:text-white transition-all flex items-center justify-center"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -1009,6 +1244,14 @@ export default function InventoryTab() {
                     </div>
                 )
             }
-        </div >
+
+            {/* Image Lightbox Modal */}
+            <ImageLightboxModal
+                isOpen={Boolean(lightboxImage)}
+                src={typeof lightboxImage === 'string' ? lightboxImage : lightboxImage?.src}
+                title={typeof lightboxImage === 'object' ? lightboxImage?.title : ''}
+                onClose={() => setLightboxImage(null)}
+            />
+        </div>
     );
 }

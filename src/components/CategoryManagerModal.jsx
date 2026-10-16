@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
 
 export default function CategoryManagerModal({ isOpen, onClose }) {
@@ -7,6 +8,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         getLevel2Categories,
         addLevel1Category,
         addLevel2Category,
+        updateCategory,
         deleteCategory,
         toggleCategoryHidden,
     } = useInventory();
@@ -255,16 +257,19 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         e.preventDefault();
         if (!updateName.trim()) return;
 
+        setIsSaving(true);
         try {
             if (editingCategory.isL1) {
-                await addLevel1Category(updateName.trim(), updateImagePreview, updateScope, updateIsHidden);
+                await updateCategory(1, editingCategory.originalName, updateName.trim(), updateImagePreview, updateScope, updateIsHidden);
             } else {
-                await addLevel2Category(selectedUpdateL1, updateName.trim(), null, updateScope, '', updateIsHidden);
+                await updateCategory(2, editingCategory.originalName, updateName.trim(), null, updateScope, updateIsHidden, selectedUpdateL1);
             }
             setEditingCategory(null);
             alert('Category Updated!');
         } catch (error) {
             alert(error?.message || 'Failed to update category in database.');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -402,63 +407,65 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                             </div>
 
                             {/* Sub Category */}
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Sub Category (Optional)</label>
-                                <select
-                                    value={subCatSelect}
-                                    onChange={(e) => setSubCatSelect(e.target.value)}
-                                    className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold focus:outline-none focus:border-emerald-400 cursor-pointer"
-                                >
-                                    <option value="">-- No Sub Category --</option>
-                                    {mainCatSelect && mainCatSelect !== 'NEW_ADD' && (
-                                        (getLevel2Categories(mainCatSelect, addScope, true) || []).map((c) => {
-                                            const name = typeof c === 'object' ? c.name : c;
-                                            const isHidden = typeof c === 'object' ? Boolean(c.is_hidden || c.isHidden) : false;
-                                            return (
-                                                <option key={name} value={name}>
-                                                    {name}{isHidden ? ' 🙈 [Hidden]' : ''}
-                                                </option>
-                                            );
-                                        })
-                                    )}
-                                    <option value="NEW_ADD" className="font-bold text-emerald-600">➕ Add New Sub Category...</option>
-                                </select>
+                            {Boolean(mainCatSelect && mainCatSelect !== 'NEW_ADD') && (
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Sub Category (Optional)</label>
+                                    <select
+                                        value={subCatSelect}
+                                        onChange={(e) => setSubCatSelect(e.target.value)}
+                                        className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold focus:outline-none focus:border-emerald-400 cursor-pointer"
+                                    >
+                                        <option value="">-- No Sub Category --</option>
+                                        {mainCatSelect && mainCatSelect !== 'NEW_ADD' && (
+                                            (getLevel2Categories(mainCatSelect, addScope, true) || []).map((c) => {
+                                                const name = typeof c === 'object' ? c.name : c;
+                                                const isHidden = typeof c === 'object' ? Boolean(c.is_hidden || c.isHidden) : false;
+                                                return (
+                                                    <option key={name} value={name}>
+                                                        {name}{isHidden ? ' 🙈 [Hidden]' : ''}
+                                                    </option>
+                                                );
+                                            })
+                                        )}
+                                        <option value="NEW_ADD" className="font-bold text-emerald-600">➕ Add New Sub Category...</option>
+                                    </select>
 
-                                {subCatSelect && subCatSelect !== 'NEW_ADD' && (() => {
-                                    const subCategories = getLevel2Categories(mainCatSelect, addScope, true) || [];
-                                    const selectedSubObj = subCategories.find((c) => (typeof c === 'object' ? c.name : c) === subCatSelect);
-                                    const isHidden = typeof selectedSubObj === 'object' ? Boolean(selectedSubObj.is_hidden || selectedSubObj.isHidden) : false;
-                                    if (!isHidden) return null;
-                                    return (
-                                        <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-2 animate-in fade-in duration-200">
-                                            <div className="flex items-center gap-1.5 text-xs text-amber-800 font-semibold">
-                                                <span className="text-sm">🙈</span>
-                                                <span>Sub-category <strong>{subCatSelect}</strong> is hidden</span>
+                                    {subCatSelect && subCatSelect !== 'NEW_ADD' && (() => {
+                                        const subCategories = getLevel2Categories(mainCatSelect, addScope, true) || [];
+                                        const selectedSubObj = subCategories.find((c) => (typeof c === 'object' ? c.name : c) === subCatSelect);
+                                        const isHidden = typeof selectedSubObj === 'object' ? Boolean(selectedSubObj.is_hidden || selectedSubObj.isHidden) : false;
+                                        if (!isHidden) return null;
+                                        return (
+                                            <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-2 animate-in fade-in duration-200">
+                                                <div className="flex items-center gap-1.5 text-xs text-amber-800 font-semibold">
+                                                    <span className="text-sm">🙈</span>
+                                                    <span>Sub-category <strong>{subCatSelect}</strong> is hidden</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        await toggleCategoryHidden(2, subCatSelect, false, mainCatSelect, addScope);
+                                                    }}
+                                                    className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
+                                                >
+                                                    👁️ Unhide Now
+                                                </button>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    await toggleCategoryHidden(2, subCatSelect, false, mainCatSelect, addScope);
-                                                }}
-                                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
-                                            >
-                                                👁️ Unhide Now
-                                            </button>
-                                        </div>
-                                    );
-                                })()}
+                                        );
+                                    })()}
 
-                                {subCatSelect === 'NEW_ADD' && (
-                                    <input
-                                        value={newSubCatStr}
-                                        onChange={(e) => setNewSubCatStr(e.target.value)}
-                                        placeholder="Enter new Sub Category name..."
-                                        required
-                                        autoFocus
-                                        className="w-full mt-2 px-4 py-2.5 rounded-xl bg-white border border-emerald-200 text-sm font-bold focus:outline-none focus:border-emerald-500 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200"
-                                    />
-                                )}
-                            </div>
+                                    {subCatSelect === 'NEW_ADD' && (
+                                        <input
+                                            value={newSubCatStr}
+                                            onChange={(e) => setNewSubCatStr(e.target.value)}
+                                            placeholder="Enter new Sub Category name..."
+                                            required
+                                            autoFocus
+                                            className="w-full mt-2 px-4 py-2.5 rounded-xl bg-white border border-emerald-200 text-sm font-bold focus:outline-none focus:border-emerald-500 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200"
+                                        />
+                                    )}
+                                </div>
+                            )}
 
                             {/* Hide from Dashboard Checkbox */}
                             <div className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
@@ -725,9 +732,11 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
 
                                     <button
                                         type="submit"
-                                        className="w-full py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all shadow-md"
+                                        disabled={isSaving}
+                                        className="w-full py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all shadow-md disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                     >
-                                        Save Changes
+                                        {isSaving && <Loader2 size={16} className="animate-spin text-white" />}
+                                        {isSaving ? 'Saving Changes...' : 'Save Changes'}
                                     </button>
                                 </form>
                             )}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { generateId } from '../data/inventoryStore';
@@ -14,6 +15,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
 
     const [product, setProduct] = useState(null);
     const [qty, setQty] = useState(1);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [basePrice, setBasePrice] = useState(0); // Editable retail price
     const [discount, setDiscount] = useState(0);
@@ -260,7 +262,7 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
             },
 
             // Meta
-            desc: product.name || '',
+            desc: product.name || product.sub_category || product.subCategory || product.category?.level2 || product.category?.level1 || (typeof product.category === 'string' ? product.category : '') || '',
             category: product.category?.level1 || (typeof product.category === 'string' ? product.category : '') || '',
             sub_category: product.category?.level2 || product.subCategory || product.subcategory || '',
             subCategory: product.category?.level2 || product.subCategory || product.subcategory || '',
@@ -277,22 +279,24 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
             source: 'shop'
         };
 
+        setIsSubmitting(true);
         try {
             if (typeof onCompleteSale === 'function') {
                 await onCompleteSale(transactionData);
             } else {
                 await onAddToBill(transactionData);
             }
+            setStatus('success');
+            setTimeout(() => {
+                onClose();
+                setStatus('idle');
+            }, 500);
         } catch (error) {
             alert(error?.message || 'Failed to complete sale');
-            return;
-        }
-
-        setStatus('success');
-        setTimeout(() => {
-            onClose();
             setStatus('idle');
-        }, 500);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleAddToCart = () => {
@@ -552,10 +556,10 @@ export default function TransactionModal({ isOpen, onClose, onAddToBill, onCompl
                                         Print
                                     </button>
                                     <button type="submit"
-                                        disabled={isOutOfStock || exceedsStock}
-                                        className={`py-2 rounded-lg text-white font-bold shadow-lg shadow-blue-500/20 active:scale-95 transition-all text-xs
-                                        ${isOutOfStock ? 'bg-slate-300 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'} `}>
-                                        Complete Sale
+                                        disabled={isOutOfStock || exceedsStock || isSubmitting}
+                                        className={`py-2 rounded-lg text-white font-bold shadow-lg shadow-blue-500/20 active:scale-95 transition-all text-xs flex items-center justify-center gap-1.5
+                                        ${isOutOfStock || isSubmitting ? 'bg-slate-300 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'} `}>
+                                        {isSubmitting ? <><Loader2 size={13} className="animate-spin" /> Processing...</> : 'Complete Sale'}
                                     </button>
                                     <button
                                         type="button"

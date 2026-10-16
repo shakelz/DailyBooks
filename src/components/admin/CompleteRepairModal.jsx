@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
-import { X, Search, Plus, Minus, Package, DollarSign, CheckCircle2, Printer } from 'lucide-react';
+import { X, Search, Plus, Minus, Package, DollarSign, CheckCircle2, Printer, Loader2 } from 'lucide-react';
 import { priceTag } from '../../utils/currency';
 
 export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }) {
@@ -10,6 +10,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
 
     const [finalAmount, setFinalAmount] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [isCompleting, setIsCompleting] = useState(false);
 
     // Array of { product (from inventory), quantity, costPrice (snapshot at time of add) }
     const [selectedParts, setSelectedParts] = useState([]);
@@ -253,6 +254,7 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
             }
         }
 
+        setIsCompleting(true);
         try {
             const completedAt = new Date().toISOString();
             await Promise.resolve(onComplete({
@@ -285,6 +287,8 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
         } catch (error) {
             console.error('Failed to complete/print repair:', error);
             alert(error?.message || 'Failed to complete repair.');
+        } finally {
+            setIsCompleting(false);
         }
     };
 
@@ -418,14 +422,16 @@ export default function CompleteRepairModal({ isOpen, onClose, job, onComplete }
 
                 {/* Footer */}
                 <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 flex-wrap">
-                    <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-100 transition-colors">
+                    <button onClick={onClose} disabled={isCompleting} className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
                         Cancel
                     </button>
-                    <button onClick={() => handleSubmit(true)} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-2 transition-colors">
-                        <Printer size={18} /> Complete & Print
+                    <button onClick={() => handleSubmit(true)} disabled={isCompleting} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                        {isCompleting ? <Loader2 size={18} className="animate-spin" /> : <Printer size={18} />}
+                        <span>Complete & Print</span>
                     </button>
-                    <button onClick={() => handleSubmit(false)} className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-2 transition-colors">
-                        <CheckCircle2 size={18} /> Confirm & Complete
+                    <button onClick={() => handleSubmit(false)} disabled={isCompleting} className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                        {isCompleting ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                        <span>Confirm & Complete</span>
                     </button>
                 </div>
             </div>

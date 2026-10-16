@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Printer, Wrench, Phone, User, Smartphone, Hash, FileText, Calendar, DollarSign } from 'lucide-react';
+import { X, Printer, Wrench, Phone, User, Smartphone, Hash, FileText, Calendar, DollarSign, Loader2 } from 'lucide-react';
 import { useRepairs } from '../context/RepairsContext';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -10,6 +10,7 @@ export default function RepairModal({ isOpen, onClose }) {
     const { activeShop } = useAuth();
     const { t } = useLanguage();
 
+    const [isSaving, setIsSaving] = useState(false);
     const [form, setForm] = useState({
         customerName: '',
         phone: '',
@@ -63,6 +64,7 @@ export default function RepairModal({ isOpen, onClose }) {
             return;
         }
 
+        setIsSaving(true);
         try {
             const isExternal = form.repairPerformer === 'external';
             const job = await addRepair({
@@ -114,6 +116,8 @@ export default function RepairModal({ isOpen, onClose }) {
         } catch (error) {
             console.error('Failed to save/print repair job:', error);
             alert(error?.message || t('repair.saveFailed'));
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -325,9 +329,19 @@ export default function RepairModal({ isOpen, onClose }) {
                 <div className="p-5 pt-0">
                     <button
                         onClick={() => handleSave(true)}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-700 hover:to-teal-700 active:scale-[0.98] transition-all shadow-lg shadow-emerald-600/20"
+                        disabled={isSaving}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-700 hover:to-teal-700 active:scale-[0.98] transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                        <Printer size={16} /> {t('repair.savePrint')}
+                        {isSaving ? (
+                            <>
+                                <Loader2 size={16} className="animate-spin" />
+                                <span>{t('repair.saving') || 'Wird gespeichert...'}</span>
+                            </>
+                        ) : (
+                            <>
+                                <Printer size={16} /> {t('repair.savePrint')}
+                            </>
+                        )}
                     </button>
                 </div>
             </div>

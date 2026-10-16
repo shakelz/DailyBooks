@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Users } from 'lucide-react';
+import { ChevronDown, Users, Loader2 } from 'lucide-react';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
@@ -130,6 +130,7 @@ export default function ExpensesTab() {
     ]);
 
     const [showForm, setShowForm] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [entryType, setEntryType] = useState('expense');
     const [desc, setDesc] = useState('');
     const [amount, setAmount] = useState('');
@@ -555,6 +556,7 @@ export default function ExpensesTab() {
             alert('Please fill valid description, amount and date/time.');
             return;
         }
+        setIsSubmitting(true);
         try {
             const isFixedExpenseEntry = entryType === 'expense';
             await addTransaction({
@@ -575,6 +577,8 @@ export default function ExpensesTab() {
             resetForm();
         } catch (error) {
             alert(error?.message || 'Failed to add entry.');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -801,7 +805,18 @@ export default function ExpensesTab() {
                     </div>
                     <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Zahlung</label><select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option value="Cash">{getPaymentMethodLabel('Cash')}</option><option value="Visa">{getPaymentMethodLabel('Visa')}</option><option value="Online">{getPaymentMethodLabel('Online')}</option><option value="Bank Transfer">{getPaymentMethodLabel('Bank Transfer')}</option></select></div>
                     <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Datum &amp; Uhrzeit</label><input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
-                    <div className="md:col-span-7"><button type="submit" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">Eintrag speichern</button></div>
+                    <div className="md:col-span-7">
+                        <button type="submit" disabled={isSubmitting} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
+                            {isSubmitting ? (
+                                <>
+                                    <Loader2 size={14} className="animate-spin" />
+                                    <span>Speichern...</span>
+                                </>
+                            ) : (
+                                <span>Eintrag speichern</span>
+                            )}
+                        </button>
+                    </div>
                 </form>
             )}
 

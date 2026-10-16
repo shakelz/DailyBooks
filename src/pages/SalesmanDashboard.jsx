@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, Edit3, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers, Calendar, Truck, Send, Inbox, RotateCcw, CheckCircle, CheckCircle2, MessageSquare, StickyNote, UserCheck, ArrowRightLeft, Globe } from 'lucide-react';
+import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, Edit3, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers, Calendar, Truck, Send, Inbox, RotateCcw, CheckCircle, CheckCircle2, MessageSquare, StickyNote, UserCheck, ArrowRightLeft, Globe, Loader2 } from 'lucide-react';
 
 import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
 import { useAuth } from '../context/AuthContext';
@@ -13,6 +13,7 @@ import RepairModal from '../components/RepairModal';
 import SmartCategoryForm from '../components/SmartCategoryForm';
 import TransactionModal from '../components/TransactionModal';
 import SoldPhonesModal from '../components/SoldPhonesModal';
+import ImageLightboxModal from '../components/ImageLightboxModal';
 import { useRepairs } from '../context/RepairsContext';
 import { useCart } from '../context/CartContext';
 import { useNotes } from '../context/NotesContext';
@@ -180,6 +181,7 @@ function newSimpleEntryForm() {
         subCategory: '',
         productName: '',
         productId: '',
+        image: '',
         quantity: '1',
         amount: '',
     };
@@ -840,6 +842,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [purchaseEntry, setPurchaseEntry] = useState(newSimpleEntryForm());
     const [salesEntryErrors, setSalesEntryErrors] = useState({});
     const [purchaseEntryErrors, setPurchaseEntryErrors] = useState({});
+    const [isSubmittingSimpleSales, setIsSubmittingSimpleSales] = useState(false);
+    const [isSubmittingSimplePurchase, setIsSubmittingSimplePurchase] = useState(false);
+    const [lightboxImage, setLightboxImage] = useState(null);
+    const [isLowStockShortcutOpen, setIsLowStockShortcutOpen] = useState(false);
+    const [lowStockFilterMode, setLowStockFilterMode] = useState('all'); // 'all' | 'out_of_stock' | 'low_stock'
     const [realtimeStats, setRealtimeStats] = useState(null);
     const [showPendingOrders, setShowPendingOrders] = useState(false);
     const [pendingTab, setPendingTab] = useState('orders');
@@ -1549,6 +1556,25 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }, {});
     }, [products]);
 
+    const lowAndOutStockProducts = useMemo(() => {
+        return (products || []).filter((p) => {
+            const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${p.category || ''} ${p.sub_category || ''} ${p.name || ''}`);
+            if (isMobile && Number(p.stock) <= 0) return false;
+            const stockNum = parseFloat(p.stock) || 0;
+            return stockNum < 3;
+        });
+    }, [products]);
+
+    const filteredLowStockItems = useMemo(() => {
+        if (lowStockFilterMode === 'out_of_stock') {
+            return lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) <= 0);
+        }
+        if (lowStockFilterMode === 'low_stock') {
+            return lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) > 0 && (parseFloat(p.stock) || 0) < 3);
+        }
+        return lowAndOutStockProducts;
+    }, [lowAndOutStockProducts, lowStockFilterMode]);
+
     const resolveTransactionDisplayName = useCallback((txn = {}) => {
         const snapshotName = String(txn?.productSnapshot?.name || '').trim();
         if (snapshotName) return snapshotName;
@@ -1571,6 +1597,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         const stripped = stripTransactionPrefix(txn?.desc);
         if (stripped && !isGenericTransactionLabel(stripped)) return stripped;
+
+        const subCategory = String(txn?.sub_category || txn?.subCategory || '').trim();
+        if (subCategory) return subCategory;
+
+        const category = String(txn?.category || '').trim();
+        if (category) return category;
 
         return normalizeTxnType(txn?.type) === 'income' ? 'Revenue' : 'Purchase';
     }, [productLookup]);
@@ -2813,6 +2845,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         return searchProducts(trimmed)
             .map((product) => ({ raw: product, snapshot: resolveProductSnapshot(product) }))
             .filter(({ snapshot }) => {
+                const isMobile = /handy|mobile|phone|smartphone|iphone|samsung galaxy/i.test(`${snapshot.category || ''} ${snapshot.subCategory || ''} ${snapshot.name || ''}`);
+                if (isMobile && Number(snapshot.stock) <= 0) return false;
                 const sameLevel1 = !level1 || String(snapshot.category || '').toLowerCase() === String(level1).toLowerCase();
                 const sameLevel2 = !level2 || String(snapshot.subCategory || '').toLowerCase() === String(level2).toLowerCase();
                 return sameLevel1 && sameLevel2;
@@ -3226,6 +3260,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             productName: resolved.name || '',
             category: resolved.category || '',
             subCategory: resolved.subCategory || '',
+            image: resolved.image || '',
             amount: nextAmount > 0 ? String(nextAmount) : '',
         };
         if (mode === 'sales') {
@@ -3242,10 +3277,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const handleEntryProductQueryChange = (mode, value) => {
         const nextValue = String(value || '');
         if (mode === 'sales') {
-            setSalesEntry((prev) => ({ ...prev, productName: nextValue, productId: '' }));
+            setSalesEntry((prev) => ({ ...prev, productName: nextValue, productId: '', image: nextValue ? prev.image : '' }));
             setShowSalesProductSuggestions(true);
         } else {
-            setPurchaseEntry((prev) => ({ ...prev, productName: nextValue, productId: '' }));
+            setPurchaseEntry((prev) => ({ ...prev, productName: nextValue, productId: '', image: nextValue ? prev.image : '' }));
             setShowPurchaseProductSuggestions(true);
         }
 
@@ -3413,6 +3448,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (mode === 'sales') setSalesEntryErrors({});
         else setPurchaseEntryErrors({});
 
+        if (mode === 'sales') setIsSubmittingSimpleSales(true);
+        else setIsSubmittingSimplePurchase(true);
+
         const amountValue = parseFloat(entry.amount) || 0;
         const quantityValue = mode === 'sales'
             ? Math.max(1, parseInt(entry.quantity || '1', 10) || 1)
@@ -3420,9 +3458,10 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const selectedDate = buildSelectedDate(entry.date);
         const type = mode === 'sales' ? 'income' : 'expense';
         const productLabel = String(entry.productName || '').trim();
+        const fallbackCategory = entry.subCategory || entry.category || (mode === 'sales' ? 'General Sale' : 'General Expense');
         const descLabel = productLabel
             ? `${mode === 'sales' ? 'Sale' : 'Expense'} - ${productLabel}`
-            : `${mode === 'sales' ? 'Sale' : 'Expense'} - ${entry.category}`;
+            : `${mode === 'sales' ? 'Sale' : 'Expense'} - ${fallbackCategory}`;
 
         try {
             await addTransaction({
@@ -3448,22 +3487,24 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             if (type === 'income' && entry.productId) {
                 await adjustStock(entry.productId, -quantityValue);
             }
+
+            setToast(`${mode === 'sales' ? 'Sales' : 'Expense'} saved`);
+            setTimeout(() => setToast(''), 1800);
+            if (mode === 'sales') {
+                setSalesEntry(newSimpleEntryForm());
+                setSalesEntryErrors({});
+                setTimeout(() => salesAmountInputRef.current?.focus(), 50);
+            } else {
+                setPurchaseEntry(newSimpleEntryForm());
+                setPurchaseEntryErrors({});
+                setTimeout(() => purchaseAmountInputRef.current?.focus(), 50);
+            }
         } catch (error) {
             console.error(`${mode} entry transaction save failed:`, error);
             showInlineError(error?.message || `Failed to save ${mode === 'sales' ? 'sales' : 'expense'} entry.`);
-            return;
-        }
-
-        setToast(`${mode === 'sales' ? 'Sales' : 'Expense'} saved`);
-        setTimeout(() => setToast(''), 1800);
-        if (mode === 'sales') {
-            setSalesEntry(newSimpleEntryForm());
-            setSalesEntryErrors({});
-            setTimeout(() => salesAmountInputRef.current?.focus(), 50);
-        } else {
-            setPurchaseEntry(newSimpleEntryForm());
-            setPurchaseEntryErrors({});
-            setTimeout(() => purchaseAmountInputRef.current?.focus(), 50);
+        } finally {
+            if (mode === 'sales') setIsSubmittingSimpleSales(false);
+            else setIsSubmittingSimplePurchase(false);
         }
     };
 
@@ -5222,6 +5263,138 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     </section>
                 )}
 
+                {/* ── Low & Out of Stock Shortcut Widget ── */}
+                <section className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50/70 via-orange-50/40 to-amber-50/70 p-3 shadow-sm backdrop-blur-sm transition-all">
+                    <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => setIsLowStockShortcutOpen(prev => !prev)}>
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-sm">
+                                <AlertTriangle size={16} />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                                        Low &amp; Out of Stock Shortcut
+                                    </h3>
+                                    <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                                        {lowAndOutStockProducts.length} items
+                                    </span>
+                                </div>
+                                <p className="text-[10px] text-slate-500">Quickly adjust or replenish inventory directly from here</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                className="p-1 rounded-lg text-slate-500 hover:bg-amber-100 transition-colors"
+                                aria-label="Toggle shortcut"
+                            >
+                                {isLowStockShortcutOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                        </div>
+                    </div>
+
+                    {isLowStockShortcutOpen && (
+                        <div className="mt-3 pt-3 border-t border-amber-200/80 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                            <div className="flex items-center gap-2 text-xs">
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setLowStockFilterMode('all'); }}
+                                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${lowStockFilterMode === 'all' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-slate-600 border border-amber-200 hover:bg-amber-50'}`}
+                                >
+                                    All ({lowAndOutStockProducts.length})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setLowStockFilterMode('out_of_stock'); }}
+                                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${lowStockFilterMode === 'out_of_stock' ? 'bg-red-600 text-white shadow-xs' : 'bg-white text-slate-600 border border-amber-200 hover:bg-amber-50'}`}
+                                >
+                                    Out of Stock ({lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) <= 0).length})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setLowStockFilterMode('low_stock'); }}
+                                    className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${lowStockFilterMode === 'low_stock' ? 'bg-amber-500 text-white shadow-xs' : 'bg-white text-slate-600 border border-amber-200 hover:bg-amber-50'}`}
+                                >
+                                    Low Stock &lt; 3 ({lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) > 0 && (parseFloat(p.stock) || 0) < 3).length})
+                                </button>
+                            </div>
+
+                            {filteredLowStockItems.length === 0 ? (
+                                <p className="text-xs text-slate-500 py-3 text-center italic">No items match the selected stock filter 🎉</p>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-60 overflow-y-auto pr-1">
+                                    {filteredLowStockItems.map((prod) => {
+                                        const stockVal = parseFloat(prod.stock) || 0;
+                                        const isZero = stockVal <= 0;
+                                        return (
+                                            <div
+                                                key={`shortcut-prod-${prod.id}`}
+                                                className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-amber-100 shadow-xs"
+                                            >
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    {prod.image ? (
+                                                        <img
+                                                            src={prod.image}
+                                                            alt=""
+                                                            className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-80"
+                                                            onClick={() => setLightboxImage(prod.image)}
+                                                            title="Click to enlarge"
+                                                        />
+                                                    ) : (
+                                                        <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-xs shrink-0">
+                                                            📦
+                                                        </div>
+                                                    )}
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs font-bold text-slate-800 truncate" title={prod.name}>
+                                                            {prod.name}
+                                                        </p>
+                                                        <div className="flex items-center gap-1.5 text-[10px]">
+                                                            <span className={`font-black px-1.5 py-0.2 rounded ${isZero ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>
+                                                                Stock: {stockVal}
+                                                            </span>
+                                                            {prod.category && <span className="text-slate-400 truncate">{prod.category}</span>}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        disabled={stockVal <= 0}
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            await adjustStock(prod.id, -1);
+                                                        }}
+                                                        className="w-6 h-6 rounded-md bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 font-bold flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
+                                                        title="Decrease stock by 1"
+                                                    >
+                                                        -
+                                                    </button>
+                                                    <span className="w-7 text-center font-black text-xs text-slate-700">
+                                                        {stockVal}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            await adjustStock(prod.id, 1);
+                                                        }}
+                                                        className="w-6 h-6 rounded-md bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-700 font-bold flex items-center justify-center text-xs transition-colors"
+                                                        title="Increase stock by 1"
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </section>
+
                 <section className="grid grid-cols-2 gap-2 items-start">
                     <form
                         onSubmit={(e) => { e.preventDefault(); submitSimpleEntry('sales'); }}
@@ -5300,19 +5473,30 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             <div className="grid grid-cols-[1fr_88px] gap-1.5 items-end">
                                 <div ref={salesSuggestionBoxRef} className="relative">
                                     <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
-                                    <input
-                                        value={salesEntry.productName}
-                                        onFocus={() => {
-                                            if (String(salesEntry.productName || '').trim()) {
-                                                setShowSalesProductSuggestions(true);
-                                            }
-                                        }}
-                                        onBlur={() => setTimeout(() => setShowSalesProductSuggestions(false), 160)}
-                                        onKeyDown={handleSalesSuggestionKeyDown}
-                                        onChange={(e) => handleEntryProductQueryChange('sales', e.target.value)}
-                                        placeholder="Type product / scan barcode"
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
-                                    />
+                                    <div className="flex items-center gap-1.5">
+                                        {Boolean(salesEntry.image || (salesEntry.productId && productLookup[salesEntry.productId]?.image)) && (
+                                            <img
+                                                src={salesEntry.image || productLookup[salesEntry.productId]?.image}
+                                                alt="Preview"
+                                                className="w-8 h-8 rounded-lg object-cover border border-emerald-200 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                                                onClick={() => setLightboxImage(salesEntry.image || productLookup[salesEntry.productId]?.image)}
+                                                title="Click to enlarge"
+                                            />
+                                        )}
+                                        <input
+                                            value={salesEntry.productName}
+                                            onFocus={() => {
+                                                if (String(salesEntry.productName || '').trim()) {
+                                                    setShowSalesProductSuggestions(true);
+                                                }
+                                            }}
+                                            onBlur={() => setTimeout(() => setShowSalesProductSuggestions(false), 160)}
+                                            onKeyDown={handleSalesSuggestionKeyDown}
+                                            onChange={(e) => handleEntryProductQueryChange('sales', e.target.value)}
+                                            placeholder="Type product / scan barcode"
+                                            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700"
+                                        />
+                                    </div>
                                     {showSalesProductSuggestions && String(salesEntry.productName || '').trim() && (
                                         <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-36 overflow-y-auto">
                                             {isSalesProductSuggestionsLoading ? (
@@ -5390,40 +5574,45 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             </div>
                         </div>
 
-                        <div>
-                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Sub Category</p>
-                            {!salesEntry.category ? (
-                                <p className="text-xs text-slate-400">Select category first</p>
-                            ) : salesSubCategoryOptions.length === 0 ? (
-                                <p className="text-xs text-slate-400">No sub category available for this category</p>
-                            ) : (
-                                <div className="flex flex-wrap gap-1.5">
-                                    {salesSubCategoryOptions.map((name) => (
-                                        <button
-                                            key={`sales-sub-chip-${name}`}
-                                            type="button"
-                                            title="Click to select, hold to hide from dashboard"
-                                            onMouseDown={() => startCategoryLongPress(name, 2, salesEntry.category, 'sales')}
-                                            onMouseUp={cancelCategoryLongPress}
-                                            onMouseLeave={cancelCategoryLongPress}
-                                            onTouchStart={() => startCategoryLongPress(name, 2, salesEntry.category, 'sales')}
-                                            onTouchEnd={cancelCategoryLongPress}
-                                            onClick={() => {
-                                                if (categoryLongPressTriggeredRef.current) return;
-                                                setSalesEntry((prev) => ({ ...prev, subCategory: name }));
-                                            }}
-                                            className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${salesEntry.subCategory === name ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
-                                        >
-                                            {name}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                        {Boolean(salesEntry.category) && (
+                            <div>
+                                <p className="text-[11px] font-semibold text-slate-600 mb-1">Sub Category</p>
+                                {salesSubCategoryOptions.length === 0 ? (
+                                    <p className="text-xs text-slate-400">No sub category available for this category</p>
+                                ) : (
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {salesSubCategoryOptions.map((name) => (
+                                            <button
+                                                key={`sales-sub-chip-${name}`}
+                                                type="button"
+                                                title="Click to select, hold to hide from dashboard"
+                                                onMouseDown={() => startCategoryLongPress(name, 2, salesEntry.category, 'sales')}
+                                                onMouseUp={cancelCategoryLongPress}
+                                                onMouseLeave={cancelCategoryLongPress}
+                                                onTouchStart={() => startCategoryLongPress(name, 2, salesEntry.category, 'sales')}
+                                                onTouchEnd={cancelCategoryLongPress}
+                                                onClick={() => {
+                                                    if (categoryLongPressTriggeredRef.current) return;
+                                                    setSalesEntry((prev) => ({ ...prev, subCategory: name }));
+                                                }}
+                                                className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${salesEntry.subCategory === name ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-700 border-slate-300 hover:border-emerald-300'}`}
+                                            >
+                                                {name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="flex items-center justify-end">
-                            <button type="submit" className="rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 text-xs font-semibold">
-                                Save Sales Entry
+                            <button
+                                type="submit"
+                                disabled={isSubmittingSimpleSales}
+                                className="rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed shadow-xs"
+                            >
+                                {isSubmittingSimpleSales && <Loader2 size={13} className="animate-spin text-white" />}
+                                <span>{isSubmittingSimpleSales ? 'Saving...' : 'Save Sales Entry'}</span>
                             </button>
                         </div>
                     </form>
@@ -5573,7 +5762,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 {purchaseEntryErrors.category && <p className="mt-1 text-[10px] text-rose-600">{purchaseEntryErrors.category}</p>}
                             </div>
 
-                            {purchaseSubCategoryOptions.length > 0 && (
+                            {Boolean(purchaseEntry.category) && purchaseSubCategoryOptions.length > 0 && (
                                 <div>
                                     <label className="block text-[11px] font-semibold text-slate-600 mb-1">Sub Category</label>
                                     <div className="flex flex-wrap gap-1.5">
@@ -5605,8 +5794,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         </div>
 
                         <div className="flex items-center justify-end">
-                            <button type="submit" className="rounded-lg text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 text-xs font-semibold">
-                                Save Expense Entry
+                            <button
+                                type="submit"
+                                disabled={isSubmittingSimplePurchase}
+                                className="rounded-lg text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed shadow-xs"
+                            >
+                                {isSubmittingSimplePurchase && <Loader2 size={13} className="animate-spin text-white" />}
+                                <span>{isSubmittingSimplePurchase ? 'Saving...' : 'Save Expense Entry'}</span>
                             </button>
                         </div>
                     </form>
@@ -5640,26 +5834,49 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 <div
                                     key={getTransactionIdentityKey(txn) || `revenue-${txn.time || ''}-${txn.amount || ''}-${txn.desc || ''}`}
                                     onClick={() => openTransactionDetailModal(txn)}
-                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 hover:bg-emerald-50/60 transition-colors cursor-pointer"
+                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 flex items-center justify-between gap-2 hover:bg-emerald-50/60 transition-colors cursor-pointer"
                                 >
-                                    <div className="min-w-0">
-                                        <p className="text-xs font-bold text-slate-700 truncate">{resolveTransactionDisplayName(txn)}</p>
-                                        <p className="text-[11px] text-slate-400">
-                                            {txn.time || '--:--'}
-                                            {getTransactionInvoiceNumber(txn) ? ` | Inv: ${getTransactionInvoiceNumber(txn)}` : ''}
-                                            {' | Tap to view'}
-                                        </p>
+                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                        {(() => {
+                                            const img = txn.image || txn.product_image || (txn.productId ? productLookup[txn.productId]?.image : null) || (txn.product_id ? productLookup[txn.product_id]?.image : null);
+                                            return img ? (
+                                                <img
+                                                    src={img}
+                                                    alt=""
+                                                    className="w-9 h-9 rounded-lg object-cover border border-emerald-100 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setLightboxImage(img);
+                                                    }}
+                                                    title="Click to enlarge"
+                                                />
+                                            ) : (
+                                                <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100 text-xs font-bold">
+                                                    💰
+                                                </div>
+                                            );
+                                        })()}
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold text-slate-700 truncate">{resolveTransactionDisplayName(txn)}</p>
+                                            <p className="text-[11px] text-slate-400">
+                                                {txn.time || '--:--'}
+                                                {getTransactionInvoiceNumber(txn) ? ` | Inv: ${getTransactionInvoiceNumber(txn)}` : ''}
+                                                {' | Tap to view'}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
-                                    <p className="text-sm font-black text-emerald-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
-                                    <button
-                                        type="button"
-                                        onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
-                                        className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
-                                        title="Delete transaction"
-                                    >
-                                        <Trash2 size={13} />
-                                    </button>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-2.5">{txn.paymentMethod || 'Cash'}</p>
+                                        <p className="text-sm font-black text-emerald-600 border-l border-slate-200 pl-2.5">{priceTag(txn.amount || 0)}</p>
+                                        <button
+                                            type="button"
+                                            onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
+                                            className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
+                                            title="Delete transaction"
+                                        >
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -5673,26 +5890,49 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 <div
                                     key={getTransactionIdentityKey(txn) || `purchase-${txn.time || ''}-${txn.amount || ''}-${txn.desc || ''}`}
                                     onClick={() => openTransactionDetailModal(txn)}
-                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 hover:bg-rose-50/60 transition-colors cursor-pointer"
+                                    className="w-full text-left rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2 flex items-center justify-between gap-2 hover:bg-rose-50/60 transition-colors cursor-pointer"
                                 >
-                                    <div className="min-w-0">
-                                        <p className="text-xs font-bold text-slate-700 truncate">{resolveTransactionDisplayName(txn)}</p>
-                                        <p className="text-[11px] text-slate-400">
-                                            {txn.time || '--:--'}
-                                            {getTransactionInvoiceNumber(txn) ? ` | Inv: ${getTransactionInvoiceNumber(txn)}` : ''}
-                                            {' | Tap to view'}
-                                        </p>
+                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                        {(() => {
+                                            const img = txn.image || txn.product_image || (txn.productId ? productLookup[txn.productId]?.image : null) || (txn.product_id ? productLookup[txn.product_id]?.image : null);
+                                            return img ? (
+                                                <img
+                                                    src={img}
+                                                    alt=""
+                                                    className="w-9 h-9 rounded-lg object-cover border border-rose-100 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setLightboxImage(img);
+                                                    }}
+                                                    title="Click to enlarge"
+                                                />
+                                            ) : (
+                                                <div className="w-9 h-9 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100 text-xs font-bold">
+                                                    🧾
+                                                </div>
+                                            );
+                                        })()}
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold text-slate-700 truncate">{resolveTransactionDisplayName(txn)}</p>
+                                            <p className="text-[11px] text-slate-400">
+                                                {txn.time || '--:--'}
+                                                {getTransactionInvoiceNumber(txn) ? ` | Inv: ${getTransactionInvoiceNumber(txn)}` : ''}
+                                                {' | Tap to view'}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-3">{txn.paymentMethod || 'Cash'}</p>
-                                    <p className="text-sm font-black text-rose-600 border-l border-slate-200 pl-3">{priceTag(txn.amount || 0)}</p>
-                                    <button
-                                        type="button"
-                                        onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
-                                        className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
-                                        title="Delete transaction"
-                                    >
-                                        <Trash2 size={13} />
-                                    </button>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <p className="text-[11px] text-slate-500 border-l border-slate-200 pl-2.5">{txn.paymentMethod || 'Cash'}</p>
+                                        <p className="text-sm font-black text-rose-600 border-l border-slate-200 pl-2.5">{priceTag(txn.amount || 0)}</p>
+                                        <button
+                                            type="button"
+                                            onClick={(event) => handleDeleteHistoryTransaction(txn, event)}
+                                            className="h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"
+                                            title="Delete transaction"
+                                        >
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -7850,6 +8090,13 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             <NotesDrawer
                 isOpen={showNotesModal}
                 onClose={() => setShowNotesModal(false)}
+            />
+
+            <ImageLightboxModal
+                isOpen={Boolean(lightboxImage)}
+                src={typeof lightboxImage === 'string' ? lightboxImage : lightboxImage?.src}
+                title={typeof lightboxImage === 'object' ? lightboxImage?.title : ''}
+                onClose={() => setLightboxImage(null)}
             />
         </div>
     );
