@@ -897,8 +897,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const [deletingProductId, setDeletingProductId] = useState(null);
     const [inventorySearch, setInventorySearch] = useState('');
     const [inventoryCategory, setInventoryCategory] = useState('all');
-    const [inventorySubCategory, setInventorySubCategory] = useState('all');
-    const [inventoryStockFilter, setInventoryStockFilter] = useState('all'); // 'all' | 'in_stock' | 'low_stock' | 'out_of_stock'
+    const [inventoryStockFilter, setInventoryStockFilter] = useState('all'); // 'all' | 'custom' | 'in_stock' | 'low_stock' | 'out_of_stock'
+    const [inventoryCustomStockOperator, setInventoryCustomStockOperator] = useState('>');
+    const [inventoryCustomStockValue, setInventoryCustomStockValue] = useState('');
     const [inventorySort, setInventorySort] = useState('default');
     const [editingStockId, setEditingStockId] = useState(null);
     const [editingStockVal, setEditingStockVal] = useState('');
@@ -3114,7 +3115,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 const redThreshold = Number(alertCfg.red) || 2;
                 if (inventoryStockFilter === 'in_stock' && stockVal <= 0) return false;
                 if (inventoryStockFilter === 'out_of_stock' && stockVal > 0) return false;
-                if (inventoryStockFilter === 'low_stock' && (stockVal <= 0 || stockVal > Math.max(5, redThreshold))) return false;
+                if (inventoryStockFilter === 'low_stock' && (stockVal <= 0 || stockVal > Math.max(3, redThreshold))) return false;
+                if (inventoryStockFilter === 'custom') {
+                    const rawVal = String(inventoryCustomStockValue || '').trim();
+                    if (rawVal !== '') {
+                        const threshold = parseFloat(rawVal);
+                        if (!isNaN(threshold)) {
+                            const op = inventoryCustomStockOperator || '=';
+                            if (op === '=' && stockVal !== threshold) return false;
+                            if (op === '!=' && stockVal === threshold) return false;
+                            if (op === '>' && stockVal <= threshold) return false;
+                            if (op === '<' && stockVal >= threshold) return false;
+                            if (op === '>=' && stockVal < threshold) return false;
+                            if (op === '<=' && stockVal > threshold) return false;
+                        }
+                    }
+                }
 
                 return true;
             })
@@ -3145,7 +3161,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 if (!Number.isFinite(aMs) && Number.isFinite(bMs)) return 1;
                 return String(a.snapshot.name || '').localeCompare(String(b.snapshot.name || ''));
             });
-    }, [typeScopedInventoryItems, inventorySearch, inventoryCategory, inventorySubCategory, inventoryStockFilter, inventorySort]);
+    }, [typeScopedInventoryItems, inventorySearch, inventoryCategory, inventorySubCategory, inventoryStockFilter, inventoryCustomStockOperator, inventoryCustomStockValue, inventorySort]);
 
     // Product & Stock Management Handlers for Salesman
     const handleEditProduct = useCallback((productOrItem) => {
@@ -6690,7 +6706,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             {/* Search + Stock Status + Sort Controls */}
                             <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
                                 {/* Search Bar */}
-                                <div className="md:col-span-6 relative">
+                                <div className={`relative ${inventoryStockFilter === 'custom' ? 'md:col-span-4' : 'md:col-span-5'}`}>
                                     <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                     <input
                                         value={inventorySearch}
@@ -6709,21 +6725,60 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     )}
                                 </div>
 
-                                {/* Stock Status Filter */}
-                                <div className="md:col-span-3">
-                                    <div className="relative">
-                                        <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                                        <select
-                                            value={inventoryStockFilter}
-                                            onChange={(e) => setInventoryStockFilter(e.target.value)}
-                                            className="w-full pl-8 pr-7 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 appearance-none focus:bg-white focus:border-blue-500 outline-none cursor-pointer"
-                                        >
-                                            <option value="all">📦 Alle Bestände</option>
-                                            <option value="in_stock">✅ Auf Lager (&gt;0)</option>
-                                            <option value="low_stock">⚠️ Niedriger Bestand (≤5)</option>
-                                            <option value="out_of_stock">❌ Nicht vorrätig (0)</option>
-                                        </select>
-                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                {/* Stock Status Filter: Custom Filter with Operators (=, !=, >, <, >=, <=) */}
+                                <div className={inventoryStockFilter === 'custom' ? 'md:col-span-5' : 'md:col-span-4'}>
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="relative flex-1">
+                                            <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                            <select
+                                                value={inventoryStockFilter}
+                                                onChange={(e) => setInventoryStockFilter(e.target.value)}
+                                                className="w-full pl-8 pr-7 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 appearance-none focus:bg-white focus:border-blue-500 outline-none cursor-pointer"
+                                            >
+                                                <option value="all">📦 Alle Bestände</option>
+                                                <option value="custom">⚙️ Eigener Filter...</option>
+                                                <option value="out_of_stock">❌ = 0 (Ausverkauft)</option>
+                                                <option value="in_stock">✅ &gt; 0 (Auf Lager)</option>
+                                                <option value="low_stock">⚠️ &lt; 3 (Niedrigbestand)</option>
+                                            </select>
+                                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                        </div>
+
+                                        {inventoryStockFilter === 'custom' && (
+                                            <div className="flex items-center gap-1 animate-in fade-in duration-150 shrink-0">
+                                                <select
+                                                    value={inventoryCustomStockOperator}
+                                                    onChange={(e) => setInventoryCustomStockOperator(e.target.value)}
+                                                    className="px-2 py-2 bg-white border border-blue-200 rounded-xl text-xs font-black text-blue-700 focus:outline-none shadow-2xs cursor-pointer"
+                                                    title="Operator"
+                                                >
+                                                    <option value="=">=</option>
+                                                    <option value="!=">!=</option>
+                                                    <option value=">">&gt;</option>
+                                                    <option value="<">&lt;</option>
+                                                    <option value=">=">&gt;=</option>
+                                                    <option value="<=">&lt;=</option>
+                                                </select>
+                                                <input
+                                                    type="number"
+                                                    placeholder="Menge (z.B. 5)"
+                                                    value={inventoryCustomStockValue}
+                                                    onChange={(e) => setInventoryCustomStockValue(e.target.value)}
+                                                    className="w-24 px-2.5 py-2 bg-white border border-blue-200 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none shadow-2xs"
+                                                    autoFocus
+                                                />
+                                                {inventoryCustomStockValue && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setInventoryCustomStockValue('')}
+                                                        className="text-slate-400 hover:text-slate-600 p-0.5"
+                                                        title="Wert leeren"
+                                                    >
+                                                        <X size={13} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
@@ -6874,7 +6929,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     <Boxes size={36} className="mx-auto text-slate-300 mb-2" />
                                     <p className="text-sm font-bold text-slate-700">Keine Produkte gefunden</p>
                                     <p className="text-xs text-slate-400 mt-0.5">Versuche einen anderen Suchbegriff oder passe die Filter an.</p>
-                                    {(inventorySearch || inventoryCategory !== 'all' || inventorySubCategory !== 'all' || inventoryStockFilter !== 'all') && (
+                                    {(inventorySearch || inventoryCategory !== 'all' || inventorySubCategory !== 'all' || inventoryStockFilter !== 'all' || inventoryCustomStockValue) && (
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -6882,6 +6937,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                 setInventoryCategory('all');
                                                 setInventorySubCategory('all');
                                                 setInventoryStockFilter('all');
+                                                setInventoryCustomStockValue('');
                                             }}
                                             className="mt-3 px-3 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
                                         >
