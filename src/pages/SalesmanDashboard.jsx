@@ -23,6 +23,13 @@ import { supabase } from '../supabaseClient';
 import { useTranslatedTextTree } from '../hooks/useTranslatedTextTree';
 import { buildStageInvoiceNumber, extractInvoiceNumberBase, getCleanTransactionInvoiceNumber, reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
 import { isHandyProduct } from '../utils/categoryUtils';
+import {
+    getProductRedThreshold,
+    hasProductCustomRed,
+    isProductInRed,
+    getProductStockSeverity,
+    getProductStockAlert
+} from '../data/inventoryStore';
 
 const DEFAULT_PAYMENT_MODES = ['Cash', 'SumUp', 'Bank Transfer'];
 const ONLINE_ORDER_COLORS = ['Black', 'White', 'Blue', 'Red', 'Green', 'Gold', 'Silver', 'Custom'];
@@ -353,6 +360,7 @@ function resolveProductSnapshot(product = {}) {
                 || ''
             ).trim(),
         stock: Number(product.stock ?? product.qty ?? product.quantity ?? 0) || 0,
+        stockAlert: getProductStockAlert(product) || product.stockAlert || product.attributes?.stockAlert,
         sellingPrice,
         purchasePrice,
         image: resolveProductImage(product),
@@ -1592,8 +1600,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     return false;
                 }
             }
-            const stockNum = parseFloat(p.stock) || 0;
-            return stockNum < 3;
+            return isProductInRed(p);
         });
     }, [products]);
 
@@ -1602,7 +1609,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) <= 0);
         }
         if (lowStockFilterMode === 'low_stock') {
-            return lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) > 0 && (parseFloat(p.stock) || 0) < 3);
+            return lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) > 0 && isProductInRed(p));
         }
         return lowAndOutStockProducts;
     }, [lowAndOutStockProducts, lowStockFilterMode]);
@@ -3114,11 +3121,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
                 // 4. Stock Status Filter
                 const stockVal = Number(snapshot.stock) || 0;
-                const alertCfg = raw?.stockAlert && typeof raw.stockAlert === 'object' ? raw.stockAlert : {};
-                const redThreshold = Number(alertCfg.red) || 2;
                 if (inventoryStockFilter === 'in_stock' && stockVal <= 0) return false;
                 if (inventoryStockFilter === 'out_of_stock' && stockVal > 0) return false;
-                if (inventoryStockFilter === 'low_stock' && (stockVal <= 0 || stockVal > Math.max(3, redThreshold))) return false;
+                if (inventoryStockFilter === 'low_stock' && !isProductInRed(raw || snapshot)) return false;
                 if (inventoryStockFilter === 'custom') {
                     const rawVal = String(inventoryCustomStockValue || '').trim();
                     if (rawVal !== '') {
@@ -5919,7 +5924,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     onClick={() => setLowStockFilterMode('low_stock')}
                                     className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${lowStockFilterMode === 'low_stock' ? 'bg-amber-500 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                                 >
-                                    &lt; 3 Low Stock ({lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) > 0 && (parseFloat(p.stock) || 0) < 3).length})
+                                    Low Stock (Red) ({lowAndOutStockProducts.filter(p => (parseFloat(p.stock) || 0) > 0).length})
                                 </button>
                             </div>
 
@@ -5944,6 +5949,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                         const stockVal = parseFloat(prod.stock) || 0;
                                         const isZero = stockVal <= 0;
                                         const catName = formatCategorySafely(prod.category);
+                                        const redThresh = getProductRedThreshold(prod);
+                                        const hasCustomRed = hasProductCustomRed(prod);
                                         return (
                                             <div
                                                 key={`olx-shortcut-${prod.id}`}
@@ -5965,8 +5972,14 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                         )}
                                                         {/* Floating Stock Badge */}
                                                         <div className="absolute top-1.5 right-1.5">
-                                                            <span className={`inline-flex px-1.5 py-0.5 rounded-lg text-[10px] font-black shadow-xs ${isZero ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>
+                                                            <span
+                                                                title={hasCustomRed ? `Stock: ${stockVal} (Red threshold: ${redThresh})` : `Stock: ${stockVal}`}
+                                                                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-lg text-[10px] font-black shadow-xs ${isZero ? 'bg-rose-500 text-white' : 'bg-red-500 text-white'}`}
+                                                            >
                                                                 {stockVal}
+                                                                {hasCustomRed && (
+                                                                    <span className="text-[8px] opacity-80 font-normal">/{redThresh}</span>
+                                                                )}
                                                             </span>
                                                         </div>
                                                     </div>
@@ -7037,7 +7050,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                         {/* Floating Stock Badge (Top Right) */}
                                                         <div className="absolute top-2 right-2">
                                                             <span className={`inline-flex px-1.5 py-0.5 rounded-lg text-[10px] font-black shadow-xs ${
-                                                                stockValue <= 0
+                                                                stockValue <= 0 || severity === 'red'
                                                                     ? 'bg-rose-500 text-white'
                                                                     : severity === 'yellow'
                                                                         ? 'bg-amber-500 text-white'

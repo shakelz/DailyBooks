@@ -215,10 +215,13 @@ export default function SmartCategoryForm({
                 // setMinStock(initialData.minStock || '5'); 
 
                 // Stock Alerts
-                if (initialData.stockAlert) {
-                    setStockRed(initialData.stockAlert.red || '');
-                    setStockYellow(initialData.stockAlert.yellow || '');
-                    setStockGreen(initialData.stockAlert.green || '');
+                const alertCfg = initialData.stockAlert || initialData.attributes?.stockAlert || initialData.attributes?.stock_alert;
+                if (alertCfg) {
+                    setStockRed(alertCfg.red !== undefined && alertCfg.red !== null ? String(alertCfg.red) : '');
+                    setStockYellow(alertCfg.yellow !== undefined && alertCfg.yellow !== null ? String(alertCfg.yellow) : '');
+                    setStockGreen(alertCfg.green !== undefined && alertCfg.green !== null ? String(alertCfg.green) : '');
+                } else if (initialData.stockRed || initialData.attributes?.stockRed) {
+                    setStockRed(String(initialData.stockRed || initialData.attributes?.stockRed));
                 }
 
                 // Meta
@@ -555,6 +558,11 @@ export default function SmartCategoryForm({
                 },
                 attributes: {
                     ...dynamicFields,
+                    stockAlert: {
+                        red: parseInt(stockRed) || 0,
+                        yellow: parseInt(stockYellow) || 0,
+                        green: parseInt(stockGreen) || 0,
+                    },
                     ...(isHandyCategory ? {
                         phoneCondition,
                         condition: phoneCondition === 'Old' ? 'Used' : 'New',

@@ -181,7 +181,7 @@ export default function InventoryManager() {
     // ── Filtered Products ──
     const filteredProducts = searchProducts(searchQuery).filter((p) => {
         if (filterSeverity === 'all') return true;
-        return getStockSeverity(p.stock) === filterSeverity;
+        return getStockSeverity(p) === filterSeverity;
     });
 
     const lowStockCount = getLowStockProducts().length;

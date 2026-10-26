@@ -1,7 +1,16 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
-import { buildProductJSON, generateId, getStockSeverity } from '../data/inventoryStore';
+import {
+    buildProductJSON,
+    generateId,
+    getStockSeverity,
+    getProductRedThreshold,
+    hasProductCustomRed,
+    isProductInRed,
+    getProductStockSeverity,
+    getProductStockAlert
+} from '../data/inventoryStore';
 import { getCleanTransactionInvoiceNumber, reserveNextInvoiceNumber } from '../utils/invoiceNumbers';
 import { isHandyProduct } from '../utils/categoryUtils';
 
@@ -811,6 +820,16 @@ function normalizeInventoryRecord(product, categoryLookups = null) {
     const normalizedPurchaseFrom = cleanText(source.purchaseFrom) || attributePurchaseFrom;
     const normalizedPaymentMode = cleanText(source.paymentMode) || cleanText(source.paymentMethod) || attributePaymentMode;
 
+    const resolvedStockAlert = (source.stockAlert && typeof source.stockAlert === 'object' ? source.stockAlert : null)
+        || (source.stock_alert && typeof source.stock_alert === 'object' ? source.stock_alert : null)
+        || (rawAttrs.stockAlert && typeof rawAttrs.stockAlert === 'object' ? rawAttrs.stockAlert : null)
+        || (rawAttrs.stock_alert && typeof rawAttrs.stock_alert === 'object' ? rawAttrs.stock_alert : null)
+        || (rawAttrs.stockRed || rawAttrs.red ? {
+            red: Number(rawAttrs.stockRed || rawAttrs.red || 0),
+            yellow: Number(rawAttrs.stockYellow || rawAttrs.yellow || 0),
+            green: Number(rawAttrs.stockGreen || rawAttrs.green || 0),
+        } : null);
+
     return {
         ...source,
         id: source.product_id ? String(source.product_id) : (source.id ? String(source.id) : source.id),
@@ -829,6 +848,7 @@ function normalizeInventoryRecord(product, categoryLookups = null) {
         purchasePrice: parseFloat(source.purchase_price ?? source.purchasePrice ?? source.costPrice ?? 0) || 0,
         sellingPrice: parseFloat(source.selling_price ?? source.sellingPrice ?? source.price ?? 0) || 0,
         stock: parseInt(source.stock ?? 0, 10) || 0,
+        stockAlert: resolvedStockAlert || { red: 0, yellow: 0, green: 0 },
         attributes: normalizedAttrs,
     };
 }
@@ -1010,6 +1030,11 @@ function buildInventoryPayload(product, includeId = false, shopId = '', category
         payloadAttributes.image = imageValue;
     } else {
         delete payloadAttributes.image;
+    }
+
+    const stockAlertVal = product?.stockAlert || product?.stock_alert || payloadAttributes.stockAlert;
+    if (stockAlertVal && typeof stockAlertVal === 'object') {
+        payloadAttributes.stockAlert = stockAlertVal;
     }
 
     const payload = withShopId({
@@ -1296,6 +1321,7 @@ export function InventoryProvider({ children }) {
         [salesmen, workerDirectory]
     );
     const workerLookupRef = useRef(workerLookup);
+    const productsRef = useRef(products);
     const transactionsRef = useRef(transactions);
     const pendingTransactionDedupeRef = useRef(new Set());
     const addTransactionRef = useRef(null);
@@ -1303,6 +1329,9 @@ export function InventoryProvider({ children }) {
     useEffect(() => {
         workerLookupRef.current = workerLookup;
     }, [workerLookup]);
+    useEffect(() => {
+        productsRef.current = Array.isArray(products) ? products : [];
+    }, [products]);
     useEffect(() => {
         transactionsRef.current = Array.isArray(transactions) ? transactions : [];
     }, [transactions]);
@@ -2290,47 +2319,57 @@ export function InventoryProvider({ children }) {
         const searchRef = String(productRef);
         const parsedStock = parseInt(newStock, 10);
         const nextStock = Number.isNaN(parsedStock) ? 0 : Math.max(0, parsedStock);
-        const matchedProduct = products.find(
+        const currentList = Array.isArray(productsRef.current) ? productsRef.current : [];
+        let matchedProduct = currentList.find(
             p => cleanText(p.shop_id || sid) === sid && (String(p.id) === searchRef || String(p.product_id || '') === searchRef || String(p.barcode || '') === searchRef)
+        ) || currentList.find(
+            p => (String(p.id) === searchRef || String(p.product_id || '') === searchRef || String(p.barcode || '') === searchRef)
         );
         if (!matchedProduct) return null;
 
         const strId = String(matchedProduct.id);
+        const resolvedProductId = String(matchedProduct.product_id || matchedProduct.id || strId);
         const previousStock = parseInt(matchedProduct.stock, 10) || 0;
         const isMobile = isHandyProduct(matchedProduct);
+
         if (isMobile && nextStock <= 0) {
-            setProducts(prev => prev.filter(p => String(p.id) !== strId && String(p.product_id || '') !== strId));
+            productsRef.current = currentList.filter(p => String(p.id) !== strId && String(p.product_id || '') !== resolvedProductId);
+            setProducts(prev => prev.filter(p => String(p.id) !== strId && String(p.product_id || '') !== resolvedProductId));
             (async () => {
                 try {
-                    let res = await supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid);
-                    if (res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) {
+                    let res = await supabase.from('inventory').delete().eq('product_id', resolvedProductId).eq('shop_id', sid).select('id');
+                    if ((res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) || (Array.isArray(res?.data) && res.data.length === 0)) {
                         await supabase.from('inventory').delete().eq('id', strId).eq('shop_id', sid);
                     }
                 } catch (e) {
                     console.error('Failed to auto-delete sold mobile in updateStock:', e);
                 }
             })();
-            broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
+            broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, product_id: resolvedProductId, shop_id: sid } }).catch(e => console.error(e));
             return null;
         }
 
         const updatePayload = { stock: nextStock };
-        setProducts(prev => prev.map(p => (String(p.id) === strId || String(p.product_id || '') === strId) ? { ...p, stock: nextStock } : p));
-        let { error } = await supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid);
-        if (error && (error.message?.includes('product_id') || error.code === '42703')) {
+        productsRef.current = currentList.map(p => (String(p.id) === strId || String(p.product_id || '') === resolvedProductId) ? { ...p, stock: nextStock } : p);
+        setProducts(prev => prev.map(p => (String(p.id) === strId || String(p.product_id || '') === resolvedProductId) ? { ...p, stock: nextStock } : p));
+
+        let res = await supabase.from('inventory').update(updatePayload).eq('product_id', resolvedProductId).eq('shop_id', sid).select('id');
+        let error = res?.error;
+        if ((error && (error.message?.includes('product_id') || error.code === '42703')) || (Array.isArray(res?.data) && res.data.length === 0)) {
             const fallback = await supabase.from('inventory').update(updatePayload).eq('id', strId).eq('shop_id', sid);
-            error = fallback.error;
+            error = fallback?.error;
         }
 
         if (error) {
-            setProducts(prev => prev.map(p => (String(p.id) === strId || String(p.product_id || '') === strId) ? { ...p, stock: previousStock } : p));
+            productsRef.current = productsRef.current.map(p => (String(p.id) === strId || String(p.product_id || '') === resolvedProductId) ? { ...p, stock: previousStock } : p);
+            setProducts(prev => prev.map(p => (String(p.id) === strId || String(p.product_id || '') === resolvedProductId) ? { ...p, stock: previousStock } : p));
             throw new Error(error.message || 'Failed to update stock.');
         }
 
-        broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: nextStock, shop_id: sid } }).catch(e => console.error(e));
+        broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, product_id: resolvedProductId, stock: nextStock, shop_id: sid } }).catch(e => console.error(e));
 
         return { ...matchedProduct, stock: nextStock };
-    }, [products, activeShopId, broadcastUnifiedSync]);
+    }, [activeShopId, broadcastUnifiedSync]);
 
     const adjustStock = useCallback(async (productId, delta) => {
         const sid = cleanText(activeShopId);
@@ -2338,50 +2377,77 @@ export function InventoryProvider({ children }) {
 
         const strId = String(productId);
         const deltaNum = parseFloat(delta) || 0;
-        let shouldDelete = false;
-        let nextStockVal = 0;
 
-        setProducts(prev => {
-            const product = prev.find(p => cleanText(p.shop_id || sid) === sid && (String(p.id) === strId || String(p.product_id || '') === strId));
-            if (!product) return prev;
+        const currentList = Array.isArray(productsRef.current) ? productsRef.current : [];
+        let product = currentList.find(
+            p => cleanText(p.shop_id || sid) === sid && (String(p.id) === strId || String(p.product_id || '') === strId || String(p.barcode || '') === strId)
+        ) || currentList.find(
+            p => (String(p.id) === strId || String(p.product_id || '') === strId || String(p.barcode || '') === strId)
+        );
 
-            const updatedStockVal = Math.max(0, (parseFloat(product.stock) || 0) + deltaNum);
-            const isMobile = isHandyProduct(product);
-
-            if (isMobile && updatedStockVal <= 0) {
-                shouldDelete = true;
-                return prev.filter(p => String(p.id) !== strId && String(p.product_id || '') !== strId);
+        if (!product) {
+            try {
+                let { data } = await supabase.from('inventory').select('*').eq('shop_id', sid).eq('product_id', strId).maybeSingle();
+                if (!data) {
+                    const fallback = await supabase.from('inventory').select('*').eq('shop_id', sid).eq('id', strId).maybeSingle();
+                    data = fallback?.data;
+                }
+                if (data) {
+                    product = normalizeInventoryRecord(data, categoryLookupsRef.current);
+                }
+            } catch (e) {
+                console.warn('[adjustStock] Failed to fetch product from DB:', e);
             }
+        }
 
-            nextStockVal = updatedStockVal;
-            return prev.map(p => (String(p.id) === strId || String(p.product_id || '') === strId) ? { ...p, stock: updatedStockVal } : p);
-        });
+        if (!product) {
+            console.warn(`[adjustStock] Product ${strId} not found in inventory.`);
+            return;
+        }
+
+        const currentStock = parseFloat(product.stock) || 0;
+        const nextStockVal = Math.max(0, Math.round(currentStock + deltaNum));
+        const isMobile = isHandyProduct(product);
+        const shouldDelete = isMobile && nextStockVal <= 0;
+
+        const resolvedId = String(product.id || strId);
+        const resolvedProductId = String(product.product_id || product.id || strId);
 
         if (shouldDelete) {
-            (async () => {
-                try {
-                    let res = await supabase.from('inventory').delete().eq('product_id', strId).eq('shop_id', sid);
-                    if (res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) {
-                        await supabase.from('inventory').delete().eq('id', strId).eq('shop_id', sid);
-                    }
-                } catch (e) {
-                    console.error('Failed to auto-delete sold mobile in adjustStock:', e);
+            productsRef.current = currentList.filter(p => String(p.id) !== resolvedId && String(p.product_id || '') !== resolvedProductId);
+            setProducts(prev => prev.filter(p => String(p.id) !== resolvedId && String(p.product_id || '') !== resolvedProductId));
+
+            try {
+                let res = await supabase.from('inventory').delete().eq('product_id', resolvedProductId).eq('shop_id', sid).select('id');
+                if ((res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) || (Array.isArray(res?.data) && res.data.length === 0)) {
+                    await supabase.from('inventory').delete().eq('id', resolvedId).eq('shop_id', sid);
                 }
-            })();
-            broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: strId, shop_id: sid } }).catch(e => console.error(e));
+            } catch (e) {
+                console.error('Failed to auto-delete sold mobile in adjustStock:', e);
+            }
+            broadcastUnifiedSync('inventory_sync', { action: 'DELETE', data: { id: resolvedId, product_id: resolvedProductId, shop_id: sid } }).catch(e => console.error(e));
         } else {
+            productsRef.current = currentList.map(p =>
+                (String(p.id) === resolvedId || String(p.product_id || '') === resolvedProductId)
+                    ? { ...p, stock: nextStockVal }
+                    : p
+            );
+            setProducts(prev => prev.map(p =>
+                (String(p.id) === resolvedId || String(p.product_id || '') === resolvedProductId)
+                    ? { ...p, stock: nextStockVal }
+                    : p
+            ));
+
             const updatePayload = { stock: nextStockVal };
-            (async () => {
-                try {
-                    let res = await supabase.from('inventory').update(updatePayload).eq('product_id', strId).eq('shop_id', sid);
-                    if (res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) {
-                        await supabase.from('inventory').update(updatePayload).eq('id', strId).eq('shop_id', sid);
-                    }
-                } catch (e) {
-                    console.error('Failed to update stock in adjustStock:', e);
+            try {
+                let res = await supabase.from('inventory').update(updatePayload).eq('product_id', resolvedProductId).eq('shop_id', sid).select('id');
+                if ((res?.error && (res.error.message?.includes('product_id') || res.error.code === '42703')) || (Array.isArray(res?.data) && res.data.length === 0)) {
+                    await supabase.from('inventory').update(updatePayload).eq('id', resolvedId).eq('shop_id', sid);
                 }
-            })();
-            broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: strId, stock: nextStockVal, shop_id: sid } }).catch(e => console.error(e));
+            } catch (e) {
+                console.error('Failed to update stock in adjustStock:', e);
+            }
+            broadcastUnifiedSync('inventory_sync', { action: 'UPDATE', data: { id: resolvedId, product_id: resolvedProductId, stock: nextStockVal, shop_id: sid } }).catch(e => console.error(e));
         }
     }, [activeShopId, broadcastUnifiedSync]);
 
@@ -3332,14 +3398,7 @@ export function InventoryProvider({ children }) {
     }, [activeShopId, categoryNameToId]);
 
     const getLowStockProducts = useCallback(() => {
-        return products.filter(p => {
-            if (typeof p.stock === 'number') return p.stock < 3;
-            if (p.stockAlert) {
-                const total = (p.stockAlert.red || 0) + (p.stockAlert.yellow || 0) + (p.stockAlert.green || 0);
-                return total < 3;
-            }
-            return false;
-        });
+        return products.filter(p => isProductInRed(p));
     }, [products]);
 
     const sanitizeBarcode = useCallback((raw) => {
@@ -3366,6 +3425,11 @@ export function InventoryProvider({ children }) {
         adjustStock,
         sanitizeBarcode,
         getStockSeverity,
+        getProductRedThreshold,
+        hasProductCustomRed,
+        isProductInRed,
+        getProductStockSeverity,
+        getProductStockAlert,
         updateProduct,
         refreshProducts,
         refreshCategoryCatalog,

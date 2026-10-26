@@ -3,6 +3,7 @@ import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
 import { isHandyProduct } from '../../utils/categoryUtils';
+import { isProductInRed } from '../../data/inventoryStore';
 import SmartCategoryForm from '../SmartCategoryForm';
 import SoldPhonesModal from '../SoldPhonesModal';
 import ImageLightboxModal from '../ImageLightboxModal';
@@ -153,7 +154,7 @@ export default function InventoryTab() {
     const stats = useMemo(() => {
         const totalValue = productsInRange.reduce((sum, p) => sum + (p.purchasePrice * p.stock), 0);
         const uniqueItems = productsInRange.length;
-        const lowStockCount = productsInRange.filter(p => p.stock < 3).length;
+        const lowStockCount = productsInRange.filter(p => isProductInRed(p)).length;
         return { totalValue, uniqueItems, lowStockCount };
     }, [productsInRange]);
 
@@ -167,7 +168,7 @@ export default function InventoryTab() {
             const matchesCategory = filterCategory === 'All' || getProductCategoryL1(p) === filterCategory;
 
             let matchesStatus = true;
-            if (filterStatus === 'Red') matchesStatus = p.stock < 3;
+            if (filterStatus === 'Red') matchesStatus = isProductInRed(p);
             else if (filterStatus === 'Yellow') matchesStatus = p.stock >= 3 && p.stock < 6;
             else if (filterStatus === 'Green') matchesStatus = p.stock >= 6;
 
@@ -180,7 +181,7 @@ export default function InventoryTab() {
             } else if (filterStockMode === 'negative') {
                 matchesStockFilter = stockVal < 0;
             } else if (filterStockMode === 'low_stock') {
-                matchesStockFilter = stockVal < 3;
+                matchesStockFilter = isProductInRed(p);
             } else if (filterStockMode === 'custom') {
                 const target = parseFloat(customStockValue);
                 if (!Number.isNaN(target)) {
@@ -662,9 +663,9 @@ export default function InventoryTab() {
                                                             {/* Stock Badge (Top Right) */}
                                                             <div className="absolute top-2 right-2">
                                                                 <span className={`inline-flex px-1.5 py-0.5 rounded-lg text-[10px] font-black shadow-xs ${
-                                                                    isOutOfStock
+                                                                    isOutOfStock || isProductInRed(product)
                                                                         ? 'bg-rose-500 text-white'
-                                                                        : stockNum < 3
+                                                                        : stockNum < 6
                                                                             ? 'bg-amber-500 text-white'
                                                                             : 'bg-emerald-600 text-white'
                                                                 }`}>
@@ -1004,7 +1005,7 @@ export default function InventoryTab() {
                                                         </td>
                                                         <td className="px-6 py-4 text-center">
                                                             <div className="flex flex-col items-center gap-2">
-                                                                <div className={`inline-flex flex-col px-3 py-1 rounded-2xl items-center ${product.stock < 3 ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                                <div className={`inline-flex flex-col px-3 py-1 rounded-2xl items-center ${isProductInRed(product) ? 'bg-red-50 text-red-600 border border-red-100' :
                                                                     product.stock < 6 ? 'bg-amber-50 text-amber-600 border border-amber-100' :
                                                                         'bg-emerald-50 text-emerald-600 border border-emerald-100'
                                                                     }`}>

@@ -1,5 +1,6 @@
 import { useInventory } from '../../context/InventoryContext';
 import { priceTag, CURRENCY_CONFIG } from '../../utils/currency';
+import { isProductInRed } from '../../data/inventoryStore';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
     PieChart, Pie, Cell, BarChart, Bar, Legend
@@ -16,7 +17,7 @@ export default function AdminInsights() {
     const products = getAllProducts();
     const totalStockValue = products.reduce((acc, p) => acc + (parseFloat(p.purchasePrice || 0) * parseFloat(p.stock || 0)), 0);
     const potentialRevenue = products.reduce((acc, p) => acc + (parseFloat(p.sellingPrice || 0) * parseFloat(p.stock || 0)), 0);
-    const lowStockCount = products.filter(p => !p.stock || parseInt(p.stock) < 3).length;
+    const lowStockCount = products.filter(p => isProductInRed(p)).length;
 
     // ── Mock Chart Data (since we might not have enough history yet) ──
     const salesData = [

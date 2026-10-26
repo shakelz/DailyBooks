@@ -61,15 +61,80 @@ export function searchProducts(query) {
     );
 }
 
-export function getLowStockProducts() {
-    return products.filter(p => {
-        if (typeof p.stock === 'number') return p.stock < 3;
-        if (p.stockAlert) {
-            const total = (p.stockAlert.red || 0) + (p.stockAlert.yellow || 0) + (p.stockAlert.green || 0);
-            return total < 3;
+export function getProductStockAlert(product) {
+    if (!product) return null;
+    const directAlert = (product.stockAlert && typeof product.stockAlert === 'object' ? product.stockAlert : null)
+        || (product.stock_alert && typeof product.stock_alert === 'object' ? product.stock_alert : null);
+    if (directAlert) return directAlert;
+
+    const raw = product.raw;
+    if (raw) {
+        const rawAlert = (raw.stockAlert && typeof raw.stockAlert === 'object' ? raw.stockAlert : null)
+            || (raw.stock_alert && typeof raw.stock_alert === 'object' ? raw.stock_alert : null);
+        if (rawAlert) return rawAlert;
+        if (raw.attributes?.stockAlert && typeof raw.attributes.stockAlert === 'object') {
+            return raw.attributes.stockAlert;
         }
-        return false;
-    });
+        if (raw.attributes?.stock_alert && typeof raw.attributes.stock_alert === 'object') {
+            return raw.attributes.stock_alert;
+        }
+    }
+
+    if (product.attributes?.stockAlert && typeof product.attributes.stockAlert === 'object') {
+        return product.attributes.stockAlert;
+    }
+    if (product.attributes?.stock_alert && typeof product.attributes.stock_alert === 'object') {
+        return product.attributes.stock_alert;
+    }
+    return null;
+}
+
+export function getProductRedThreshold(product) {
+    if (!product) return 2;
+    const alertCfg = getProductStockAlert(product);
+    const rawVal = alertCfg?.red
+        ?? product.stockRed
+        ?? product.red
+        ?? product.raw?.stockRed
+        ?? product.raw?.red
+        ?? product.attributes?.stockRed
+        ?? product.attributes?.red
+        ?? product.raw?.attributes?.stockRed
+        ?? product.raw?.attributes?.red;
+
+    const parsed = Number(rawVal);
+    if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+    }
+    return 2; // Default red threshold (< 3, i.e., <= 2)
+}
+
+export function hasProductCustomRed(product) {
+    if (!product) return false;
+    const alertCfg = getProductStockAlert(product);
+    const rawVal = alertCfg?.red
+        ?? product.stockRed
+        ?? product.red
+        ?? product.raw?.stockRed
+        ?? product.raw?.red
+        ?? product.attributes?.stockRed
+        ?? product.attributes?.red
+        ?? product.raw?.attributes?.stockRed
+        ?? product.raw?.attributes?.red;
+    const parsed = Number(rawVal);
+    return Number.isFinite(parsed) && parsed > 0;
+}
+
+export function isProductInRed(product) {
+    if (!product) return false;
+    const stockVal = parseFloat(product.stock ?? product.qty ?? product.quantity ?? 0) || 0;
+    if (stockVal <= 0) return true;
+    const redThreshold = getProductRedThreshold(product);
+    return stockVal <= redThreshold;
+}
+
+export function getLowStockProducts() {
+    return products.filter(p => isProductInRed(p));
 }
 
 // ── Category Getters ──
@@ -122,6 +187,41 @@ export function getCategoryImage(level1Name, level2Name) {
 }
 
 // ── Stock Severity ──
+export function getProductStockSeverity(product) {
+    if (!product) return 'green';
+    const stockVal = parseFloat(product.stock ?? product.qty ?? product.quantity ?? 0) || 0;
+    if (stockVal <= 0) return 'red';
+
+    const alertCfg = getProductStockAlert(product);
+    const rawRed = alertCfg?.red
+        ?? product.stockRed
+        ?? product.red
+        ?? product.raw?.stockRed
+        ?? product.raw?.red
+        ?? product.attributes?.stockRed
+        ?? product.attributes?.red
+        ?? product.raw?.attributes?.stockRed
+        ?? product.raw?.attributes?.red;
+    const rawYellow = alertCfg?.yellow
+        ?? product.stockYellow
+        ?? product.yellow
+        ?? product.raw?.stockYellow
+        ?? product.raw?.yellow
+        ?? product.attributes?.stockYellow
+        ?? product.attributes?.yellow
+        ?? product.raw?.attributes?.stockYellow
+        ?? product.raw?.attributes?.yellow;
+
+    const redThreshold = Number(rawRed);
+    const yellowThreshold = Number(rawYellow);
+    const hasRed = Number.isFinite(redThreshold) && redThreshold > 0;
+    const hasYellow = Number.isFinite(yellowThreshold) && yellowThreshold > 0;
+
+    if (hasRed && stockVal <= redThreshold) return 'red';
+    if (hasYellow && stockVal <= yellowThreshold) return 'yellow';
+    return getStockSeverity(stockVal);
+}
+
 export function getStockSeverity(stockCounts) {
     if (typeof stockCounts === 'number') {
         if (stockCounts <= 2) return 'red';
@@ -129,6 +229,9 @@ export function getStockSeverity(stockCounts) {
         return 'green';
     }
     if (stockCounts && typeof stockCounts === 'object') {
+        if (stockCounts.stock !== undefined || stockCounts.qty !== undefined || stockCounts.quantity !== undefined || stockCounts.raw) {
+            return getProductStockSeverity(stockCounts);
+        }
         const total = (stockCounts.red || 0) + (stockCounts.yellow || 0) + (stockCounts.green || 0);
         if (total <= 2) return 'red';
         if (total <= 5) return 'yellow';
