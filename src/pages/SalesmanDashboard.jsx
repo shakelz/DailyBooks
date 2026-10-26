@@ -200,6 +200,7 @@ function newSimpleEntryForm() {
         image: '',
         quantity: '1',
         amount: '',
+        unitPrice: '',
     };
 }
 
@@ -3328,24 +3329,85 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         const nextAmount = mode === 'purchase'
             ? (resolved.purchasePrice || resolved.sellingPrice || 0)
             : (resolved.sellingPrice || 0);
-        const patch = {
-            productId: resolved.id || '',
-            productName: resolved.name || '',
-            category: resolved.category || '',
-            subCategory: resolved.subCategory || '',
-            image: resolved.image || '',
-            amount: nextAmount > 0 ? String(nextAmount) : '',
-        };
         if (mode === 'sales') {
-            setSalesEntry((prev) => ({ ...prev, ...patch }));
+            setSalesEntry((prev) => {
+                const currentQty = Math.max(1, parseInt(prev.quantity || '1', 10) || 1);
+                const totalAmount = nextAmount > 0 ? String(Number((nextAmount * currentQty).toFixed(2))) : '';
+                return {
+                    ...prev,
+                    productId: resolved.id || '',
+                    productName: resolved.name || '',
+                    category: resolved.category || '',
+                    subCategory: resolved.subCategory || '',
+                    image: resolved.image || '',
+                    unitPrice: nextAmount > 0 ? String(nextAmount) : '',
+                    amount: totalAmount,
+                };
+            });
             setSalesEntryErrors((prev) => ({ ...prev, category: '', amount: '' }));
             setShowSalesProductSuggestions(false);
         } else {
+            const patch = {
+                productId: resolved.id || '',
+                productName: resolved.name || '',
+                category: resolved.category || '',
+                subCategory: resolved.subCategory || '',
+                image: resolved.image || '',
+                amount: nextAmount > 0 ? String(nextAmount) : '',
+            };
             setPurchaseEntry((prev) => ({ ...prev, ...patch }));
             setPurchaseEntryErrors((prev) => ({ ...prev, category: '', amount: '' }));
             setShowPurchaseProductSuggestions(false);
         }
     }, []);
+
+    const handleSalesAmountChange = useCallback((val) => {
+        const parsedAmt = parseFloat(val);
+        setSalesEntry((prev) => {
+            const qtyNum = Math.max(1, parseInt(prev.quantity || '1', 10) || 1);
+            const newUnitPrice = (!Number.isNaN(parsedAmt) && parsedAmt >= 0 && qtyNum > 0)
+                ? String(Number((parsedAmt / qtyNum).toFixed(4)))
+                : prev.unitPrice;
+            return {
+                ...prev,
+                amount: val,
+                unitPrice: newUnitPrice,
+            };
+        });
+        setSalesEntryErrors((prev) => ({ ...prev, amount: '' }));
+    }, []);
+
+    const handleSalesQuantityChange = useCallback((nextQtyRaw) => {
+        const sanitized = String(nextQtyRaw ?? '').replace(/[^\d]/g, '');
+        setSalesEntry((prev) => {
+            const nextQtyNum = parseInt(sanitized, 10);
+
+            let unitPrice = parseFloat(prev.unitPrice) || 0;
+            if (!unitPrice && prev.productId && productLookup[prev.productId]) {
+                unitPrice = parseFloat(productLookup[prev.productId].sellingPrice) || 0;
+            }
+            if (!unitPrice) {
+                const curAmt = parseFloat(prev.amount) || 0;
+                const curQty = Math.max(1, parseInt(prev.quantity || '1', 10) || 1);
+                if (curAmt > 0) {
+                    unitPrice = curAmt / curQty;
+                }
+            }
+
+            let nextAmount = prev.amount;
+            if (unitPrice > 0 && !Number.isNaN(nextQtyNum) && nextQtyNum > 0) {
+                nextAmount = String(Number((unitPrice * nextQtyNum).toFixed(2)));
+            }
+
+            return {
+                ...prev,
+                quantity: sanitized,
+                amount: nextAmount,
+                unitPrice: unitPrice > 0 ? String(unitPrice) : prev.unitPrice,
+            };
+        });
+        setSalesEntryErrors((prev) => ({ ...prev, qty: '' }));
+    }, [productLookup]);
 
     const handleEntryProductQueryChange = (mode, value) => {
         const nextValue = String(value || '');
@@ -4461,13 +4523,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const openSalesFormWithProduct = (product) => {
         if (!product) return;
         const resolved = resolveProductSnapshot(product);
+        const unit = resolved.sellingPrice || 0;
         setSalesEntry((prev) => ({
             ...prev,
             productId: resolved.id || '',
             productName: resolved.name || '',
             category: resolved.category || prev.category,
             subCategory: resolved.subCategory || '',
-            amount: String(resolved.sellingPrice || prev.amount || ''),
+            quantity: '1',
+            unitPrice: unit > 0 ? String(unit) : '',
+            amount: unit > 0 ? String(unit) : String(prev.amount || ''),
         }));
         setQuickSaleForm({
             productId: resolved.id,
@@ -5397,10 +5462,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                     step="0.01"
                                     min="0"
                                     value={salesEntry.amount}
-                                    onChange={(e) => {
-                                        setSalesEntry((prev) => ({ ...prev, amount: e.target.value }));
-                                        setSalesEntryErrors((prev) => ({ ...prev, amount: '' }));
-                                    }}
+                                    onChange={(e) => handleSalesAmountChange(e.target.value)}
                                     placeholder="Amount"
                                     className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 ${salesEntryErrors.amount ? 'border-rose-300' : 'border-slate-200'}`}
                                     aria-invalid={Boolean(salesEntryErrors.amount)}
@@ -5411,7 +5473,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                         </div>
 
                         <div className="space-y-2">
-                            <div className="grid grid-cols-[1fr_88px] gap-1.5 items-end">
+                            <div className="grid grid-cols-[1fr_105px] gap-1.5 items-end">
                                 <div ref={salesSuggestionBoxRef} className="relative">
                                     <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Name / Barcode</label>
                                     <div className="flex items-center gap-1.5">
@@ -5466,19 +5528,44 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 </div>
                                 <div>
                                     <label className="block text-[11px] font-semibold text-slate-600 mb-1">Qty</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        step="1"
-                                        value={salesEntry.quantity}
-                                        onChange={(e) => {
-                                            const nextQty = e.target.value.replace(/[^\d]/g, '');
-                                            setSalesEntry((prev) => ({ ...prev, quantity: nextQty || '1' }));
-                                            setSalesEntryErrors((prev) => ({ ...prev, qty: '' }));
-                                        }}
-                                        className={`w-full rounded-lg border bg-white px-2 py-1.5 text-xs text-slate-700 ${salesEntryErrors.qty ? 'border-rose-300' : 'border-slate-200'}`}
-                                        aria-invalid={Boolean(salesEntryErrors.qty)}
-                                    />
+                                    <div className="flex items-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const cur = Math.max(1, parseInt(salesEntry.quantity || '1', 10) || 1);
+                                                if (cur > 1) handleSalesQuantityChange(cur - 1);
+                                            }}
+                                            className="w-7 h-[31px] flex items-center justify-center rounded-l-lg border border-r-0 border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold text-xs select-none active:bg-slate-200 transition-colors"
+                                            title="Decrease count"
+                                        >
+                                            -
+                                        </button>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            step="1"
+                                            value={salesEntry.quantity}
+                                            onChange={(e) => handleSalesQuantityChange(e.target.value)}
+                                            onBlur={() => {
+                                                if (!salesEntry.quantity || parseInt(salesEntry.quantity, 10) < 1) {
+                                                    handleSalesQuantityChange('1');
+                                                }
+                                            }}
+                                            className={`w-full rounded-none text-center border bg-white px-1 py-1.5 text-xs text-slate-700 ${salesEntryErrors.qty ? 'border-rose-300' : 'border-slate-200'}`}
+                                            aria-invalid={Boolean(salesEntryErrors.qty)}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const cur = Math.max(1, parseInt(salesEntry.quantity || '1', 10) || 1);
+                                                handleSalesQuantityChange(cur + 1);
+                                            }}
+                                            className="w-7 h-[31px] flex items-center justify-center rounded-r-lg border border-l-0 border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold text-xs select-none active:bg-slate-200 transition-colors"
+                                            title="Increase count"
+                                        >
+                                            +
+                                        </button>
+                                    </div>
                                     {salesEntryErrors.qty && <p className="mt-1 text-[10px] text-rose-600">{salesEntryErrors.qty}</p>}
                                 </div>
                             </div>
