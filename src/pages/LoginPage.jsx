@@ -22,6 +22,7 @@ export default function LoginPage({ mode = 'salesman' }) {
     const location = useLocation()
     const {
         login,
+        logout,
         role: authRole,
         user: authUser,
         authLoading,
@@ -50,6 +51,12 @@ export default function LoginPage({ mode = 'salesman' }) {
     const [isLoading, setIsLoading] = useState(false)
 
     useEffect(() => {
+        const params = new URLSearchParams(location.search)
+        if (params.has('desktop_session')) {
+            logout()
+            return
+        }
+
         if (authLoading) return
         if (!authUser || !authRole) return
 

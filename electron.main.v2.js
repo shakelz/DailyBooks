@@ -2,12 +2,12 @@ import { app, BrowserWindow } from 'electron';
 import process from 'node:process';
 
 const REMOTE_URL = 'https://www.carefone.de/terminal-access-v1';
-const PARTITION_NAME = 'nopersist:carefone-salesman-v2';
+const PARTITION_NAME = 'persist:carefone-terminal';
 
 app.commandLine.appendSwitch('disable-http-cache');
 app.commandLine.appendSwitch('disable-features', 'BackForwardCache');
 
-async function clearSessionData(sessionInstance) {
+async function clearNetworkCache(sessionInstance) {
   try {
     await sessionInstance.clearCache();
     await sessionInstance.clearStorageData({
@@ -15,8 +15,6 @@ async function clearSessionData(sessionInstance) {
         'appcache',
         'cookies',
         'filesystem',
-        'indexdb',
-        'localstorage',
         'serviceworkers',
         'cachestorage',
         'shadercache',
@@ -60,7 +58,7 @@ async function createWindow() {
   });
 
   const appSession = window.webContents.session;
-  await clearSessionData(appSession);
+  await clearNetworkCache(appSession);
 
   const forceSalesmanHome = () => {
     if (!window.isDestroyed()) {
@@ -110,7 +108,7 @@ async function createWindow() {
   await window.loadURL(getLaunchUrl());
 
   window.on('close', () => {
-    clearSessionData(appSession).catch(() => undefined);
+    clearNetworkCache(appSession).catch(() => undefined);
   });
 }
 
@@ -126,7 +124,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', async () => {
   const allWindows = BrowserWindow.getAllWindows();
-  await Promise.all(allWindows.map((window) => clearSessionData(window.webContents.session)));
+  await Promise.all(allWindows.map((window) => clearNetworkCache(window.webContents.session)));
 });
 
 app.on('window-all-closed', () => {
