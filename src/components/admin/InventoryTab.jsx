@@ -287,12 +287,13 @@ export default function InventoryTab() {
     };
 
     const handleEditProduct = async (product) => {
+        const prodId = String(product?.id || product?.product_id || '').trim();
         try {
-            const fullProduct = await getProductDetails(product.id, true);
-            setSelectedProduct(fullProduct || product);
+            const fullProduct = await getProductDetails(prodId, true);
+            setSelectedProduct({ ...(fullProduct || product), id: prodId, product_id: prodId });
         } catch (error) {
             console.error('Failed to fetch full product details:', error);
-            setSelectedProduct(product);
+            setSelectedProduct({ ...product, id: prodId, product_id: prodId });
         } finally {
             setIsFormOpen(true);
         }

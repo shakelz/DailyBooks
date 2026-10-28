@@ -317,11 +317,52 @@ function extractRepairReferenceFromTransaction(txn = {}) {
 }
 
 function buildTransactionDraft(txn = {}, defaultShowTax = true) {
+    const rawCategory = txn.category || txn.category_name || '';
+    let categoryName = extractCategoryName(rawCategory);
+    let subCategoryName = String(
+        txn.subCategory
+        || txn.sub_category
+        || txn.subcategory
+        || (txn.notes?.match(/\[SubCategory:\s*([^\]]+)\]/i)?.[1])
+        || (txn.notes?.match(/subcategory\s*:\s*([^|,\n]+)/i)?.[1])
+        || ''
+    ).trim();
+
+    if (categoryName.includes('/')) {
+        const parts = categoryName.split('/').map((p) => p.trim());
+        if (parts.length >= 2) {
+            categoryName = parts[0];
+            if (!subCategoryName) subCategoryName = parts[1];
+        }
+    }
+
+    const amt = parseFloat(txn.amount) || 0;
+    const qty = Math.max(1, parseInt(txn.quantity || '1', 10) || 1);
+
+    const parsedBuy = Number(
+        txn.purchasePriceAtTime ??
+        txn.purchase_price_at_time ??
+        txn.purchasePrice ??
+        txn.costPrice ??
+        (txn.notes?.match(/\[PurchasePrice:\s*([0-9.]+)\]/i)?.[1]) ??
+        (txn.notes?.match(/(?:cost|purchase(?:\s*price)?)\s*:\s*([0-9.]+)/i)?.[1]) ??
+        0
+    ) || 0;
+
+    const parsedProfit = Number(
+        txn.profit ??
+        (txn.notes?.match(/\[Profit:\s*([0-9.]+)\]/i)?.[1]) ??
+        (parsedBuy > 0 ? (amt - (parsedBuy * qty)) : amt)
+    ) || 0;
+
     return {
-        desc: String(txn.desc || ''),
-        category: extractCategoryName(txn.category) || '',
-        amount: String(parseFloat(txn.amount) || 0),
-        quantity: String(Math.max(1, parseInt(txn.quantity || '1', 10) || 1)),
+        desc: String(txn.desc || txn.description || txn.name || ''),
+        category: categoryName || 'General',
+        subCategory: subCategoryName,
+        amount: String(amt),
+        quantity: String(qty),
+        purchasePrice: String(parsedBuy),
+        profit: String(parsedProfit),
         paymentMethod: String(txn.paymentMethod || 'Cash'),
         notes: String(txn.notes || ''),
         includeTax: txn.includeTax === undefined ? Boolean(defaultShowTax) : Boolean(txn.includeTax),
@@ -3291,9 +3332,27 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
     // Product & Stock Management Handlers for Salesman
     const handleEditProduct = useCallback((productOrItem) => {
-        const rawProduct = productOrItem?.raw || productOrItem;
-        if (!rawProduct) return;
-        setEditingProduct(rawProduct);
+        const raw = productOrItem?.raw || {};
+        const snapshot = productOrItem?.snapshot || {};
+        const resolvedId = String(
+            productOrItem?.id ||
+            raw.id ||
+            raw.product_id ||
+            snapshot.id ||
+            productOrItem?.productId ||
+            ''
+        ).trim();
+
+        const baseProduct = productOrItem?.raw || productOrItem;
+        if (!baseProduct) return;
+
+        setEditingProduct({
+            ...baseProduct,
+            ...snapshot,
+            ...raw,
+            id: resolvedId,
+            product_id: resolvedId,
+        });
         setShowInventoryForm(true);
     }, []);
 
@@ -4144,13 +4203,19 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     };
 
     const saveTransactionChanges = async () => {
-        if (!canEditTransactions || !selectedTransaction || !transactionDraft) return;
+        if (!selectedTransaction || !transactionDraft) return;
 
         const nextDesc = String(transactionDraft.desc || '').trim();
         const nextCategory = String(transactionDraft.category || '').trim();
+        const nextSubCategory = String(transactionDraft.subCategory || '').trim();
         const nextPayment = String(transactionDraft.paymentMethod || '').trim();
         const nextAmount = parseFloat(transactionDraft.amount);
         const nextQty = Math.max(1, parseInt(transactionDraft.quantity || '1', 10) || 1);
+        const nextBuyPrice = Math.max(0, parseFloat(transactionDraft.purchasePrice) || 0);
+        const nextProfit = Number.isFinite(parseFloat(transactionDraft.profit))
+            ? parseFloat(transactionDraft.profit)
+            : Math.max(0, nextAmount - (nextBuyPrice * nextQty));
+
         if (!nextDesc || !nextCategory || !nextPayment || !Number.isFinite(nextAmount) || nextAmount <= 0) {
             setTransactionFormError('Description, category, payment mode and a valid amount are required.');
             return;
@@ -4159,13 +4224,36 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setIsSavingTransaction(true);
         setTransactionFormError('');
         try {
+            let cleanNotes = String(transactionDraft.notes || '')
+                .replace(/\[Category:\s*[^\]]+\]\s*\|?/gi, '')
+                .replace(/\[SubCategory:\s*[^\]]+\]\s*\|?/gi, '')
+                .replace(/\[PurchasePrice:\s*[^\]]+\]\s*\|?/gi, '')
+                .replace(/\[Profit:\s*[^\]]+\]\s*\|?/gi, '')
+                .replace(/SubCategory:\s*[^|,\n]+\s*\|?/gi, '')
+                .trim();
+            if (cleanNotes.startsWith('|')) cleanNotes = cleanNotes.slice(1).trim();
+            if (cleanNotes.endsWith('|')) cleanNotes = cleanNotes.slice(0, -1).trim();
+
+            const metaTags = [
+                nextSubCategory ? `[SubCategory: ${nextSubCategory}]` : '',
+                nextBuyPrice > 0 ? `[PurchasePrice: ${nextBuyPrice}]` : '',
+                `[Profit: ${nextProfit}]`,
+            ].filter(Boolean).join(' | ');
+
+            const combinedNotes = [cleanNotes, metaTags].filter(Boolean).join(' | ');
+
             const payload = {
                 desc: nextDesc,
                 category: nextCategory,
+                sub_category: nextSubCategory,
+                subCategory: nextSubCategory,
                 paymentMethod: nextPayment,
                 amount: nextAmount,
                 quantity: nextQty,
-                notes: String(transactionDraft.notes || ''),
+                purchasePriceAtTime: nextBuyPrice > 0 ? nextBuyPrice : undefined,
+                purchase_price_at_time: nextBuyPrice > 0 ? nextBuyPrice : undefined,
+                profit: nextProfit,
+                notes: combinedNotes,
                 includeTax: Boolean(transactionDraft.includeTax),
             };
             const updated = await updateTransaction(selectedTransaction.id, payload);
@@ -6755,91 +6843,206 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                 </div>
                             )}
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                <div>
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Description</label>
-                                    <input
-                                        value={transactionDraft.desc}
-                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, desc: e.target.value }))}
-                                        readOnly={!canEditTransactions}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
-                                        disabled={!canEditTransactions}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
-                                    <input
-                                        value={transactionDraft.category}
-                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, category: e.target.value }))}
-                                        readOnly={!canEditTransactions}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
-                                        disabled={!canEditTransactions}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Amount</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        value={transactionDraft.amount}
-                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, amount: e.target.value }))}
-                                        readOnly={!canEditTransactions}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
-                                        disabled={!canEditTransactions}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Quantity</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        step="1"
-                                        value={transactionDraft.quantity}
-                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, quantity: e.target.value }))}
-                                        readOnly={!canEditTransactions}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
-                                        disabled={!canEditTransactions}
-                                    />
-                                </div>
-                                <div className="md:col-span-2">
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Payment Mode</label>
-                                    <input
-                                        value={transactionDraft.paymentMethod}
-                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, paymentMethod: e.target.value }))}
-                                        readOnly={!canEditTransactions}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
-                                        disabled={!canEditTransactions}
-                                    />
-                                </div>
-                                <div className="md:col-span-2">
-                                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Notes</label>
-                                    <textarea
-                                        rows={2}
-                                        value={transactionDraft.notes}
-                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, notes: e.target.value }))}
-                                        readOnly={!canEditTransactions}
-                                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 disabled:bg-slate-100"
-                                        disabled={!canEditTransactions}
-                                    />
-                                </div>
-                            </div>
+                            {(() => {
+                                const isIncomeTxn = normalizeTxnType(selectedTransaction?.type) === 'income';
+                                const catPurpose = isIncomeTxn ? 'sales' : 'expense';
+                                const catalogCats = (typeof getLevel1Categories === 'function' ? (getLevel1Categories(catPurpose) || []) : [])
+                                    .map((c) => (typeof c === 'object' ? c?.name : c))
+                                    .filter(Boolean);
+                                const catOptions = Array.from(new Set([...catalogCats, transactionDraft.category].filter(Boolean)));
+                                const catalogSubs = (typeof getLevel2Categories === 'function' && transactionDraft.category ? (getLevel2Categories(transactionDraft.category, catPurpose) || []) : [])
+                                    .map((c) => (typeof c === 'object' ? c?.name : c))
+                                    .filter(Boolean);
+                                const subOptions = Array.from(new Set([...catalogSubs, transactionDraft.subCategory].filter(Boolean)));
 
-                            {!canEditTransactions && (
-                                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-                                    Edit access is disabled for your account. Ask admin to enable transaction editing.
-                                </p>
-                            )}
-                            <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                                return (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                                        <div className="md:col-span-2">
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Description / Product</label>
+                                            <input
+                                                value={transactionDraft.desc}
+                                                onChange={(e) => setTransactionDraft((prev) => ({ ...prev, desc: e.target.value }))}
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                placeholder="Transaction description"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
+                                            <div className="space-y-1.5">
+                                                <select
+                                                    value={catOptions.includes(transactionDraft.category) ? transactionDraft.category : '__custom__'}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (val !== '__custom__') {
+                                                            setTransactionDraft((prev) => ({ ...prev, category: val, subCategory: '' }));
+                                                        }
+                                                    }}
+                                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+                                                >
+                                                    <option value="">Select Category</option>
+                                                    {catOptions.map((cat) => (
+                                                        <option key={cat} value={cat}>{cat}</option>
+                                                    ))}
+                                                    <option value="__custom__">+ Custom Category</option>
+                                                </select>
+                                                {!catOptions.includes(transactionDraft.category) && (
+                                                    <input
+                                                        value={transactionDraft.category}
+                                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, category: e.target.value }))}
+                                                        placeholder="Enter category name"
+                                                        className="w-full rounded-xl border border-blue-200 bg-blue-50/40 px-3 py-1.5 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                                                Subcategory {subOptions.length === 0 ? '(Optional)' : ''}
+                                            </label>
+                                            <div className="space-y-1.5">
+                                                {subOptions.length > 0 ? (
+                                                    <>
+                                                        <select
+                                                            value={subOptions.includes(transactionDraft.subCategory) ? transactionDraft.subCategory : (transactionDraft.subCategory ? '__custom__' : '')}
+                                                            onChange={(e) => {
+                                                                const val = e.target.value;
+                                                                if (val !== '__custom__') {
+                                                                    setTransactionDraft((prev) => ({ ...prev, subCategory: val }));
+                                                                }
+                                                            }}
+                                                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+                                                        >
+                                                            <option value="">-- No Subcategory --</option>
+                                                            {subOptions.map((sub) => (
+                                                                <option key={sub} value={sub}>{sub}</option>
+                                                            ))}
+                                                            <option value="__custom__">+ Custom Subcategory</option>
+                                                        </select>
+                                                        {transactionDraft.subCategory && !subOptions.includes(transactionDraft.subCategory) && (
+                                                            <input
+                                                                value={transactionDraft.subCategory}
+                                                                onChange={(e) => setTransactionDraft((prev) => ({ ...prev, subCategory: e.target.value }))}
+                                                                placeholder="Enter subcategory name"
+                                                                className="w-full rounded-xl border border-blue-200 bg-blue-50/40 px-3 py-1.5 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                            />
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <input
+                                                        value={transactionDraft.subCategory}
+                                                        onChange={(e) => setTransactionDraft((prev) => ({ ...prev, subCategory: e.target.value }))}
+                                                        placeholder="e.g. iPhone, Display, etc."
+                                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Sold Price (Total Amount €)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                value={transactionDraft.amount}
+                                                onChange={(e) => {
+                                                    const amt = parseFloat(e.target.value) || 0;
+                                                    const qty = Math.max(1, parseInt(transactionDraft.quantity || '1', 10) || 1);
+                                                    const buy = parseFloat(transactionDraft.purchasePrice) || 0;
+                                                    const calcProfit = buy > 0 ? Math.max(0, amt - (buy * qty)) : amt;
+                                                    setTransactionDraft((prev) => ({ ...prev, amount: e.target.value, profit: String(calcProfit) }));
+                                                }}
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Quantity</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                step="1"
+                                                value={transactionDraft.quantity}
+                                                onChange={(e) => {
+                                                    const qty = Math.max(1, parseInt(e.target.value || '1', 10) || 1);
+                                                    const amt = parseFloat(transactionDraft.amount) || 0;
+                                                    const buy = parseFloat(transactionDraft.purchasePrice) || 0;
+                                                    const calcProfit = buy > 0 ? Math.max(0, amt - (buy * qty)) : amt;
+                                                    setTransactionDraft((prev) => ({ ...prev, quantity: e.target.value, profit: String(calcProfit) }));
+                                                }}
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Buying Price / Cost per unit (€)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                value={transactionDraft.purchasePrice}
+                                                onChange={(e) => {
+                                                    const buy = parseFloat(e.target.value) || 0;
+                                                    const amt = parseFloat(transactionDraft.amount) || 0;
+                                                    const qty = Math.max(1, parseInt(transactionDraft.quantity || '1', 10) || 1);
+                                                    const calcProfit = Math.max(0, amt - (buy * qty));
+                                                    setTransactionDraft((prev) => ({ ...prev, purchasePrice: e.target.value, profit: String(calcProfit) }));
+                                                }}
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Calculated Profit (€)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={transactionDraft.profit}
+                                                onChange={(e) => setTransactionDraft((prev) => ({ ...prev, profit: e.target.value }))}
+                                                className="w-full rounded-xl border border-emerald-300 bg-emerald-50/60 px-3 py-2 text-xs font-black text-emerald-700 outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+
+                                        <div className="md:col-span-2">
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Payment Mode</label>
+                                            <select
+                                                value={transactionDraft.paymentMethod}
+                                                onChange={(e) => setTransactionDraft((prev) => ({ ...prev, paymentMethod: e.target.value }))}
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+                                            >
+                                                {['Cash', 'Card', 'Bank Transfer', 'PayPal', 'Invoice', 'Voucher'].map((mode) => (
+                                                    <option key={mode} value={mode}>{mode}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="md:col-span-2">
+                                            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Notes</label>
+                                            <textarea
+                                                rows={2}
+                                                value={transactionDraft.notes}
+                                                onChange={(e) => setTransactionDraft((prev) => ({ ...prev, notes: e.target.value }))}
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                placeholder="Additional transaction notes..."
+                                            />
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                                 <div>
                                     <p className="text-[11px] font-semibold text-slate-700">Tax Inclusion in Bill</p>
                                     <p className="text-[10px] text-slate-500">Show or hide Netto/USt lines on receipt</p>
                                 </div>
                                 <button
                                     type="button"
-                                    disabled={!canEditTransactions}
                                     onClick={() => setTransactionDraft((prev) => prev ? ({ ...prev, includeTax: !prev.includeTax }) : prev)}
-                                    className={`relative h-6 w-11 overflow-hidden rounded-full transition-colors ${transactionDraft.includeTax ? 'bg-emerald-500' : 'bg-slate-300'} ${!canEditTransactions ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                    className={`relative h-6 w-11 overflow-hidden rounded-full transition-colors ${transactionDraft.includeTax ? 'bg-emerald-500' : 'bg-slate-300'}`}
                                     title="Toggle tax lines in printed bill"
                                 >
                                     <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${transactionDraft.includeTax ? 'translate-x-5' : 'translate-x-0'}`} />
@@ -6847,15 +7050,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             </div>
                             {transactionFormError && <p className="text-[11px] text-rose-600">{transactionFormError}</p>}
 
-                            <div className="flex items-center justify-between gap-2">
-                                <button type="button" onClick={printTransactionDraft} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                                    Print
+                            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                                <button type="button" onClick={printTransactionDraft} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer shadow-xs">
+                                    Print Receipt
                                 </button>
                                 <button
                                     type="button"
                                     onClick={saveTransactionChanges}
-                                    disabled={!canEditTransactions || isSavingTransaction}
-                                    className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-60"
+                                    disabled={isSavingTransaction}
+                                    className="rounded-xl bg-blue-600 text-white px-4 py-2 text-xs font-bold hover:bg-blue-700 disabled:opacity-60 shadow-xs cursor-pointer transition-all"
                                 >
                                     {isSavingTransaction ? 'Saving...' : 'Save Changes'}
                                 </button>

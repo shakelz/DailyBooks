@@ -2353,9 +2353,19 @@ export function InventoryProvider({ children }) {
         const sid = cleanText(activeShopId);
         if (!sid) throw new Error('No active shop selected.');
 
-        const strId = String(id);
-        const previousProduct = products.find(p => String(p.id) === strId || String(p.product_id || '') === strId);
-        if (!previousProduct) return null;
+        const strId = String(id).trim();
+        let previousProduct = products.find(p => String(p.id) === strId || String(p.product_id || '') === strId);
+        if (!previousProduct) {
+            try {
+                const { data: dbItem } = await supabase.from('inventory').select('*').or(`product_id.eq.${strId},id.eq.${strId}`).eq('shop_id', sid).maybeSingle();
+                if (dbItem) {
+                    previousProduct = normalizeInventoryRecord(dbItem, categoryLookups);
+                }
+            } catch (_) {}
+        }
+        if (!previousProduct) {
+            previousProduct = { id: strId, product_id: strId, shop_id: sid, ...updatedData };
+        }
 
         const mergedProduct = { ...previousProduct, ...updatedData, id: strId, shop_id: sid };
         const isMobile = isHandyProduct(mergedProduct);

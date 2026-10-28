@@ -32,6 +32,17 @@ export default function SmartCategoryForm({
     onSaveSuccess,
     onSaveError,
 }) {
+    const editProductId = String(
+        initialData?.id ||
+        initialData?.product_id ||
+        initialData?.productId ||
+        initialData?._id ||
+        initialData?.snapshot?.id ||
+        initialData?.raw?.id ||
+        initialData?.raw?.product_id ||
+        ''
+    ).trim();
+    const isEditing = Boolean(initialData && editProductId);
     const { activeShopId } = useAuth();
     const {
         products = [],
@@ -415,7 +426,7 @@ export default function SmartCategoryForm({
         // 4. Barcode duplicate check
         if (barcode && barcode.trim()) {
             const existing = lookupBarcode(barcode.trim());
-            if (existing && (!initialData || existing.id !== initialData.id)) {
+            if (existing && (!isEditing || String(existing.id) !== editProductId)) {
                 errs.barcode = `Duplicate used by: ${existing.name}`;
             }
         }
@@ -527,16 +538,15 @@ export default function SmartCategoryForm({
         }
 
         try {
-            const isEditing = Boolean(initialData && initialData.id);
             const uploadKey = isEditing
-                ? String(initialData.id)
+                ? editProductId
                 : (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                     ? crypto.randomUUID()
                     : `tmp-${Date.now()}`);
             const resolvedImageUrl = await uploadProductImageIfNeeded(uploadKey);
 
             const productData = {
-                ...(isEditing ? { id: String(initialData.id) } : {}),
+                ...(isEditing ? { id: editProductId, product_id: editProductId } : {}),
                 model: '',
                 name: name.trim() || `${level1} ${level2}`.trim(),
                 desc: name.trim() || `${level1} ${level2}`.trim(),
@@ -574,8 +584,8 @@ export default function SmartCategoryForm({
                 image: resolvedImageUrl,
             };
 
-            if (initialData && initialData.id) {
-                await updateProduct(initialData.id, productData);
+            if (isEditing && editProductId) {
+                await updateProduct(editProductId, productData);
             } else {
                 await addProduct(productData);
             }
