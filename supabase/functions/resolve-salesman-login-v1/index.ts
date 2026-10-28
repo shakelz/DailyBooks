@@ -63,6 +63,7 @@ Deno.serve(async (req) => {
     const body = await req.json()
     const rawPin = String(body?.pin ?? '').trim()
     const providedPinDigest = String(body?.pinDigest ?? body?.pin_digest ?? '').trim().toLowerCase()
+    const requestedShopId = String(body?.shopId ?? body?.shop_id ?? '').trim()
     const pinDigest = /^[a-f0-9]{64}$/.test(providedPinDigest)
       ? providedPinDigest
       : await sha256Hex(rawPin)
@@ -72,13 +73,18 @@ Deno.serve(async (req) => {
     }
 
     const supabaseAdmin = createAdminClient()
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('profiles')
       .select('user_id, full_name, email, shop_id, role, active')
       .eq('pin_digest', pinDigest)
       .eq('role', 'salesman')
       .eq('active', true)
-      .maybeSingle()
+
+    if (requestedShopId) {
+      query = query.eq('shop_id', requestedShopId)
+    }
+
+    const { data: matchedRows, error } = await query
 
     if (error) {
       return jsonResponse(
@@ -90,9 +96,27 @@ Deno.serve(async (req) => {
       )
     }
 
-    if (!data) {
+    const rows = Array.isArray(matchedRows) ? matchedRows : []
+
+    if (rows.length === 0) {
       return jsonResponse({ error: 'Invalid PIN. Try again.' }, 400)
     }
+
+    // If multiple shops match the same PIN and no shopId was specified, ask user to select shop
+    if (rows.length > 1 && !requestedShopId) {
+      const shopIds = rows.map((r) => r.shop_id).filter(Boolean)
+      const { data: shopsData } = await supabaseAdmin
+        .from('shops')
+        .select('id, name, location, address')
+        .in('id', shopIds)
+
+      return jsonResponse({
+        needsShopSelection: true,
+        matchedShops: Array.isArray(shopsData) ? shopsData : shopIds.map((id) => ({ id, name: `Shop ${id}` })),
+      })
+    }
+
+    const data = rows[0]
 
     return jsonResponse({
       userId: String(data.user_id ?? '').trim(),

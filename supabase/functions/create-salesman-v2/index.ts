@@ -92,8 +92,12 @@ function normalizeShadowEmailName(value: unknown) {
     .replace(/^_+|_+$/g, '') || 'user'
 }
 
-function buildSalesmanShadowEmail(name: unknown, pin: unknown) {
-  return `${normalizeShadowEmailName(name)}_${String(pin ?? '').trim()}@carefone.de`
+function buildSalesmanShadowEmail(name: unknown, pin: unknown, shopId: unknown = '') {
+  const safeName = normalizeShadowEmailName(name)
+  const safePin = String(pin ?? '').trim()
+  const sid = String(shopId ?? '').trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)
+  const shopPart = sid ? `_${sid}` : ''
+  return `${safeName}_${safePin}${shopPart}@carefone.de`
 }
 
 async function sha256Hex(value: unknown) {
@@ -242,7 +246,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'shop_id is required.' }, 400)
     }
 
-    const shadowEmail = buildSalesmanShadowEmail(name, pin)
+    const shadowEmail = buildSalesmanShadowEmail(name, pin, shopId)
     const pinDigest = await sha256Hex(pin)
     const supabaseAdmin = createAdminClient()
     const { data, error } = await supabaseAdmin.auth.admin.createUser({

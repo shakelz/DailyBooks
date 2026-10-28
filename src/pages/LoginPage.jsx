@@ -25,7 +25,22 @@ export default function LoginPage({ mode = 'salesman' }) {
         role: authRole,
         user: authUser,
         authLoading,
+        fetchPublicShops,
+        shops,
     } = useAuth()
+    const STATION_STORAGE_KEY = 'dailybooks_station_shop_id'
+    const [stationShopId, setStationShopId] = useState(() => {
+        try {
+            return localStorage.getItem(STATION_STORAGE_KEY) || ''
+        } catch {
+            return ''
+        }
+    })
+    const [stationShops, setStationShops] = useState([])
+    const [showStationPicker, setShowStationPicker] = useState(false)
+    const [matchedShopOptions, setMatchedShopOptions] = useState([])
+    const [showShopSelectModal, setShowShopSelectModal] = useState(false)
+    const [pendingPin, setPendingPin] = useState('')
     const isAdminMode = mode === 'admin'
 
     const [pin, setPin] = useState('')
@@ -57,6 +72,20 @@ export default function LoginPage({ mode = 'salesman' }) {
     }, [authLoading, authRole, authUser, isAdminMode, navigate])
 
     useEffect(() => {
+        let active = true
+        const loadShops = async () => {
+            if (typeof fetchPublicShops === 'function') {
+                const list = await fetchPublicShops()
+                if (active && Array.isArray(list) && list.length > 0) {
+                    setStationShops(list)
+                }
+            }
+        }
+        loadShops()
+        return () => { active = false }
+    }, [fetchPublicShops])
+
+    useEffect(() => {
         if (location.pathname === '/login') {
             try {
                 sessionStorage.setItem('dailybooks_login_origin', 'carefone');
@@ -86,9 +115,17 @@ export default function LoginPage({ mode = 'salesman' }) {
 
         setPinLoading(true)
         try {
-            const result = await login({ role: 'salesman', pin: newPin })
+            const targetShopId = stationShopId || undefined
+            const result = await login({ role: 'salesman', pin: newPin, shopId: targetShopId })
             if (result?.success) {
                 navigate(result?.redirectTo || SALESMAN_DASHBOARD_PATH, { replace: true })
+                return
+            }
+
+            if (result?.needsShopSelection) {
+                setPendingPin(newPin)
+                setMatchedShopOptions(result.matchedShops || [])
+                setShowShopSelectModal(true)
                 return
             }
 
@@ -261,6 +298,46 @@ export default function LoginPage({ mode = 'salesman' }) {
         )
     }
 
+    const availableShops = (Array.isArray(stationShops) && stationShops.length > 0)
+        ? stationShops
+        : (Array.isArray(shops) ? shops : [])
+
+    const currentStationShop = availableShops.find((s) => String(s.id) === String(stationShopId)) || null
+
+    const handleSelectStation = (selectedId) => {
+        try {
+            if (selectedId) {
+                localStorage.setItem(STATION_STORAGE_KEY, selectedId)
+            } else {
+                localStorage.removeItem(STATION_STORAGE_KEY)
+            }
+        } catch {
+            // Storage restricted
+        }
+        setStationShopId(selectedId)
+        setShowStationPicker(false)
+    }
+
+    const handleDisambiguateShop = async (chosenShopId) => {
+        handleSelectStation(chosenShopId)
+        setShowShopSelectModal(false)
+        setPinLoading(true)
+        try {
+            const result = await login({ role: 'salesman', pin: pendingPin, shopId: chosenShopId })
+            if (result?.success) {
+                navigate(result?.redirectTo || SALESMAN_DASHBOARD_PATH, { replace: true })
+                return
+            }
+            setError(result?.message || 'Invalid PIN. Try again.')
+            setTimeout(() => {
+                setPin('')
+                setError('')
+            }, 1200)
+        } finally {
+            setPinLoading(false)
+        }
+    }
+
     const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9]
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
@@ -273,6 +350,32 @@ export default function LoginPage({ mode = 'salesman' }) {
                     </div>
                     <h2 className="text-2xl font-bold text-white">Salesman Login</h2>
                     <p className="text-slate-400 text-sm mt-1">Enter your 4-digit PIN</p>
+                </div>
+
+                {/* Station / Shop badge */}
+                <div className="mb-6 flex items-center justify-between p-2.5 rounded-2xl bg-slate-800/90 border border-slate-700/80 text-slate-300 shadow-inner">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                            </svg>
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Station / Shop</p>
+                            <p className="text-xs font-bold text-white truncate">
+                                {currentStationShop?.name || (availableShops.length > 0 ? 'Not Assigned (Auto-Detect)' : 'Main Branch')}
+                            </p>
+                        </div>
+                    </div>
+                    {availableShops.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => setShowStationPicker(true)}
+                            className="px-3 py-1.5 text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 rounded-xl border border-emerald-500/30 transition-all cursor-pointer shrink-0"
+                        >
+                            {stationShopId ? 'Switch' : 'Select'}
+                        </button>
+                    )}
                 </div>
 
                 <div className="flex justify-center gap-4 mb-8">
@@ -347,6 +450,90 @@ export default function LoginPage({ mode = 'salesman' }) {
                     </button>
                     <p className="mt-2 text-center text-[11px] text-slate-400">For authorized management access only.</p>
                 </div>
+                {/* Station Picker Modal */}
+                {showStationPicker && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                        <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-slate-800 p-6 text-white shadow-2xl space-y-4">
+                            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                                <div>
+                                    <h3 className="text-base font-bold text-white">Select Shop Station</h3>
+                                    <p className="text-xs text-slate-400">Lock this computer to a specific branch</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowStationPicker(false)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                                {availableShops.map((shop) => (
+                                    <button
+                                        key={shop.id}
+                                        type="button"
+                                        onClick={() => handleSelectStation(shop.id)}
+                                        className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                                            String(shop.id) === String(stationShopId)
+                                                ? 'bg-emerald-950/40 border-emerald-500/50 text-white'
+                                                : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
+                                        }`}
+                                    >
+                                        <div>
+                                            <p className="text-sm font-bold">{shop.name}</p>
+                                            {shop.address && <p className="text-[11px] text-slate-400">{shop.address}</p>}
+                                        </div>
+                                        {String(shop.id) === String(stationShopId) && (
+                                            <span className="text-xs font-black text-emerald-400 bg-emerald-900/60 px-2 py-0.5 rounded-lg">Active</span>
+                                        )}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => handleSelectStation('')}
+                                    className="w-full p-2.5 rounded-xl border border-dashed border-slate-700 text-center text-xs text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
+                                >
+                                    Clear (Auto-detect on login)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Multiple Shops Disambiguation Modal */}
+                {showShopSelectModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+                        <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-slate-800 p-6 text-white shadow-2xl space-y-4">
+                            <div>
+                                <h3 className="text-base font-bold text-white">Which shop are you opening?</h3>
+                                <p className="text-xs text-slate-400 mt-1">This PIN is active in multiple shops. Select your shop:</p>
+                            </div>
+
+                            <div className="space-y-2">
+                                {matchedShopOptions.map((shop) => (
+                                    <button
+                                        key={shop.id}
+                                        type="button"
+                                        onClick={() => handleDisambiguateShop(shop.id)}
+                                        className="w-full p-3.5 rounded-2xl bg-slate-800 border border-slate-700 hover:bg-emerald-950/50 hover:border-emerald-500/50 text-left transition-all group"
+                                    >
+                                        <p className="text-sm font-bold text-white group-hover:text-emerald-300">{shop.name}</p>
+                                        {shop.address && <p className="text-[11px] text-slate-400">{shop.address}</p>}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => { setShowShopSelectModal(false); setPin(''); setError(''); }}
+                                className="w-full py-2 text-center text-xs text-slate-500 hover:text-slate-300"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     )

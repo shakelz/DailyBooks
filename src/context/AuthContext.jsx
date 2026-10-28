@@ -353,9 +353,12 @@ function normalizeShadowEmailName(value = '') {
         || 'user';
 }
 
-function buildSalesmanShadowEmail(name = '', pin = '') {
+function buildSalesmanShadowEmail(name = '', pin = '', shopId = '') {
+    const safeName = normalizeShadowEmailName(name);
     const safePin = asString(pin);
-    return `${normalizeShadowEmailName(name)}_${safePin}@carefone.de`;
+    const sid = asString(shopId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+    const shopSuffix = sid ? `_${sid}` : '';
+    return `${safeName}_${safePin}${shopSuffix}@carefone.de`;
 }
 
 function getProfileId(profile = {}) {
@@ -502,22 +505,25 @@ async function verifySalesmanPin(pin, shopId = '') {
         .select('*')
         .eq('role', 'salesman')
         .eq('pin_digest', digest)
-        .eq('active', true)
-        .limit(2);
+        .eq('active', true);
 
-    const { data, error } = await query;
+    if (shopId) {
+        query = query.eq('shop_id', asString(shopId));
+    }
+
+    const { data, error } = await query.limit(5);
 
     if (error) {
         return { profile: null, error: asString(error?.message) || 'Invalid PIN' };
     }
 
     const rows = Array.isArray(data) ? data : [];
-    if (rows.length > 1) {
-        return { profile: null, error: 'PIN conflict found. Ask admin to reset duplicate PINs.' };
+    if (rows.length === 0) return { profile: null, error: 'Invalid PIN' };
+    if (rows.length > 1 && !shopId) {
+        return { profile: null, rows, needsShopSelection: true, error: 'Please select shop.' };
     }
 
     const row = rows[0];
-    if (!row) return { profile: null, error: 'Invalid PIN' };
     if (row.active === false) return { profile: null, error: 'User disabled' };
     return { profile: row, error: null };
 }
@@ -1612,12 +1618,17 @@ async function listSalesmenByPin(pinValue, shopId = '') {
     const digest = await computePinDigest(shopId, safePin);
     if (!digest) return [];
 
-    const { data, error } = await supabase
+    let query = supabase
         .from('profiles')
         .select('*')
         .eq('role', 'salesman')
-        .eq('pin_digest', digest)
-        .limit(5);
+        .eq('pin_digest', digest);
+
+    if (shopId) {
+        query = query.eq('shop_id', asString(shopId));
+    }
+
+    const { data, error } = await query.limit(5);
 
     if (error || !Array.isArray(data)) return [];
     return data;
@@ -1638,11 +1649,17 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', sh
         return { available: false, message: 'Unable to compute PIN digest.' };
     }
 
-    const { data, error } = await supabase
+    let query = supabase
         .from('profiles')
-        .select('user_id')
+        .select('user_id, shop_id')
         .eq('role', 'salesman')
         .eq('pin_digest', digest);
+
+    if (shopId) {
+        query = query.eq('shop_id', asString(shopId));
+    }
+
+    const { data, error } = await query;
 
     if (error) {
         return { available: false, message: asString(error.message) || 'Unable to validate PIN.' };
@@ -1651,7 +1668,7 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', sh
     const conflicts = Array.isArray(data) ? data : [];
     const hasConflict = conflicts.some((row) => asString(row?.user_id) !== excludedId);
     if (hasConflict) {
-        return { available: false, message: 'PIN already in use. Use a globally unique PIN.' };
+        return { available: false, message: 'PIN already in use in this shop.' };
     }
 
     return { available: true, message: '' };
@@ -2081,20 +2098,19 @@ export function AuthProvider({ children }) {
             setActiveShopIdState(sid);
             return;
         }
-        const isIndependentAdmin = isAdminRoleName(role) && !isSuperAdminRole(role) && !asString(user?.shop_id);
-        if (isSuperAdmin || isIndependentAdmin) {
+        if (isSuperAdmin || isAdminRoleName(role)) {
             setActiveShopIdState(sid);
             return;
         }
 
-        // Shop-admin and salesman users are bound to their mapped shop.
+        // Salesman users are bound to their mapped shop.
         const lockedShopId = asString(user?.shop_id || activeShopId);
         setActiveShopIdState(lockedShopId || sid);
     }, [isSuperAdmin, role, user, activeShopId]);
 
     const createShop = useCallback(async ({ shopName, location, address, ownerEmail, ownerPassword, telephone }) => {
-        if (!isSuperAdminRole(role)) {
-            throw new Error('Only super_admin can create shops.');
+        if (!isSuperAdminRole(role) && !isAdminRoleName(role)) {
+            throw new Error('Only super_admin or owner can create shops.');
         }
 
         const name = asString(shopName);
@@ -2226,8 +2242,8 @@ export function AuthProvider({ children }) {
     }, [role, activeShopId, patchShopMeta, shopMetaMap]);
 
     const updateShop = useCallback(async (shopId, updates = {}) => {
-        if (!isSuperAdminRole(role)) {
-            throw new Error('Only super_admin can update shops.');
+        if (!isSuperAdminRole(role) && !isAdminRoleName(role)) {
+            throw new Error('Only super_admin or owner can update shops.');
         }
 
         const sid = asString(shopId);
@@ -2477,8 +2493,8 @@ export function AuthProvider({ children }) {
     }, [role, user, shops, patchShopMeta, shopMetaMap]);
 
     const deleteShop = useCallback(async (shopId) => {
-        if (!isSuperAdminRole(role)) {
-            throw new Error('Only super_admin can delete shops.');
+        if (!isSuperAdminRole(role) && !isAdminRoleName(role)) {
+            throw new Error('Only super_admin or owner can delete shops.');
         }
 
         const sid = asString(shopId);
@@ -3149,20 +3165,57 @@ export function AuthProvider({ children }) {
                     bumpRateLimit('salesman');
                     return { success: false, message: 'Invalid PIN. Try again.' };
                 }
-                const { data: salesmanProfile, error: profileError } = await safeSupabaseQuery(
+
+                const targetShopId = asString(userData.shopId || activeShopId || readAuthState(AUTH_SHOP_STATE_KEY, ''));
+
+                let salesmanProfile = null;
+                const { data: edgeProfile, error: profileError } = await safeSupabaseQuery(
                     () => supabase.functions.invoke('resolve-salesman-login-v1', {
                         body: {
                             pinDigest,
+                            shopId: targetShopId,
                         },
                     }),
                     'Invalid PIN. Try again.'
                 );
 
-                if (profileError || !salesmanProfile) {
+                if (!profileError && edgeProfile && !edgeProfile.error) {
+                    if (edgeProfile.needsShopSelection) {
+                        return {
+                            success: false,
+                            needsShopSelection: true,
+                            matchedShops: edgeProfile.matchedShops || [],
+                            message: 'Please select which shop you are opening.'
+                        };
+                    }
+                    salesmanProfile = edgeProfile;
+                } else {
+                    const fallbackRes = await verifySalesmanPin(pin, targetShopId);
+                    if (fallbackRes.needsShopSelection) {
+                        return {
+                            success: false,
+                            needsShopSelection: true,
+                            matchedShops: fallbackRes.rows || [],
+                            message: 'Please select which shop you are opening.'
+                        };
+                    }
+                    if (fallbackRes.profile) {
+                        salesmanProfile = {
+                            userId: fallbackRes.profile.user_id || fallbackRes.profile.id,
+                            fullName: fallbackRes.profile.full_name || fallbackRes.profile.name,
+                            email: fallbackRes.profile.email,
+                            shopId: fallbackRes.profile.shop_id,
+                            role: 'salesman',
+                            active: fallbackRes.profile.active !== false,
+                        };
+                    }
+                }
+
+                if (!salesmanProfile) {
                     bumpRateLimit('salesman');
                     return {
                         success: false,
-                        message: await extractSupabaseFunctionErrorMessage(profileError, 'Invalid PIN. Try again.'),
+                        message: 'Invalid PIN. Try again.',
                     };
                 }
 
@@ -3187,6 +3240,11 @@ export function AuthProvider({ children }) {
                 if (error || !matchedSession) {
                     bumpRateLimit('salesman');
                     return { success: false, message: 'Authentication failed. Please contact admin.' };
+                }
+
+                if (salesmanProfile.shopId) {
+                    setActiveShopIdState(salesmanProfile.shopId);
+                    writeAuthState(AUTH_SHOP_STATE_KEY, salesmanProfile.shopId);
                 }
 
                 cachedPinRef.current = pin;
@@ -3289,7 +3347,7 @@ export function AuthProvider({ children }) {
 
         const existingPins = await listSalesmenByPin(trimmedPin, sid);
         if (existingPins.length > 0) {
-            throw new Error('PIN already in use by another salesman (all shops). Please use a unique PIN.');
+            throw new Error('PIN already in use by another salesman in this shop. Please use a unique PIN.');
         }
         const explicitNumber = asNumber(extra?.salesmanNumber, 0);
         const assignedNumber = explicitNumber > 0
@@ -3696,7 +3754,25 @@ export function AuthProvider({ children }) {
         [shops, activeShopId]
     );
 
+    const fetchPublicShops = useCallback(async () => {
+        try {
+            const { data, error } = await supabase
+                .from('shops')
+                .select('*')
+                .order('name', { ascending: true });
+            if (!error && Array.isArray(data) && data.length > 0) {
+                const normalized = data.map(normalizeShop);
+                setShops(normalized);
+                writeStorage('dailybooks_known_shops', JSON.stringify(normalized));
+                return normalized;
+            }
+        } catch (_) {}
+        const cached = safeParseJSON(readStorage('dailybooks_known_shops', ''), []);
+        return Array.isArray(cached) ? cached : [];
+    }, []);
+
     const value = {
+        fetchPublicShops,
         role,
         user,
         authLoading,

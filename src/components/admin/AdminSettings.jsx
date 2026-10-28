@@ -6,7 +6,7 @@ import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, L
 
 export default function AdminSettings() {
     const {
-        isAdminLike, isSuperAdmin, activeShopId, shops, refreshShops, createShop, updateShop, deleteShop,
+        isAdminLike, isSuperAdmin, activeShopId, setActiveShopId, shops, refreshShops, createShop, updateShop, deleteShop,
         updateAdminPassword,
         salesmen, addSalesman, checkSalesmanPinAvailability, deleteSalesman, updateSalesman,
         activeShop, billShowTax, setBillShowTax,
@@ -544,13 +544,42 @@ export default function AdminSettings() {
             </div>
 
             {/* ── Admin: Manage Shops ── */}
-            {isAdminLike && activeShop && (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                    <div className="flex items-center justify-between gap-4">
+            {isAdminLike && (
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                                <Store size={20} />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-bold text-slate-800">Shop-Einstellungen</h2>
+                                <p className="text-xs text-slate-400">
+                                    {activeShop ? `${activeShop.name} (${activeShop.address || 'Keine Adresse'})` : 'Kein Shop ausgewählt'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {shops.length > 1 && (
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Shop wechseln:</label>
+                                <select
+                                    value={activeShopId}
+                                    onChange={(e) => setActiveShopId(e.target.value)}
+                                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+                                >
+                                    {shops.map((s) => (
+                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-4">
                         <div>
-                            <h2 className="text-lg font-bold text-slate-800">Shop-Einstellungen</h2>
+                            <p className="text-sm font-semibold text-slate-700">Steuerzeilen auf Belegen</p>
                             <p className="text-xs text-slate-400">
-                                Shop: {activeShop.name} ({activeShop.address || 'Keine Adresse'})
+                                Steuerzeilen sind derzeit <span className="font-bold">{billShowTax ? 'aktiviert' : 'deaktiviert'}</span>.
                             </p>
                         </div>
                         <button
@@ -562,13 +591,10 @@ export default function AdminSettings() {
                             <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${billShowTax ? 'translate-x-6' : 'translate-x-0'}`} />
                         </button>
                     </div>
-                    <p className="text-sm text-slate-600 mt-3">
-                        Steuerzeilen auf Belegen sind derzeit <span className="font-bold">{billShowTax ? 'aktiviert' : 'deaktiviert'}</span>.
-                    </p>
                 </div>
             )}
 
-            {isSuperAdmin && (
+            {isAdminLike && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-5">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-violet-50 text-violet-600 rounded-lg">
@@ -823,7 +849,7 @@ export default function AdminSettings() {
             )}
 
             {/* ── Admin Security Section ── */}
-            {isSuperAdmin && (
+            {(isSuperAdmin || isAdminLike) && (
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
