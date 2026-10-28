@@ -37,10 +37,6 @@ export default function LoginPage({ mode = 'salesman' }) {
         }
     })
     const [stationShops, setStationShops] = useState([])
-    const [showStationPicker, setShowStationPicker] = useState(false)
-    const [matchedShopOptions, setMatchedShopOptions] = useState([])
-    const [showShopSelectModal, setShowShopSelectModal] = useState(false)
-    const [pendingPin, setPendingPin] = useState('')
     const isAdminMode = mode === 'admin'
 
     const [pin, setPin] = useState('')
@@ -78,6 +74,14 @@ export default function LoginPage({ mode = 'salesman' }) {
                 const list = await fetchPublicShops()
                 if (active && Array.isArray(list) && list.length > 0) {
                     setStationShops(list)
+                    // If only 1 shop exists and none selected yet, auto-bind permanently
+                    try {
+                        const saved = localStorage.getItem(STATION_STORAGE_KEY)
+                        if (!saved && list.length === 1 && list[0]?.id) {
+                            localStorage.setItem(STATION_STORAGE_KEY, String(list[0].id))
+                            setStationShopId(String(list[0].id))
+                        }
+                    } catch (_) {}
                 }
             }
         }
@@ -119,13 +123,6 @@ export default function LoginPage({ mode = 'salesman' }) {
             const result = await login({ role: 'salesman', pin: newPin, shopId: targetShopId })
             if (result?.success) {
                 navigate(result?.redirectTo || SALESMAN_DASHBOARD_PATH, { replace: true })
-                return
-            }
-
-            if (result?.needsShopSelection) {
-                setPendingPin(newPin)
-                setMatchedShopOptions(result.matchedShops || [])
-                setShowShopSelectModal(true)
                 return
             }
 
@@ -304,38 +301,83 @@ export default function LoginPage({ mode = 'salesman' }) {
 
     const currentStationShop = availableShops.find((s) => String(s.id) === String(stationShopId)) || null
 
-    const handleSelectStation = (selectedId) => {
+    const handleConfirmStation = (selectedId) => {
         try {
             if (selectedId) {
                 localStorage.setItem(STATION_STORAGE_KEY, selectedId)
-            } else {
-                localStorage.removeItem(STATION_STORAGE_KEY)
             }
         } catch {
             // Storage restricted
         }
         setStationShopId(selectedId)
-        setShowStationPicker(false)
     }
 
-    const handleDisambiguateShop = async (chosenShopId) => {
-        handleSelectStation(chosenShopId)
-        setShowShopSelectModal(false)
-        setPinLoading(true)
-        try {
-            const result = await login({ role: 'salesman', pin: pendingPin, shopId: chosenShopId })
-            if (result?.success) {
-                navigate(result?.redirectTo || SALESMAN_DASHBOARD_PATH, { replace: true })
-                return
-            }
-            setError(result?.message || 'Invalid PIN. Try again.')
-            setTimeout(() => {
-                setPin('')
-                setError('')
-            }, 1200)
-        } finally {
-            setPinLoading(false)
-        }
+    // ONE-TIME SETUP: If not admin mode, multiple shops exist, and this device hasn't selected a shop yet
+    if (!isAdminMode && availableShops.length > 1 && !stationShopId) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
+                <div className="w-full max-w-md bg-slate-900/95 border border-slate-800 rounded-3xl p-6 md:p-8 text-white shadow-2xl space-y-6 backdrop-blur-md">
+                    <div className="text-center space-y-2">
+                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500 shadow-lg shadow-emerald-500/20 mb-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                            </svg>
+                        </div>
+                        <h2 className="text-2xl font-black text-white">Station Setup</h2>
+                        <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                            Select this computer&apos;s shop. This selection is locked to this device.
+                        </p>
+                    </div>
+
+                    <div className="space-y-3">
+                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider text-center">
+                            Select Branch for this Computer
+                        </p>
+                        {availableShops.map((shop) => (
+                            <button
+                                key={shop.id}
+                                type="button"
+                                onClick={() => handleConfirmStation(shop.id)}
+                                className="w-full p-4 rounded-2xl bg-slate-800/80 border border-slate-700/80 hover:bg-emerald-950/40 hover:border-emerald-500/50 text-left transition-all group cursor-pointer shadow-md"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-base font-bold text-white group-hover:text-emerald-300 transition-colors">
+                                            {shop.name}
+                                        </p>
+                                        {shop.address && (
+                                            <p className="text-xs text-slate-400 mt-0.5">{shop.address}</p>
+                                        )}
+                                        {shop.telephone && (
+                                            <p className="text-[11px] text-slate-500 mt-0.5">📞 {shop.telephone}</p>
+                                        )}
+                                    </div>
+                                    <div className="w-8 h-8 rounded-xl bg-slate-700/50 group-hover:bg-emerald-500 text-slate-400 group-hover:text-white flex items-center justify-center font-bold text-sm transition-all">
+                                        ✓
+                                    </div>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center">
+                        <p className="text-[11px] text-emerald-300 font-medium">
+                            🔒 Once set, only this shop will be opened on this computer.
+                        </p>
+                    </div>
+
+                    <div className="pt-2 text-center">
+                        <button
+                            type="button"
+                            onClick={() => navigate(ADMIN_LOGIN_PATH)}
+                            className="text-xs text-slate-500 hover:text-slate-300 underline"
+                        >
+                            Open Admin Portal
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )
     }
 
     const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -352,7 +394,7 @@ export default function LoginPage({ mode = 'salesman' }) {
                     <p className="text-slate-400 text-sm mt-1">Enter your 4-digit PIN</p>
                 </div>
 
-                {/* Station / Shop badge */}
+                {/* Station / Shop badge (Permanently locked - NO switch button) */}
                 <div className="mb-6 flex items-center justify-between p-2.5 rounded-2xl bg-slate-800/90 border border-slate-700/80 text-slate-300 shadow-inner">
                     <div className="flex items-center gap-2.5 min-w-0">
                         <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
@@ -361,21 +403,18 @@ export default function LoginPage({ mode = 'salesman' }) {
                             </svg>
                         </div>
                         <div className="min-w-0">
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Station / Shop</p>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Station / Branch</p>
                             <p className="text-xs font-bold text-white truncate">
-                                {currentStationShop?.name || (availableShops.length > 0 ? 'Not Assigned (Auto-Detect)' : 'Main Branch')}
+                                {currentStationShop?.name || 'Assigned Branch'}
                             </p>
                         </div>
                     </div>
-                    {availableShops.length > 0 && (
-                        <button
-                            type="button"
-                            onClick={() => setShowStationPicker(true)}
-                            className="px-3 py-1.5 text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 rounded-xl border border-emerald-500/30 transition-all cursor-pointer shrink-0"
-                        >
-                            {stationShopId ? 'Switch' : 'Select'}
-                        </button>
-                    )}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/60 border border-slate-700/50 text-[10px] font-bold text-slate-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        <span>Locked</span>
+                    </div>
                 </div>
 
                 <div className="flex justify-center gap-4 mb-8">
@@ -450,90 +489,7 @@ export default function LoginPage({ mode = 'salesman' }) {
                     </button>
                     <p className="mt-2 text-center text-[11px] text-slate-400">For authorized management access only.</p>
                 </div>
-                {/* Station Picker Modal */}
-                {showStationPicker && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                        <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-slate-800 p-6 text-white shadow-2xl space-y-4">
-                            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                                <div>
-                                    <h3 className="text-base font-bold text-white">Select Shop Station</h3>
-                                    <p className="text-xs text-slate-400">Lock this computer to a specific branch</p>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowStationPicker(false)}
-                                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-                                >
-                                    ✕
-                                </button>
-                            </div>
 
-                            <div className="space-y-2 max-h-60 overflow-y-auto">
-                                {availableShops.map((shop) => (
-                                    <button
-                                        key={shop.id}
-                                        type="button"
-                                        onClick={() => handleSelectStation(shop.id)}
-                                        className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${
-                                            String(shop.id) === String(stationShopId)
-                                                ? 'bg-emerald-950/40 border-emerald-500/50 text-white'
-                                                : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
-                                        }`}
-                                    >
-                                        <div>
-                                            <p className="text-sm font-bold">{shop.name}</p>
-                                            {shop.address && <p className="text-[11px] text-slate-400">{shop.address}</p>}
-                                        </div>
-                                        {String(shop.id) === String(stationShopId) && (
-                                            <span className="text-xs font-black text-emerald-400 bg-emerald-900/60 px-2 py-0.5 rounded-lg">Active</span>
-                                        )}
-                                    </button>
-                                ))}
-                                <button
-                                    type="button"
-                                    onClick={() => handleSelectStation('')}
-                                    className="w-full p-2.5 rounded-xl border border-dashed border-slate-700 text-center text-xs text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
-                                >
-                                    Clear (Auto-detect on login)
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Multiple Shops Disambiguation Modal */}
-                {showShopSelectModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-                        <div className="w-full max-w-sm rounded-3xl bg-slate-900 border border-slate-800 p-6 text-white shadow-2xl space-y-4">
-                            <div>
-                                <h3 className="text-base font-bold text-white">Which shop are you opening?</h3>
-                                <p className="text-xs text-slate-400 mt-1">This PIN is active in multiple shops. Select your shop:</p>
-                            </div>
-
-                            <div className="space-y-2">
-                                {matchedShopOptions.map((shop) => (
-                                    <button
-                                        key={shop.id}
-                                        type="button"
-                                        onClick={() => handleDisambiguateShop(shop.id)}
-                                        className="w-full p-3.5 rounded-2xl bg-slate-800 border border-slate-700 hover:bg-emerald-950/50 hover:border-emerald-500/50 text-left transition-all group"
-                                    >
-                                        <p className="text-sm font-bold text-white group-hover:text-emerald-300">{shop.name}</p>
-                                        {shop.address && <p className="text-[11px] text-slate-400">{shop.address}</p>}
-                                    </button>
-                                ))}
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={() => { setShowShopSelectModal(false); setPin(''); setError(''); }}
-                                className="w-full py-2 text-center text-xs text-slate-500 hover:text-slate-300"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
     )
