@@ -156,6 +156,48 @@ function LegacyDashboardRedirect() {
 }
 
 function App() {
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Global fix for Electron/Chromium input focus lock after native dialogs
+    const _origConfirm = window.confirm ? window.confirm.bind(window) : null;
+    const _origAlert = window.alert ? window.alert.bind(window) : null;
+
+    if (_origConfirm) {
+      window.confirm = function (...args) {
+        const res = _origConfirm(...args);
+        try {
+          window.electronAPI?.fixFocus?.();
+        } catch (_) {}
+        window.dispatchEvent(new CustomEvent('electron-native-dialog-closed'));
+        setTimeout(() => {
+          window.focus();
+          if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+          }
+        }, 40);
+        return res;
+      };
+    }
+
+    if (_origAlert) {
+      window.alert = function (...args) {
+        const res = _origAlert(...args);
+        try {
+          window.electronAPI?.fixFocus?.();
+        } catch (_) {}
+        window.dispatchEvent(new CustomEvent('electron-native-dialog-closed'));
+        setTimeout(() => {
+          window.focus();
+          if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+          }
+        }, 40);
+        return res;
+      };
+    }
+  }, []);
+
   if (supabaseConfigError) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">

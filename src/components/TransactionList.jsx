@@ -132,6 +132,7 @@ export default function TransactionList({ transactions = [], searchTerm = '', is
     const { deleteTransaction, updateTransaction } = useInventory();
     const [selectedTxn, setSelectedTxn] = useState(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
+    const [pendingConfirmAction, setPendingConfirmAction] = useState(null);
     const [isEditRequested, setIsEditRequested] = useState(false);
     const [expandedGroups, setExpandedGroups] = useState({});
     const [bulkMode, setBulkMode] = useState(false);
@@ -168,20 +169,23 @@ export default function TransactionList({ transactions = [], searchTerm = '', is
         setIsDetailOpen(true);
     };
 
-    const handleDelete = async (e, txnId) => {
+    const handleDelete = (e, txnId) => {
         e.stopPropagation();
-        if (window.confirm('Delete this transaction record?')) {
-            try {
-                await deleteTransaction(txnId);
-                setSelectedIds((prev) => {
-                    const next = { ...prev };
-                    delete next[String(txnId)];
-                    return next;
-                });
-            } catch (err) {
-                console.error('Failed to delete transaction:', err);
+        setPendingConfirmAction({
+            message: 'Delete this transaction record?',
+            onConfirm: async () => {
+                try {
+                    await deleteTransaction(txnId);
+                    setSelectedIds((prev) => {
+                        const next = { ...prev };
+                        delete next[String(txnId)];
+                        return next;
+                    });
+                } catch (err) {
+                    console.error('Failed to delete transaction:', err);
+                }
             }
-        }
+        });
     };
 
     const toggleGroup = (e, groupKey) => {
@@ -243,27 +247,27 @@ export default function TransactionList({ transactions = [], searchTerm = '', is
         }
     };
 
-    const handleBulkDelete = async () => {
+    const handleBulkDelete = () => {
         const ids = Object.keys(selectedIds).filter((id) => selectedIds[id]);
-        if (!ids.length) {
-            alert('Select at least one transaction');
-            return;
-        }
+        if (!ids.length) return;
 
-        if (!window.confirm(`Delete ${ids.length} selected transactions?`)) return;
-
-        setBulkBusy(true);
-        try {
-            for (const id of ids) {
-                await deleteTransaction(id);
+        setPendingConfirmAction({
+            message: `Delete ${ids.length} selected transactions?`,
+            onConfirm: async () => {
+                setBulkBusy(true);
+                try {
+                    for (const id of ids) {
+                        await deleteTransaction(id);
+                    }
+                    clearBulkSelection();
+                    setBulkMode(false);
+                } catch (error) {
+                    console.error('Bulk delete failed:', error);
+                } finally {
+                    setBulkBusy(false);
+                }
             }
-            clearBulkSelection();
-            setBulkMode(false);
-        } catch (error) {
-            alert(error?.message || 'Bulk delete failed');
-        } finally {
-            setBulkBusy(false);
-        }
+        });
     };
 
     return (
@@ -556,6 +560,34 @@ export default function TransactionList({ transactions = [], searchTerm = '', is
                         </div>
                     );
                 })
+            )}
+
+            {pendingConfirmAction && (
+                <div className="fixed inset-0 z-[290] flex items-center justify-center bg-black/40 backdrop-blur-[1px]">
+                    <div className="mx-4 w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+                        <p className="text-sm font-semibold text-slate-800 mb-4">{pendingConfirmAction.message}</p>
+                        <div className="flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setPendingConfirmAction(null)}
+                                className="flex-1 rounded-xl border border-slate-300 bg-white py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    const action = pendingConfirmAction;
+                                    setPendingConfirmAction(null);
+                                    await action?.onConfirm?.();
+                                }}
+                                className="flex-1 rounded-xl bg-rose-600 py-2 text-sm font-semibold text-white hover:bg-rose-700 cursor-pointer"
+                            >
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             <TransactionDetailModal

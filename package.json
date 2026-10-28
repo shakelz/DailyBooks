@@ -55,7 +55,8 @@
     "files": [
       "dist/**/*",
       "electron.main.js",
-      "package.json"
+      "package.json",
+      "electron.preload.cjs"
     ],
     "win": {
       "target": [

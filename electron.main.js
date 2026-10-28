@@ -1,9 +1,28 @@
-import { app, BrowserWindow, session } from 'electron';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { app, BrowserWindow, session, ipcMain } from 'electron';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PRELOAD_PATH = path.join(__dirname, 'electron.preload.cjs');
 
 const REMOTE_URL = 'https://www.carefone.de/terminal-access-v1?desktop_session=1';
 const PARTITION_NAME = 'persist:carefone-terminal';
 
 app.commandLine.appendSwitch('disable-http-cache');
+
+ipcMain.on('fix-window-focus', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) {
+    setTimeout(() => {
+      if (win && !win.isDestroyed()) {
+        win.blur();
+        win.focus();
+        win.webContents.focus();
+      }
+    }, 20);
+  }
+});
 
 async function clearNetworkCache(sessionInstance) {
   try {
@@ -32,6 +51,7 @@ async function createWindow() {
     show: false,
     backgroundColor: '#111827',
     webPreferences: {
+      preload: PRELOAD_PATH,
       nodeIntegration: false,
       contextIsolation: true,
       partition: PARTITION_NAME,

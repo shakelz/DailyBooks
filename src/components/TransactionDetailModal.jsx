@@ -15,11 +15,13 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
 
     const [isEditing, setIsEditing] = useState(initialEditMode);
     const [editData, setEditData] = useState(null);
+    const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
     useEffect(() => {
         if (isOpen && txn) {
             setEditData({ ...txn });
             setIsEditing(initialEditMode);
+            setIsConfirmingDelete(false);
         }
     }, [isOpen, txn, initialEditMode]);
 
@@ -521,24 +523,44 @@ export default function TransactionDetailModal({ isOpen, onClose, txn, initialEd
                 <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
                     {isEditing ? (
                         <>
-                            <button
-                                onClick={async () => {
-                                    if (window.confirm('Are you sure you want to delete this transaction record?')) {
-                                        try {
-                                            await deleteTransaction(txn.id);
-                                        } catch (e) {
-                                            console.error('Failed to delete transaction:', e);
-                                        }
-                                        onClose();
-                                    }
-                                }}
-                                className="px-6 py-3 border-2 border-red-100 text-red-500 rounded-xl font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                Delete
-                            </button>
+                            {isConfirmingDelete ? (
+                                <div className="flex items-center gap-2 bg-red-50 border border-red-200 p-2 rounded-xl">
+                                    <span className="text-xs font-bold text-red-700 px-1">Delete this record?</span>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            try {
+                                                await deleteTransaction(txn.id);
+                                            } catch (e) {
+                                                console.error('Failed to delete transaction:', e);
+                                            }
+                                            setIsConfirmingDelete(false);
+                                            onClose();
+                                        }}
+                                        className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-sm transition-all cursor-pointer"
+                                    >
+                                        Yes, Delete
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsConfirmingDelete(false)}
+                                        className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => setIsConfirmingDelete(true)}
+                                    className="px-6 py-3 border-2 border-red-100 text-red-500 rounded-xl font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Delete
+                                </button>
+                            )}
                             <div className="flex-1 flex gap-3">
                                 <button onClick={() => setIsEditing(false)} className="flex-1 py-3 bg-white border-2 border-slate-200 rounded-xl text-slate-600 font-bold hover:bg-slate-100 transition-all">
                                     Cancel

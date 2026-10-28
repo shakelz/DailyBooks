@@ -3356,33 +3356,34 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         setShowInventoryForm(true);
     }, []);
 
-    const handleDeleteProduct = useCallback(async (productOrItem) => {
+    const handleDeleteProduct = useCallback((productOrItem) => {
         const rawProduct = productOrItem?.raw || productOrItem;
         const snapshot = productOrItem?.snapshot || resolveProductSnapshot(rawProduct);
         const productId = String(rawProduct?.id || snapshot?.id || '').trim();
         if (!productId) return;
 
         const productName = snapshot?.name || rawProduct?.name || 'Produkt';
-        if (!window.confirm(`Möchtest du "${productName}" wirklich aus dem Inventar löschen?`)) {
-            return;
-        }
+        setPendingConfirmAction({
+            message: `Möchtest du "${productName}" wirklich aus dem Inventar löschen?`,
+            onConfirm: async () => {
+                setDeletingProductId(productId);
+                if (selectedInventoryItem?.snapshot?.id === productId || selectedInventoryItem?.raw?.id === productId) {
+                    setSelectedInventoryItem(null);
+                }
 
-        setDeletingProductId(productId);
-        if (selectedInventoryItem?.snapshot?.id === productId || selectedInventoryItem?.raw?.id === productId) {
-            setSelectedInventoryItem(null);
-        }
-
-        try {
-            if (typeof deleteProduct === 'function') {
-                await deleteProduct(productId);
+                try {
+                    if (typeof deleteProduct === 'function') {
+                        await deleteProduct(productId);
+                    }
+                    setToast(`"${productName}" erfolgreich gelöscht`);
+                    setTimeout(() => setToast(''), 2000);
+                } catch (err) {
+                    showInlineError(err?.message || 'Fehler beim Löschen des Produkts');
+                } finally {
+                    setDeletingProductId(null);
+                }
             }
-            setToast(`"${productName}" erfolgreich gelöscht`);
-            setTimeout(() => setToast(''), 2000);
-        } catch (err) {
-            showInlineError(err?.message || 'Fehler beim Löschen des Produkts');
-        } finally {
-            setDeletingProductId(null);
-        }
+        });
     }, [deleteProduct, selectedInventoryItem, showInlineError]);
 
     const handleSaveStock = useCallback(async (productId, newStockValue) => {

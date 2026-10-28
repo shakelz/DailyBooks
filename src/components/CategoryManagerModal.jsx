@@ -34,6 +34,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     const [updateImagePreview, setUpdateImagePreview] = useState(null);
     const [updateIsHidden, setUpdateIsHidden] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [pendingDeleteCat, setPendingDeleteCat] = useState(null);
     const updateFileInputRef = useRef(null);
 
     const addL1Categories = getLevel1Categories(addScope, true);
@@ -273,10 +274,15 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         }
     };
 
-    const handleDelete = async (cat, isL1) => {
+    const handleDelete = (cat, isL1) => {
         const nameData = typeof cat === 'object' ? cat.name : cat;
-        if (!window.confirm(`Are you sure you want to delete the ${isL1 ? 'Main' : 'Sub'} Category "${nameData}"?`)) return;
+        setPendingDeleteCat({ cat, isL1, nameData });
+    };
 
+    const confirmDeleteCat = async () => {
+        if (!pendingDeleteCat) return;
+        const { isL1, nameData } = pendingDeleteCat;
+        setPendingDeleteCat(null);
         if (isL1) {
             if (selectedUpdateL1 === nameData) setSelectedUpdateL1('');
             await deleteCategory(1, nameData, null, updateScope);
@@ -288,6 +294,32 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} />
+
+            {pendingDeleteCat && (
+                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-[1px]">
+                    <div className="mx-4 w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+                        <p className="text-sm font-semibold text-slate-800 mb-4">
+                            Are you sure you want to delete the {pendingDeleteCat.isL1 ? 'Main' : 'Sub'} Category "{pendingDeleteCat.nameData}"?
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setPendingDeleteCat(null)}
+                                className="flex-1 rounded-xl border border-slate-300 bg-white py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmDeleteCat}
+                                className="flex-1 rounded-xl bg-rose-600 py-2 text-sm font-semibold text-white hover:bg-rose-700 cursor-pointer"
+                            >
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                 {/* Header */}
