@@ -136,17 +136,44 @@ function resolveRevenueContribution(txn = {}, linkedProduct = null, categoryName
     if (mode === KPI_MODE_SALES) return amount;
 
     const quantity = Math.max(1, parseInt(txn.quantity || '1', 10) || 1);
-    const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
-    const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
-    const linkedPurchase = linkedProduct ? Number(linkedProduct?.purchasePrice) : NaN;
+    const purchaseAtTime = Number(
+        txn?.purchasePriceAtTime
+        ?? txn?.purchase_price_at_time
+        ?? txn?.purchasePrice
+        ?? txn?.purchase_price
+        ?? txn?.costPrice
+        ?? txn?.cost_price
+        ?? txn?.buyPrice
+    );
+    const snapshotPurchase = Number(
+        txn?.productSnapshot?.purchasePrice
+        ?? txn?.productSnapshot?.costPrice
+        ?? txn?.productSnapshot?.buyPrice
+    );
+    const linkedPurchase = linkedProduct ? Number(linkedProduct?.purchasePrice ?? linkedProduct?.costPrice) : NaN;
+
+    let noteCost = 0;
+    const notesStr = String(txn?.notes || '');
+    const costMatch = notesStr.match(/(?:purchases*price|cost|ek|purchaseprice|costprice)s*[:=]s*€?s*([d.]+)/i);
+    if (costMatch && costMatch[1]) {
+        noteCost = parseFloat(costMatch[1]) || 0;
+    }
+
     const unitCost = Number.isFinite(purchaseAtTime) && purchaseAtTime > 0
         ? purchaseAtTime
         : (Number.isFinite(snapshotPurchase) && snapshotPurchase > 0
             ? snapshotPurchase
-            : (Number.isFinite(linkedPurchase) && linkedPurchase > 0 ? linkedPurchase : 0));
+            : (Number.isFinite(linkedPurchase) && linkedPurchase > 0
+                ? linkedPurchase
+                : (noteCost > 0 ? noteCost : 0)));
 
     if (unitCost === 0 && Number.isFinite(Number(txn?.profit)) && Number(txn?.profit) > 0) {
         return Number(txn.profit);
+    }
+
+    const profitMatch = notesStr.match(/(?:profit|gewinn)s*[:=]s*€?s*([d.]+)/i);
+    if (unitCost === 0 && profitMatch && profitMatch[1]) {
+        return parseFloat(profitMatch[1]) || 0;
     }
 
     return amount - (unitCost * quantity);

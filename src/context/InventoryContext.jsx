@@ -210,10 +210,69 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
 
     const transactionId = cleanText(txn?.transactionId || txn?.transaction_id || txn?.id || txn?.order_id) || txnId;
     const normalizedDesc = cleanText(txn?.desc || txn?.description || txn?.name || '');
-    const normalizedCategory = cleanText(txn?.category || txn?.category_name || '');
+    const notesRaw = cleanText(txn?.notes || '');
+    const noteCatMatch = notesRaw.match(/(?:category|cat)\s*[:=]\s*([^|\[\],\n]+)/i);
+    const noteSubMatch = notesRaw.match(/(?:subcategory|sub_category|sub)\s*[:=]\s*([^|\[\],\n]+)/i);
+    const noteCostMatch = notesRaw.match(/(?:purchase\s*price|cost|ek|purchaseprice|costprice)\s*[:=]\s*€?\s*([\d.]+)/i);
+    const noteProfitMatch = notesRaw.match(/(?:profit|gewinn)\s*[:=]\s*€?\s*([\d.]+)/i);
+
+    const normalizedCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID || '');
+    const categoryLookupById = options?.categoryLookups?.byId || {};
+    const categoryFromId = normalizedCategoryId ? categoryLookupById[normalizedCategoryId] : null;
+    const parentCategoryFromId = categoryFromId?.parent_id ? categoryLookupById[categoryFromId.parent_id] : null;
+
+    const resolvedCatFromId = parentCategoryFromId
+        ? cleanText(parentCategoryFromId?.category_name || parentCategoryFromId?.name)
+        : cleanText(categoryFromId?.category_name || categoryFromId?.name);
+
+    const resolvedSubCatFromId = parentCategoryFromId
+        ? cleanText(categoryFromId?.category_name || categoryFromId?.name)
+        : '';
+
+    const rawCategoryVal = cleanText(txn?.category || txn?.category_name || '');
+    let resolvedCategory = rawCategoryVal;
+    if (!resolvedCategory || resolvedCategory.startsWith('{') || resolvedCategory === '[object Object]') {
+        try {
+            if (resolvedCategory.startsWith('{')) {
+                const parsed = JSON.parse(resolvedCategory);
+                resolvedCategory = cleanText(parsed?.level1 || parsed?.name || parsed?.category || '');
+            } else {
+                resolvedCategory = '';
+            }
+        } catch (_) {
+            resolvedCategory = '';
+        }
+    }
+    if (!resolvedCategory) {
+        resolvedCategory = resolvedCatFromId || (noteCatMatch ? cleanText(noteCatMatch[1]) : '');
+    }
+
+    const resolvedSubCategory = cleanText(
+        txn?.subCategory
+        || txn?.sub_category
+        || txn?.sub_category_name
+        || resolvedSubCatFromId
+        || (noteSubMatch ? cleanText(noteSubMatch[1]) : '')
+        || ''
+    );
+
+    const resolvedPurchasePrice = parseFloat(
+        txn?.purchasePriceAtTime
+        ?? txn?.purchase_price_at_time
+        ?? txn?.purchasePrice
+        ?? txn?.purchase_price
+        ?? txn?.costPrice
+        ?? txn?.cost_price
+        ?? (noteCostMatch ? noteCostMatch[1] : NaN)
+    );
+
+    const resolvedProfit = parseFloat(
+        txn?.profit
+        ?? (noteProfitMatch ? noteProfitMatch[1] : NaN)
+    );
+
     const normalizedPaymentMethod = resolveTransactionPaymentMethod(txn);
     const normalizedInvoiceNumber = normalizeInvoiceNumberValue(txn);
-    const normalizedCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID || '');
     const fallbackInlineItems = (linkedItems.length > 0
         ? linkedItems
         : ((productId || txn?.product_id || txn?.productId)
@@ -249,7 +308,12 @@ function normalizeTransactionRecord(txn = {}, options = {}) {
         transactionId,
         desc: normalizedDesc,
         description: normalizedDesc,
-        category: normalizedCategory || txn?.category || '',
+        category: resolvedCategory || txn?.category || '',
+        sub_category: resolvedSubCategory,
+        subCategory: resolvedSubCategory,
+        purchasePriceAtTime: Number.isFinite(resolvedPurchasePrice) && resolvedPurchasePrice >= 0 ? resolvedPurchasePrice : null,
+        purchase_price_at_time: Number.isFinite(resolvedPurchasePrice) && resolvedPurchasePrice >= 0 ? resolvedPurchasePrice : null,
+        profit: Number.isFinite(resolvedProfit) ? resolvedProfit : null,
         type: normalizedLegacyType,
         tx_type: rawType || 'product_sale',
         source: cleanText(txn?.source || txn?.tx_source || 'cash'),
@@ -1164,14 +1228,40 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
     );
     const invoiceNumber = normalizeInvoiceNumberValue(txn);
     const description = cleanText(txn?.desc || txn?.description || txn?.name);
-    const category = cleanText(txn?.category || txn?.category_name);
+    const category = cleanText(
+        typeof txn?.category === 'object'
+            ? (txn.category?.level1 || txn.category?.name || '')
+            : (txn?.category || txn?.category_name || '')
+    );
+    const subCategory = cleanText(
+        txn?.subCategory
+        || txn?.sub_category
+        || (typeof txn?.category === 'object' ? txn.category?.level2 : '')
+    );
     const directCategoryId = cleanText(txn?.category_id || txn?.categoryId || txn?.categoryID);
     const mappedCategoryId = category && categoryNameToId && typeof categoryNameToId === 'object'
         ? cleanText(categoryNameToId[category])
         : '';
     const categoryId = directCategoryId || mappedCategoryId;
     const paymentMethod = resolveTransactionPaymentMethod(txn);
-    const notes = appendStructuredNoteValue(txn?.notes || '', 'PaymentMethod', paymentMethod);
+
+    const purchasePriceAtTime = parseFloat(
+        txn?.purchasePriceAtTime
+        ?? txn?.purchase_price_at_time
+        ?? txn?.purchasePrice
+        ?? txn?.costPrice
+    );
+    const profit = parseFloat(txn?.profit);
+
+    let notes = appendStructuredNoteValue(txn?.notes || '', 'PaymentMethod', paymentMethod);
+    if (category) notes = appendStructuredNoteValue(notes, 'Category', category);
+    if (subCategory) notes = appendStructuredNoteValue(notes, 'SubCategory', subCategory);
+    if (Number.isFinite(purchasePriceAtTime) && purchasePriceAtTime > 0) {
+        notes = appendStructuredNoteValue(notes, 'PurchasePrice', purchasePriceAtTime);
+    }
+    if (Number.isFinite(profit)) {
+        notes = appendStructuredNoteValue(notes, 'Profit', profit);
+    }
 
     const payload = withShopId({
         tx_type: mappedType,
@@ -1188,6 +1278,11 @@ function buildTransactionDBPayload(txn, includeId = false, shopId = '', category
         product_id: productId,
         invoice_number: invoiceNumber || null,
         category_id: categoryId || null,
+        category: category || null,
+        sub_category: subCategory || null,
+        purchase_price_at_time: Number.isFinite(purchasePriceAtTime) && purchasePriceAtTime > 0 ? purchasePriceAtTime : null,
+        purchasePriceAtTime: Number.isFinite(purchasePriceAtTime) && purchasePriceAtTime > 0 ? purchasePriceAtTime : null,
+        profit: Number.isFinite(profit) ? profit : null,
         created_by: isUuidLike(workerId) ? workerId : null,
     }, shopId);
 
@@ -3444,6 +3539,7 @@ export function InventoryProvider({ children }) {
         buildProductJSON,
         generateId,
         bulkUpdateCategoryPricing,
+        categoryLookups: categoryLookupsRef.current,
     };
 
     return (

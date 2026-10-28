@@ -247,8 +247,20 @@ function isPartOrderStatusEnumError(error) {
 
 function extractCategoryName(category) {
     if (!category) return '';
-    if (typeof category === 'string') return category.trim();
-    if (typeof category === 'object') return String(category.level1 || category.name || category.level2 || '').trim();
+    if (typeof category === 'string') {
+        const trimmed = category.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                return String(parsed.level1 || parsed.name || parsed.category || parsed.level2 || '').trim();
+            } catch (_) {
+                // fall through
+            }
+        }
+        if (trimmed === '[object Object]') return '';
+        return trimmed;
+    }
+    if (typeof category === 'object') return String(category.level1 || category.name || category.category || category.level2 || '').trim();
     return String(category).trim();
 }
 
@@ -788,6 +800,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         toggleCategoryHidden,
         refreshProducts,
         refreshCategoryCatalog,
+        categoryLookups,
     } = useInventory();
     const { repairJobs, repairsLoaded, updateRepairStatus } = useRepairs();
     const { addToCart, cart, editingCartItem, setEditingCartItem } = useCart();
@@ -1576,9 +1589,35 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             if (key) acc[key] = product;
             const barcode = String(product?.barcode || '').trim();
             if (barcode) acc[barcode] = product;
+            const name = String(product?.name || '').trim().toLowerCase();
+            if (name) acc[`name::${name}`] = product;
             return acc;
         }, {});
     }, [products]);
+
+    const purchaseCostLookup = useMemo(() => {
+        const lookup = { byId: {}, byBarcode: {}, byName: {} };
+        const safeTxns = Array.isArray(transactions) ? transactions : [];
+        for (let i = 0; i < safeTxns.length; i++) {
+            const txn = safeTxns[i];
+            const isPurchase = txn?.tx_type === 'product_purchase' || txn?.source === 'purchase' || txn?.type === 'expense' || txn?.tx_type === 'purchase';
+            if (!isPurchase) continue;
+            const qty = Math.max(1, parseInt(txn?.quantity || '1', 10) || 1);
+            const amt = parseFloat(txn?.amount) || 0;
+            const unitCost = Number(txn?.purchasePriceAtTime ?? txn?.purchasePrice ?? txn?.costPrice) || (amt > 0 ? amt / qty : 0);
+            if (!unitCost || unitCost <= 0) continue;
+
+            const pId = String(txn?.productId ?? txn?.product_id ?? '').trim();
+            if (pId && !lookup.byId[pId]) lookup.byId[pId] = unitCost;
+
+            const barcode = String(txn?.barcode ?? '').trim();
+            if (barcode && !lookup.byBarcode[barcode]) lookup.byBarcode[barcode] = unitCost;
+
+            const name = String(txn?.productName ?? txn?.name ?? txn?.desc ?? '').trim().toLowerCase();
+            if (name && !lookup.byName[name]) lookup.byName[name] = unitCost;
+        }
+        return lookup;
+    }, [transactions]);
 
     const lowAndOutStockProducts = useMemo(() => {
         return (products || []).filter((p) => {
@@ -1988,20 +2027,36 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [dashboardRange, onlineOrders]);
 
     const resolveTxnCategoryParts = useCallback((txn = {}) => {
-        const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
-            ? productLookup[String(txn.productId)]
-            : null;
+        const pId = String(txn?.productId ?? txn?.product_id ?? '').trim();
+        const barcode = String(txn?.barcode ?? '').trim();
+        const cleanName = String(txn?.productName ?? txn?.name ?? txn?.desc ?? '').trim().toLowerCase();
+
+        const linkedProduct = pId
+            ? productLookup[pId]
+            : (barcode ? productLookup[barcode] : (cleanName ? productLookup[`name::${cleanName}`] : null));
         const linkedSnapshot = linkedProduct ? resolveProductSnapshot(linkedProduct) : null;
         const notesText = String(txn?.notes || '').trim();
-        const notesSubCategoryMatch = notesText.match(/subcategory\s*:\s*([^|,\n]+)/i);
+        const notesCategoryMatch = notesText.match(/\[Category:\s*([^\]]+)\]/i) || notesText.match(/category\s*:\s*([^|,\n]+)/i);
+        const notesSubCategoryMatch = notesText.match(/\[SubCategory:\s*([^\]]+)\]/i) || notesText.match(/subcategory\s*:\s*([^|,\n]+)/i);
 
         const sourceText = String(txn?.source || txn?.tx_source || '').toLowerCase();
         const isRepairSource = sourceText === 'repair' || sourceText.startsWith('repair-') || sourceText.startsWith('repair_');
-        const resolvedCategoryName = isRepairSource
-            ? 'Repair Job'
-            : extractCategoryName(txn.category || txn.categorySnapshot || txn?.productSnapshot?.category);
 
-        const subCategoryName = String(
+        let rawCategoryName = '';
+        if (isRepairSource) {
+            rawCategoryName = 'Repair Job';
+        } else {
+            const rawCatField = txn.category || txn.categorySnapshot || txn?.productSnapshot?.category;
+            rawCategoryName = extractCategoryName(rawCatField);
+            if (!rawCategoryName && txn?.category_id && categoryLookups?.byId?.[String(txn.category_id)]) {
+                rawCategoryName = categoryLookups.byId[String(txn.category_id)].name || '';
+            }
+            if (!rawCategoryName && notesCategoryMatch?.[1]) {
+                rawCategoryName = notesCategoryMatch[1].trim();
+            }
+        }
+
+        let rawSubCategoryName = String(
             txn?.subCategory
             || txn?.sub_category_name
             || txn?.subcategory
@@ -2011,7 +2066,20 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             || txn?.productSnapshot?.sub_category
             || linkedSnapshot?.subCategory
             || ''
-        ).trim().toLowerCase();
+        ).trim();
+
+        if (rawCategoryName.includes('/')) {
+            const parts = rawCategoryName.split('/').map((p) => p.trim());
+            if (parts.length >= 2) {
+                rawCategoryName = parts[0];
+                if (!rawSubCategoryName) rawSubCategoryName = parts[1];
+            }
+        }
+
+        if ((!rawCategoryName || rawCategoryName.toLowerCase() === 'uncategorized' || rawCategoryName.toLowerCase().startsWith('general')) && isMobileTransaction(txn)) {
+            rawCategoryName = 'Handy';
+        }
+
         const rawDescription = String(
             txn?.desc
             || txn?.description
@@ -2021,13 +2089,15 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         ).trim();
         const fallbackDescription = stripTransactionPrefix(rawDescription);
         const categoryName = (String(
-            resolvedCategoryName
+            rawCategoryName
             || linkedSnapshot?.category
             || fallbackDescription
             || rawDescription
             || getTransactionInvoiceNumber(txn)
             || 'Uncategorized'
         ).trim() || 'Uncategorized').toLowerCase();
+        const subCategoryName = rawSubCategoryName.toLowerCase();
+
         const nameText = String(txn?.name || txn?.desc || txn?.productSnapshot?.name || linkedSnapshot?.name || '').trim();
         const linkedCategoryText = linkedSnapshot
             ? `${linkedSnapshot.category || ''} ${linkedSnapshot.subCategory || ''} ${linkedSnapshot.name || ''}`
@@ -2040,7 +2110,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             linkedSnapshot,
             haystack,
         };
-    }, [productLookup]);
+    }, [categoryLookups, isMobileTransaction, productLookup]);
 
     const resolveConfiguredContributionMode = useCallback((categoryName = '', subCategoryName = '', scope = KPI_SCOPE_SALES) => {
         const normalizedScope = normalizeKpiScope(scope);
@@ -2064,6 +2134,18 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             const subOnlyKey = makeScopedProfitCategoryKey(normalizedScope, normSub, '');
             if (Object.prototype.hasOwnProperty.call(categoryContributionModeMap, subOnlyKey)) {
                 return normalizeKpiContributionMode(categoryContributionModeMap[subOnlyKey]);
+            }
+        }
+
+        // 3b. Suffix match: if any key in categoryContributionModeMap matches scope and ends with ::normSub
+        if (normSub) {
+            const suffix = `::${normSub}`;
+            const mapKeys = Object.keys(categoryContributionModeMap);
+            for (let i = 0; i < mapKeys.length; i++) {
+                const key = mapKeys[i];
+                if (key.startsWith(`${normalizedScope}::`) && key.endsWith(suffix)) {
+                    return normalizeKpiContributionMode(categoryContributionModeMap[key]);
+                }
             }
         }
 
@@ -2118,24 +2200,59 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
 
         const quantity = Math.max(1, parseInt(txn?.quantity || '1', 10) || 1);
         const purchaseAtTime = Number(txn?.purchasePriceAtTime ?? txn?.purchase_price_at_time);
-        const snapshotPurchase = Number(txn?.productSnapshot?.purchasePrice ?? txn?.productSnapshot?.costPrice);
-        const linkedProduct = txn?.productId !== undefined && txn?.productId !== null
-            ? (productLookup[String(txn.productId)] || productLookup[String(txn.product_id)])
-            : (txn?.barcode ? productLookup[String(txn.barcode)] : null);
-        const linkedPurchase = Number(linkedProduct?.purchasePrice);
+        const snapshotPurchase = Number(
+            txn?.productSnapshot?.purchasePrice ??
+            txn?.productSnapshot?.costPrice ??
+            txn?.productSnapshot?.buyPrice
+        );
+        const pId = String(txn?.productId ?? txn?.product_id ?? '').trim();
+        const barcode = String(txn?.barcode ?? '').trim();
+        const cleanName = String(txn?.productName ?? txn?.name ?? txn?.desc ?? '').trim().toLowerCase();
+
+        const linkedProduct = pId
+            ? productLookup[pId]
+            : (barcode ? productLookup[barcode] : (cleanName ? productLookup[`name::${cleanName}`] : null));
+        const linkedPurchase = Number(linkedProduct?.purchasePrice ?? linkedProduct?.costPrice ?? linkedProduct?.buyPrice);
+
+        const historicPurchaseCost = (pId && purchaseCostLookup?.byId?.[pId])
+            || (barcode && purchaseCostLookup?.byBarcode?.[barcode])
+            || (cleanName && purchaseCostLookup?.byName?.[cleanName])
+            || 0;
+
+        let notesCost = 0;
+        let notesProfit = 0;
+        const notes = String(txn?.notes || '');
+        if (notes) {
+            const costMatch = notes.match(/\[PurchasePrice:\s*([0-9.]+)\]/i) || notes.match(/(?:cost|purchase(?:\s*price)?)\s*:\s*([0-9.]+)/i);
+            if (costMatch) notesCost = parseFloat(costMatch[1]) || 0;
+            const profitMatch = notes.match(/\[Profit:\s*([0-9.]+)\]/i) || notes.match(/profit\s*:\s*([0-9.]+)/i);
+            if (profitMatch) notesProfit = parseFloat(profitMatch[1]) || 0;
+        }
 
         const unitCost = Number.isFinite(purchaseAtTime) && purchaseAtTime > 0
             ? purchaseAtTime
             : (Number.isFinite(snapshotPurchase) && snapshotPurchase > 0
                 ? snapshotPurchase
-                : (Number.isFinite(linkedPurchase) && linkedPurchase > 0 ? linkedPurchase : 0));
+                : (Number.isFinite(linkedPurchase) && linkedPurchase > 0
+                    ? linkedPurchase
+                    : (historicPurchaseCost > 0
+                        ? historicPurchaseCost
+                        : (notesCost > 0 ? notesCost : 0))));
 
-        if (unitCost === 0 && Number.isFinite(Number(txn?.profit)) && Number(txn?.profit) > 0) {
-            return Number(txn.profit);
+        if (unitCost > 0) {
+            return Math.max(0, amount - (unitCost * quantity));
+        }
+
+        const explicitProfit = Number(txn?.profit ?? txn?.profitAmount);
+        if (Number.isFinite(explicitProfit) && explicitProfit > 0) {
+            return explicitProfit;
+        }
+        if (notesProfit > 0) {
+            return notesProfit;
         }
 
         return amount - (unitCost * quantity);
-    }, [productLookup, resolveTxnContributionMode]);
+    }, [productLookup, purchaseCostLookup, resolveTxnContributionMode]);
 
     const kpiRevenueAmount = useMemo(() => {
         return debouncedRevenueTransactions.reduce((sum, txn) => sum + resolveKpiRevenueContribution(txn), 0);
@@ -3598,6 +3715,29 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             ? `${mode === 'sales' ? 'Sale' : 'Expense'} - ${productLabel}`
             : `${mode === 'sales' ? 'Sale' : 'Expense'} - ${fallbackCategory}`;
 
+        const cleanSearchName = productLabel.toLowerCase();
+        const matchedProduct = entry.productId
+            ? productLookup[String(entry.productId)]
+            : (cleanSearchName ? productLookup[`name::${cleanSearchName}`] : null);
+
+        const unitPurchase = Number(
+            matchedProduct?.purchasePrice ??
+            matchedProduct?.costPrice ??
+            matchedProduct?.buyPrice
+        ) || 0;
+        const calculatedProfit = unitPurchase > 0
+            ? Math.max(0, amountValue - (unitPurchase * quantityValue))
+            : undefined;
+
+        const resolvedCategory = entry.category || matchedProduct?.category || '';
+        const resolvedSubCategory = entry.subCategory || matchedProduct?.subCategory || '';
+
+        const metaNotes = [
+            resolvedSubCategory ? `SubCategory: ${resolvedSubCategory}` : '',
+            unitPurchase > 0 ? `[PurchasePrice: ${unitPurchase}]` : '',
+            calculatedProfit !== undefined ? `[Profit: ${calculatedProfit}]` : '',
+        ].filter(Boolean).join(' | ');
+
         try {
             await addTransaction({
                 desc: descLabel,
@@ -3605,15 +3745,18 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 quantity: quantityValue,
                 type,
                 tx_type: mode === 'sales' ? 'product_sale' : 'product_expense',
-                category: entry.category,
-                sub_category: entry.subCategory || '',
+                category: resolvedCategory,
+                sub_category: resolvedSubCategory,
                 paymentMethod: entry.paymentMode || 'Cash',
-                notes: entry.subCategory ? `SubCategory: ${entry.subCategory}` : '',
+                notes: metaNotes,
                 source: type === 'expense' ? 'expense' : 'shop',
                 salesmanName: user?.name,
                 salesmanNumber: user?.salesmanNumber || 0,
                 workerId: String(user?.id || ''),
-                productId: entry.productId || undefined,
+                productId: entry.productId || matchedProduct?.id || undefined,
+                purchasePriceAtTime: unitPurchase > 0 ? unitPurchase : undefined,
+                profit: calculatedProfit,
+                productSnapshot: matchedProduct ? resolveProductSnapshot(matchedProduct) : undefined,
                 timestamp: selectedDate.toISOString(),
                 date: selectedDate.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                 time: selectedDate.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
@@ -4643,22 +4786,34 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         try {
             for (const line of lines) {
                 const subCatForCart = String(line.subCategory || line.sub_category || '').trim();
+                const matchedQuickProduct = line.productId ? productLookup[String(line.productId)] : null;
+                const quickPurchase = Number(line.purchasePrice ?? matchedQuickProduct?.purchasePrice ?? matchedQuickProduct?.costPrice) || 0;
+                const quickProfit = quickPurchase > 0 ? Math.max(0, line.total - (quickPurchase * line.quantity)) : undefined;
+                const quickNotes = [
+                    subCatForCart ? `SubCategory: ${subCatForCart}` : '',
+                    line.notes || '',
+                    quickPurchase > 0 ? `[PurchasePrice: ${quickPurchase}]` : '',
+                    quickProfit !== undefined ? `[Profit: ${quickProfit}]` : '',
+                ].filter(Boolean).join(' | ');
+
                 await addTransaction({
                     desc: line.name,
                     amount: line.total,
                     quantity: line.quantity,
                     type: 'income',
                     tx_type: 'product_sale',
-                    category: line.category || 'General',
-                    sub_category: subCatForCart,
+                    category: line.category || matchedQuickProduct?.category || 'General',
+                    sub_category: subCatForCart || matchedQuickProduct?.subCategory || '',
                     paymentMethod: line.paymentMode || 'Cash',
-                    notes: subCatForCart
-                        ? (line.notes ? `SubCategory: ${subCatForCart} | ${line.notes}` : `SubCategory: ${subCatForCart}`)
-                        : (line.notes || ''),
+                    notes: quickNotes,
                     source: 'shop',
                     salesmanName: user?.name,
                     salesmanNumber: user?.salesmanNumber || 0,
                     workerId: String(user?.id || ''),
+                    productId: line.productId || undefined,
+                    purchasePriceAtTime: quickPurchase > 0 ? quickPurchase : undefined,
+                    profit: quickProfit,
+                    productSnapshot: matchedQuickProduct ? resolveProductSnapshot(matchedQuickProduct) : undefined,
                     timestamp: new Date().toISOString(),
                     date: new Date().toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
                     time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }),
@@ -6323,6 +6478,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                                                                             </p>
                                                                             {txn.quantity && Number(txn.quantity) > 1 && (
                                                                                 <p className="text-[9px] text-slate-400 font-medium">Qty: {txn.quantity}</p>
+                                                                            )}
+                                                                            {txn.kpiContribution !== undefined && Math.abs(txn.kpiContribution - (parseFloat(txn.amount) || 0)) > 0.001 && (
+                                                                                <p className="text-[9px] text-slate-400 font-medium line-through">{priceTag(txn.amount)}</p>
                                                                             )}
                                                                         </div>
 
