@@ -1945,6 +1945,7 @@ export function AuthProvider({ children }) {
                 return merged;
             }
             setShops(merged);
+            writeStorage('dailybooks_known_shops', JSON.stringify(merged));
 
             // Prefer an explicitly provided preferredShopId, then current activeShopId, then user's mapped shop
             const preferred = asString(preferredShopId || activeShopIdRef.current || user.shop_id);
@@ -3849,6 +3850,18 @@ export function AuthProvider({ children }) {
 
     const fetchPublicShops = useCallback(async () => {
         try {
+            // 1. Try edge function list-terminal-shops-v1 which uses service_role key to bypass RLS
+            try {
+                const { data: edgeData, error: edgeErr } = await supabase.functions.invoke('list-terminal-shops-v1');
+                if (!edgeErr && edgeData && Array.isArray(edgeData.shops) && edgeData.shops.length > 0) {
+                    const normalized = edgeData.shops.map(normalizeShop).filter(Boolean);
+                    setShops(normalized);
+                    writeStorage('dailybooks_known_shops', JSON.stringify(normalized));
+                    return normalized;
+                }
+            } catch (_) {}
+
+            // 2. Direct query to shops table
             let data = null;
             let error = null;
             const orderCandidates = ['shop_name', 'created_at', 'name'];
@@ -3866,7 +3879,7 @@ export function AuthProvider({ children }) {
 
             if (!data || !Array.isArray(data) || data.length === 0) {
                 const fallback = await supabase.from('shops').select('*');
-                if (!fallback.error && Array.isArray(fallback.data)) {
+                if (!fallback.error && Array.isArray(fallback.data) && fallback.data.length > 0) {
                     data = fallback.data;
                     error = null;
                 }
@@ -3879,6 +3892,8 @@ export function AuthProvider({ children }) {
                 return normalized;
             }
         } catch (_) {}
+
+        // 3. Fallback to cached known shops
         const cached = safeParseJSON(readStorage('dailybooks_known_shops', ''), []);
         return Array.isArray(cached) ? cached : [];
     }, []);

@@ -41,6 +41,16 @@ export default function AdminPanel() {
         }
     }, [activeShopId, shops, setActiveShopId]);
 
+    const STATION_STORAGE_KEY = 'dailybooks_station_shop_id_v3';
+    const [stationAssignedId, setStationAssignedId] = useState(() => {
+        try {
+            return localStorage.getItem(STATION_STORAGE_KEY) || '';
+        } catch {
+            return '';
+        }
+    });
+    const [stationToast, setStationToast] = useState('');
+
     // 15-day automatic transactions backup
     useEffect(() => {
         if (Array.isArray(transactions) && transactions.length > 0) {
@@ -287,6 +297,44 @@ export default function AdminPanel() {
 
                 <main className="flex-1 overflow-auto p-4 pb-24 md:p-8 md:pb-8 relative">
                     <div className="max-w-7xl mx-auto">
+                        {!stationAssignedId && shops && shops.length > 0 && (
+                            <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-blue-900/90 via-indigo-950 to-slate-900 border border-blue-500/40 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-white">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-xl shrink-0">
+                                        🖥️
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-bold text-white">Kassen-Terminal Setup für diesen Computer</p>
+                                        <p className="text-xs text-blue-200">Dieser PC ist noch keiner festen Filiale für das Kassen-Terminal zugewiesen. Klicken Sie auf eine Filiale, um dieses Gerät fest zuzuordnen:</p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {shops.map((shop) => (
+                                        <button
+                                            key={shop.id}
+                                            type="button"
+                                            onClick={() => {
+                                                try {
+                                                    localStorage.setItem(STATION_STORAGE_KEY, shop.id);
+                                                    localStorage.setItem('dailybooks_known_shops', JSON.stringify(shops));
+                                                    setStationAssignedId(shop.id);
+                                                    setStationToast('Dieser Computer wurde erfolgreich der Filiale "' + shop.name + '" zugewiesen!');
+                                                } catch {}
+                                            }}
+                                            className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                            <span>🏢 Filiale: {shop.name} zuweisen</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        {stationToast && (
+                            <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 text-xs font-semibold flex items-center justify-between">
+                                <span>✓ {stationToast}</span>
+                                <button type="button" onClick={() => setStationToast('')} className="text-emerald-800 font-bold ml-2 cursor-pointer">✕</button>
+                            </div>
+                        )}
                         <Outlet />
                     </div>
                 </main>
