@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 const PRELOAD_PATH = path.join(__dirname, 'electron.preload.cjs');
 
 const REMOTE_URL = 'https://www.carefone.de/terminal-access-v1?desktop_session=1';
-const PARTITION_NAME = 'persist:carefone-terminal';
+const PARTITION_NAME = 'persist:carefone-terminal-v3';
 
 app.commandLine.appendSwitch('disable-http-cache');
 

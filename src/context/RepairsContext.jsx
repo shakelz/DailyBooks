@@ -432,8 +432,24 @@ function buildRepairUpdatePayload(status, extras = {}, currentJob = null) {
 }
 export function RepairsProvider({ children }) {
     const { activeShopId, user } = useAuth();
-    const [repairJobs, setRepairJobs] = useState([]);
-    const [repairsLoaded, setRepairsLoaded] = useState(false);
+    const [repairJobs, setRepairJobs] = useState(() => {
+        try {
+            const sid = cleanText(activeShopId);
+            const raw = sid ? localStorage.getItem('dailybooks_cache_repairs_' + sid) : null;
+            return raw ? JSON.parse(raw) : [];
+        } catch {
+            return [];
+        }
+    });
+    const [repairsLoaded, setRepairsLoaded] = useState(() => {
+        try {
+            const sid = cleanText(activeShopId);
+            const raw = sid ? localStorage.getItem('dailybooks_cache_repairs_' + sid) : null;
+            return Boolean(raw);
+        } catch {
+            return false;
+        }
+    });
     const repairChannelRef = useRef(null);
     const broadcastRepairSync = useCallback((payload) => {
         const channel = repairChannelRef.current;
@@ -453,13 +469,24 @@ export function RepairsProvider({ children }) {
             return undefined;
         }
 
+        // Instant cache hydration
+        try {
+            const cached = localStorage.getItem('dailybooks_cache_repairs_' + sid);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setRepairJobs(parsed);
+                    setRepairsLoaded(true);
+                }
+            }
+        } catch {}
+
         let cancelled = false;
-        setRepairsLoaded(false);
 
         const fetchRepairs = async () => {
             let allRepairs = [];
             let offset = 0;
-            const PAGE_SIZE = 1000;
+            const PAGE_SIZE = 500;
             let lastError = null;
 
             while (true) {
@@ -467,6 +494,7 @@ export function RepairsProvider({ children }) {
                     .from('repairs')
                     .select('*')
                     .eq('shop_id', sid)
+                    .order('created_at', { ascending: false })
                     .range(offset, offset + PAGE_SIZE - 1);
 
                 if (repairsResult.error) {
@@ -477,7 +505,7 @@ export function RepairsProvider({ children }) {
                 const batch = Array.isArray(repairsResult.data) ? repairsResult.data : [];
                 allRepairs.push(...batch);
 
-                if (batch.length < PAGE_SIZE) break;
+                if (batch.length < PAGE_SIZE || allRepairs.length >= 500) break;
                 offset += PAGE_SIZE;
             }
 
@@ -485,8 +513,12 @@ export function RepairsProvider({ children }) {
 
             if (!lastError && allRepairs.length >= 0) {
                 const normalized = allRepairs.map((row) => normalizeRepairRecord(row));
-                setRepairJobs(sortRepairsByCreatedAt(normalized));
-            } else {
+                const sorted = sortRepairsByCreatedAt(normalized);
+                setRepairJobs(sorted);
+                try {
+                    localStorage.setItem('dailybooks_cache_repairs_' + sid, JSON.stringify(sorted.slice(0, 200)));
+                } catch {}
+            } else if (!lastError) {
                 setRepairJobs([]);
             }
             setRepairsLoaded(true);

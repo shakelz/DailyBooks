@@ -1400,17 +1400,44 @@ function buildTransactionSnapshot(txn) {
     return snapshot;
 }
 
+function readLocalCache(key, fallback) {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function writeLocalCache(key, data) {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+    } catch {}
+}
+
 export function InventoryProvider({ children }) {
     const { activeShopId, salesmen, user } = useAuth();
 
-    // ── Live Products (Local State mirroring Supabase) ──
-    const [products, setProducts] = useState([]);
-    const [transactions, setTransactions] = useState([]);
+    // ── Live Products (Local State mirroring Supabase with instant cache-first hydration) ──
+    const [products, setProducts] = useState(() => {
+        const sid = cleanText(activeShopId);
+        return sid ? readLocalCache('dailybooks_cache_products_' + sid, []) : [];
+    });
+    const [transactions, setTransactions] = useState(() => {
+        const sid = cleanText(activeShopId);
+        return sid ? readLocalCache('dailybooks_cache_txns_' + sid, []) : [];
+    });
     const [workerDirectory, setWorkerDirectory] = useState({});
 
-    // ── Categories (Supabase Synced) ──
-    const [l1Categories, setL1Categories] = useState([]);
-    const [l2Map, setL2Map] = useState({});
+    // ── Categories (Supabase Synced with instant cache-first hydration) ──
+    const [l1Categories, setL1Categories] = useState(() => {
+        const sid = cleanText(activeShopId);
+        return sid ? readLocalCache('dailybooks_cache_l1_' + sid, []) : [];
+    });
+    const [l2Map, setL2Map] = useState(() => {
+        const sid = cleanText(activeShopId);
+        return sid ? readLocalCache('dailybooks_cache_l2_' + sid, {}) : {};
+    });
     const workerLookup = useMemo(
         () => buildWorkersLookup(salesmen, Object.values(workerDirectory || {})),
         [salesmen, workerDirectory]
@@ -1465,6 +1492,7 @@ export function InventoryProvider({ children }) {
         });
     }, []);
 
+    const shopCandidatesCacheRef = useRef({});
     const resolveShopIdCandidates = useCallback(async (shopRef = '') => {
         const base = cleanText(shopRef);
         const seen = new Set();
@@ -1478,6 +1506,10 @@ export function InventoryProvider({ children }) {
 
         push(base);
         if (!base) return candidates;
+
+        if (shopCandidatesCacheRef.current[base]) {
+            return shopCandidatesCacheRef.current[base];
+        }
 
         const attempts = [
             { column: 'shop_id', value: base },
@@ -1506,6 +1538,7 @@ export function InventoryProvider({ children }) {
             break;
         }
 
+        shopCandidatesCacheRef.current[base] = candidates;
         return candidates;
     }, []);
 
@@ -1543,7 +1576,8 @@ export function InventoryProvider({ children }) {
                 const batch = Array.isArray(result.data) ? result.data : [];
                 candidateRows.push(...batch);
 
-                if (batch.length < PAGE_SIZE) {
+                // Cap initial transactions fetch to 1000 items to avoid long download wait times
+                if (batch.length < PAGE_SIZE || (normalizedTableName === 'transactions' && candidateRows.length >= 1000)) {
                     break;
                 }
                 offset += PAGE_SIZE;
@@ -1558,6 +1592,8 @@ export function InventoryProvider({ children }) {
                         seenRowKeys.add(identityKey);
                         aggregatedRows.push(row);
                     });
+                    // Early exit: rows already found for this shop, avoid querying other candidate variants
+                    break;
                 }
                 continue;
             }
@@ -1640,6 +1676,7 @@ export function InventoryProvider({ children }) {
 
         const normalizedProducts = invResult.data.map((row) => normalizeInventoryRecord(row, categoryLookupsRef.current));
         setProducts(normalizedProducts);
+        writeLocalCache('dailybooks_cache_products_' + sid, normalizedProducts);
         return normalizedProducts;
     }, [activeShopId, resolveShopIdCandidates]);
 
@@ -1696,6 +1733,24 @@ export function InventoryProvider({ children }) {
             return undefined;
         }
 
+        // Instant cache hydration on shop switch/open for instantaneous UI display
+        const cachedProducts = readLocalCache('dailybooks_cache_products_' + sid, null);
+        if (Array.isArray(cachedProducts) && cachedProducts.length > 0) {
+            setProducts(cachedProducts);
+        }
+        const cachedTxns = readLocalCache('dailybooks_cache_txns_' + sid, null);
+        if (Array.isArray(cachedTxns) && cachedTxns.length > 0) {
+            setTransactions(cachedTxns);
+        }
+        const cachedL1 = readLocalCache('dailybooks_cache_l1_' + sid, null);
+        if (Array.isArray(cachedL1) && cachedL1.length > 0) {
+            setL1Categories(cachedL1);
+        }
+        const cachedL2 = readLocalCache('dailybooks_cache_l2_' + sid, null);
+        if (cachedL2 && typeof cachedL2 === 'object' && Object.keys(cachedL2).length > 0) {
+            setL2Map(cachedL2);
+        }
+
         let cancelled = false;
         const knownShopIds = new Set([sid]);
         const addKnownShopId = (value = '') => {
@@ -1734,7 +1789,9 @@ export function InventoryProvider({ children }) {
             setWorkerDirectory(workersById);
 
             if (!invResult.error && Array.isArray(invResult.data)) {
-                setProducts(invResult.data.map((row) => normalizeInventoryRecord(row, categoryLookups)));
+                const normalizedInv = invResult.data.map((row) => normalizeInventoryRecord(row, categoryLookups));
+                setProducts(normalizedInv);
+                writeLocalCache('dailybooks_cache_products_' + sid, normalizedInv);
             } else {
                 setProducts([]);
             }
@@ -1744,16 +1801,10 @@ export function InventoryProvider({ children }) {
                 const normalizedTransactions = txnResult.data.map((row) => normalizeTransactionRecord(row, {
                     workersById,
                 }));
-                console.log(
-                    'ALL fetched transactions tx_types:',
-                    normalizedTransactions.map((txn) => ({
-                        tx_type: txn?.tx_type,
-                        source: txn?.source,
-                        desc: txn?.description || txn?.desc || '',
-                    }))
-                );
                 const hydratedTransactions = normalizedTransactions.map((row) => mergeTransactionWithSnapshot(row, snapshotMap));
-                setTransactions(dedupeTransactionsByIdentity(hydratedTransactions));
+                const dedupedTxns = dedupeTransactionsByIdentity(hydratedTransactions);
+                setTransactions(dedupedTxns);
+                writeLocalCache('dailybooks_cache_txns_' + sid, dedupedTxns.slice(0, 300));
             } else {
                 setTransactions([]);
             }
@@ -1762,7 +1813,9 @@ export function InventoryProvider({ children }) {
                 const normalizedCategories = categoryRows.map((row) => normalizeCategoryRecord(row, categoryLookups.byId, hiddenMap));
                 const l1 = normalizedCategories.filter(c => Number(c.level) === 1) || [];
                 const l2 = normalizedCategories.filter(c => Number(c.level) === 2) || [];
-                setL1Categories(dedupeCategoryObjectsByName(applyScopeToCategoryList(l1, scopeMap, hiddenMap)));
+                const dedupedL1 = dedupeCategoryObjectsByName(applyScopeToCategoryList(l1, scopeMap, hiddenMap));
+                setL1Categories(dedupedL1);
+                writeLocalCache('dailybooks_cache_l1_' + sid, dedupedL1);
 
                 const map2 = {};
                 l2.forEach(c => {
@@ -1775,6 +1828,7 @@ export function InventoryProvider({ children }) {
                     map2[parentName] = dedupeCategoryObjectsByName(map2[parentName]);
                 });
                 setL2Map(map2);
+                writeLocalCache('dailybooks_cache_l2_' + sid, map2);
             } else {
                 setL1Categories([]);
                 setL2Map({});

@@ -4938,7 +4938,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 .from('online_part_orders')
                 .select('*')
                 .eq('shop_id', shopId)
-                .order('created_at', { ascending: false });
+                .order('created_at', { ascending: false })
+                .limit(100);
 
             if (cancelled) return;
             if (error) {
