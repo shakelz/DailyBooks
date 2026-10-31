@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useInventory } from '../../context/InventoryContext';
 import { supabase } from '../../supabaseClient';
-import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash, Phone, Upload, RefreshCw } from 'lucide-react';
+import { Shield, Users, Key, Plus, Trash2, Eye, EyeOff, Edit2, X, Save, Clock, Lock, Store, MapPin, Mail, UserPlus, Hash, Phone, Upload, RefreshCw, Download, Database } from 'lucide-react';
+import { exportTransactionsCSV, getBackupStatus } from '../../utils/autoBackup';
 
 export default function AdminSettings() {
     const {
@@ -14,7 +15,22 @@ export default function AdminSettings() {
         autoLockEnabled, setAutoLockEnabled,
         autoLockTimeout, setAutoLockTimeout
     } = useAuth();
-    const { clearLocalInventoryCache } = useInventory();
+    const { clearLocalInventoryCache, transactions } = useInventory();
+    const [backupMsg, setBackupMsg] = useState('');
+    const backupStatus = getBackupStatus();
+
+    const handleManualBackup = () => {
+        if (!transactions || transactions.length === 0) {
+            setBackupMsg('Keine Transaktionen zum Herunterladen vorhanden.');
+            setTimeout(() => setBackupMsg(''), 3000);
+            return;
+        }
+        const ok = exportTransactionsCSV(transactions, shops);
+        if (ok) {
+            setBackupMsg('✅ Transaktions-Backup erfolgreich heruntergeladen!');
+            setTimeout(() => setBackupMsg(''), 4000);
+        }
+    };
 
     // ── Password State ──
     const [newPass, setNewPass] = useState('');
@@ -1388,6 +1404,46 @@ export default function AdminSettings() {
                         </button>
                     </div>
                     {appRefreshMsg && <p className="text-xs font-medium text-slate-500">{appRefreshMsg}</p>}
+                </div>
+            </div>
+
+            {/* 15-Day Automatic Transactions Backup */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                        <Database size={20} />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-bold text-slate-800">Automatische Datensicherung (Alle 15 Tage)</h2>
+                        <p className="text-xs text-slate-400">Transaktions-Backup zum Schutz vor versehentlichem Datenverlust</p>
+                    </div>
+                </div>
+                <div className="max-w-2xl space-y-4">
+                    <p className="text-sm text-slate-600">
+                        Um Ihre Geschäftsdaten vor Datenlöschung zu schützen, lädt das System alle 15 Tage automatisch eine vollständige CSV-Sicherungskopie aller Transaktionen auf diesen Computer herunter.
+                    </p>
+                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span className="text-xs font-bold text-slate-700">Automatischer Intervall: 15 Tage (Aktiv)</span>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                                {backupStatus.hasBackup
+                                    ? `Letztes Backup: ${backupStatus.daysSince === 0 ? 'Heute' : `Vor ${backupStatus.daysSince} Tag(en)`} (${backupStatus.lastBackupDate?.toLocaleDateString('de-DE')}) • Nächstes Backup in ${backupStatus.daysUntilNext} Tag(en)`
+                                    : 'Noch kein automatisches Backup durchgeführt. Wird beim nächsten Start/Aufruf automatisch erstellt.'}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleManualBackup}
+                            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-md shadow-emerald-600/20 active:scale-95 transition-all shrink-0 cursor-pointer"
+                        >
+                            <Download size={15} />
+                            Backup jetzt herunterladen (CSV)
+                        </button>
+                    </div>
+                    {backupMsg && <p className="text-xs font-medium text-emerald-600">{backupMsg}</p>}
                 </div>
             </div>
 

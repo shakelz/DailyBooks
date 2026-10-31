@@ -10,6 +10,9 @@ const REMOTE_URL = 'https://www.carefone.de/terminal-access-v1?desktop_session=1
 const PARTITION_NAME = 'persist:carefone-terminal-v3';
 
 app.commandLine.appendSwitch('disable-http-cache');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
 
 ipcMain.on('fix-window-focus', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -54,6 +57,7 @@ async function createWindow() {
       preload: PRELOAD_PATH,
       nodeIntegration: false,
       contextIsolation: true,
+      backgroundThrottling: false,
       partition: PARTITION_NAME,
     },
   });

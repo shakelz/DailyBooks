@@ -88,6 +88,16 @@ export default function LoginPage({ mode = 'salesman' }) {
                     const list = await fetchPublicShops()
                     if (active && Array.isArray(list) && list.length > 0) {
                         setStationShops(list)
+                    } else if (active) {
+                        try {
+                            const cached = localStorage.getItem('dailybooks_known_shops')
+                            if (cached) {
+                                const parsed = JSON.parse(cached)
+                                if (Array.isArray(parsed) && parsed.length > 0) {
+                                    setStationShops(parsed)
+                                }
+                            }
+                        } catch {}
                     }
                 } catch {
                     // Ignore shop fetch errors
@@ -308,9 +318,20 @@ export default function LoginPage({ mode = 'salesman' }) {
         )
     }
 
+    const cachedKnownShops = (() => {
+        try {
+            const raw = localStorage.getItem('dailybooks_known_shops');
+            return raw ? JSON.parse(raw) : [];
+        } catch {
+            return [];
+        }
+    })();
+
     const availableShops = (Array.isArray(stationShops) && stationShops.length > 0)
         ? stationShops
-        : (Array.isArray(shops) ? shops : [])
+        : (Array.isArray(shops) && shops.length > 0
+            ? shops
+            : cachedKnownShops)
 
     const currentStationShop = availableShops.find((s) => String(s.id) === String(stationShopId)) || null
 

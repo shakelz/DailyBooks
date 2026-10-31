@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart3, Bell, Calculator, CalendarDays, CircleDollarSign, ClipboardList, Eye, Menu, PackagePlus, Receipt, Scale, Search, ShoppingCart, Smartphone, Sparkles, Tags, CircleHelp, Wallet, Trash2, LayoutDashboard, LogOut, TrendingUp, Wrench, X, Filter, Plus, Minus, Printer, ChevronDown, ChevronRight, ChevronUp, Boxes, Check, Edit2, Edit3, RefreshCw, AlertTriangle, ArrowUpDown, SlidersHorizontal, Layers, Calendar, Truck, Send, Inbox, RotateCcw, CheckCircle, CheckCircle2, MessageSquare, StickyNote, UserCheck, ArrowRightLeft, Globe, Loader2 } from 'lucide-react';
 
 import { printKundenbeleg, printRepairJobBill } from '../utils/printUtils';
+import { checkAndTriggerAutoBackup } from '../utils/autoBackup';
 import { useAuth } from '../context/AuthContext';
 import { useInventory } from '../context/InventoryContext';
 import { priceTag } from '../utils/currency';
@@ -886,18 +887,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const loggedTxnSampleRef = useRef(false);
 
     useEffect(() => {
-        if (loggedTxnSampleRef.current) return;
         if (!Array.isArray(transactions) || transactions.length === 0) return;
-        loggedTxnSampleRef.current = true;
-        console.log('Dashboard transaction sample (date fields):', transactions.slice(0, 3).map((txn) => ({
-            id: txn?.id || txn?.transaction_id || txn?.transactionId,
-            created_at: txn?.created_at,
-            timestamp: txn?.timestamp,
-            occurred_at: txn?.occurred_at,
-            date: txn?.date,
-            time: txn?.time,
-        })));
-    }, [transactions]);
+        if (!loggedTxnSampleRef.current) {
+            loggedTxnSampleRef.current = true;
+            console.log('Dashboard transaction sample (date fields):', transactions.slice(0, 3).map((txn) => ({
+                id: txn?.id || txn?.transaction_id || txn?.transactionId,
+                created_at: txn?.created_at,
+                timestamp: txn?.timestamp,
+                occurred_at: txn?.occurred_at,
+                date: txn?.date,
+                time: txn?.time,
+            })));
+        }
+
+        // 15-day automatic transactions backup
+        checkAndTriggerAutoBackup(transactions, shops);
+    }, [transactions, shops]);
 
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showCategoryModal, setShowCategoryModal] = useState(false);

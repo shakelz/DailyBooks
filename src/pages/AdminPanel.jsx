@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotes } from '../context/NotesContext';
+import { useInventory } from '../context/InventoryContext';
+import { checkAndTriggerAutoBackup } from '../utils/autoBackup';
 import NotesDrawer from '../components/NotesDrawer';
 import {
     LayoutDashboard, Package, TrendingUp, Settings,
@@ -24,7 +26,27 @@ export default function AdminPanel() {
     ));
     const [notesOpen, setNotesOpen] = useState(false);
     const { notes } = useNotes();
+    const { transactions } = useInventory();
     const activeNotesCount = useMemo(() => notes.filter((n) => !n.isArchived).length, [notes]);
+
+    // Restore activeShopId from persistence if not set
+    useEffect(() => {
+        if (!activeShopId && shops.length > 0) {
+            try {
+                const saved = sessionStorage.getItem('dailybooks_admin_active_shop_id') || localStorage.getItem('dailybooks_admin_active_shop_id');
+                if (saved && shops.some((s) => String(s.id) === String(saved))) {
+                    setActiveShopId(saved);
+                }
+            } catch {}
+        }
+    }, [activeShopId, shops, setActiveShopId]);
+
+    // 15-day automatic transactions backup
+    useEffect(() => {
+        if (Array.isArray(transactions) && transactions.length > 0) {
+            checkAndTriggerAutoBackup(transactions, shops);
+        }
+    }, [transactions, shops]);
 
     const currentShop = useMemo(
         () => shops.find((s) => String(s.id) === String(activeShopId)) || null,
@@ -136,7 +158,14 @@ export default function AdminPanel() {
                         </label>
                         <select
                             value={activeShopId}
-                            onChange={(e) => setActiveShopId(e.target.value)}
+                            onChange={(e) => {
+                                const nextId = e.target.value;
+                                setActiveShopId(nextId);
+                                try {
+                                    sessionStorage.setItem('dailybooks_admin_active_shop_id', nextId);
+                                    localStorage.setItem('dailybooks_admin_active_shop_id', nextId);
+                                } catch {}
+                            }}
                             className="w-full bg-slate-800/90 border border-slate-700 text-white text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                         >
                             {shops.map((s) => (
@@ -208,7 +237,14 @@ export default function AdminPanel() {
                         {shops.length > 1 ? (
                             <select
                                 value={activeShopId}
-                                onChange={(e) => setActiveShopId(e.target.value)}
+                                onChange={(e) => {
+                                    const nextId = e.target.value;
+                                    setActiveShopId(nextId);
+                                    try {
+                                        sessionStorage.setItem('dailybooks_admin_active_shop_id', nextId);
+                                        localStorage.setItem('dailybooks_admin_active_shop_id', nextId);
+                                    } catch {}
+                                }}
                                 className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-md px-1.5 py-0.5 mt-0.5 outline-none cursor-pointer"
                             >
                                 {shops.map((s) => (

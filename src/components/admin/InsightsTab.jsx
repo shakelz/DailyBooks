@@ -350,11 +350,38 @@ export default function InsightsTab() {
     const { isAdminLike, slowMovingDays, salesmen, attendanceLogs, activeShopId, user } = useAuth();
     const { repairJobs } = useRepairs();
     const [dateSelection, setDateSelection] = useState(() => {
+        try {
+            const saved = sessionStorage.getItem('dailybooks_insights_dateselection') || localStorage.getItem('dailybooks_insights_dateselection');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed[0]?.startDate && parsed[0]?.endDate) {
+                    const s = new Date(parsed[0].startDate);
+                    const e = new Date(parsed[0].endDate);
+                    if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) {
+                        return [{ startDate: s, endDate: e, key: parsed[0].key || 'selection' }];
+                    }
+                }
+            }
+        } catch {}
         const endDate = new Date();
         const startDate = new Date(endDate);
         startDate.setDate(startDate.getDate() - 30);
         return [{ startDate, endDate, key: 'selection' }];
     });
+
+    useEffect(() => {
+        try {
+            if (Array.isArray(dateSelection) && dateSelection[0]?.startDate && dateSelection[0]?.endDate) {
+                const serialized = JSON.stringify([{
+                    startDate: dateSelection[0].startDate.toISOString(),
+                    endDate: dateSelection[0].endDate.toISOString(),
+                    key: dateSelection[0].key || 'selection',
+                }]);
+                sessionStorage.setItem('dailybooks_insights_dateselection', serialized);
+                localStorage.setItem('dailybooks_insights_dateselection', serialized);
+            }
+        } catch {}
+    }, [dateSelection]);
     const rangeStart = useMemo(() => {
         const start = dateSelection?.[0]?.startDate
             ? new Date(dateSelection[0].startDate)

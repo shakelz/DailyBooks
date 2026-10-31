@@ -12,6 +12,9 @@ const PARTITION_NAME = 'persist:carefone-terminal-v3';
 
 app.commandLine.appendSwitch('disable-http-cache');
 app.commandLine.appendSwitch('disable-features', 'BackForwardCache');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
 
 ipcMain.on('fix-window-focus', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);

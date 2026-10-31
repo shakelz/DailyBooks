@@ -56,9 +56,10 @@ Deno.serve(async (req) => {
       )
     }
 
+    const authPassword = String(body?.password ?? '').trim() || (pin.length < 6 ? `pin_${pin}` : pin)
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email: shadowEmail,
-      password: pin,
+      password: authPassword,
       email_confirm: true,
       user_metadata: {
         role: 'salesman',

@@ -14,7 +14,14 @@ export default function AdminTabToolbar({ dateSelection, setDateSelection, class
                             <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">Shop wechseln</p>
                             <select
                                 value={activeShopId || ''}
-                                onChange={(event) => setActiveShopId(event.target.value)}
+                                onChange={(event) => {
+                                    const nextId = event.target.value;
+                                    setActiveShopId(nextId);
+                                    try {
+                                        sessionStorage.setItem('dailybooks_admin_active_shop_id', nextId);
+                                        localStorage.setItem('dailybooks_admin_active_shop_id', nextId);
+                                    } catch {}
+                                }}
                                 className="mt-1 w-full appearance-none bg-transparent pr-6 text-base font-bold text-slate-700 outline-none"
                                 style={{ fontSize: 16, fontWeight: 700 }}
                             >
