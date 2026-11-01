@@ -103,6 +103,13 @@ BEGIN
 
         -- Ensure foreign key constraint does not block salesman creation if not in auth.users
         ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_user_id_fkey;
+
+        -- Drop global unique constraint on pin_digest so same PIN can be used across different shops
+        ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_salesman_pin_digest_unique;
+        DROP INDEX IF EXISTS profiles_salesman_pin_digest_unique;
+        CREATE UNIQUE INDEX IF NOT EXISTS profiles_salesman_pin_digest_shop_unique
+            ON public.profiles (pin_digest, shop_id)
+            WHERE role = 'salesman' AND active = true;
     END IF;
 END $$;
 

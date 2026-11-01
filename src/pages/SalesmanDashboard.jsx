@@ -813,6 +813,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const {
         role,
         user,
+        authLoading,
         isPunchedIn,
         activeShop,
         activeShopId,
@@ -1296,6 +1297,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     }, [anyModalOpen, settingsShopId]);
 
     useEffect(() => {
+        if (authLoading) return;
         if (!user) {
             navigate(SALESMAN_LOGIN_PATH);
             return;
@@ -1309,7 +1311,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         if (adminView && !isAdminRole) {
             navigate(SALESMAN_LOGIN_PATH);
         }
-    }, [adminView, navigate, role, user]);
+    }, [adminView, authLoading, navigate, role, user]);
 
     useEffect(() => {
         if (!user?.id || adminView) return;
@@ -5394,6 +5396,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             },
         });
     };
+
+    if (authLoading && !user) {
+        return (
+            <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+                <div className="text-center space-y-3">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400">
+                        <svg className="w-6 h-6 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                    </div>
+                    <p className="text-xs text-slate-400 font-medium">Lade Kassen-Terminal...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div ref={translatedTreeRef} className="min-h-screen bg-slate-100 text-slate-800">

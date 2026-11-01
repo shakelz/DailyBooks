@@ -147,7 +147,11 @@ export default function LoginPage({ mode = 'salesman' }) {
                         const s = String(stationShopId).trim().toLowerCase()
                         const r = returnedShopId.trim().toLowerCase()
                         if (s === r) return true
-                        const shop = (Array.isArray(availableShops) ? availableShops : []).find((item) => {
+                        const allShops = [
+                            ...(Array.isArray(availableShops) ? availableShops : []),
+                            ...(Array.isArray(shops) ? shops : [])
+                        ]
+                        const shop = allShops.find((item) => {
                             const id1 = String(item?.id || '').trim().toLowerCase()
                             const id2 = String(item?.shop_id || '').trim().toLowerCase()
                             return id1 === s || id2 === s

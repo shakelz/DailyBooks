@@ -370,6 +370,27 @@ function getShopId(shop = {}) {
     return asString(shop?.shop_id || shop?.id);
 }
 
+function isShopMatch(id1, id2, shopList = []) {
+    const a = String(id1 || '').trim().toLowerCase();
+    const b = String(id2 || '').trim().toLowerCase();
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const list = Array.isArray(shopList) ? shopList : [];
+    const shop = list.find((s) => {
+        const sid1 = String(s?.id || '').trim().toLowerCase();
+        const sid2 = String(s?.shop_id || '').trim().toLowerCase();
+        return sid1 === a || sid2 === a || sid1 === b || sid2 === b;
+    });
+    if (shop) {
+        const s1 = String(shop?.id || '').trim().toLowerCase();
+        const s2 = String(shop?.shop_id || '').trim().toLowerCase();
+        const matchesA = a === s1 || a === s2;
+        const matchesB = b === s1 || b === s2;
+        return matchesA && matchesB;
+    }
+    return false;
+}
+
 function readRateLimitState() {
     return readLocalJSON(AUTH_RATE_LIMIT_KEY, {});
 }
@@ -509,7 +530,21 @@ async function verifySalesmanPin(pin, shopId = '') {
         .eq('active', true);
 
     if (shopId) {
-        query = query.eq('shop_id', asString(shopId));
+        const candidateShopIds = new Set([asString(shopId).trim().toLowerCase()]);
+        try {
+            const raw = localStorage.getItem('dailybooks_known_shops');
+            const list = raw ? JSON.parse(raw) : [];
+            const found = list.find((s) =>
+                String(s.id || '').trim().toLowerCase() === String(shopId).trim().toLowerCase() ||
+                String(s.shop_id || '').trim().toLowerCase() === String(shopId).trim().toLowerCase()
+            );
+            if (found) {
+                if (found.id) candidateShopIds.add(String(found.id).trim().toLowerCase());
+                if (found.shop_id) candidateShopIds.add(String(found.shop_id).trim().toLowerCase());
+            }
+        } catch {}
+
+        query = query.in('shop_id', Array.from(candidateShopIds));
     }
 
     const { data, error } = await query.limit(5);
@@ -1639,7 +1674,21 @@ async function listSalesmenByPin(pinValue, shopId = '') {
         .eq('pin_digest', digest);
 
     if (shopId) {
-        query = query.eq('shop_id', asString(shopId));
+        const candidateShopIds = new Set([asString(shopId).trim().toLowerCase()]);
+        try {
+            const raw = localStorage.getItem('dailybooks_known_shops');
+            const list = raw ? JSON.parse(raw) : [];
+            const found = list.find((s) =>
+                String(s.id || '').trim().toLowerCase() === String(shopId).trim().toLowerCase() ||
+                String(s.shop_id || '').trim().toLowerCase() === String(shopId).trim().toLowerCase()
+            );
+            if (found) {
+                if (found.id) candidateShopIds.add(String(found.id).trim().toLowerCase());
+                if (found.shop_id) candidateShopIds.add(String(found.shop_id).trim().toLowerCase());
+            }
+        } catch {}
+
+        query = query.in('shop_id', Array.from(candidateShopIds));
     }
 
     const { data, error } = await query.limit(5);
@@ -1670,7 +1719,21 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', sh
         .eq('pin_digest', digest);
 
     if (shopId) {
-        query = query.eq('shop_id', asString(shopId));
+        const candidateShopIds = new Set([asString(shopId).trim().toLowerCase()]);
+        try {
+            const raw = localStorage.getItem('dailybooks_known_shops');
+            const list = raw ? JSON.parse(raw) : [];
+            const found = list.find((s) =>
+                String(s.id || '').trim().toLowerCase() === String(shopId).trim().toLowerCase() ||
+                String(s.shop_id || '').trim().toLowerCase() === String(shopId).trim().toLowerCase()
+            );
+            if (found) {
+                if (found.id) candidateShopIds.add(String(found.id).trim().toLowerCase());
+                if (found.shop_id) candidateShopIds.add(String(found.shop_id).trim().toLowerCase());
+            }
+        } catch {}
+
+        query = query.in('shop_id', Array.from(candidateShopIds));
     }
 
     const { data, error } = await query;
@@ -3266,10 +3329,13 @@ export function AuthProvider({ children }) {
                             message: 'Please select which shop you are opening.'
                         };
                     }
-                    salesmanProfile = edgeProfile;
+                    const edgeShop = asString(edgeProfile.shopId || edgeProfile.shop_id);
+                    if (!targetShopId || isShopMatch(targetShopId, edgeShop, shops)) {
+                        salesmanProfile = edgeProfile;
+                    }
                 }
 
-                // 2. Fallback to direct PIN verification if edge function errored
+                // 2. Direct PIN verification if edge function errored or returned another shop's profile
                 if (!salesmanProfile) {
                     const fallbackRes = await verifySalesmanPin(pin, targetShopId);
                     if (fallbackRes?.profile) {
@@ -3294,21 +3360,7 @@ export function AuthProvider({ children }) {
                 // 3. Security Boundary: If a specific shop is assigned/selected, strictly verify the profile belongs to it
                 if (targetShopId && salesmanProfile) {
                     const profileShopId = asString(salesmanProfile.shopId || salesmanProfile.shop_id);
-                    const isMatch = (() => {
-                        if (!targetShopId || !profileShopId) return false;
-                        const t = targetShopId.trim().toLowerCase();
-                        const p = profileShopId.trim().toLowerCase();
-                        if (t === p) return true;
-                        const matchingShop = (Array.isArray(shops) ? shops : []).find(
-                            (s) => String(s?.id || s?.shop_id || '').trim().toLowerCase() === t
-                        );
-                        if (matchingShop) {
-                            const sId = String(matchingShop.id || '').trim().toLowerCase();
-                            const sShopId = String(matchingShop.shop_id || '').trim().toLowerCase();
-                            return p === sId || p === sShopId;
-                        }
-                        return false;
-                    })();
+                    const isMatch = isShopMatch(targetShopId, profileShopId, shops);
 
                     if (!isMatch) {
                         bumpRateLimit('salesman');
@@ -3333,11 +3385,10 @@ export function AuthProvider({ children }) {
                     return { success: false, message: 'User disabled' };
                 }
 
-                const shadowEmail = asString(salesmanProfile?.email).toLowerCase();
-                if (!shadowEmail) {
-                    bumpRateLimit('salesman');
-                    return { success: false, message: 'Authentication failed. Please contact admin.' };
-                }
+                const shadowEmail = asString(
+                    salesmanProfile?.email
+                    || `salesman_${salesmanProfile?.userId || salesmanProfile?.user_id || 'user'}@carefone.de`
+                ).toLowerCase();
 
                 let matchedSession = null;
                 const passwordCandidates = [
@@ -3559,7 +3610,6 @@ export function AuthProvider({ children }) {
                 user_id: authUserId,
                 shop_id: sid,
                 full_name: trimmedName,
-                name: trimmedName,
                 email: shadowEmail,
                 role: 'salesman',
                 pin_digest: pinDigest,
@@ -3583,7 +3633,12 @@ export function AuthProvider({ children }) {
                         profile: upsertData,
                     };
                 } else {
-                    if (upsertErr) console.warn('Direct profile upsert error:', upsertErr);
+                    if (upsertErr) {
+                        console.warn('Direct profile upsert error:', upsertErr);
+                        if (upsertErr?.code === '23505' || String(upsertErr?.message || '').toLowerCase().includes('unique') || String(upsertErr?.message || '').toLowerCase().includes('pin_digest')) {
+                            throw new Error('Diese PIN wird bereits von einem Mitarbeiter verwendet. Bitte wählen Sie eine andere PIN.');
+                        }
+                    }
                     const { data: insertData, error: insertErr } = await supabase
                         .from('profiles')
                         .insert([profilePayload])
@@ -3597,7 +3652,12 @@ export function AuthProvider({ children }) {
                             profile: insertData,
                         };
                     } else {
-                        if (insertErr) console.warn('Direct profile insert error:', insertErr);
+                        if (insertErr) {
+                            console.warn('Direct profile insert error:', insertErr);
+                            if (insertErr?.code === '23505' || String(insertErr?.message || '').toLowerCase().includes('unique') || String(insertErr?.message || '').toLowerCase().includes('pin_digest')) {
+                                throw new Error('Diese PIN wird bereits von einem Mitarbeiter verwendet. Bitte wählen Sie eine andere PIN.');
+                            }
+                        }
                         const fallbackPayloads = buildProfileInsertPayloads({
                             name: trimmedName,
                             email: shadowEmail,
@@ -3619,11 +3679,19 @@ export function AuthProvider({ children }) {
                                 };
                                 break;
                             }
-                            if (fbErr) console.warn('Fallback profile insert error:', fbErr);
+                            if (fbErr) {
+                                console.warn('Fallback profile insert error:', fbErr);
+                                if (fbErr?.code === '23505' || String(fbErr?.message || '').toLowerCase().includes('unique') || String(fbErr?.message || '').toLowerCase().includes('pin_digest')) {
+                                    throw new Error('Diese PIN wird bereits von einem Mitarbeiter verwendet. Bitte wählen Sie eine andere PIN.');
+                                }
+                            }
                         }
                     }
                 }
             } catch (dbErr) {
+                if (dbErr?.message?.includes('wird bereits von einem Mitarbeiter verwendet') || dbErr?.message?.includes('unique') || dbErr?.code === '23505') {
+                    throw dbErr;
+                }
                 console.warn('Direct profile insert encountered error:', dbErr);
             }
 
