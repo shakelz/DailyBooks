@@ -3170,28 +3170,50 @@ export function AuthProvider({ children }) {
                 const targetShopId = asString(userData.shopId || activeShopId || readAuthState(AUTH_SHOP_STATE_KEY, ''));
 
                 let salesmanProfile = null;
-                const { data: edgeProfile, error: profileError } = await safeSupabaseQuery(
-                    () => supabase.functions.invoke('resolve-salesman-login-v1', {
-                        body: {
-                            pinDigest,
-                            shopId: targetShopId,
-                        },
-                    }),
-                    'Invalid PIN. Try again.'
-                );
 
-                if (!profileError && edgeProfile && !edgeProfile.error) {
-                    if (edgeProfile.needsShopSelection) {
-                        return {
-                            success: false,
-                            needsShopSelection: true,
-                            matchedShops: edgeProfile.matchedShops || [],
-                            message: 'Please select which shop you are opening.'
+                // Priority 1: When a specific shop is targeted (e.g. station is locked), verify strictly against THIS shop directly
+                if (targetShopId) {
+                    const directRes = await verifySalesmanPin(pin, targetShopId);
+                    if (directRes?.profile) {
+                        salesmanProfile = {
+                            userId: directRes.profile.user_id || directRes.profile.id,
+                            fullName: directRes.profile.full_name || directRes.profile.name,
+                            email: directRes.profile.email,
+                            shopId: directRes.profile.shop_id,
+                            role: 'salesman',
+                            active: directRes.profile.active !== false,
                         };
                     }
-                    salesmanProfile = edgeProfile;
-                } else {
-                    const fallbackRes = await verifySalesmanPin(pin, targetShopId);
+                }
+
+                // Priority 2: If no targetShopId is locking this station, try edge function
+                if (!salesmanProfile && !targetShopId) {
+                    const { data: edgeProfile, error: profileError } = await safeSupabaseQuery(
+                        () => supabase.functions.invoke('resolve-salesman-login-v1', {
+                            body: {
+                                pinDigest,
+                                shopId: targetShopId,
+                            },
+                        }),
+                        'Invalid PIN. Try again.'
+                    );
+
+                    if (!profileError && edgeProfile && !edgeProfile.error) {
+                        if (edgeProfile.needsShopSelection) {
+                            return {
+                                success: false,
+                                needsShopSelection: true,
+                                matchedShops: edgeProfile.matchedShops || [],
+                                message: 'Please select which shop you are opening.'
+                            };
+                        }
+                        salesmanProfile = edgeProfile;
+                    }
+                }
+
+                // Priority 3: Fallback generic PIN lookup if still not found and no targetShopId
+                if (!salesmanProfile && !targetShopId) {
+                    const fallbackRes = await verifySalesmanPin(pin, '');
                     if (fallbackRes.needsShopSelection) {
                         return {
                             success: false,
@@ -3212,11 +3234,21 @@ export function AuthProvider({ children }) {
                     }
                 }
 
+                // Hard security boundary: if targetShopId is provided, salesmanProfile MUST strictly match targetShopId
+                if (targetShopId && salesmanProfile) {
+                    const resolvedShopId = asString(salesmanProfile.shopId || salesmanProfile.shop_id);
+                    if (resolvedShopId && resolvedShopId !== targetShopId) {
+                        salesmanProfile = null;
+                    }
+                }
+
                 if (!salesmanProfile) {
                     bumpRateLimit('salesman');
                     return {
                         success: false,
-                        message: 'Invalid PIN. Try again.',
+                        message: targetShopId
+                            ? 'Ungültige PIN für diese Filiale.'
+                            : 'Invalid PIN. Try again.',
                     };
                 }
 
@@ -3279,7 +3311,8 @@ export function AuthProvider({ children }) {
                         cachedPinRef.current = pin;
                         cachedPinUserIdRef.current = localUid;
                         clearRateLimit('salesman');
-                        return { success: true, role: 'salesman', redirectTo: getSalesmanRedirectPath() };
+                        const finalShopId = asString(localShopId || targetShopId);
+                        return { success: true, role: 'salesman', shopId: finalShopId, redirectTo: getSalesmanRedirectPath() };
                     }
                     bumpRateLimit('salesman');
                     return { success: false, message: 'Authentication failed. Please contact admin.' };
@@ -3294,7 +3327,8 @@ export function AuthProvider({ children }) {
                 cachedPinUserIdRef.current = asString(salesmanProfile?.user_id || matchedSession?.user?.id);
                 clearRateLimit('salesman');
                 await hydrateAuthStateFromSession(matchedSession);
-                return { success: true, role: 'salesman', redirectTo: getSalesmanRedirectPath() };
+                const finalShopId = asString(salesmanProfile?.shopId || salesmanProfile?.shop_id || targetShopId);
+                return { success: true, role: 'salesman', shopId: finalShopId, redirectTo: getSalesmanRedirectPath() };
             }
 
             return { success: false, message: 'Unknown Role' };

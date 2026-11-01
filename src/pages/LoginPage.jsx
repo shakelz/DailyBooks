@@ -140,15 +140,31 @@ export default function LoginPage({ mode = 'salesman' }) {
             const targetShopId = stationShopId || undefined
             const result = await login({ role: 'salesman', pin: newPin, shopId: targetShopId })
             if (result?.success) {
+                const returnedShopId = String(result?.shopId || result?.shop_id || '')
+                // Strict station-lock guard: if station was selected, reject if logged in shop does not match
+                if (stationShopId && returnedShopId && returnedShopId !== String(stationShopId)) {
+                    setError('Ungültige PIN für diese Filiale.')
+                    setTimeout(() => {
+                        setPin('')
+                        setError('')
+                    }, 1400)
+                    return
+                }
+                if (!stationShopId && returnedShopId) {
+                    try {
+                        localStorage.setItem(STATION_STORAGE_KEY, String(returnedShopId))
+                    } catch {}
+                    setStationShopId(String(returnedShopId))
+                }
                 navigate(result?.redirectTo || SALESMAN_DASHBOARD_PATH, { replace: true })
                 return
             }
 
-            setError(result?.message || 'Ungültige PIN. Bitte erneut versuchen.')
+            setError(result?.message || 'Ungültige PIN für diese Filiale.')
             setTimeout(() => {
                 setPin('')
                 setError('')
-            }, 1200)
+            }, 1400)
         } finally {
             setPinLoading(false)
         }

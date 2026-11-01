@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
     const rows = Array.isArray(matchedRows) ? matchedRows : []
 
     if (rows.length === 0) {
-      return jsonResponse({ error: 'Invalid PIN. Try again.' }, 400)
+      return jsonResponse({ error: requestedShopId ? 'Ungültige PIN für diese Filiale.' : 'Invalid PIN. Try again.' }, 400)
     }
 
     // If multiple shops match the same PIN and no shopId was specified, ask user to select shop
