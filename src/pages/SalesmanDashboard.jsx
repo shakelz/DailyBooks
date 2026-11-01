@@ -815,6 +815,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         user,
         isPunchedIn,
         activeShop,
+        shops = [],
         billShowTax,
         attendanceLogs,
         salesmen,
@@ -901,8 +902,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         }
 
         // 15-day automatic transactions backup
-        checkAndTriggerAutoBackup(transactions, shops);
-    }, [transactions, shops]);
+        const backupShops = (Array.isArray(shops) && shops.length > 0) ? shops : (activeShop ? [activeShop] : []);
+        checkAndTriggerAutoBackup(transactions, backupShops);
+    }, [transactions, shops, activeShop]);
 
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showCategoryModal, setShowCategoryModal] = useState(false);
