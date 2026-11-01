@@ -3171,58 +3171,33 @@ export function AuthProvider({ children }) {
 
                 let salesmanProfile = null;
 
-                // Priority 1: When a specific shop is targeted (e.g. station is locked), verify strictly against THIS shop directly
-                if (targetShopId) {
-                    const directRes = await verifySalesmanPin(pin, targetShopId);
-                    if (directRes?.profile) {
-                        salesmanProfile = {
-                            userId: directRes.profile.user_id || directRes.profile.id,
-                            fullName: directRes.profile.full_name || directRes.profile.name,
-                            email: directRes.profile.email,
-                            shopId: directRes.profile.shop_id,
-                            role: 'salesman',
-                            active: directRes.profile.active !== false,
-                        };
-                    }
-                }
+                // 1. Invoke resolve-salesman-login-v1 edge function (bypasses RLS with service role key)
+                const { data: edgeProfile, error: profileError } = await safeSupabaseQuery(
+                    () => supabase.functions.invoke('resolve-salesman-login-v1', {
+                        body: {
+                            pinDigest,
+                            shopId: targetShopId,
+                        },
+                    }),
+                    'Invalid PIN. Try again.'
+                );
 
-                // Priority 2: If no targetShopId is locking this station, try edge function
-                if (!salesmanProfile && !targetShopId) {
-                    const { data: edgeProfile, error: profileError } = await safeSupabaseQuery(
-                        () => supabase.functions.invoke('resolve-salesman-login-v1', {
-                            body: {
-                                pinDigest,
-                                shopId: targetShopId,
-                            },
-                        }),
-                        'Invalid PIN. Try again.'
-                    );
-
-                    if (!profileError && edgeProfile && !edgeProfile.error) {
-                        if (edgeProfile.needsShopSelection) {
-                            return {
-                                success: false,
-                                needsShopSelection: true,
-                                matchedShops: edgeProfile.matchedShops || [],
-                                message: 'Please select which shop you are opening.'
-                            };
-                        }
-                        salesmanProfile = edgeProfile;
-                    }
-                }
-
-                // Priority 3: Fallback generic PIN lookup if still not found and no targetShopId
-                if (!salesmanProfile && !targetShopId) {
-                    const fallbackRes = await verifySalesmanPin(pin, '');
-                    if (fallbackRes.needsShopSelection) {
+                if (!profileError && edgeProfile && !edgeProfile.error) {
+                    if (edgeProfile.needsShopSelection) {
                         return {
                             success: false,
                             needsShopSelection: true,
-                            matchedShops: fallbackRes.rows || [],
+                            matchedShops: edgeProfile.matchedShops || [],
                             message: 'Please select which shop you are opening.'
                         };
                     }
-                    if (fallbackRes.profile) {
+                    salesmanProfile = edgeProfile;
+                }
+
+                // 2. Fallback to direct PIN verification if edge function errored
+                if (!salesmanProfile) {
+                    const fallbackRes = await verifySalesmanPin(pin, targetShopId);
+                    if (fallbackRes?.profile) {
                         salesmanProfile = {
                             userId: fallbackRes.profile.user_id || fallbackRes.profile.id,
                             fullName: fallbackRes.profile.full_name || fallbackRes.profile.name,
@@ -3231,14 +3206,41 @@ export function AuthProvider({ children }) {
                             role: 'salesman',
                             active: fallbackRes.profile.active !== false,
                         };
+                    } else if (fallbackRes?.needsShopSelection && !targetShopId) {
+                        return {
+                            success: false,
+                            needsShopSelection: true,
+                            matchedShops: fallbackRes.rows || [],
+                            message: 'Please select which shop you are opening.'
+                        };
                     }
                 }
 
-                // Hard security boundary: if targetShopId is provided, salesmanProfile MUST strictly match targetShopId
+                // 3. Security Boundary: If a specific shop is assigned/selected, strictly verify the profile belongs to it
                 if (targetShopId && salesmanProfile) {
-                    const resolvedShopId = asString(salesmanProfile.shopId || salesmanProfile.shop_id);
-                    if (resolvedShopId && resolvedShopId !== targetShopId) {
-                        salesmanProfile = null;
+                    const profileShopId = asString(salesmanProfile.shopId || salesmanProfile.shop_id);
+                    const isMatch = (() => {
+                        if (!targetShopId || !profileShopId) return false;
+                        const t = targetShopId.trim().toLowerCase();
+                        const p = profileShopId.trim().toLowerCase();
+                        if (t === p) return true;
+                        const matchingShop = (Array.isArray(shops) ? shops : []).find(
+                            (s) => String(s?.id || s?.shop_id || '').trim().toLowerCase() === t
+                        );
+                        if (matchingShop) {
+                            const sId = String(matchingShop.id || '').trim().toLowerCase();
+                            const sShopId = String(matchingShop.shop_id || '').trim().toLowerCase();
+                            return p === sId || p === sShopId;
+                        }
+                        return false;
+                    })();
+
+                    if (!isMatch) {
+                        bumpRateLimit('salesman');
+                        return {
+                            success: false,
+                            message: 'Dieser PIN-Code gehört nicht zu dieser Filiale.',
+                        };
                     }
                 }
 
@@ -3248,7 +3250,7 @@ export function AuthProvider({ children }) {
                         success: false,
                         message: targetShopId
                             ? 'Ungültige PIN für diese Filiale.'
-                            : 'Invalid PIN. Try again.',
+                            : 'Ungültige PIN. Bitte erneut versuchen.',
                     };
                 }
 

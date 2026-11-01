@@ -142,13 +142,32 @@ export default function LoginPage({ mode = 'salesman' }) {
             if (result?.success) {
                 const returnedShopId = String(result?.shopId || result?.shop_id || '')
                 // Strict station-lock guard: if station was selected, reject if logged in shop does not match
-                if (stationShopId && returnedShopId && returnedShopId !== String(stationShopId)) {
-                    setError('Ungültige PIN für diese Filiale.')
-                    setTimeout(() => {
-                        setPin('')
-                        setError('')
-                    }, 1400)
-                    return
+                if (stationShopId && returnedShopId) {
+                    const isMatch = (() => {
+                        const s = String(stationShopId).trim().toLowerCase()
+                        const r = returnedShopId.trim().toLowerCase()
+                        if (s === r) return true
+                        const shop = (Array.isArray(availableShops) ? availableShops : []).find((item) => {
+                            const id1 = String(item?.id || '').trim().toLowerCase()
+                            const id2 = String(item?.shop_id || '').trim().toLowerCase()
+                            return id1 === s || id2 === s
+                        })
+                        if (shop) {
+                            const id1 = String(shop?.id || '').trim().toLowerCase()
+                            const id2 = String(shop?.shop_id || '').trim().toLowerCase()
+                            return r === id1 || r === id2
+                        }
+                        return false
+                    })()
+
+                    if (!isMatch) {
+                        setError('Dieser PIN-Code gehört nicht zu dieser Filiale.')
+                        setTimeout(() => {
+                            setPin('')
+                            setError('')
+                        }, 1400)
+                        return
+                    }
                 }
                 if (!stationShopId && returnedShopId) {
                     try {
