@@ -17,7 +17,7 @@ const SALESMAN_DASHBOARD_ROUTE = '/terminal-access-v1/dashboard';
 export default function AdminPanel() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { logout, role, isAdminLike, activeShopId, setActiveShopId, shops } = useAuth();
+    const { logout, role, isAdminLike, activeShopId, setActiveShopId, shops = [] } = useAuth();
     const [isMobile, setIsMobile] = useState(() => (
         typeof window !== 'undefined' ? window.innerWidth < 768 : false
     ));
@@ -31,10 +31,11 @@ export default function AdminPanel() {
 
     // Restore activeShopId from persistence if not set
     useEffect(() => {
-        if (!activeShopId && shops.length > 0) {
+        const safeShops = Array.isArray(shops) ? shops : [];
+        if (!activeShopId && safeShops.length > 0) {
             try {
                 const saved = sessionStorage.getItem('dailybooks_admin_active_shop_id') || localStorage.getItem('dailybooks_admin_active_shop_id');
-                if (saved && shops.some((s) => String(s.id) === String(saved))) {
+                if (saved && safeShops.some((s) => String(s.id) === String(saved))) {
                     setActiveShopId(saved);
                 }
             } catch {}
@@ -54,12 +55,12 @@ export default function AdminPanel() {
     // 15-day automatic transactions backup
     useEffect(() => {
         if (Array.isArray(transactions) && transactions.length > 0) {
-            checkAndTriggerAutoBackup(transactions, shops);
+            checkAndTriggerAutoBackup(transactions, Array.isArray(shops) ? shops : []);
         }
     }, [transactions, shops]);
 
     const currentShop = useMemo(
-        () => shops.find((s) => String(s.id) === String(activeShopId)) || null,
+        () => (Array.isArray(shops) ? shops.find((s) => String(s.id) === String(activeShopId)) : null) || null,
         [shops, activeShopId]
     );
 

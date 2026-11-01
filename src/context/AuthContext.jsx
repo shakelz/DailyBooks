@@ -1676,10 +1676,13 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', sh
 
 export function AuthProvider({ children }) {
     const initialAuthState = (() => {
+        const savedRole = readAuthState(AUTH_ROLE_STATE_KEY, null);
+        const savedUser = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
+        const savedShopId = readAuthState(AUTH_SHOP_STATE_KEY, '') || asString(savedUser?.shop_id || savedUser?.shopId || '');
         return {
-            role: null,
-            user: null,
-            activeShopId: readAuthState(AUTH_SHOP_STATE_KEY, '')
+            role: savedRole,
+            user: savedUser,
+            activeShopId: savedShopId
         };
     })();
 
@@ -2691,6 +2694,23 @@ export function AuthProvider({ children }) {
 
         const syncSession = async (session) => {
             if (!session?.user) {
+                // If a valid salesman session is persisted locally, keep them authenticated
+                const persistedRole = readAuthState(AUTH_ROLE_STATE_KEY, null);
+                const persistedUser = safeParseJSON(readAuthState(AUTH_USER_STATE_KEY, ''), null);
+                if (persistedRole === 'salesman' && (persistedUser?.id || persistedUser?.user_id)) {
+                    setUser(persistedUser);
+                    setRole('salesman');
+                    const persistedShop = readAuthState(AUTH_SHOP_STATE_KEY, '') || persistedUser?.shop_id || persistedUser?.shopId;
+                    if (persistedShop) {
+                        setActiveShopIdState(persistedShop);
+                    }
+                    clearAuthLoadingTimeout();
+                    if (!cancelled) {
+                        setAuthLoading(false);
+                    }
+                    return;
+                }
+
                 resetAuthState({ redirect: false });
                 clearAuthLoadingTimeout();
                 if (!cancelled) {
@@ -3265,27 +3285,24 @@ export function AuthProvider({ children }) {
                 }
 
                 let matchedSession = null;
-                const { data, error } = await safeSupabaseQuery(
-                    () => supabase.auth.signInWithPassword({
-                        email: shadowEmail,
-                        password: pin,
-                    }),
-                    'Authentication failed. Please contact admin.'
-                );
-                if (!error && data?.session) {
-                    matchedSession = data.session;
-                } else {
-                    // Also attempt authentication with 6+ char shadow password
-                    const fallbackPassword = pin.length < 6 ? `pin_${pin}` : pin;
-                    const retry = await safeSupabaseQuery(
+                const passwordCandidates = [
+                    salesmanProfile?.password_hash,
+                    `pin_${pin}_Care1!`,
+                    pin.length < 6 ? `pin_${pin}` : pin,
+                    pin,
+                ].filter(Boolean);
+
+                for (const candidatePassword of passwordCandidates) {
+                    const { data: signInData, error: signInErr } = await safeSupabaseQuery(
                         () => supabase.auth.signInWithPassword({
                             email: shadowEmail,
-                            password: fallbackPassword,
+                            password: candidatePassword,
                         }),
                         'Authentication failed. Please contact admin.'
                     );
-                    if (!retry.error && retry.data?.session) {
-                        matchedSession = retry.data.session;
+                    if (!signInErr && signInData?.session) {
+                        matchedSession = signInData.session;
+                        break;
                     }
                 }
 
@@ -3496,6 +3513,7 @@ export function AuthProvider({ children }) {
             email: shadowEmail,
             role: 'salesman',
             pin_digest: pinDigest,
+            password_hash: authPassword,
             active: true,
             is_online: false,
             hourly_rate: 12.5,
