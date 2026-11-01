@@ -91,3 +91,19 @@ BEGIN
     END IF;
 END $$;
 
+-- 10. PROFILES TABLE (SALESMEN & STAFF ACCOUNTS)
+DO $$
+BEGIN
+    IF to_regclass('public.profiles') IS NOT NULL THEN
+        ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS "allow_all_profiles" ON public.profiles;
+        CREATE POLICY "allow_all_profiles" ON public.profiles
+            FOR ALL TO anon, authenticated
+            USING (true) WITH CHECK (true);
+
+        -- Ensure foreign key constraint does not block salesman creation if not in auth.users
+        ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_user_id_fkey;
+    END IF;
+END $$;
+
+

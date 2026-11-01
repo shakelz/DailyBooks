@@ -246,7 +246,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'shop_id is required.' }, 400)
     }
 
-    const shadowEmail = buildSalesmanShadowEmail(name, pin, shopId)
+    const shadowEmail = String(body?.email ?? '').trim() || buildSalesmanShadowEmail(name, pin, shopId)
     const pinDigest = await sha256Hex(pin)
     const authPassword = String(body?.password ?? '').trim() || (pin.length < 6 ? `pin_${pin}` : pin)
     const supabaseAdmin = createAdminClient()

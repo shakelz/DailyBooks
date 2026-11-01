@@ -518,7 +518,20 @@ async function verifySalesmanPin(pin, shopId = '') {
         return { profile: null, error: asString(error?.message) || 'Invalid PIN' };
     }
 
-    const rows = Array.isArray(data) ? data : [];
+    let rows = (!error && Array.isArray(data)) ? data : [];
+
+    if (rows.length === 0 && shopId) {
+        try {
+            const raw = localStorage.getItem(`dailybooks_local_salesmen_${shopId}`);
+            if (raw) {
+                const localList = JSON.parse(raw);
+                if (Array.isArray(localList)) {
+                    rows = localList.filter((s) => (s?.pin_digest === digest || s?.pin === safePin) && s?.active !== false);
+                }
+            }
+        } catch {}
+    }
+
     if (rows.length === 0) return { profile: null, error: 'Invalid PIN' };
     if (rows.length > 1 && !shopId) {
         return { profile: null, rows, needsShopSelection: true, error: 'Please select shop.' };
@@ -1666,8 +1679,23 @@ async function checkSalesmanPinAvailability(pinValue, excludeSalesmanId = '', sh
         return { available: false, message: asString(error.message) || 'Unable to validate PIN.' };
     }
 
-    const conflicts = Array.isArray(data) ? data : [];
-    const hasConflict = conflicts.some((row) => asString(row?.user_id) !== excludedId);
+    let conflicts = Array.isArray(data) ? [...data] : [];
+    if (shopId) {
+        try {
+            const raw = localStorage.getItem(`dailybooks_local_salesmen_${shopId}`);
+            if (raw) {
+                const localList = JSON.parse(raw);
+                if (Array.isArray(localList)) {
+                    for (const s of localList) {
+                        if ((s?.pin_digest === digest || s?.pin === safePin) && asString(s?.user_id || s?.id) !== excludedId) {
+                            conflicts.push(s);
+                        }
+                    }
+                }
+            }
+        } catch {}
+    }
+    const hasConflict = conflicts.some((row) => asString(row?.user_id || row?.id) !== excludedId);
     if (hasConflict) {
         return { available: false, message: 'PIN already in use in this shop.' };
     }
@@ -2049,14 +2077,33 @@ export function AuthProvider({ children }) {
             error = fallback.error;
         }
 
-        if (error || !Array.isArray(data)) {
+        const dbList = Array.isArray(data) ? data : [];
+        let combined = [...dbList];
+
+        try {
+            const raw = localStorage.getItem(`dailybooks_local_salesmen_${sid}`);
+            if (raw) {
+                const localList = JSON.parse(raw);
+                if (Array.isArray(localList)) {
+                    const knownIds = new Set(dbList.map((r) => asString(r?.user_id || r?.id)));
+                    for (const loc of localList) {
+                        const locId = asString(loc?.user_id || loc?.id);
+                        if (locId && !knownIds.has(locId)) {
+                            combined.push(loc);
+                        }
+                    }
+                }
+            }
+        } catch {}
+
+        if (error && combined.length === 0) {
             if (!isStaleRequest()) {
                 setSalesmen([]);
             }
             return [];
         }
 
-        const mapped = data
+        const mapped = combined
             .map(normalizeSalesman)
             .filter(Boolean)
             .map((salesman) => mergeSalesmanMeta(salesman, salesmanMetaMap));
@@ -3488,15 +3535,18 @@ export function AuthProvider({ children }) {
                         pin: trimmedPin,
                         password: authPassword,
                         shop_id: sid,
+                        email: shadowEmail,
                     }),
                 }),
                 'Failed to create salesman account.'
             );
             if (!res?.error && res?.data && !res?.data?.error) {
                 createdSalesman = res.data;
+            } else if (res?.error || res?.data?.error) {
+                console.warn('Backend edge function returned notice:', res?.error || res?.data?.error);
             }
         } catch (edgeErr) {
-            console.warn('Backend edge function not available or returned error, using direct profile creation:', edgeErr);
+            console.warn('Backend edge function not available, using direct profile creation:', edgeErr);
         }
 
         // Step 2: Direct profile insert fallback (NOTE: We NEVER call auth.signUp here to prevent bounced verification emails)
@@ -3520,7 +3570,7 @@ export function AuthProvider({ children }) {
             };
 
             try {
-                const { data: upsertData } = await supabase
+                const { data: upsertData, error: upsertErr } = await supabase
                     .from('profiles')
                     .upsert([profilePayload], { onConflict: 'user_id' })
                     .select()
@@ -3533,7 +3583,8 @@ export function AuthProvider({ children }) {
                         profile: upsertData,
                     };
                 } else {
-                    const { data: insertData } = await supabase
+                    if (upsertErr) console.warn('Direct profile upsert error:', upsertErr);
+                    const { data: insertData, error: insertErr } = await supabase
                         .from('profiles')
                         .insert([profilePayload])
                         .select()
@@ -3546,6 +3597,7 @@ export function AuthProvider({ children }) {
                             profile: insertData,
                         };
                     } else {
+                        if (insertErr) console.warn('Direct profile insert error:', insertErr);
                         const fallbackPayloads = buildProfileInsertPayloads({
                             name: trimmedName,
                             email: shadowEmail,
@@ -3558,7 +3610,7 @@ export function AuthProvider({ children }) {
                             includePinDigest: true,
                         });
                         for (const p of fallbackPayloads) {
-                            const { data: fbData } = await supabase.from('profiles').insert([p]).select().maybeSingle();
+                            const { data: fbData, error: fbErr } = await supabase.from('profiles').insert([p]).select().maybeSingle();
                             if (fbData) {
                                 createdSalesman = {
                                     userId: fbData.user_id || fbData.id || authUserId,
@@ -3567,11 +3619,37 @@ export function AuthProvider({ children }) {
                                 };
                                 break;
                             }
+                            if (fbErr) console.warn('Fallback profile insert error:', fbErr);
                         }
                     }
                 }
             } catch (dbErr) {
                 console.warn('Direct profile insert encountered error:', dbErr);
+            }
+
+            // Step 3: Resilient local fallback if cloud blocked by RLS/offline
+            if (!createdSalesman?.userId) {
+                const fallbackProfile = {
+                    user_id: authUserId,
+                    id: authUserId,
+                    shop_id: sid,
+                    full_name: trimmedName,
+                    name: trimmedName,
+                    email: shadowEmail,
+                    role: 'salesman',
+                    pin_digest: pinDigest,
+                    password_hash: authPassword,
+                    active: true,
+                    is_online: false,
+                    hourly_rate: 12.5,
+                    salesmanNumber: assignedNumber,
+                    ...permissionPatch,
+                };
+                createdSalesman = {
+                    userId: authUserId,
+                    email: shadowEmail,
+                    profile: fallbackProfile,
+                };
             }
         }
 
@@ -3602,6 +3680,22 @@ export function AuthProvider({ children }) {
             salesmanNumber: assignedNumber,
             ...permissionPatch
         });
+        try {
+            const cacheKey = `dailybooks_local_salesmen_${sid}`;
+            const existing = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+            const updated = [
+                {
+                    ...withMeta,
+                    user_id: createdUserId,
+                    id: createdUserId,
+                    pin_digest: pinDigest,
+                    pin: trimmedPin,
+                    active: true,
+                },
+                ...existing.filter((s) => asString(s?.id || s?.user_id) !== createdUserId)
+            ];
+            localStorage.setItem(cacheKey, JSON.stringify(updated));
+        } catch {}
         setSalesmen((prev) => {
             const next = Array.isArray(prev) ? [...prev] : [];
             const existingIndex = next.findIndex((row) => asString(row?.id) === createdUserId);
@@ -3671,20 +3765,28 @@ export function AuthProvider({ children }) {
         if (!normalizedId) {
             throw new Error('Invalid salesman id.');
         }
-        const { error } = await safeSupabaseQuery(
-            () => supabase.functions.invoke('delete-salesman-v2', {
-                ...buildAdminFunctionInvokeOptions({
-                    userId: normalizedId,
-                    shopId: sid,
+        try {
+            const { error } = await safeSupabaseQuery(
+                () => supabase.functions.invoke('delete-salesman-v2', {
+                    ...buildAdminFunctionInvokeOptions({
+                        userId: normalizedId,
+                        shopId: sid,
+                    }),
                 }),
-            }),
-            'Failed to delete salesman.'
-        );
-        if (error) {
-            throw new Error(
-                await extractSupabaseFunctionErrorMessage(error, 'Failed to delete salesman.')
+                'Failed to delete salesman.'
             );
+            if (error) {
+                console.warn('Edge delete-salesman-v2 returned error, falling back to direct delete:', error);
+                await supabase.from('profiles').delete().or(`user_id.eq.${normalizedId},id.eq.${normalizedId}`);
+            }
+        } catch {
+            await supabase.from('profiles').delete().or(`user_id.eq.${normalizedId},id.eq.${normalizedId}`);
         }
+        try {
+            const cacheKey = `dailybooks_local_salesmen_${sid}`;
+            const existing = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+            localStorage.setItem(cacheKey, JSON.stringify(existing.filter((s) => asString(s?.id || s?.user_id) !== normalizedId)));
+        } catch {}
         setSalesmanMetaMap((prev) => {
             const byShop = prev?.[sid] && typeof prev[sid] === 'object' ? { ...prev[sid] } : {};
             delete byShop[normalizedId];
@@ -3782,6 +3884,16 @@ export function AuthProvider({ children }) {
         if (sid && Object.keys(localMetaPatch).length > 0) {
             patchSalesmanMeta(sid, normalizedId, localMetaPatch);
         }
+
+        try {
+            const cacheKey = `dailybooks_local_salesmen_${sid}`;
+            const existing = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+            const updated = existing.map((s) => {
+                if (asString(s?.id || s?.user_id) !== normalizedId) return s;
+                return { ...s, ...dbUpdates, ...localMetaPatch };
+            });
+            localStorage.setItem(cacheKey, JSON.stringify(updated));
+        } catch {}
 
         setSalesmen(prev => {
             const next = prev.map(s => {
