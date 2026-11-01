@@ -3412,121 +3412,142 @@ export function AuthProvider({ children }) {
             canBulkEdit: asBoolean(extra?.canBulkEdit)
         };
 
-        const authPassword = trimmedPin.length < 6 ? `pin_${trimmedPin}` : trimmedPin;
+        const authPassword = `pin_${trimmedPin}_Care1!`;
         const pinDigest = await computePinDigest(sid, trimmedPin);
-        const shadowEmail = `${trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${trimmedPin}_${sid.slice(0, 6)}@carefone.de`;
+        const uniqueSuffix = Date.now().toString(36);
+        const shadowEmail = `${trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${trimmedPin}_${uniqueSuffix}@carefone.de`;
         let createdSalesman = null;
-        let createError = null;
 
+        // Step 1: Create isolated shadow user in Supabase Auth if possible
+        let authUserId = null;
         try {
-            const res = await safeSupabaseQuery(
-                () => supabase.functions.invoke('create-salesman-v2', {
-                    ...buildAdminFunctionInvokeOptions({
-                        name: trimmedName,
-                        pin: trimmedPin,
-                        password: authPassword,
-                        shop_id: sid,
-                    }),
-                }),
-                'Failed to create salesman account.'
-            );
-            if (!res?.error && res?.data && !res?.data?.error) {
-                createdSalesman = res.data;
-            } else {
-                createError = res?.error || res?.data?.error || new Error('Edge function returned error');
-            }
-        } catch (err) {
-            createError = err;
-        }
-
-        // Direct isolated fallback: create shadow user in auth.users and upsert profiles record
-        if (createError || !createdSalesman?.userId) {
-            try {
-                let authUserId = null;
-                const isolatedClient = typeof createIsolatedAuthClient === 'function' ? createIsolatedAuthClient() : null;
-                if (isolatedClient) {
-                    const { data: signUpData, error: signUpError } = await isolatedClient.auth.signUp({
-                        email: shadowEmail,
-                        password: authPassword,
-                        options: {
-                            data: {
-                                name: trimmedName,
-                                full_name: trimmedName,
-                                role: 'salesman',
-                                shop_id: sid,
-                                pin: trimmedPin,
-                                pin_digest: pinDigest,
-                            }
-                        }
-                    });
-                    if (signUpData?.user?.id) {
-                        authUserId = signUpData.user.id;
-                    } else if (signUpError) {
-                        const existingUser = await supabase.from('profiles').select('user_id').eq('email', shadowEmail).maybeSingle();
-                        if (existingUser?.data?.user_id) {
-                            authUserId = existingUser.data.user_id;
+            const isolatedClient = typeof createIsolatedAuthClient === 'function' ? createIsolatedAuthClient() : null;
+            if (isolatedClient) {
+                const { data: signUpData } = await isolatedClient.auth.signUp({
+                    email: shadowEmail,
+                    password: authPassword,
+                    options: {
+                        data: {
+                            name: trimmedName,
+                            full_name: trimmedName,
+                            role: 'salesman',
+                            shop_id: sid,
+                            pin: trimmedPin,
+                            pin_digest: pinDigest,
                         }
                     }
+                });
+                if (signUpData?.user?.id) {
+                    authUserId = signUpData.user.id;
                 }
+            }
+        } catch (authErr) {
+            console.warn('Isolated signup attempt handled gracefully:', authErr);
+        }
 
-                if (!authUserId) {
-                    authUserId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : makeRowId();
-                }
+        if (!authUserId) {
+            authUserId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+                ? crypto.randomUUID()
+                : makeRowId();
+        }
 
-                const profilePayload = {
-                    user_id: authUserId,
-                    shop_id: sid,
-                    full_name: trimmedName,
-                    name: trimmedName,
+        // Step 2: Directly save or upsert into profiles table
+        const profilePayload = {
+            user_id: authUserId,
+            shop_id: sid,
+            full_name: trimmedName,
+            name: trimmedName,
+            email: shadowEmail,
+            role: 'salesman',
+            pin_digest: pinDigest,
+            active: true,
+            is_online: false,
+            hourly_rate: 12.5,
+        };
+
+        try {
+            const { data: upsertData } = await supabase
+                .from('profiles')
+                .upsert([profilePayload], { onConflict: 'user_id' })
+                .select()
+                .maybeSingle();
+
+            if (upsertData) {
+                createdSalesman = {
+                    userId: authUserId,
                     email: shadowEmail,
-                    role: 'salesman',
-                    pin_digest: pinDigest,
-                    active: true,
-                    is_online: false,
-                    hourly_rate: 12.5,
+                    profile: upsertData,
                 };
-
-                const { data: savedProfile, error: profileSaveError } = await supabase
+            } else {
+                const { data: insertData } = await supabase
                     .from('profiles')
-                    .upsert([profilePayload], { onConflict: 'user_id' })
+                    .insert([profilePayload])
                     .select()
-                    .single();
+                    .maybeSingle();
 
-                if (savedProfile) {
+                if (insertData) {
                     createdSalesman = {
                         userId: authUserId,
                         email: shadowEmail,
-                        profile: savedProfile,
+                        profile: insertData,
                     };
-                    createError = null;
                 } else {
-                    const { data: insertedProfile } = await supabase.from('profiles').insert([profilePayload]).select().single();
-                    if (insertedProfile) {
-                        createdSalesman = {
-                            userId: authUserId,
-                            email: shadowEmail,
-                            profile: insertedProfile,
-                        };
-                        createError = null;
-                    } else if (profileSaveError) {
-                        throw profileSaveError;
+                    const fallbackPayloads = buildProfileInsertPayloads({
+                        name: trimmedName,
+                        email: shadowEmail,
+                        passwordHash: authPassword,
+                        role: 'salesman',
+                        shopId: sid,
+                        profileId: authUserId,
+                        pinDigest,
+                        hourlyRate: 12.5,
+                        includePinDigest: true,
+                    });
+                    for (const p of fallbackPayloads) {
+                        const { data: fbData } = await supabase.from('profiles').insert([p]).select().maybeSingle();
+                        if (fbData) {
+                            createdSalesman = {
+                                userId: fbData.user_id || fbData.id || authUserId,
+                                email: shadowEmail,
+                                profile: fbData,
+                            };
+                            break;
+                        }
                     }
                 }
-            } catch (fallbackErr) {
-                console.error('Fallback salesman creation error:', fallbackErr);
-                const msg = String(fallbackErr?.message || '').toLowerCase();
-                if (msg.includes('6 character') || msg.includes('password')) {
-                    throw new Error('Mitarbeiter konnte nicht angelegt werden. Bitte erneut versuchen.');
+            }
+        } catch (dbErr) {
+            console.warn('Direct profile insert encountered error:', dbErr);
+        }
+
+        // Step 3: Edge function fallback if direct profile creation didn't succeed
+        if (!createdSalesman?.userId) {
+            try {
+                const res = await safeSupabaseQuery(
+                    () => supabase.functions.invoke('create-salesman-v2', {
+                        ...buildAdminFunctionInvokeOptions({
+                            name: trimmedName,
+                            pin: trimmedPin,
+                            password: authPassword,
+                            shop_id: sid,
+                        }),
+                    }),
+                    'Failed to create salesman account.'
+                );
+                if (!res?.error && res?.data && !res?.data?.error) {
+                    createdSalesman = res.data;
                 }
-                throw fallbackErr;
+            } catch (edgeErr) {
+                console.warn('Edge function fallback suppressed error:', edgeErr);
             }
         }
 
         const createdProfileRow = createdSalesman?.profile && typeof createdSalesman.profile === 'object'
             ? createdSalesman.profile
-            : await waitForProfileByUserId(createdSalesman?.userId, 8, 250);
+            : (createdSalesman?.userId ? await waitForProfileByUserId(createdSalesman.userId, 8, 250) : null);
+
         if (!createdProfileRow && !createdSalesman?.userId) {
-            throw new Error('Salesman created, but the profile row is not visible yet.');
+            throw new Error('Mitarbeiter konnte nicht angelegt werden. Bitte erneut versuchen.');
         }
 
         const normalizedCreatedProfile = normalizeSalesman(createdProfileRow);

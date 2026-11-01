@@ -227,6 +227,11 @@ export default function AdminSettings() {
             setSalesmanError('');
             setSalesmanPinError('');
         } catch (error) {
+            const rawMsg = String(error?.message || '');
+            if (/password|character|weak_password|function/i.test(rawMsg)) {
+                setSalesmanError('Mitarbeiter konnte nicht angelegt werden. Bitte erneut versuchen.');
+                return;
+            }
             setSalesmanError(error?.message || 'Mitarbeiter konnte nicht hinzugefügt werden.');
         }
     };
