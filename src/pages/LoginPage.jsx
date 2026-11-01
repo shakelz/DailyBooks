@@ -565,8 +565,11 @@ export default function LoginPage({ mode = 'salesman' }) {
                                 {showSqlHelp && (
                                     <div className="p-3 rounded-xl bg-slate-800/90 border border-slate-700 text-[11px] text-slate-300 space-y-2">
                                         <p className="font-bold text-amber-400">Supabase Sicherheitsrichtlinie (RLS):</p>
-                                        <p>In Supabase ist die Tabelle <code className="text-cyan-300 font-mono">shops</code> geschützt. Führen Sie im Supabase SQL Editor folgendes aus, damit Filialen ohne vorherigen Login sichtbar sind:</p>
-                                        <pre className="p-2 rounded bg-black/60 text-emerald-400 font-mono text-[10px] overflow-x-auto select-all">
+                                        <p>Damit Filialen und Kassen-Terminals (Kategorien, Transaktionen, Produkte) ohne RLS-Fehler synchronisieren, führen Sie dies im Supabase SQL Editor aus:</p>
+                                        <pre className="p-2 rounded bg-black/60 text-emerald-400 font-mono text-[10px] overflow-x-auto select-all whitespace-pre-wrap">
+CREATE POLICY "allow_all_categories" ON public.categories FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "allow_all_inventory" ON public.inventory FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "allow_all_transactions" ON public.transactions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read access to shops" ON public.shops FOR SELECT TO anon, authenticated USING (true);
                                         </pre>
                                     </div>

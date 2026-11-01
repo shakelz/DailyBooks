@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { supabase, isSupabaseLockTimeoutError, withSupabaseLockRetry, createIsolatedAuthClient } from '../supabaseClient';
+import { supabase, isSupabaseLockTimeoutError, withSupabaseLockRetry } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
@@ -3471,128 +3471,99 @@ export function AuthProvider({ children }) {
         const shadowEmail = `${trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${trimmedPin}_${uniqueSuffix}@carefone.de`;
         let createdSalesman = null;
 
-        // Step 1: Create isolated shadow user in Supabase Auth if possible
-        let authUserId = null;
+        // Step 1: Attempt creation via backend Edge Function (uses admin.createUser with email_confirm: true - NEVER sends emails)
         try {
-            const isolatedClient = typeof createIsolatedAuthClient === 'function' ? createIsolatedAuthClient() : null;
-            if (isolatedClient) {
-                const { data: signUpData } = await isolatedClient.auth.signUp({
-                    email: shadowEmail,
-                    password: authPassword,
-                    options: {
-                        data: {
-                            name: trimmedName,
-                            full_name: trimmedName,
-                            role: 'salesman',
-                            shop_id: sid,
-                            pin: trimmedPin,
-                            pin_digest: pinDigest,
-                        }
-                    }
-                });
-                if (signUpData?.user?.id) {
-                    authUserId = signUpData.user.id;
-                }
+            const res = await safeSupabaseQuery(
+                () => supabase.functions.invoke('create-salesman-v2', {
+                    ...buildAdminFunctionInvokeOptions({
+                        name: trimmedName,
+                        pin: trimmedPin,
+                        password: authPassword,
+                        shop_id: sid,
+                    }),
+                }),
+                'Failed to create salesman account.'
+            );
+            if (!res?.error && res?.data && !res?.data?.error) {
+                createdSalesman = res.data;
             }
-        } catch (authErr) {
-            console.warn('Isolated signup attempt handled gracefully:', authErr);
+        } catch (edgeErr) {
+            console.warn('Backend edge function not available or returned error, using direct profile creation:', edgeErr);
         }
 
-        if (!authUserId) {
-            authUserId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        // Step 2: Direct profile insert fallback (NOTE: We NEVER call auth.signUp here to prevent bounced verification emails)
+        if (!createdSalesman?.userId) {
+            const authUserId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
                 ? crypto.randomUUID()
                 : makeRowId();
-        }
 
-        // Step 2: Directly save or upsert into profiles table
-        const profilePayload = {
-            user_id: authUserId,
-            shop_id: sid,
-            full_name: trimmedName,
-            name: trimmedName,
-            email: shadowEmail,
-            role: 'salesman',
-            pin_digest: pinDigest,
-            password_hash: authPassword,
-            active: true,
-            is_online: false,
-            hourly_rate: 12.5,
-        };
+            const profilePayload = {
+                user_id: authUserId,
+                shop_id: sid,
+                full_name: trimmedName,
+                name: trimmedName,
+                email: shadowEmail,
+                role: 'salesman',
+                pin_digest: pinDigest,
+                password_hash: authPassword,
+                active: true,
+                is_online: false,
+                hourly_rate: 12.5,
+            };
 
-        try {
-            const { data: upsertData } = await supabase
-                .from('profiles')
-                .upsert([profilePayload], { onConflict: 'user_id' })
-                .select()
-                .maybeSingle();
-
-            if (upsertData) {
-                createdSalesman = {
-                    userId: authUserId,
-                    email: shadowEmail,
-                    profile: upsertData,
-                };
-            } else {
-                const { data: insertData } = await supabase
+            try {
+                const { data: upsertData } = await supabase
                     .from('profiles')
-                    .insert([profilePayload])
+                    .upsert([profilePayload], { onConflict: 'user_id' })
                     .select()
                     .maybeSingle();
 
-                if (insertData) {
+                if (upsertData) {
                     createdSalesman = {
                         userId: authUserId,
                         email: shadowEmail,
-                        profile: insertData,
+                        profile: upsertData,
                     };
                 } else {
-                    const fallbackPayloads = buildProfileInsertPayloads({
-                        name: trimmedName,
-                        email: shadowEmail,
-                        passwordHash: authPassword,
-                        role: 'salesman',
-                        shopId: sid,
-                        profileId: authUserId,
-                        pinDigest,
-                        hourlyRate: 12.5,
-                        includePinDigest: true,
-                    });
-                    for (const p of fallbackPayloads) {
-                        const { data: fbData } = await supabase.from('profiles').insert([p]).select().maybeSingle();
-                        if (fbData) {
-                            createdSalesman = {
-                                userId: fbData.user_id || fbData.id || authUserId,
-                                email: shadowEmail,
-                                profile: fbData,
-                            };
-                            break;
+                    const { data: insertData } = await supabase
+                        .from('profiles')
+                        .insert([profilePayload])
+                        .select()
+                        .maybeSingle();
+
+                    if (insertData) {
+                        createdSalesman = {
+                            userId: authUserId,
+                            email: shadowEmail,
+                            profile: insertData,
+                        };
+                    } else {
+                        const fallbackPayloads = buildProfileInsertPayloads({
+                            name: trimmedName,
+                            email: shadowEmail,
+                            passwordHash: authPassword,
+                            role: 'salesman',
+                            shopId: sid,
+                            profileId: authUserId,
+                            pinDigest,
+                            hourlyRate: 12.5,
+                            includePinDigest: true,
+                        });
+                        for (const p of fallbackPayloads) {
+                            const { data: fbData } = await supabase.from('profiles').insert([p]).select().maybeSingle();
+                            if (fbData) {
+                                createdSalesman = {
+                                    userId: fbData.user_id || fbData.id || authUserId,
+                                    email: shadowEmail,
+                                    profile: fbData,
+                                };
+                                break;
+                            }
                         }
                     }
                 }
-            }
-        } catch (dbErr) {
-            console.warn('Direct profile insert encountered error:', dbErr);
-        }
-
-        // Step 3: Edge function fallback if direct profile creation didn't succeed
-        if (!createdSalesman?.userId) {
-            try {
-                const res = await safeSupabaseQuery(
-                    () => supabase.functions.invoke('create-salesman-v2', {
-                        ...buildAdminFunctionInvokeOptions({
-                            name: trimmedName,
-                            pin: trimmedPin,
-                            password: authPassword,
-                            shop_id: sid,
-                        }),
-                    }),
-                    'Failed to create salesman account.'
-                );
-                if (!res?.error && res?.data && !res?.data?.error) {
-                    createdSalesman = res.data;
-                }
-            } catch (edgeErr) {
-                console.warn('Edge function fallback suppressed error:', edgeErr);
+            } catch (dbErr) {
+                console.warn('Direct profile insert encountered error:', dbErr);
             }
         }
 

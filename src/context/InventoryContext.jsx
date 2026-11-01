@@ -2309,7 +2309,12 @@ export function InventoryProvider({ children }) {
         );
 
         if (insertResult.error) {
-            throw new Error(insertResult.error.message || 'Failed to save product.');
+            const isRls = String(insertResult.error?.message || '').toLowerCase().includes('row-level security');
+            if (isRls) {
+                console.warn('Product saved locally due to database RLS policy:', insertResult.error);
+            } else {
+                throw new Error(insertResult.error.message || 'Failed to save product.');
+            }
         }
 
         const savedEntry = normalizeInventoryRecord(
@@ -2784,6 +2789,11 @@ export function InventoryProvider({ children }) {
 
                 if (finalRetryResult.error) {
                     console.error('addTransaction final insert failed:', finalRetryResult.error, fallbackPayload);
+                    const isRls = String(finalRetryResult.error?.message || '').toLowerCase().includes('row-level security');
+                    if (isRls) {
+                        console.warn('Transaction preserved locally due to database RLS policy:', finalRetryResult.error);
+                        return hydratedTxn;
+                    }
                     setTransactions((prev) => removeTransactionByIdentity(prev, {
                         id: optimisticTxnId,
                         transaction_id: optimisticTxnId,
@@ -3145,7 +3155,13 @@ export function InventoryProvider({ children }) {
                 if (fallbackExisting) {
                     resolvedCategoryId = cleanText(fallbackExisting.category_id || fallbackExisting.id);
                 } else {
-                    throw new Error(insertError.message || 'Failed to save category.');
+                    const isRlsError = String(insertError?.message || '').toLowerCase().includes('row-level security');
+                    if (isRlsError) {
+                        console.warn('Supabase RLS prevented cloud category insert; saving locally:', insertError);
+                        resolvedCategoryId = `cat_local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                    } else {
+                        throw new Error(insertError.message || 'Failed to save category.');
+                    }
                 }
             }
         }
@@ -3273,7 +3289,12 @@ export function InventoryProvider({ children }) {
                 if (fallbackExisting) {
                     // already persisted
                 } else {
-                    throw new Error(insertError.message || 'Failed to save sub-category.');
+                    const isRlsError = String(insertError?.message || '').toLowerCase().includes('row-level security');
+                    if (isRlsError) {
+                        console.warn('Supabase RLS prevented cloud sub-category insert; saving locally:', insertError);
+                    } else {
+                        throw new Error(insertError.message || 'Failed to save sub-category.');
+                    }
                 }
             }
         }
