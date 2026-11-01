@@ -1512,6 +1512,7 @@ export function InventoryProvider({ children }) {
         }
 
         const attempts = [
+            { column: 'id', value: base },
             { column: 'shop_id', value: base },
         ];
 

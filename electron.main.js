@@ -6,10 +6,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PRELOAD_PATH = path.join(__dirname, 'electron.preload.cjs');
 
-const REMOTE_URL = 'https://www.carefone.de/terminal-access-v1?desktop_session=1';
+const REMOTE_URL = 'https://www.carefone.de/terminal-access-v1';
 const PARTITION_NAME = 'persist:carefone-terminal-v3';
 
-app.commandLine.appendSwitch('disable-http-cache');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
@@ -63,7 +62,6 @@ async function createWindow() {
   });
 
   const appSession = window.webContents.session;
-  await clearNetworkCache(appSession);
 
   const isAdminPath = (rawUrl = '') => {
     try {

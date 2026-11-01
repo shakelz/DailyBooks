@@ -59,3 +59,14 @@ export const supabase = (() => {
   }
   return globalScope[SUPABASE_SINGLETON_KEY];
 })();
+
+export function createIsolatedAuthClient() {
+  if (supabaseConfigError) return null;
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+}

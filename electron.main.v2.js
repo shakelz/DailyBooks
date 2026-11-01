@@ -49,7 +49,7 @@ async function clearNetworkCache(sessionInstance) {
 
 function getLaunchUrl() {
   const separator = REMOTE_URL.includes('?') ? '&' : '?';
-  return `${REMOTE_URL}${separator}desktop_session=${Date.now()}`;
+  return REMOTE_URL;
 }
 
 function isAdminPath(rawUrl = '') {
@@ -81,7 +81,6 @@ async function createWindow() {
   });
 
   const appSession = window.webContents.session;
-  await clearNetworkCache(appSession);
 
   const forceSalesmanHome = () => {
     if (!window.isDestroyed()) {

@@ -56,11 +56,7 @@ export default function LoginPage({ mode = 'salesman' }) {
     const [isLoading, setIsLoading] = useState(false)
 
     useEffect(() => {
-        const params = new URLSearchParams(location.search)
-        if (params.has('desktop_session')) {
-            logout()
-            return
-        }
+        // desktop_session handled without wiping auth
 
         if (authLoading) return
         if (!authUser || !authRole) return
@@ -593,15 +589,7 @@ CREATE POLICY "Allow public read access to shops" ON public.shops FOR SELECT TO 
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={handleResetStation}
-                            title="Reset station branch for this computer"
-                            className="text-[10px] text-blue-400 hover:text-blue-300 underline font-medium cursor-pointer"
-                        >
-                            Change
-                        </button>
-                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-900/60 border border-slate-700/50 text-[10px] font-bold text-slate-400">
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/60 border border-slate-700/50 text-[10px] font-bold text-slate-400">
                             <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                             </svg>

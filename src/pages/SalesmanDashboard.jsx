@@ -906,6 +906,16 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         checkAndTriggerAutoBackup(transactions, backupShops);
     }, [transactions, shops, activeShop]);
 
+    // Ensure products and categories are refreshed immediately upon dashboard mount
+    useEffect(() => {
+        if (typeof refreshProducts === 'function') {
+            refreshProducts();
+        }
+        if (typeof refreshCategoryCatalog === 'function') {
+            refreshCategoryCatalog();
+        }
+    }, [activeShop, refreshProducts, refreshCategoryCatalog]);
+
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showCategoryModal, setShowCategoryModal] = useState(false);
     const [showRepairModal, setShowRepairModal] = useState(false);

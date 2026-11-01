@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { supabase, isSupabaseLockTimeoutError, withSupabaseLockRetry } from '../supabaseClient';
+import { supabase, isSupabaseLockTimeoutError, withSupabaseLockRetry, createIsolatedAuthClient } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
@@ -3413,6 +3413,8 @@ export function AuthProvider({ children }) {
         };
 
         const authPassword = trimmedPin.length < 6 ? `pin_${trimmedPin}` : trimmedPin;
+        const pinDigest = await computePinDigest(sid, trimmedPin);
+        const shadowEmail = `${trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${trimmedPin}_${sid.slice(0, 6)}@carefone.de`;
         let createdSalesman = null;
         let createError = null;
 
@@ -3428,55 +3430,95 @@ export function AuthProvider({ children }) {
                 }),
                 'Failed to create salesman account.'
             );
-            createdSalesman = res?.data || null;
-            createError = res?.error || null;
+            if (!res?.error && res?.data && !res?.data?.error) {
+                createdSalesman = res.data;
+            } else {
+                createError = res?.error || res?.data?.error || new Error('Edge function returned error');
+            }
         } catch (err) {
             createError = err;
         }
 
-        // If edge function returned an error (e.g. password length constraint or service issue), fallback to direct profile creation
-        if (createError) {
-            const errStr = String(createError?.message || '').toLowerCase();
-            const detailsStr = String(createError?.details || '').toLowerCase();
-            const isPasswordConstraint = errStr.includes('6 character') || errStr.includes('password') || detailsStr.includes('6 character');
-            
-            const pinDigest = await computePinDigest(sid, trimmedPin);
-            const shadowEmail = `${trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${trimmedPin}_${sid.slice(0, 6)}@carefone.de`;
-            const profilePayloads = buildProfileInsertPayloads({
-                name: trimmedName,
-                email: shadowEmail,
-                passwordHash: authPassword,
-                role: 'salesman',
-                shopId: sid,
-                pinDigest,
-                hourlyRate: 12.5,
-                includePinDigest: true,
-            });
-
-            let fallbackProfile = null;
-            let fallbackError = null;
-            for (const payload of profilePayloads) {
-                const { data, error } = await supabase.from('profiles').insert([payload]).select().single();
-                if (!error && data) {
-                    fallbackProfile = data;
-                    break;
+        // Direct isolated fallback: create shadow user in auth.users and upsert profiles record
+        if (createError || !createdSalesman?.userId) {
+            try {
+                let authUserId = null;
+                const isolatedClient = typeof createIsolatedAuthClient === 'function' ? createIsolatedAuthClient() : null;
+                if (isolatedClient) {
+                    const { data: signUpData, error: signUpError } = await isolatedClient.auth.signUp({
+                        email: shadowEmail,
+                        password: authPassword,
+                        options: {
+                            data: {
+                                name: trimmedName,
+                                full_name: trimmedName,
+                                role: 'salesman',
+                                shop_id: sid,
+                                pin: trimmedPin,
+                                pin_digest: pinDigest,
+                            }
+                        }
+                    });
+                    if (signUpData?.user?.id) {
+                        authUserId = signUpData.user.id;
+                    } else if (signUpError) {
+                        const existingUser = await supabase.from('profiles').select('user_id').eq('email', shadowEmail).maybeSingle();
+                        if (existingUser?.data?.user_id) {
+                            authUserId = existingUser.data.user_id;
+                        }
+                    }
                 }
-                fallbackError = error;
-            }
 
-            if (!fallbackProfile && !isPasswordConstraint) {
-                throw new Error(
-                    await extractSupabaseFunctionErrorMessage(createError, fallbackError?.message || 'Failed to create salesman account.')
-                );
-            }
+                if (!authUserId) {
+                    authUserId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : makeRowId();
+                }
 
-            if (fallbackProfile) {
-                createdSalesman = {
-                    userId: fallbackProfile.user_id || fallbackProfile.id,
+                const profilePayload = {
+                    user_id: authUserId,
+                    shop_id: sid,
+                    full_name: trimmedName,
+                    name: trimmedName,
                     email: shadowEmail,
-                    profile: fallbackProfile,
+                    role: 'salesman',
+                    pin_digest: pinDigest,
+                    active: true,
+                    is_online: false,
+                    hourly_rate: 12.5,
                 };
-                createError = null;
+
+                const { data: savedProfile, error: profileSaveError } = await supabase
+                    .from('profiles')
+                    .upsert([profilePayload], { onConflict: 'user_id' })
+                    .select()
+                    .single();
+
+                if (savedProfile) {
+                    createdSalesman = {
+                        userId: authUserId,
+                        email: shadowEmail,
+                        profile: savedProfile,
+                    };
+                    createError = null;
+                } else {
+                    const { data: insertedProfile } = await supabase.from('profiles').insert([profilePayload]).select().single();
+                    if (insertedProfile) {
+                        createdSalesman = {
+                            userId: authUserId,
+                            email: shadowEmail,
+                            profile: insertedProfile,
+                        };
+                        createError = null;
+                    } else if (profileSaveError) {
+                        throw profileSaveError;
+                    }
+                }
+            } catch (fallbackErr) {
+                console.error('Fallback salesman creation error:', fallbackErr);
+                const msg = String(fallbackErr?.message || '').toLowerCase();
+                if (msg.includes('6 character') || msg.includes('password')) {
+                    throw new Error('Mitarbeiter konnte nicht angelegt werden. Bitte erneut versuchen.');
+                }
+                throw fallbackErr;
             }
         }
 
