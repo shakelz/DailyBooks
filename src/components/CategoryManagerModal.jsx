@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
+import { useAuth } from '../context/AuthContext';
 
-export default function CategoryManagerModal({ isOpen, onClose }) {
+export default function CategoryManagerModal({ isOpen, onClose, shopId }) {
+    const { activeShopId } = useAuth();
+    const effectiveShopId = shopId || activeShopId;
     const {
         getLevel1Categories,
         getLevel2Categories,
@@ -11,6 +14,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         updateCategory,
         deleteCategory,
         toggleCategoryHidden,
+        refreshCategoryCatalog,
     } = useInventory();
     const previousFocusedElementRef = useRef(null);
 
@@ -195,7 +199,7 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                 );
                 if (exists) return alert('This Main Category already exists!');
 
-                const parentResult = await addLevel1Category(finalMainCat, null, addScope, addIsHidden);
+                const parentResult = await addLevel1Category(finalMainCat, null, addScope, addIsHidden, effectiveShopId);
                 parentCategoryId = String(parentResult?.categoryId || '').trim();
             } else if (!finalMainCat) {
                 return alert('Please select or add a Main Category!');
@@ -211,9 +215,13 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
                 );
                 if (exists) return alert('This Sub Category already exists under the selected Main Category!');
 
-                await addLevel2Category(finalMainCat, finalSubCat, null, addScope, parentCategoryId, addIsHidden);
+                await addLevel2Category(finalMainCat, finalSubCat, null, addScope, parentCategoryId, addIsHidden, effectiveShopId);
             } else if (mainCatSelect !== 'NEW_ADD') {
                 return alert('Select ➕ Add New... to create a new category. To update existing categories, use the Update tab.');
+            }
+
+            if (typeof refreshCategoryCatalog === 'function') {
+                await refreshCategoryCatalog(effectiveShopId);
             }
 
             setMainCatSelect('');
@@ -245,9 +253,12 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         const nextHidden = !currentHidden;
         try {
             if (isL1) {
-                await toggleCategoryHidden(1, nameData, nextHidden, '', updateScope);
+                await toggleCategoryHidden(1, nameData, nextHidden, '', updateScope, effectiveShopId);
             } else {
-                await toggleCategoryHidden(2, nameData, nextHidden, selectedUpdateL1, updateScope);
+                await toggleCategoryHidden(2, nameData, nextHidden, selectedUpdateL1, updateScope, effectiveShopId);
+            }
+            if (typeof refreshCategoryCatalog === 'function') {
+                await refreshCategoryCatalog(effectiveShopId);
             }
         } catch (error) {
             alert(error?.message || 'Failed to update hidden status in database.');
@@ -261,9 +272,12 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setIsSaving(true);
         try {
             if (editingCategory.isL1) {
-                await updateCategory(1, editingCategory.originalName, updateName.trim(), updateImagePreview, updateScope, updateIsHidden);
+                await updateCategory(1, editingCategory.originalName, updateName.trim(), updateImagePreview, updateScope, updateIsHidden, null, effectiveShopId);
             } else {
-                await updateCategory(2, editingCategory.originalName, updateName.trim(), null, updateScope, updateIsHidden, selectedUpdateL1);
+                await updateCategory(2, editingCategory.originalName, updateName.trim(), null, updateScope, updateIsHidden, selectedUpdateL1, effectiveShopId);
+            }
+            if (typeof refreshCategoryCatalog === 'function') {
+                await refreshCategoryCatalog(effectiveShopId);
             }
             setEditingCategory(null);
             alert('Category Updated!');
@@ -285,9 +299,12 @@ export default function CategoryManagerModal({ isOpen, onClose }) {
         setPendingDeleteCat(null);
         if (isL1) {
             if (selectedUpdateL1 === nameData) setSelectedUpdateL1('');
-            await deleteCategory(1, nameData, null, updateScope);
+            await deleteCategory(1, nameData, null, updateScope, effectiveShopId);
         } else {
-            await deleteCategory(2, nameData, selectedUpdateL1, updateScope);
+            await deleteCategory(2, nameData, selectedUpdateL1, updateScope, effectiveShopId);
+        }
+        if (typeof refreshCategoryCatalog === 'function') {
+            await refreshCategoryCatalog(effectiveShopId);
         }
     };
 

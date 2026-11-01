@@ -815,6 +815,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         user,
         isPunchedIn,
         activeShop,
+        activeShopId,
         shops = [],
         billShowTax,
         attendanceLogs,
@@ -1151,7 +1152,8 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
     const receiptShopName = activeShop?.name || 'Shop';
     const receiptShopAddress = activeShop?.address || '';
     const receiptShopPhone = resolveShopPhone(activeShop);
-    const settingsShopId = String(user?.shop_id || activeShop?.id || '').trim();
+    const effectiveShopId = String(activeShopId || activeShop?.id || activeShop?.shop_id || user?.shop_id || '').trim();
+    const settingsShopId = effectiveShopId;
     const lockTimeoutMs = !user?.id || adminView || !autoLockEnabled
         ? 0
         : Math.max(1, Number(autoLockTimeout) || 120) * 1000;
@@ -1197,8 +1199,22 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             return undefined;
         }
 
-        setCategoryContributionModeMap({});
-        setHasExplicitContributionModeConfig(false);
+        try {
+            const cachedRaw = localStorage.getItem(`dailybooks_kpi_contribution_mode_${settingsShopId}`);
+            if (cachedRaw) {
+                const parsed = JSON.parse(cachedRaw);
+                if (parsed && typeof parsed === 'object') {
+                    setCategoryContributionModeMap(parsed);
+                    setHasExplicitContributionModeConfig(true);
+                }
+            } else {
+                setCategoryContributionModeMap({});
+                setHasExplicitContributionModeConfig(false);
+            }
+        } catch {
+            setCategoryContributionModeMap({});
+            setHasExplicitContributionModeConfig(false);
+        }
 
         let cancelled = false;
         let reloadTimer = null;
@@ -1236,6 +1252,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             }, {});
             setCategoryContributionModeMap(map);
             setHasExplicitContributionModeConfig(true);
+            try {
+                localStorage.setItem(`dailybooks_kpi_contribution_mode_${settingsShopId}`, JSON.stringify(map));
+            } catch {}
             setKpiSettingsVersion((prev) => prev + 1);
         };
         loadKpiSettingsRef.current = loadFromDb;
@@ -2967,20 +2986,26 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 setContributionModeConfigStatus('Saved.');
             }
             // Map is already correct in memory from user's live selections
+            try {
+                localStorage.setItem(`dailybooks_kpi_contribution_mode_${settingsShopId}`, JSON.stringify(categoryContributionModeMap));
+            } catch {}
             setKpiSettingsVersion((prev) => prev + 1);
         } catch (error) {
             setContributionModeConfigStatus(error?.message || 'Failed to save settings.');
         } finally {
             setIsSavingContributionModeConfig(false);
         }
-    }, [expenseKpiContributionCategoryRows, resolveCategoryRowMode, salesKpiContributionCategoryRows, settingsShopId]);
+    }, [categoryContributionModeMap, expenseKpiContributionCategoryRows, resolveCategoryRowMode, salesKpiContributionCategoryRows, settingsShopId]);
 
     const resetCategoryContributionModeConfigToDefault = useCallback(() => {
         setCategoryContributionModeMap({});
         setHasExplicitContributionModeConfig(false);
+        try {
+            localStorage.removeItem(`dailybooks_kpi_contribution_mode_${settingsShopId}`);
+        } catch {}
         setContributionModeConfigStatus('Default rules restored.');
         setKpiSettingsVersion((prev) => prev + 1);
-    }, []);
+    }, [settingsShopId]);
 
     const updateCategoryContributionMode = useCallback((scope, row, nextMode) => {
         const normalizedMode = normalizeKpiContributionMode(nextMode);
@@ -8890,7 +8915,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             )}
 
             <SalesmanProfile isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
-            <CategoryManagerModal isOpen={showCategoryModal} onClose={() => setShowCategoryModal(false)} />
+            <CategoryManagerModal isOpen={showCategoryModal} onClose={() => setShowCategoryModal(false)} shopId={effectiveShopId} />
             <RepairModal isOpen={showRepairModal} onClose={() => setShowRepairModal(false)} />
 
             {/* Category Hide Confirmation Modal (Triggered on 1.5s - 5s long press) */}

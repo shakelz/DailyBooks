@@ -34,7 +34,7 @@ export default function LatestDashboard() {
         searchProducts, getLowStockProducts, addProduct,
         adjustStock, getCategoryImage
     } = useInventory();
-    const { role, user, logout: authLogout, lowStockAlerts, clearAlert, clearAllAlerts, attendanceLogs, isPunchedIn, autoLockEnabled, autoLockTimeout } = useAuth();
+    const { role, user, activeShopId, logout: authLogout, lowStockAlerts, clearAlert, clearAllAlerts, attendanceLogs, isPunchedIn, autoLockEnabled, autoLockTimeout } = useAuth();
 
     // ── Auth Check ──
     useEffect(() => {
@@ -806,6 +806,7 @@ export default function LatestDashboard() {
             <CategoryManagerModal
                 isOpen={showCategoryManager}
                 onClose={() => setShowCategoryManager(false)}
+                shopId={activeShopId || user?.shop_id}
             />
 
             <TransactionModal

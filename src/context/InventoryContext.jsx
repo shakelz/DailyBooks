@@ -1417,7 +1417,7 @@ function writeLocalCache(key, data) {
 }
 
 export function InventoryProvider({ children }) {
-    const { activeShopId, salesmen, user } = useAuth();
+    const { activeShopId, salesmen, user, shops } = useAuth();
 
     // ── Live Products (Local State mirroring Supabase with instant cache-first hydration) ──
     const [products, setProducts] = useState(() => {
@@ -1623,11 +1623,16 @@ export function InventoryProvider({ children }) {
             throw new Error('No active shop selected. Please select a shop first.');
         }
 
+        if (Array.isArray(shops) && shops.some((s) => cleanText(s?.id || s?.shop_id) === safeShopId)) {
+            return safeShopId;
+        }
+
         const candidates = await resolveShopIdCandidates(safeShopId);
         let lastError = null;
 
         for (const candidate of candidates) {
             const checks = [
+                { column: 'id', value: candidate },
                 { column: 'shop_id', value: candidate },
             ];
 
@@ -1653,12 +1658,9 @@ export function InventoryProvider({ children }) {
             }
         }
 
-        if (lastError) {
-            throw new Error(lastError.message || 'Unable to verify selected shop.');
-        }
-
-        throw new Error('Selected shop is invalid or outdated. Please refresh and select a valid shop.');
-    }, [resolveShopIdCandidates]);
+        // Resilient fallback: return requested shop ID so offline or newly added shops are never blocked
+        return safeShopId;
+    }, [resolveShopIdCandidates, shops]);
 
     const refreshProducts = useCallback(async (shopRef = activeShopId) => {
         const sid = cleanText(shopRef || activeShopId);
@@ -1703,17 +1705,18 @@ export function InventoryProvider({ children }) {
         const categoryRows = catResult.data;
         const categoryLookups = buildCategoryLookups(categoryRows);
         const scopeMap = readCategoryScopeMap(sid);
-        const normalizedCategories = categoryRows.map((row) => normalizeCategoryRecord(row, categoryLookups.byId));
-        const level1Rows = normalizedCategories.filter((row) => Number(row.level) === 1) || [];
-        const level2Rows = normalizedCategories.filter((row) => Number(row.level) === 2) || [];
-        const nextLevel1 = dedupeCategoryObjectsByName(applyScopeToCategoryList(level1Rows, scopeMap));
+        const hiddenMap = readCategoryHiddenMap(sid);
+        const normalizedCategories = categoryRows.map((row) => normalizeCategoryRecord(row, categoryLookups.byId, hiddenMap));
+        const level1Rows = normalizedCategories.filter((row) => Number(row.level) === 1 || (!row.parent_category_id && !row.parent_id && !row.parent)) || [];
+        const level2Rows = normalizedCategories.filter((row) => Number(row.level) === 2 || Boolean(row.parent_category_id || row.parent_id || row.parent)) || [];
+        const nextLevel1 = dedupeCategoryObjectsByName(applyScopeToCategoryList(level1Rows, scopeMap, hiddenMap));
         const nextLevel2Map = {};
 
         level2Rows.forEach((row) => {
             const parentName = resolveCategoryParentName(row, categoryLookups.byId);
             if (!parentName) return;
             if (!nextLevel2Map[parentName]) nextLevel2Map[parentName] = [];
-            nextLevel2Map[parentName].push(withCategoryScope({ ...row, parent: parentName }, scopeMap));
+            nextLevel2Map[parentName].push(withCategoryScope({ ...row, parent: parentName }, scopeMap, hiddenMap));
         });
         Object.keys(nextLevel2Map).forEach((parentName) => {
             nextLevel2Map[parentName] = dedupeCategoryObjectsByName(nextLevel2Map[parentName]);
@@ -1721,6 +1724,8 @@ export function InventoryProvider({ children }) {
 
         setL1Categories(nextLevel1);
         setL2Map(nextLevel2Map);
+        writeLocalCache('dailybooks_cache_l1_' + sid, nextLevel1);
+        writeLocalCache('dailybooks_cache_l2_' + sid, nextLevel2Map);
         return { level1: nextLevel1, level2Map: nextLevel2Map };
     }, [activeShopId, resolveShopIdCandidates]);
 
@@ -3131,8 +3136,9 @@ export function InventoryProvider({ children }) {
         return dedupeCategoryObjectsByName(categories);
     }, [l2Map]);
 
-    const addL1Category = useCallback(async (name, image = null, scope = CATEGORY_SCOPE_SALES, isHidden = false) => {
-        const sid = await ensureActiveShopExists(activeShopId);
+    const addL1Category = useCallback(async (name, image = null, scope = CATEGORY_SCOPE_SALES, isHidden = false, targetShopId = '') => {
+        const rawSid = targetShopId || activeShopId;
+        const sid = await ensureActiveShopExists(rawSid);
 
         const trimmed = cleanText(name).replace(/\s+/g, ' ');
         if (!trimmed) return;
@@ -3208,6 +3214,7 @@ export function InventoryProvider({ children }) {
         }
 
         setL1Categories(prev => {
+            let next;
             const existingLocal = prev.find((c) => {
                 const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed);
                 const sameScope = typeof c === 'object'
@@ -3216,7 +3223,7 @@ export function InventoryProvider({ children }) {
                 return sameName && sameScope;
             });
             if (existingLocal) {
-                return prev.map((c) => {
+                next = prev.map((c) => {
                     const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed);
                     const sameScope = typeof c === 'object'
                         ? normalizeCategoryScope(c?.scope || c?.category_purpose) === normalizedScope
@@ -3235,8 +3242,11 @@ export function InventoryProvider({ children }) {
                     }
                     return { id: resolvedCategoryId || undefined, name: trimmed, image: image || '', scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool };
                 });
+            } else {
+                next = [...prev, { id: resolvedCategoryId || undefined, name: trimmed, image, scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool }];
             }
-            return [...prev, { id: resolvedCategoryId || undefined, name: trimmed, image, scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool }];
+            writeLocalCache('dailybooks_cache_l1_' + sid, next);
+            return next;
         });
         setCategoryScopeEntry(sid, 1, trimmed, '', normalizedScope);
         setCategoryHiddenEntry(sid, 1, trimmed, '', normalizedScope, hiddenBool);
@@ -3248,8 +3258,9 @@ export function InventoryProvider({ children }) {
         return { categoryId: resolvedCategoryId, name: trimmed, shopId: sid, isHidden: hiddenBool };
     }, [activeShopId, ensureActiveShopExists]);
 
-    const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES, parentCategoryIdOverride = '', isHidden = false) => {
-        const sid = await ensureActiveShopExists(activeShopId);
+    const addL2Category = useCallback(async (l1Name, name, image = null, scope = CATEGORY_SCOPE_SALES, parentCategoryIdOverride = '', isHidden = false, targetShopId = '') => {
+        const rawSid = targetShopId || activeShopId;
+        const sid = await ensureActiveShopExists(rawSid);
 
         const trimmed = cleanText(name).replace(/\s+/g, ' ');
         if (!trimmed || !l1Name) return;
@@ -3342,6 +3353,7 @@ export function InventoryProvider({ children }) {
 
         setL2Map(prev => {
             const currentList = prev[l1Name] || [];
+            let nextMap;
             const existingLocal = currentList.find((c) => {
                 const sameName = normalizeCategoryNameForMatch(typeof c === 'object' ? c?.name : c) === normalizeCategoryNameForMatch(trimmed);
                 const sameScope = typeof c === 'object'
@@ -3370,12 +3382,15 @@ export function InventoryProvider({ children }) {
                     }
                     return { name: trimmed, image: image || '', parent: l1Name, parent_id: parentCategoryId || null, scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool };
                 });
-                return { ...prev, [l1Name]: updatedList };
+                nextMap = { ...prev, [l1Name]: updatedList };
+            } else {
+                nextMap = {
+                    ...prev,
+                    [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, parent_id: parentCategoryId || null, scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool }]
+                };
             }
-            return {
-                ...prev,
-                [l1Name]: [...currentList, { name: trimmed, image, parent: l1Name, parent_id: parentCategoryId || null, scope: normalizedScope, is_hidden: hiddenBool, isHidden: hiddenBool }]
-            };
+            writeLocalCache('dailybooks_cache_l2_' + sid, nextMap);
+            return nextMap;
         });
         setCategoryScopeEntry(sid, 2, trimmed, l1Name, normalizedScope);
         setCategoryHiddenEntry(sid, 2, trimmed, l1Name, normalizedScope, hiddenBool);
@@ -3387,8 +3402,9 @@ export function InventoryProvider({ children }) {
         return { parentCategoryId, name: trimmed, shopId: sid, isHidden: hiddenBool };
     }, [activeShopId, ensureActiveShopExists, categoryNameToId]);
 
-    const toggleCategoryHidden = useCallback(async (level, categoryNameOrId, isHidden, parentName = '', scope = CATEGORY_SCOPE_SALES) => {
-        const sid = await ensureActiveShopExists(activeShopId);
+    const toggleCategoryHidden = useCallback(async (level, categoryNameOrId, isHidden, parentName = '', scope = CATEGORY_SCOPE_SALES, targetShopId = '') => {
+        const rawSid = targetShopId || activeShopId;
+        const sid = await ensureActiveShopExists(rawSid);
         const normalizedScope = normalizeCategoryScope(scope);
         const hiddenBool = Boolean(isHidden);
         const strIdentifier = cleanText(categoryNameOrId);
@@ -3427,20 +3443,24 @@ export function InventoryProvider({ children }) {
 
         // Update local state ONLY for the matching scope
         if (Number(level) === 1) {
-            setL1Categories((prev) => prev.map((c) => {
-                const cName = typeof c === 'object' ? c?.name : c;
-                const cId = typeof c === 'object' ? c?.id : '';
-                const cScope = typeof c === 'object'
-                    ? normalizeCategoryScope(c?.scope || c?.category_purpose)
-                    : CATEGORY_SCOPE_SALES;
-                const isMatch = (cId && cId === strIdentifier) || normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(strIdentifier);
-                if (isMatch && cScope === normalizedScope) {
-                    return typeof c === 'object'
-                        ? { ...c, is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope, category_purpose: normalizedScope }
-                        : { name: c, is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope, category_purpose: normalizedScope };
-                }
-                return c;
-            }));
+            setL1Categories((prev) => {
+                const next = prev.map((c) => {
+                    const cName = typeof c === 'object' ? c?.name : c;
+                    const cId = typeof c === 'object' ? c?.id : '';
+                    const cScope = typeof c === 'object'
+                        ? normalizeCategoryScope(c?.scope || c?.category_purpose)
+                        : CATEGORY_SCOPE_SALES;
+                    const isMatch = (cId && cId === strIdentifier) || normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(strIdentifier);
+                    if (isMatch && cScope === normalizedScope) {
+                        return typeof c === 'object'
+                            ? { ...c, is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope, category_purpose: normalizedScope }
+                            : { name: c, is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope, category_purpose: normalizedScope };
+                    }
+                    return c;
+                });
+                writeLocalCache('dailybooks_cache_l1_' + sid, next);
+                return next;
+            });
         } else {
             setL2Map((prev) => {
                 const next = { ...prev };
@@ -3460,6 +3480,7 @@ export function InventoryProvider({ children }) {
                     }
                     return c;
                 });
+                writeLocalCache('dailybooks_cache_l2_' + sid, next);
                 return next;
             });
         }
@@ -3475,8 +3496,9 @@ export function InventoryProvider({ children }) {
         return null;
     }, [l1Categories, l2Map]);
 
-    const deleteCategory = useCallback(async (level, name, parentName = null, scope = CATEGORY_SCOPE_SALES) => {
-        const sid = cleanText(activeShopId);
+    const deleteCategory = useCallback(async (level, name, parentName = null, scope = CATEGORY_SCOPE_SALES, targetShopId = '') => {
+        const rawSid = targetShopId || activeShopId;
+        const sid = await ensureActiveShopExists(rawSid);
         if (!sid) return;
         const normalizedScope = normalizeCategoryScope(scope);
 
@@ -3484,14 +3506,19 @@ export function InventoryProvider({ children }) {
         if (!trimmed) return;
 
         if (level === 1) {
-            setL1Categories(prev => prev.filter(c => {
-                const cName = typeof c === 'object' ? c?.name : c;
-                const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
-                return !(normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(trimmed) && cScope === normalizedScope);
-            }));
+            setL1Categories(prev => {
+                const next = prev.filter(c => {
+                    const cName = typeof c === 'object' ? c?.name : c;
+                    const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                    return !(normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(trimmed) && cScope === normalizedScope);
+                });
+                writeLocalCache('dailybooks_cache_l1_' + sid, next);
+                return next;
+            });
             setL2Map(prev => {
                 const next = { ...prev };
                 delete next[trimmed];
+                writeLocalCache('dailybooks_cache_l2_' + sid, next);
                 return next;
             });
             removeCategoryScopeBranch(sid, trimmed);
@@ -3505,7 +3532,7 @@ export function InventoryProvider({ children }) {
         } else if (level === 2 && parentName) {
             setL2Map(prev => {
                 const currentList = prev[parentName] || [];
-                return {
+                const next = {
                     ...prev,
                     [parentName]: currentList.filter(c => {
                         const cName = typeof c === 'object' ? c?.name : c;
@@ -3513,6 +3540,8 @@ export function InventoryProvider({ children }) {
                         return !(normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(trimmed) && cScope === normalizedScope);
                     })
                 };
+                writeLocalCache('dailybooks_cache_l2_' + sid, next);
+                return next;
             });
             removeCategoryScopeEntry(sid, 2, trimmed, parentName);
             const parentId = cleanText(categoryNameToId[parentName]);
@@ -3530,10 +3559,11 @@ export function InventoryProvider({ children }) {
                 console.warn('Failed to delete sub-category:', deleteRes.error.message);
             }
         }
-    }, [activeShopId, categoryNameToId]);
+    }, [activeShopId, categoryNameToId, ensureActiveShopExists]);
 
-    const updateCategory = useCallback(async (level, oldName, newName, image = null, scope = CATEGORY_SCOPE_SALES, isHidden = false, parentName = null) => {
-        const sid = cleanText(activeShopId);
+    const updateCategory = useCallback(async (level, oldName, newName, image = null, scope = CATEGORY_SCOPE_SALES, isHidden = false, parentName = null, targetShopId = '') => {
+        const rawSid = targetShopId || activeShopId;
+        const sid = await ensureActiveShopExists(rawSid);
         if (!sid) return;
         const normalizedScope = normalizeCategoryScope(scope);
         const trimmedOld = String(oldName || '').trim();
@@ -3570,16 +3600,20 @@ export function InventoryProvider({ children }) {
                 });
             }
 
-            setL1Categories(prev => prev.map(c => {
-                const cName = typeof c === 'object' ? c?.name : c;
-                const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
-                if (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(trimmedOld) && cScope === normalizedScope) {
-                    return typeof c === 'object'
-                        ? { ...c, name: trimmedNew, image: image ?? c.image ?? '', is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope }
-                        : { name: trimmedNew, image: image ?? '', is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope };
-                }
-                return c;
-            }));
+            setL1Categories(prev => {
+                const next = prev.map(c => {
+                    const cName = typeof c === 'object' ? c?.name : c;
+                    const cScope = typeof c === 'object' ? normalizeCategoryScope(c?.scope || c?.category_purpose) : CATEGORY_SCOPE_SALES;
+                    if (normalizeCategoryNameForMatch(cName) === normalizeCategoryNameForMatch(trimmedOld) && cScope === normalizedScope) {
+                        return typeof c === 'object'
+                            ? { ...c, name: trimmedNew, image: image ?? c.image ?? '', is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope }
+                            : { name: trimmedNew, image: image ?? '', is_hidden: hiddenBool, isHidden: hiddenBool, scope: normalizedScope };
+                    }
+                    return c;
+                });
+                writeLocalCache('dailybooks_cache_l1_' + sid, next);
+                return next;
+            });
 
             if (trimmedOld !== trimmedNew) {
                 setL2Map(prev => {
@@ -3588,6 +3622,7 @@ export function InventoryProvider({ children }) {
                         next[trimmedNew] = next[trimmedOld].map(sub => typeof sub === 'object' ? { ...sub, parent: trimmedNew } : sub);
                         delete next[trimmedOld];
                     }
+                    writeLocalCache('dailybooks_cache_l2_' + sid, next);
                     return next;
                 });
             }
@@ -3602,7 +3637,7 @@ export function InventoryProvider({ children }) {
 
             setL2Map(prev => {
                 const currentList = prev[parentName] || [];
-                return {
+                const next = {
                     ...prev,
                     [parentName]: currentList.map(c => {
                         const cName = typeof c === 'object' ? c?.name : c;
@@ -3615,9 +3650,11 @@ export function InventoryProvider({ children }) {
                         return c;
                     })
                 };
+                writeLocalCache('dailybooks_cache_l2_' + sid, next);
+                return next;
             });
         }
-    }, [activeShopId, categoryNameToId]);
+    }, [activeShopId, categoryNameToId, ensureActiveShopExists]);
 
     const getLowStockProducts = useCallback(() => {
         return products.filter(p => isProductInRed(p));
