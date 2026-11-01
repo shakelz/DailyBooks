@@ -93,8 +93,12 @@ function getRepairInvoiceNumber(job = {}) {
 }
 
 function isMissingDbObjectError(error = null) {
+    if (!error) return false;
     const message = String(error?.message || '').toLowerCase();
-    return message.includes('does not exist')
+    const code = String(error?.code || '');
+    return code === '42501'
+        || message.includes('row-level security')
+        || message.includes('does not exist')
         || message.includes('could not find the table')
         || message.includes('schema cache');
 }
@@ -1226,14 +1230,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 .eq('shop_id', settingsShopId);
 
             if (cancelled) return;
-            if (result.error) {
-                if (!isMissingDbObjectError(result.error)) {
-                    console.error('Failed to load KPI profit category config:', result.error);
-                }
-                return;
+            if (result.error && !isMissingDbObjectError(result.error)) {
+                console.warn('KPI settings DB query notice:', result.error);
             }
 
-            if (!Array.isArray(result.data) || result.data.length === 0) {
+            if (result.error || !Array.isArray(result.data) || result.data.length === 0) {
                 try {
                     const { data: dbCat } = await supabase
                         .from('categories')
@@ -1246,6 +1247,11 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             l1ById[c.category_id] = c.category_name;
                         });
 
+                        let localSavedMap = {};
+                        try {
+                            localSavedMap = JSON.parse(localStorage.getItem(`dailybooks_kpi_contribution_mode_${settingsShopId}`) || '{}');
+                        } catch {}
+
                         const catMap = {};
                         dbCat.forEach((c) => {
                             const scope = normalizeKpiScope(c.category_purpose);
@@ -1254,8 +1260,12 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                             const subCategoryName = isL2 ? c.category_name : '';
                             if (!categoryName) return;
 
-                            const mode = c.is_hidden ? KPI_MODE_EXCLUDED : (scope === KPI_SCOPE_EXPENSE ? KPI_MODE_SALES : KPI_MODE_SALES);
-                            catMap[makeScopedProfitCategoryKey(scope, categoryName.toLowerCase(), subCategoryName.toLowerCase())] = mode;
+                            const key = makeScopedProfitCategoryKey(scope, categoryName.toLowerCase(), subCategoryName.toLowerCase());
+                            const localMode = localSavedMap[key];
+                            const mode = c.is_hidden
+                                ? KPI_MODE_EXCLUDED
+                                : (localMode === KPI_MODE_PROFIT ? KPI_MODE_PROFIT : KPI_MODE_SALES);
+                            catMap[key] = mode;
                         });
 
                         setCategoryContributionModeMap(catMap);
@@ -2970,59 +2980,9 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 ...((salesKpiContributionCategoryRows || []).map((row) => ({ row, scope: KPI_SCOPE_SALES }))),
                 ...((expenseKpiContributionCategoryRows || []).map((row) => ({ row, scope: KPI_SCOPE_EXPENSE }))),
             ];
-
-            // Step 1: Delete ALL existing rows for this shop to avoid duplicate entries
-            // upsert onConflict is unreliable without a guaranteed unique DB constraint
-            const deleteResult = await supabase
-                .from('kpi_profit_category_settings')
-                .delete()
-                .eq('shop_id', settingsShopId);
-            if (deleteResult.error && !isMissingDbObjectError(deleteResult.error)) {
-                throw new Error(deleteResult.error.message || 'Failed to clear old KPI settings.');
-            }
-
-            // Step 2: Build fresh insert rows
             const now = new Date().toISOString();
-            const insertRows = allScopedRows
-                .map(({ row, scope }) => {
-                    const normalizedScope = normalizeKpiScope(scope);
-                    const categoryName = String(row?.categoryName || '').trim().toLowerCase();
-                    const subCategoryName = String(row?.subCategoryName || '').trim().toLowerCase();
-                    if (!categoryName) return null;
-                    const mode = resolveCategoryRowMode(row, normalizedScope);
-                    const dbSubCategoryName = subCategoryName || 'EMPTY';
-                    return {
-                        shop_id: settingsShopId,
-                        kpi_scope: normalizedScope,
-                        category_name: categoryName,
-                        sub_category_name: dbSubCategoryName,
-                        contribution_mode: mode,
-                        created_at: now,
-                        updated_at: now,
-                    };
-                })
-                .filter(Boolean);
 
-            // Step 3: Insert all rows fresh
-            if (insertRows.length > 0) {
-                const insertResult = await supabase
-                    .from('kpi_profit_category_settings')
-                    .insert(insertRows);
-
-                if (insertResult.error) {
-                    if (isMissingDbObjectError(insertResult.error)) {
-                        setContributionModeConfigStatus('DB table/column missing. Could not save.');
-                    } else {
-                        throw new Error(insertResult.error.message || 'Failed to save KPI settings.');
-                    }
-                } else {
-                    setContributionModeConfigStatus('Saved.');
-                }
-            } else {
-                setContributionModeConfigStatus('Saved.');
-            }
-
-            // Step 4: Add or update records directly in public.categories table in DB
+            // Step 1: Add or update records directly in public.categories table in DB
             try {
                 const { data: dbCategories } = await supabase
                     .from('categories')
@@ -3036,7 +2996,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 const l1RowsToSync = allScopedRows.filter(({ row }) => !row?.subCategoryName || Number(row?.depth) === 0);
                 const l2RowsToSync = allScopedRows.filter(({ row }) => Boolean(row?.subCategoryName) || Number(row?.depth) > 0);
 
-                // 4a. Sync L1 categories
+                // 1a. Sync L1 categories
                 for (const { row, scope } of l1RowsToSync) {
                     const normalizedScope = normalizeKpiScope(scope);
                     const catName = String(row?.categoryName || '').trim();
@@ -3082,7 +3042,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                     }
                 }
 
-                // 4b. Sync L2 categories
+                // 1b. Sync L2 categories
                 for (const { row, scope } of l2RowsToSync) {
                     const normalizedScope = normalizeKpiScope(scope);
                     const parentName = String(row?.categoryName || '').trim();
@@ -3132,11 +3092,54 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 console.warn('Syncing excluded categories to categories table encountered error:', dbCatErr);
             }
 
-            // Map is already correct in memory from user's live selections
+            // Step 2: Try syncing kpi_profit_category_settings (resilient against RLS or missing table)
+            try {
+                const deleteResult = await supabase
+                    .from('kpi_profit_category_settings')
+                    .delete()
+                    .eq('shop_id', settingsShopId);
+
+                if (!deleteResult?.error || isMissingDbObjectError(deleteResult.error)) {
+                    const insertRows = allScopedRows
+                        .map(({ row, scope }) => {
+                            const normalizedScope = normalizeKpiScope(scope);
+                            const categoryName = String(row?.categoryName || '').trim().toLowerCase();
+                            const subCategoryName = String(row?.subCategoryName || '').trim().toLowerCase();
+                            if (!categoryName) return null;
+                            const mode = resolveCategoryRowMode(row, normalizedScope);
+                            const dbSubCategoryName = subCategoryName || 'EMPTY';
+                            return {
+                                shop_id: settingsShopId,
+                                kpi_scope: normalizedScope,
+                                category_name: categoryName,
+                                sub_category_name: dbSubCategoryName,
+                                contribution_mode: mode,
+                                created_at: now,
+                                updated_at: now,
+                            };
+                        })
+                        .filter(Boolean);
+
+                    if (insertRows.length > 0) {
+                        const insertResult = await supabase
+                            .from('kpi_profit_category_settings')
+                            .insert(insertRows);
+
+                        if (insertResult?.error && !isMissingDbObjectError(insertResult.error)) {
+                            console.warn('kpi_profit_category_settings insert notice:', insertResult.error);
+                        }
+                    }
+                }
+            } catch (kpiSettingsErr) {
+                console.warn('kpi_profit_category_settings optional sync notice:', kpiSettingsErr);
+            }
+
+            // Step 3: Always persist local configuration per shop
             try {
                 localStorage.setItem(`dailybooks_kpi_contribution_mode_${settingsShopId}`, JSON.stringify(categoryContributionModeMap));
             } catch {}
             setKpiSettingsVersion((prev) => prev + 1);
+            setContributionModeConfigStatus('Saved.');
         } catch (error) {
             setContributionModeConfigStatus(error?.message || 'Failed to save settings.');
         } finally {
