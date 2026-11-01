@@ -87,16 +87,13 @@ export async function seedOrCloneShopCategoriesAndFeatures(targetShopId, preferr
     if (!targetSid) return { success: false, reason: 'Missing targetShopId' };
 
     try {
-        // Step 1: Check if target shop already has categories
+        // Step 1: Check existing categories in target shop
         const { data: existingCategories } = await supabase
             .from('categories')
-            .select('category_id, id')
-            .eq('shop_id', targetSid)
-            .limit(5);
+            .select('category_id, category_name, category_purpose, parent_category_id, is_hidden')
+            .eq('shop_id', targetSid);
 
-        if (Array.isArray(existingCategories) && existingCategories.length > 0) {
-            return { success: true, alreadyInitialized: true, count: existingCategories.length };
-        }
+        const existingTgtRows = Array.isArray(existingCategories) ? existingCategories : [];
 
         // Step 2: Determine best source shop to clone from
         let sourceSid = String(preferredSourceShopId || '').trim();
@@ -128,81 +125,90 @@ export async function seedOrCloneShopCategoriesAndFeatures(targetShopId, preferr
         if (sourceSid && sourceSid !== targetSid) {
             const { data: sourceRows, error: srcError } = await supabase
                 .from('categories')
-                .select('*')
+                .select('category_id, category_name, category_purpose, parent_category_id, is_hidden')
                 .eq('shop_id', sourceSid);
 
             if (!srcError && Array.isArray(sourceRows) && sourceRows.length > 0) {
-                // Separate L1 and L2
-                const l1Rows = sourceRows.filter((r) => {
-                    const hasParent = Boolean(r?.parent_category_id || r?.parent_id || r?.parent);
-                    const lvl = Number(r?.level || 1);
-                    return lvl === 1 || !hasParent;
-                });
-
-                const l2Rows = sourceRows.filter((r) => {
-                    const hasParent = Boolean(r?.parent_category_id || r?.parent_id || r?.parent);
-                    const lvl = Number(r?.level || 1);
-                    return lvl === 2 || hasParent;
-                });
-
-                const oldToNewParentMap = new Map();
-                const parentNameToNewIdMap = new Map();
-
-                // Insert L1 categories
-                for (const l1 of l1Rows) {
-                    const catName = String(l1?.category_name || l1?.name || '').trim();
-                    if (!catName) continue;
-                    const scope = String(l1?.category_purpose || l1?.scope || 'sales').trim().toLowerCase();
-                    const isHidden = Boolean(l1?.is_hidden || l1?.isHidden);
-
-                    const { data: insertedL1 } = await supabase
-                        .from('categories')
-                        .insert([{
-                            shop_id: targetSid,
-                            category_name: catName,
-                            category_purpose: scope,
-                            level: 1,
-                            is_hidden: isHidden,
-                            parent_category_id: null,
-                        }])
-                        .select('category_id, id')
-                        .maybeSingle();
-
-                    const newL1Id = String(insertedL1?.category_id || insertedL1?.id || '');
-                    const oldL1Id = String(l1?.category_id || l1?.id || '');
-                    if (oldL1Id && newL1Id) {
-                        oldToNewParentMap.set(oldL1Id, newL1Id);
-                    }
-                    if (catName && newL1Id) {
-                        parentNameToNewIdMap.set(`${scope}|${catName.toLowerCase()}`, newL1Id);
-                    }
-                    clonedCount += 1;
+                // If target shop already has as many or more categories than source, consider initialized
+                if (existingTgtRows.length >= sourceRows.length) {
+                    return { success: true, alreadyInitialized: true, count: existingTgtRows.length };
                 }
 
-                // Insert L2 categories
+                // Existing maps in target
+                const existingL1 = existingTgtRows.filter((r) => !r.parent_category_id);
+                const existingL2 = existingTgtRows.filter((r) => Boolean(r.parent_category_id));
+
+                const l1Rows = sourceRows.filter((r) => !r.parent_category_id);
+                const l2Rows = sourceRows.filter((r) => Boolean(r.parent_category_id));
+
+                const oldToNewParentMap = new Map();
+
+                // Process L1 categories
+                for (const l1 of l1Rows) {
+                    const catName = String(l1?.category_name || '').trim();
+                    if (!catName) continue;
+                    const scope = String(l1?.category_purpose || 'sales').trim().toLowerCase();
+                    const isHidden = Boolean(l1?.is_hidden);
+
+                    // Check if already in target
+                    const match = existingL1.find((e) =>
+                        String(e.category_name || '').trim().toLowerCase() === catName.toLowerCase() &&
+                        String(e.category_purpose || '').trim().toLowerCase() === scope
+                    );
+
+                    if (match) {
+                        oldToNewParentMap.set(l1.category_id, match.category_id);
+                    } else {
+                        const { data: insertedL1, error: l1Err } = await supabase
+                            .from('categories')
+                            .insert([{
+                                shop_id: targetSid,
+                                category_name: catName,
+                                category_purpose: scope,
+                                is_hidden: isHidden,
+                                parent_category_id: null,
+                            }])
+                            .select('category_id')
+                            .maybeSingle();
+
+                        if (!l1Err && insertedL1?.category_id) {
+                            oldToNewParentMap.set(l1.category_id, insertedL1.category_id);
+                            clonedCount += 1;
+                        }
+                    }
+                }
+
+                // Process L2 categories
                 for (const l2 of l2Rows) {
-                    const subName = String(l2?.category_name || l2?.name || '').trim();
+                    const subName = String(l2?.category_name || '').trim();
                     if (!subName) continue;
-                    const scope = String(l2?.category_purpose || l2?.scope || 'sales').trim().toLowerCase();
-                    const isHidden = Boolean(l2?.is_hidden || l2?.isHidden);
-                    const oldParentId = String(l2?.parent_category_id || l2?.parent_id || '');
-                    const parentName = String(l2?.parent || '').trim().toLowerCase();
+                    const scope = String(l2?.category_purpose || 'sales').trim().toLowerCase();
+                    const isHidden = Boolean(l2?.is_hidden);
+                    const resolvedParentId = oldToNewParentMap.get(l2.parent_category_id);
+                    if (!resolvedParentId) continue;
 
-                    const resolvedParentId = oldToNewParentMap.get(oldParentId)
-                        || parentNameToNewIdMap.get(`${scope}|${parentName}`)
-                        || null;
+                    // Check if already in target
+                    const match = existingL2.find((e) =>
+                        String(e.category_name || '').trim().toLowerCase() === subName.toLowerCase() &&
+                        String(e.category_purpose || '').trim().toLowerCase() === scope &&
+                        e.parent_category_id === resolvedParentId
+                    );
 
-                    await supabase
-                        .from('categories')
-                        .insert([{
-                            shop_id: targetSid,
-                            category_name: subName,
-                            category_purpose: scope,
-                            level: 2,
-                            is_hidden: isHidden,
-                            parent_category_id: resolvedParentId,
-                        }]);
-                    clonedCount += 1;
+                    if (!match) {
+                        const { error: l2Err } = await supabase
+                            .from('categories')
+                            .insert([{
+                                shop_id: targetSid,
+                                category_name: subName,
+                                category_purpose: scope,
+                                is_hidden: isHidden,
+                                parent_category_id: resolvedParentId,
+                            }]);
+
+                        if (!l2Err) {
+                            clonedCount += 1;
+                        }
+                    }
                 }
 
                 // Clone Excluded Categories (kpi_profit_category_settings)
@@ -242,6 +248,10 @@ export async function seedOrCloneShopCategoriesAndFeatures(targetShopId, preferr
         }
 
         // Step 4: Fallback to complete standard template categories if no source shop found
+        if (existingTgtRows.length > 0) {
+            return { success: true, alreadyInitialized: true, count: existingTgtRows.length };
+        }
+
         for (const template of DEFAULT_SHOP_TEMPLATE_CATEGORIES) {
             const { data: insertedL1 } = await supabase
                 .from('categories')
@@ -249,14 +259,13 @@ export async function seedOrCloneShopCategoriesAndFeatures(targetShopId, preferr
                     shop_id: targetSid,
                     category_name: template.name,
                     category_purpose: template.scope,
-                    level: 1,
                     is_hidden: false,
                     parent_category_id: null,
                 }])
-                .select('category_id, id')
+                .select('category_id')
                 .maybeSingle();
 
-            const parentId = String(insertedL1?.category_id || insertedL1?.id || '');
+            const parentId = String(insertedL1?.category_id || '');
             clonedCount += 1;
 
             if (Array.isArray(template.subCategories)) {
@@ -267,7 +276,6 @@ export async function seedOrCloneShopCategoriesAndFeatures(targetShopId, preferr
                             shop_id: targetSid,
                             category_name: sub,
                             category_purpose: template.scope,
-                            level: 2,
                             is_hidden: false,
                             parent_category_id: parentId || null,
                         }]);

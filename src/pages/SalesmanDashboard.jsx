@@ -1233,7 +1233,41 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
                 return;
             }
 
-            if (!Array.isArray(result.data)) {
+            if (!Array.isArray(result.data) || result.data.length === 0) {
+                try {
+                    const { data: dbCat } = await supabase
+                        .from('categories')
+                        .select('category_id, category_name, category_purpose, parent_category_id, is_hidden')
+                        .eq('shop_id', settingsShopId);
+
+                    if (Array.isArray(dbCat) && dbCat.length > 0) {
+                        const l1ById = {};
+                        dbCat.filter((c) => !c.parent_category_id).forEach((c) => {
+                            l1ById[c.category_id] = c.category_name;
+                        });
+
+                        const catMap = {};
+                        dbCat.forEach((c) => {
+                            const scope = normalizeKpiScope(c.category_purpose);
+                            const isL2 = Boolean(c.parent_category_id);
+                            const categoryName = isL2 ? (l1ById[c.parent_category_id] || '') : c.category_name;
+                            const subCategoryName = isL2 ? c.category_name : '';
+                            if (!categoryName) return;
+
+                            const mode = c.is_hidden ? KPI_MODE_EXCLUDED : (scope === KPI_SCOPE_EXPENSE ? KPI_MODE_SALES : KPI_MODE_SALES);
+                            catMap[makeScopedProfitCategoryKey(scope, categoryName.toLowerCase(), subCategoryName.toLowerCase())] = mode;
+                        });
+
+                        setCategoryContributionModeMap(catMap);
+                        setHasExplicitContributionModeConfig(true);
+                        try {
+                            localStorage.setItem(`dailybooks_kpi_contribution_mode_${settingsShopId}`, JSON.stringify(catMap));
+                        } catch {}
+                        setKpiSettingsVersion((prev) => prev + 1);
+                        return;
+                    }
+                } catch (_) {}
+
                 setCategoryContributionModeMap({});
                 setHasExplicitContributionModeConfig(true);
                 return;
@@ -2987,6 +3021,117 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
             } else {
                 setContributionModeConfigStatus('Saved.');
             }
+
+            // Step 4: Add or update records directly in public.categories table in DB
+            try {
+                const { data: dbCategories } = await supabase
+                    .from('categories')
+                    .select('category_id, category_name, category_purpose, parent_category_id, is_hidden')
+                    .eq('shop_id', settingsShopId);
+
+                const currentDbCategories = Array.isArray(dbCategories) ? dbCategories : [];
+                const dbL1List = currentDbCategories.filter((c) => !c.parent_category_id);
+                const dbL2List = currentDbCategories.filter((c) => Boolean(c.parent_category_id));
+
+                const l1RowsToSync = allScopedRows.filter(({ row }) => !row?.subCategoryName || Number(row?.depth) === 0);
+                const l2RowsToSync = allScopedRows.filter(({ row }) => Boolean(row?.subCategoryName) || Number(row?.depth) > 0);
+
+                // 4a. Sync L1 categories
+                for (const { row, scope } of l1RowsToSync) {
+                    const normalizedScope = normalizeKpiScope(scope);
+                    const catName = String(row?.categoryName || '').trim();
+                    if (!catName) continue;
+                    const mode = resolveCategoryRowMode(row, normalizedScope);
+                    const isExcluded = mode === KPI_MODE_EXCLUDED;
+
+                    const match = dbL1List.find((e) =>
+                        String(e.category_name || '').trim().toLowerCase() === catName.toLowerCase() &&
+                        String(e.category_purpose || '').trim().toLowerCase() === normalizedScope
+                    );
+
+                    if (match) {
+                        if (Boolean(match.is_hidden) !== isExcluded) {
+                            await supabase
+                                .from('categories')
+                                .update({ is_hidden: isExcluded, updated_at: now })
+                                .eq('category_id', match.category_id);
+                            match.is_hidden = isExcluded;
+                        }
+                    } else {
+                        const { data: insertedL1 } = await supabase
+                            .from('categories')
+                            .insert([{
+                                shop_id: settingsShopId,
+                                category_name: catName,
+                                category_purpose: normalizedScope,
+                                is_hidden: isExcluded,
+                                parent_category_id: null,
+                            }])
+                            .select('category_id')
+                            .maybeSingle();
+
+                        if (insertedL1?.category_id) {
+                            dbL1List.push({
+                                category_id: insertedL1.category_id,
+                                category_name: catName,
+                                category_purpose: normalizedScope,
+                                is_hidden: isExcluded,
+                                parent_category_id: null,
+                            });
+                        }
+                    }
+                }
+
+                // 4b. Sync L2 categories
+                for (const { row, scope } of l2RowsToSync) {
+                    const normalizedScope = normalizeKpiScope(scope);
+                    const parentName = String(row?.categoryName || '').trim();
+                    const subName = String(row?.subCategoryName || '').trim();
+                    if (!parentName || !subName) continue;
+                    const mode = resolveCategoryRowMode(row, normalizedScope);
+                    const isExcluded = mode === KPI_MODE_EXCLUDED;
+
+                    const parent = dbL1List.find((e) =>
+                        String(e.category_name || '').trim().toLowerCase() === parentName.toLowerCase() &&
+                        String(e.category_purpose || '').trim().toLowerCase() === normalizedScope
+                    );
+
+                    if (!parent?.category_id) continue;
+
+                    const match = dbL2List.find((e) =>
+                        String(e.category_name || '').trim().toLowerCase() === subName.toLowerCase() &&
+                        String(e.category_purpose || '').trim().toLowerCase() === normalizedScope &&
+                        String(e.parent_category_id || '') === String(parent.category_id)
+                    );
+
+                    if (match) {
+                        if (Boolean(match.is_hidden) !== isExcluded) {
+                            await supabase
+                                .from('categories')
+                                .update({ is_hidden: isExcluded, updated_at: now })
+                                .eq('category_id', match.category_id);
+                            match.is_hidden = isExcluded;
+                        }
+                    } else {
+                        await supabase
+                            .from('categories')
+                            .insert([{
+                                shop_id: settingsShopId,
+                                category_name: subName,
+                                category_purpose: normalizedScope,
+                                is_hidden: isExcluded,
+                                parent_category_id: parent.category_id,
+                            }]);
+                    }
+                }
+
+                if (typeof refreshCategoryCatalog === 'function') {
+                    refreshCategoryCatalog(settingsShopId);
+                }
+            } catch (dbCatErr) {
+                console.warn('Syncing excluded categories to categories table encountered error:', dbCatErr);
+            }
+
             // Map is already correct in memory from user's live selections
             try {
                 localStorage.setItem(`dailybooks_kpi_contribution_mode_${settingsShopId}`, JSON.stringify(categoryContributionModeMap));
@@ -2997,7 +3142,7 @@ export default function SalesmanDashboard({ adminView = false, adminDashboardDat
         } finally {
             setIsSavingContributionModeConfig(false);
         }
-    }, [categoryContributionModeMap, expenseKpiContributionCategoryRows, resolveCategoryRowMode, salesKpiContributionCategoryRows, settingsShopId]);
+    }, [categoryContributionModeMap, expenseKpiContributionCategoryRows, refreshCategoryCatalog, resolveCategoryRowMode, salesKpiContributionCategoryRows, settingsShopId]);
 
     const resetCategoryContributionModeConfigToDefault = useCallback(() => {
         setCategoryContributionModeMap({});
