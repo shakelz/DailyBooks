@@ -78,3 +78,16 @@ DROP POLICY IF EXISTS "Allow public read access to shops" ON public.shops;
 CREATE POLICY "Allow public read access to shops" ON public.shops
     FOR SELECT TO anon, authenticated
     USING (true);
+
+-- 9. KPI PROFIT CATEGORY SETTINGS TABLE (EXCLUDED CATEGORIES)
+DO $$
+BEGIN
+    IF to_regclass('public.kpi_profit_category_settings') IS NOT NULL THEN
+        ALTER TABLE public.kpi_profit_category_settings ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS "allow_all_kpi_profit_category_settings" ON public.kpi_profit_category_settings;
+        CREATE POLICY "allow_all_kpi_profit_category_settings" ON public.kpi_profit_category_settings
+            FOR ALL TO anon, authenticated
+            USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+

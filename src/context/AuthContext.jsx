@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase, isSupabaseLockTimeoutError, withSupabaseLockRetry } from '../supabaseClient';
+import { seedOrCloneShopCategoriesAndFeatures } from '../utils/shopCloner';
 
 const AuthContext = createContext(null);
 
@@ -2228,6 +2229,13 @@ export function AuthProvider({ children }) {
                 .sort((a, b) => a.name.localeCompare(b.name));
             return merged;
         });
+
+        // Automatically inherit all categories, excluded categories, and KPI settings from existing shop
+        try {
+            await seedOrCloneShopCategoriesAndFeatures(shopId, activeShopId);
+        } catch (err) {
+            console.warn('Auto-cloning features to new shop failed:', err);
+        }
 
         if (role !== 'salesman' && !activeShopId) {
             setActiveShopIdState(shopId);

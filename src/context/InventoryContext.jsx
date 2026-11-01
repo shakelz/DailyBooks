@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
+import { seedOrCloneShopCategoriesAndFeatures } from '../utils/shopCloner';
 import {
     buildProductJSON,
     generateId,
@@ -1831,6 +1832,46 @@ export function InventoryProvider({ children }) {
                 setL2Map(map2);
                 writeLocalCache('dailybooks_cache_l2_' + sid, map2);
             } else {
+                // If shop has no categories in DB, auto-clone/seed from existing shop template
+                try {
+                    const cloned = await seedOrCloneShopCategoriesAndFeatures(sid);
+                    if (cloned?.success && !cancelled) {
+                        const retryCat = await selectRowsByShopCandidates('categories', (q) => q.select('*'), filterCandidates);
+                        if (!retryCat.error && Array.isArray(retryCat.data) && retryCat.data.length > 0) {
+                            const newCategoryRows = retryCat.data;
+                            const newCategoryLookups = buildCategoryLookups(newCategoryRows);
+                            const newScopeMap = readCategoryScopeMap(sid);
+                            const newHiddenMap = readCategoryHiddenMap(sid);
+                            const newL1 = newCategoryRows.filter(c => Number(c.level) === 1 || (!c.parent_category_id && !c.parent_id && !c.parent));
+                            const newL2 = newCategoryRows.filter(c => Number(c.level) === 2 || Boolean(c.parent_category_id || c.parent_id || c.parent));
+                            const newDedupedL1 = dedupeCategoryObjectsByName(applyScopeToCategoryList(
+                                newL1.map(r => normalizeCategoryRecord(r, newCategoryLookups.byId, newHiddenMap)),
+                                newScopeMap,
+                                newHiddenMap
+                            ));
+                            setL1Categories(newDedupedL1);
+                            writeLocalCache('dailybooks_cache_l1_' + sid, newDedupedL1);
+
+                            const newMap2 = {};
+                            newL2.forEach(c => {
+                                const norm = normalizeCategoryRecord(c, newCategoryLookups.byId, newHiddenMap);
+                                const parentName = resolveCategoryParentName(norm, newCategoryLookups.byId);
+                                if (!parentName) return;
+                                if (!newMap2[parentName]) newMap2[parentName] = [];
+                                newMap2[parentName].push(withCategoryScope({ ...norm, parent: parentName }, newScopeMap, newHiddenMap));
+                            });
+                            Object.keys(newMap2).forEach((parentName) => {
+                                newMap2[parentName] = dedupeCategoryObjectsByName(newMap2[parentName]);
+                            });
+                            setL2Map(newMap2);
+                            writeLocalCache('dailybooks_cache_l2_' + sid, newMap2);
+                            return;
+                        }
+                    }
+                } catch (cloneErr) {
+                    console.warn('Auto-cloning categories on shop load encountered error:', cloneErr);
+                }
+
                 setL1Categories([]);
                 setL2Map({});
             }
